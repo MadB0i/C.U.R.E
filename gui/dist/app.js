@@ -813,6 +813,12 @@
     if (lower.includes("powershell")) return ["Hidden PowerShell", "red"];
     if (lower.includes("trusted install")) return ["Trusted location", "teal"];
     if (lower.includes("user profile folder")) return ["Profile exe", "amber"];
+    // Detection Engine v2 — note: "invalid signature" contains "valid
+    // signature", so it must be matched first.
+    if (lower.includes("invalid signature")) return ["Invalid Signature", "red"];
+    if (lower.includes("valid signature")) return ["Valid Signature", "teal"];
+    if (lower.includes("known malware hash")) return ["Known Malware Hash", "red"];
+    if (lower.includes("unsigned binary")) return ["Unsigned Binary", "amber"];
     const stripped = reason.replace(/^[+-]\d+\s*/, "");
     return [stripped.split(/\s+/).slice(0, 3).join(" "), ""];
   }

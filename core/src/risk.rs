@@ -132,23 +132,20 @@ pub fn score_with_signals(
 
     // --- Detection Engine v2: binary reputation signals ---
     // Applied after heuristics so the unsigned penalty can see whether
-    // other warning signs are already on the board.
+    // other warning signs are already on the board. Reason strings double
+    // as GUI chip tags — keep them short (see app.js reasonChipLabel).
     match signature {
         SignatureStatus::ValidSigned => {
-            reasons.push(format!(
-                "-{SIGNED_DISCOUNT} Digitally signed with a valid Authenticode signature"
-            ));
+            reasons.push(format!("-{SIGNED_DISCOUNT} Valid Signature"));
             score -= SIGNED_DISCOUNT;
         }
         SignatureStatus::Invalid => {
-            reasons.push(format!(
-                "+{INVALID_SIGNATURE_PENALTY} Digital signature is present but invalid/tampered"
-            ));
+            reasons.push(format!("+{INVALID_SIGNATURE_PENALTY} Invalid Signature"));
             score += INVALID_SIGNATURE_PENALTY;
         }
         SignatureStatus::Unsigned if score > 0 => {
             reasons.push(format!(
-                "+{UNSIGNED_WITH_WARNINGS_PENALTY} executable is unsigned and other warning signs are present"
+                "+{UNSIGNED_WITH_WARNINGS_PENALTY} Unsigned Binary"
             ));
             score += UNSIGNED_WITH_WARNINGS_PENALTY;
         }
@@ -163,11 +160,11 @@ pub fn score_with_signals(
     };
     scored.risk = risk_level(scored.score);
 
-    if let Some(description) = hash_match {
+    if let Some(_description) = hash_match {
         // Hard IOC override: beats every heuristic, even a valid signature.
-        scored.reasons.push(format!(
-            "Matches known malicious hash: {description}"
-        ));
+        // The full malware description stays in the embedded IOC list
+        // (core/src/known_bad_hashes.json); the chip tag stays short.
+        scored.reasons.push("Known Malware Hash".to_string());
         scored.risk = RiskLevel::HighRisk;
     }
 
@@ -304,7 +301,7 @@ mod tests {
         assert!(unsigned
             .reasons
             .iter()
-            .any(|r| r.starts_with("+10 executable is unsigned")));
+            .any(|r| r.starts_with("+10 Unsigned Binary")));
     }
 
     #[test]
@@ -317,7 +314,10 @@ mod tests {
         );
         assert_eq!(scored.score, 0);
         assert_eq!(scored.risk, RiskLevel::Safe);
-        assert!(!scored.reasons.iter().any(|r| r.contains("unsigned")));
+        assert!(
+            scored.reasons.iter().all(|r| r.starts_with("-20")),
+            "only the trusted-location discount should be present"
+        );
     }
 
     #[test]
@@ -361,7 +361,7 @@ mod tests {
         assert!(scored
             .reasons
             .iter()
-            .any(|r| r.starts_with("Matches known malicious hash")));
+            .any(|r| r.starts_with("Known Malware Hash")));
     }
 
     #[test]
@@ -392,7 +392,7 @@ mod tests {
         assert!(scored
             .reasons
             .iter()
-            .any(|r| r.starts_with("-40 Digitally signed")));
+            .any(|r| r.starts_with("-40 Valid Signature")));
     }
 
     #[cfg(windows)]
@@ -419,11 +419,11 @@ mod tests {
         // degrades to Unsigned (+10 alongside the other warning signs).
         assert_eq!(scored.risk, RiskLevel::HighRisk);
         assert!(scored.reasons.iter().any(|r| r.starts_with("+40")
-            || r.starts_with("+10 executable is unsigned")));
+            || r.starts_with("+10 Unsigned Binary")));
         assert!(!scored
             .reasons
             .iter()
-            .any(|r| r.starts_with("-40 Digitally signed")));
+            .any(|r| r.starts_with("-40 Valid Signature")));
     }
 
     // ---- helpers (unchanged) ----

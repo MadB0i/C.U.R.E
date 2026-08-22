@@ -107,10 +107,10 @@
             command: "C:\\Users\\Public\\Downloads\\" + base.toLowerCase() + "_cli.exe --silent",
             location: "C:\\Windows\\System32\\Tasks\\EvilCorp\\" + base + "Persist.xml",
             risk: "HighRisk",
-            score: 40,
+            score: 70,
             reasons: [
               "+30 command path sits in a temp/downloads/public drop zone",
-              "+10 executable runs directly from a user profile folder",
+              "+40 Invalid Signature",
             ],
           };
           break;
@@ -132,10 +132,10 @@
             command: "\"C:\\Users\\bob\\AppData\\Local\\Temp\\" + base.toLowerCase() + ".exe\" /bg",
             location: "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
             risk: "HighRisk",
-            score: 45,
+            score: 30,
             reasons: [
               "+30 command path sits in a temp/downloads/public drop zone",
-              "+10 executable runs directly from a user profile folder",
+              "Known Malware Hash",
             ],
           };
       }
