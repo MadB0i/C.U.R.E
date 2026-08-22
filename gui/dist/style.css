@@ -375,9 +375,20 @@ body::after {
 /* ---------- results view ---------- */
 
 #results-view {
+  flex-direction: row;
+  align-items: stretch;
   justify-content: flex-start;
   padding-top: 12px;
-  gap: 10px;
+  gap: 14px;
+  overflow: hidden;
+}
+
+/* main column keeps scrolling; the scan map fills the full height beside it */
+.results-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--panel-edge) transparent;
@@ -397,7 +408,32 @@ body::after {
   gap: 10px;
   width: 100%;
   max-width: 1020px;
-  margin: auto 0;
+  margin: auto;
+}
+
+/* ---------- scan map side panel ---------- */
+
+.map-card {
+  flex: none;
+  width: clamp(300px, 27vw, 430px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--panel-edge);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(13, 20, 29, 0.94), rgba(10, 16, 23, 0.97));
+  box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.4), 0 0 22px rgba(77, 227, 176, 0.06);
+  overflow: hidden;
+}
+#map-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+#map-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
 .badge {
@@ -477,6 +513,25 @@ body::after {
 .stat.tint-teal span { color: var(--accent); }
 .stat.tint-amber span { color: var(--warn); }
 .stat label { font-size: 8.5px; letter-spacing: 3px; color: var(--dim); }
+
+/* idle glow breathing — subtle, starts after the entrance settles */
+.stat.card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0.35;
+  box-shadow: inset 0 0 20px var(--stat-glow, rgba(77, 227, 176, 0.15));
+  animation: statBreathe 4.6s ease-in-out 1.1s infinite;
+}
+.stat.card.tint-teal::after { --stat-glow: rgba(77, 227, 176, 0.17); }
+.stat.card.tint-amber::after { --stat-glow: rgba(255, 196, 107, 0.16); }
+.stat.card.tint-neutral::after { --stat-glow: rgba(140, 170, 160, 0.13); }
+@keyframes statBreathe {
+  0%, 100% { opacity: 0.22; }
+  50% { opacity: 0.85; }
+}
 
 .panel {
   width: min(1020px, 97%);
@@ -711,11 +766,21 @@ body::after {
   border-color: rgba(255, 93, 110, 0.35);
 }
 
+/* narrower windows: slimmer stat cards + tighter map rail so the map stays
+   fully visible beside the content instead of scrolling away */
+@media (max-width: 1120px) {
+  .results-head { gap: 10px; }
+  .stat.card { min-width: 0; flex: 1 1 0; padding-left: 10px; padding-right: 10px; }
+  .stat span { font-size: 24px; }
+  .map-card { width: clamp(230px, 29vw, 310px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   body::before { animation: none !important; }
   .caret, .pill.scanning .pill-dot { animation: none !important; }
   .view { transition: opacity 0.01s linear !important; transform: none !important; }
   .stat.card::before { animation: none !important; }
+  .stat.card::after { animation: none !important; opacity: 0.3; }
   .reveal { animation: fadeInQuick 0.01s linear forwards !important; }
   @keyframes fadeInQuick { from { opacity: 0; } to { opacity: 1; } }
   .btn, .quarantine-btn, .ghost-btn { transition: none !important; }

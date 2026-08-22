@@ -40,6 +40,7 @@
       </section>
 
       <section id="results-view" class="view hidden">
+        <div class="results-main">
         <div class="results-stack">
         <div class="results-head">
           <div id="badge" class="badge clean reveal" style="--d:0ms">✓</div>
@@ -68,6 +69,16 @@
           <div id="cleaned-cards" class="entry-cards cleaned"></div>
         </div>
         </div>
+        </div>
+
+        <aside id="map-card" class="map-card reveal" style="--d:520ms">
+          <div class="feed-head">
+            <svg viewBox="0 0 16 16" class="feed-icon"><circle cx="8" cy="8" r="1.5"/><circle cx="12.5" cy="3.9" r="1.2"/><circle cx="12.5" cy="12.1" r="1.2"/><circle cx="3.5" cy="12.1" r="1.2"/><path d="M9.2 7l2.4-2.2M9.2 9l2.4 2.2M6.6 8H5"/></svg>
+            <span class="feed-title">SCAN MAP</span>
+            <span id="map-count" class="feed-count">0 NODES</span>
+          </div>
+          <div id="map-stage"><canvas id="map-canvas"></canvas></div>
+        </aside>
       </section>
     </main>
 

@@ -25,8 +25,10 @@
   // harnesses can preset them via addInitScript before this file loads):
   //   __CURE_MOCK_ITEM_COUNT   number of fake entries scanned per run
   //   __CURE_MOCK_FOOTER_ERRORS  when true, footer commands reject (error paths)
+  //   __CURE_MOCK_ALL_SAFE     when true, every fake entry scores Safe (ALL CLEAR)
   if (window.__CURE_MOCK_ITEM_COUNT === undefined) window.__CURE_MOCK_ITEM_COUNT = 8;
   if (window.__CURE_MOCK_FOOTER_ERRORS === undefined) window.__CURE_MOCK_FOOTER_ERRORS = false;
+  if (window.__CURE_MOCK_ALL_SAFE === undefined) window.__CURE_MOCK_ALL_SAFE = false;
   window.__CURE_SCAN_DONE = false;
 
   const PASCAL_SOURCE = {
@@ -136,6 +138,13 @@
               "+10 executable runs directly from a user profile folder",
             ],
           };
+      }
+      if (window.__CURE_MOCK_ALL_SAFE) {
+        item.risk = "Safe";
+        item.score = 0;
+        item.reasons = [
+          "-20 command path is a trusted install location (Program Files/System32)",
+        ];
       }
       item.id = "mock-item-" + i;
       items.push(item);

@@ -61,4 +61,54 @@ if (stats.amberPx < 50 || stats.redPx < 50) {
   process.exit(1);
 }
 console.log("OK: nodes rendered in multiple risk colors, feed populated");
+
+// --- results view: scan map canvas must carry the same network over ---
+await page.waitForSelector("#results-view:not(.hidden)", { timeout: 30000 });
+await page.waitForTimeout(1200);
+
+const mapStats = await page.evaluate(() => {
+  const canvas = document.getElementById("map-canvas");
+  const ctx = canvas.getContext("2d");
+  const { width: w, height: h } = canvas;
+  const img = ctx.getImageData(0, 0, w, h).data;
+  let teal = 0, amber = 0, red = 0;
+  const near = (r, g, b, tr, tg, tb) =>
+    Math.abs(r - tr) < 60 && Math.abs(g - tg) < 60 && Math.abs(b - tb) < 60;
+  for (let i = 0; i < img.length; i += 4) {
+    if (img[i + 3] < 40) continue;
+    const r = img[i], g = img[i + 1], b = img[i + 2];
+    if (near(r, g, b, 255, 196, 107)) amber++;
+    else if (near(r, g, b, 255, 93, 110)) red++;
+    else if (near(r, g, b, 77, 227, 176)) teal++;
+  }
+  return {
+    w,
+    h,
+    tealPx: teal,
+    amberPx: amber,
+    redPx: red,
+    countText: document.getElementById("map-count").textContent.trim(),
+    mockCount:
+      window.__CURE_MOCK_ITEM_COUNT === undefined
+        ? 8
+        : window.__CURE_MOCK_ITEM_COUNT,
+  };
+});
+
+console.log(JSON.stringify(mapStats, null, 2));
+
+if (!(mapStats.w > 100 && mapStats.h > 100)) {
+  console.error("FAIL: map canvas not sized to the panel");
+  process.exit(1);
+}
+if (mapStats.tealPx < 30 || mapStats.redPx < 10) {
+  console.error("FAIL: scan map missing risk-colored nodes/edges");
+  process.exit(1);
+}
+const expectedCount = String(mapStats.mockCount) + " NODES";
+if (mapStats.countText !== expectedCount) {
+  console.error(`FAIL: map count "${mapStats.countText}" != "${expectedCount}"`);
+  process.exit(1);
+}
+console.log("OK: scan map carries the settled network into the results view");
 await browser.close();

@@ -20,9 +20,10 @@ async function capture(label, viewport, opts = {}) {
   });
   const page = await context.newPage();
   const itemCount = opts.items ?? 50;
-  await page.addInitScript((n) => {
-    window.__CURE_MOCK_ITEM_COUNT = n;
-  }, itemCount);
+  await page.addInitScript((cfg) => {
+    window.__CURE_MOCK_ITEM_COUNT = cfg.n;
+    window.__CURE_MOCK_ALL_SAFE = !!cfg.allSafe;
+  }, { n: itemCount, allSafe: !!opts.allSafe });
   await page.goto(devPageUrl);
 
   if (opts.phase === "early") {
@@ -52,6 +53,12 @@ await capture("v2-900", { width: 900, height: 600 }, { phase: "results", items: 
 await capture("v2-1920", { width: 1920, height: 1080 }, { phase: "early", items: 50 });
 await capture("v2-1920", { width: 1920, height: 1080 }, { phase: "mid", items: 50 });
 await capture("v2-1920", { width: 1920, height: 1080 }, { phase: "results", items: 11 });
+
+// scan-map panel on the results view — both outcomes at both sizes
+await capture("v3-900-map-review", { width: 900, height: 600 }, { phase: "results", items: 11 });
+await capture("v3-900-map-allclear", { width: 900, height: 600 }, { phase: "results", items: 11, allSafe: true });
+await capture("v3-1920-map-review", { width: 1920, height: 1080 }, { phase: "results", items: 14 });
+await capture("v3-1920-map-allclear", { width: 1920, height: 1080 }, { phase: "results", items: 14, allSafe: true });
 
 await browser.close();
 console.log("done");

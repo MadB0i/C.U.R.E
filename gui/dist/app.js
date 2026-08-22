@@ -114,6 +114,43 @@
     if (feedCountEl) feedCountEl.textContent = itemFeedCount + " ITEMS";
   }
 
+  // ---- shared network model ----
+  // One node/edge data source; the scan-view radar renders it live while the
+  // results-view map re-renders it settled at its own scale.
+  const TRAVEL = 360;
+  const RGB = {
+    Safe: [77, 227, 176],
+    Suspicious: [255, 196, 107],
+    HighRisk: [255, 93, 110],
+  };
+
+  const NetStore = (() => {
+    const GOLDEN = 2.399963229728653;
+    let nodes = [];
+    let nodeSeq = 0;
+    return {
+      reset() {
+        nodes.length = 0;
+        nodeSeq = Math.floor(Math.random() * 100);
+      },
+      add(risk, name) {
+        const nd = {
+          ang: (nodeSeq++ * GOLDEN) % (Math.PI * 2),
+          rf: 0.58 + Math.random() * 0.34,
+          born: performance.now() - (REDUCED ? TRAVEL : 0),
+          risk,
+          name: String(name || "?"),
+        };
+        nodes.push(nd);
+        window.__cureNodeCount = (window.__cureNodeCount || 0) + 1;
+        return nd;
+      },
+      all() {
+        return nodes;
+      },
+    };
+  })();
+
   const radar = (() => {
     const stage = document.getElementById("net-stage");
     const canvas = document.getElementById("radar");
@@ -121,19 +158,10 @@
     const DPR = Math.min(window.devicePixelRatio || 1, 2);
     const ACCENT = (a) => "rgba(77, 227, 176, " + a + ")";
 
-    const RGB = {
-      Safe: [77, 227, 176],
-      Suspicious: [255, 196, 107],
-      HighRisk: [255, 93, 110],
-    };
-    const TRAVEL = 360;
-
     let rafId = null;
-    let nodes = [];
     let pings = [];
     let pulses = [];
     let lastPulse = 0;
-    let nodeSeq = 0;
     let W = 0;
     let H = 0;
     let CX = 0;
@@ -304,12 +332,12 @@
     }
 
     function showLabel(nd) {
-      return nodes.length <= 60 || nd.risk !== "Safe";
+      return NetStore.all().length <= 60 || nd.risk !== "Safe";
     }
 
     function drawNetwork(now) {
       ctx.textBaseline = "middle";
-      for (const nd of nodes) {
+      for (const nd of NetStore.all()) {
         const t = Math.min((now - nd.born) / TRAVEL, 1);
         const ease = 1 - Math.pow(1 - t, 3);
         const p = nodeXY(nd);
@@ -429,8 +457,7 @@
         size();
         pings = [];
         pulses = [];
-        nodes = [];
-        nodeSeq = Math.floor(Math.random() * 100);
+        NetStore.reset();
         lastPulse = performance.now();
         if (REDUCED) {
           if (rafId) cancelAnimationFrame(rafId);
@@ -446,16 +473,7 @@
         ctx.clearRect(0, 0, canvas.width, canvas.height);
       },
       addNode(risk, name) {
-        const GOLDEN = 2.399963229728653;
-        const nd = {
-          ang: (nodeSeq++ * GOLDEN) % (Math.PI * 2),
-          rf: 0.58 + Math.random() * 0.34,
-          born: performance.now() - (REDUCED ? TRAVEL : 0),
-          risk: RGB[risk] ? risk : "Safe",
-          name: String(name || "?"),
-        };
-        nodes.push(nd);
-        window.__cureNodeCount = (window.__cureNodeCount || 0) + 1;
+        const nd = NetStore.add(RGB[risk] ? risk : "Safe", name);
         if (REDUCED && !rafId) drawStaticFrame();
         return nd;
       },
@@ -485,6 +503,299 @@
     };
     requestAnimationFrame(tick);
   }
+
+  // ---- results-view scan map ----
+  // Renders the same NetStore data as a settled, ambient "dormant but alive"
+  // constellation: slow core breathing + an occasional faint edge traveler.
+  const netmap = (() => {
+    const stageEl = document.getElementById("map-stage");
+    const canvas = document.getElementById("map-canvas");
+    const countEl = document.getElementById("map-count");
+    if (!stageEl || !canvas || !canvas.getContext) {
+      return { show() {}, hide() {} };
+    }
+    const ctx = canvas.getContext("2d");
+    const DPR = Math.min(window.devicePixelRatio || 1, 2);
+    const ACCENT = (a) => "rgba(77, 227, 176, " + a + ")";
+    const TRAVELER_MS = 1500;
+
+    let rafId = null;
+    let travelers = [];
+    let lastSpawn = 0;
+    let W = 0;
+    let H = 0;
+    let CX = 0;
+    let CY = 0;
+    let R = 0;
+    let RX = 0;
+
+    const motes = [];
+    for (let i = 0; i < 7; i++) {
+      motes.push({
+        rf: 0.2 + Math.random() * 0.28,
+        sp: (0.0003 + Math.random() * 0.0005) * (i % 2 ? 1 : -1),
+        ph: Math.random() * Math.PI * 2,
+        a: 0.08 + Math.random() * 0.1,
+      });
+    }
+
+    function size() {
+      const rect = stageEl.getBoundingClientRect();
+      if (rect.width < 8 || rect.height < 8) return false;
+      W = Math.max(1, Math.round(rect.width * DPR));
+      H = Math.max(1, Math.round(rect.height * DPR));
+      canvas.width = W;
+      canvas.height = H;
+      CX = W / 2;
+      CY = H / 2;
+      // the results rail is portrait — derive the vertical radius from the
+      // available height so the constellation fills the panel instead of
+      // floating as a landscape-biased blob mid-card
+      R = Math.max(10, (H / 2 - 8 * DPR) * 0.92);
+      RX = Math.max(30, Math.min(W / 2 - 16 * DPR, R * 1.5));
+      return true;
+    }
+    function onResize() {
+      if (size()) {
+        if (REDUCED || !rafId) drawFrame(performance.now());
+      }
+    }
+    if (window.ResizeObserver) {
+      new ResizeObserver(onResize).observe(stageEl);
+    } else {
+      window.addEventListener("resize", onResize);
+    }
+
+    function ring(x, y, r) {
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(r, 0.01), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    function ellipse(x, y, rx, ry) {
+      ctx.beginPath();
+      ctx.ellipse(x, y, Math.max(rx, 0.01), Math.max(ry, 0.01), 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    function rgba(c, a) {
+      return "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + a + ")";
+    }
+    function nodeXY(nd) {
+      return {
+        x: CX + Math.cos(nd.ang) * nd.rf * RX,
+        y: CY + Math.sin(nd.ang) * nd.rf * R,
+      };
+    }
+    function edgeAlpha(risk) {
+      if (risk === "HighRisk") return 0.28;
+      if (risk === "Suspicious") return 0.22;
+      return 0.15;
+    }
+    function labelAlphaFor(risk) {
+      if (risk === "HighRisk") return 0.72;
+      if (risk === "Suspicious") return 0.56;
+      return 0.32;
+    }
+    function dotRadius(risk) {
+      if (risk === "HighRisk") return 2.9;
+      if (risk === "Suspicious") return 2.4;
+      return 2.0;
+    }
+    function shortName(nd) {
+      let s = nd.name || "";
+      if (s.includes("\\")) {
+        const parts = s.split("\\");
+        s = parts[parts.length - 1];
+      }
+      const max = W < 340 * DPR ? 13 : 18;
+      if (s.length > max) s = s.slice(0, max - 1) + "…";
+      return s;
+    }
+    function showLabel(nd) {
+      const n = NetStore.all().length;
+      if (nd.risk !== "Safe") return true;
+      // narrow rail: risky nodes only, or labels turn to mush
+      if (W < 340 * DPR) return false;
+      return n <= 24;
+    }
+
+    function drawBackdrop(now) {
+      const M = Math.max(RX, R);
+      const vg = ctx.createRadialGradient(CX, CY, R * 0.2, CX, CY, M * 1.25);
+      vg.addColorStop(0, "rgba(2,5,9,0)");
+      vg.addColorStop(1, "rgba(2,5,9,0.5)");
+      ctx.fillStyle = vg;
+      ctx.fillRect(0, 0, W, H);
+
+      const glow = ctx.createRadialGradient(CX, CY, 0, CX, CY, M);
+      glow.addColorStop(0, "rgba(77,227,176,0.05)");
+      glow.addColorStop(0.5, "rgba(77,227,176,0.018)");
+      glow.addColorStop(1, "rgba(77,227,176,0)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.lineWidth = 1 * DPR;
+      ctx.strokeStyle = ACCENT(0.075);
+      ellipse(CX, CY, RX, R);
+      ctx.strokeStyle = ACCENT(0.05);
+      ellipse(CX, CY, RX * 0.62, R * 0.62);
+
+      for (const m of motes) {
+        const a = m.ph + m.sp * now;
+        const x = CX + Math.cos(a) * RX * m.rf;
+        const y = CY + Math.sin(a) * R * m.rf;
+        ctx.fillStyle = ACCENT(m.a.toFixed(2));
+        ctx.beginPath();
+        ctx.arc(x, y, 1.1 * DPR, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawCore(now) {
+      const k = Math.min(1.2, Math.max(0.6, Math.min(RX, R) / 260));
+      const breathe =
+        REDUCED ? 0.5 : 0.5 + 0.5 * Math.sin(now / 2100);
+      const haloR = (12 + 9 * breathe) * k * DPR;
+      const halo = ctx.createRadialGradient(CX, CY, 0, CX, CY, haloR);
+      halo.addColorStop(0, ACCENT((0.22 + 0.13 * breathe).toFixed(3)));
+      halo.addColorStop(1, ACCENT(0));
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(CX, CY, haloR, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.lineWidth = 1 * DPR;
+      ctx.strokeStyle = ACCENT(REDUCED ? 0.4 : 0.42 + 0.14 * breathe);
+      ring(CX, CY, 11 * k * DPR);
+
+      ctx.fillStyle = "#eafff6";
+      ctx.shadowColor = "rgba(77, 227, 176, 0.85)";
+      ctx.shadowBlur = (7 + 6 * breathe) * DPR;
+      ctx.beginPath();
+      ctx.arc(CX, CY, (2.6 + 0.7 * breathe) * k * DPR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    function drawGraph(now) {
+      const nodes = NetStore.all();
+      ctx.textBaseline = "middle";
+      for (const nd of nodes) {
+        const p = nodeXY(nd);
+        const c = RGB[nd.risk] || RGB.Safe;
+        const gapX = CX + Math.cos(nd.ang) * 9 * DPR;
+        const gapY = CY + Math.sin(nd.ang) * 9 * DPR;
+
+        ctx.strokeStyle = rgba(c, edgeAlpha(nd.risk));
+        ctx.lineWidth = 1 * DPR;
+        ctx.beginPath();
+        ctx.moveTo(gapX, gapY);
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+
+        ctx.fillStyle = rgba(c, 0.92);
+        ctx.shadowColor = rgba(c, 0.75);
+        ctx.shadowBlur = 3.5 * DPR;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, dotRadius(nd.risk) * DPR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        if (showLabel(nd)) {
+          ctx.font = 9 * DPR + 'px Consolas, "Cascadia Mono", monospace';
+          const label = shortName(nd);
+          // default: extend away from the core; flip whenever the label
+          // would run off-canvas on its chosen side (measured, not guessed)
+          let align = Math.cos(nd.ang) >= 0 ? "left" : "right";
+          const lw = ctx.measureText(label).width;
+          if (align === "left" && p.x + 8 * DPR + lw > W - 2) {
+            align = "right";
+          } else if (align === "right" && p.x - 8 * DPR - lw < 2) {
+            align = "left";
+          }
+          ctx.textAlign = align;
+          ctx.fillStyle = rgba(c, labelAlphaFor(nd.risk));
+          ctx.shadowColor = "rgba(2,5,9,0.9)";
+          ctx.shadowBlur = 4 * DPR;
+          ctx.fillText(label, p.x + (align === "left" ? 1 : -1) * 8 * DPR, p.y);
+          ctx.shadowBlur = 0;
+        }
+      }
+    }
+
+    function drawTravelers(now) {
+      travelers = travelers.filter((tr) => now - tr.born < TRAVELER_MS);
+      for (const tr of travelers) {
+        const nd = NetStore.all()[tr.idx];
+        if (!nd) continue;
+        const t = (now - tr.born) / TRAVELER_MS;
+        const ease = 1 - Math.pow(1 - t, 2.2);
+        const p = nodeXY(nd);
+        const c = RGB[nd.risk] || RGB.Safe;
+        const gapX = CX + Math.cos(nd.ang) * 9 * DPR;
+        const gapY = CY + Math.sin(nd.ang) * 9 * DPR;
+        const x = gapX + (p.x - gapX) * ease;
+        const y = gapY + (p.y - gapY) * ease;
+        const fade = Math.min(1, t * 4) * Math.min(1, (1 - t) * 3.2);
+        ctx.fillStyle = rgba(c, (0.65 * fade).toFixed(3));
+        ctx.shadowColor = rgba(c, 0.8);
+        ctx.shadowBlur = 6 * DPR;
+        ctx.beginPath();
+        ctx.arc(x, y, 1.7 * DPR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    function spawnTraveler(now) {
+      const n = NetStore.all().length;
+      if (!n || travelers.length >= 2) return;
+      travelers.push({ idx: Math.floor(Math.random() * n), born: now });
+    }
+
+    function drawFrame(now) {
+      ctx.clearRect(0, 0, W, H);
+      drawBackdrop(now);
+      drawGraph(now);
+      if (!REDUCED) {
+        if (now - lastSpawn > 3400 + Math.random() * 1600) {
+          spawnTraveler(now);
+          lastSpawn = now;
+        }
+        drawTravelers(now);
+      } else {
+        travelers = [];
+      }
+      drawCore(now);
+    }
+
+    function loop(now) {
+      drawFrame(now);
+      rafId = requestAnimationFrame(loop);
+    }
+
+    return {
+      show(summaryTotal) {
+        if (countEl) countEl.textContent = summaryTotal + " NODES";
+        travelers = [];
+        lastSpawn = performance.now() - 2400;
+        if (REDUCED) {
+          if (rafId) cancelAnimationFrame(rafId);
+          rafId = null;
+          size();
+          drawFrame(performance.now());
+          return;
+        }
+        size();
+        if (!rafId) rafId = requestAnimationFrame(loop);
+      },
+      hide() {
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = null;
+        travelers = [];
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      },
+    };
+  })();
 
   const SOURCE_ICONS = {
     StartupFolder:
@@ -668,6 +979,7 @@
     if (!REDUCED && revealables.length > 0) {
       void resultsView.offsetWidth;
     }
+    netmap.show(summary.total);
   }
 
   function switchView(fromEl, toEl) {
@@ -694,6 +1006,7 @@
   async function runScan() {
     const token = ++scanToken;
     resultsView.classList.add("hidden");
+    netmap.hide();
     resultsView
       .querySelectorAll(".reveal")
       .forEach((el) => el.classList.remove("in"));

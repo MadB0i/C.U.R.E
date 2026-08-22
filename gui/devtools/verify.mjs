@@ -85,6 +85,51 @@ async function runFlow(browser, label, reducedMotion) {
   await page.waitForTimeout(reducedMotion ? 500 : 1600);
   await shot(page, reducedMotion ? "06-results-reduced-motion.png" : "03-results-settled.png");
 
+  // --- Scan Map panel: visible, labeled, and actually painted ---
+  const mapOk = await page.evaluate(() => {
+    const card = document.getElementById("map-card");
+    const canvas = document.getElementById("map-canvas");
+    const count = document.getElementById("map-count");
+    if (!card || !canvas || !count) return { ok: false };
+    const rect = canvas.getBoundingClientRect();
+    let painted = -1;
+    try {
+      const d = canvas
+        .getContext("2d")
+        .getImageData(0, 0, canvas.width, canvas.height).data;
+      painted = 0;
+      for (let i = 3; i < d.length; i += 4) if (d[i] > 30) painted++;
+    } catch (e) {
+      /* leave -1 */
+    }
+    return {
+      ok: true,
+      hidden: card.classList.contains("hidden"),
+      w: rect.width,
+      h: rect.height,
+      cw: canvas.width,
+      ch: canvas.height,
+      countText: count.textContent.trim(),
+      painted,
+    };
+  });
+  if (!mapOk.ok || mapOk.hidden || mapOk.w < 60 || mapOk.h < 60) {
+    errors.push(`[${label}] scan map panel not visible: ${JSON.stringify(mapOk)}`);
+  } else {
+    if (!/^\d+ NODES$/.test(mapOk.countText)) {
+      errors.push(`[${label}] map count text unexpected: "${mapOk.countText}"`);
+    }
+    if (!(mapOk.cw > 50 && mapOk.ch > 50)) {
+      errors.push(`[${label}] map canvas not sized: ${mapOk.cw}x${mapOk.ch}`);
+    }
+    if (mapOk.painted <= 0) {
+      errors.push(`[${label}] map canvas has no painted pixels`);
+    }
+    console.log(
+      `scan map [${label}]: ${mapOk.countText}, canvas ${mapOk.cw}x${mapOk.ch}, paintedPx=${mapOk.painted}`
+    );
+  }
+
   const chipCount = await page.locator("#review-cards .chip").count();
   if (chipCount < 3) {
     errors.push(`[${label}] expected >=3 reason chips on review cards, found ${chipCount}`);
