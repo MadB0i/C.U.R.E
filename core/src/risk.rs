@@ -1,4 +1,11 @@
+use std::path::Path;
+
 use crate::model::{PersistenceEntry, RiskLevel, ScoredEntry};
+use crate::signature::SignatureStatus;
+
+const SIGNED_DISCOUNT: i32 = 40;
+const INVALID_SIGNATURE_PENALTY: i32 = 40;
+const UNSIGNED_WITH_WARNINGS_PENALTY: i32 = 10;
 
 const DROP_ZONE_TOKENS: [&str; 4] = [
     "appdata/local/temp",
@@ -55,7 +62,37 @@ pub fn risk_level(score: i32) -> RiskLevel {
     }
 }
 
-pub fn score_entry(entry: &PersistenceEntry) -> ScoredEntry {
+/// Live scoring path used by the CLI and GUI: performs real Authenticode
+/// and known-bad-hash lookups when a resolved executable path is available.
+/// Callers should resolve the path once via
+/// [`crate::signature::resolve_executable_path`] and pass it in.
+pub fn score_entry(entry: &PersistenceEntry, exe_path: Option<&Path>) -> ScoredEntry {
+    let signature = match exe_path {
+        Some(path) => crate::signature::check_signature(path),
+        None => SignatureStatus::Unknown,
+    };
+    let hash_match = exe_path.and_then(crate::hash_intel::check_hash);
+    score_with_signals(entry, signature, hash_match.as_deref())
+}
+
+/// Pure scoring core: identical logic to [`score_entry`] but with the
+/// signature verdict / hash-IOC result injected, so it is unit-testable on
+/// any platform without touching the filesystem or WinTrust.
+///
+/// Scoring model (Detection Engine v2):
+/// - heuristic points as before (drop zone +30, trusted location -20,
+///   randomized name +25, sneaky PowerShell +25, profile exe +10)
+/// - valid Authenticode signature: **-40**
+/// - invalid/tampered signature: **+40**
+/// - unsigned binary: **+10 only** when other warning signs are already present
+/// - unknown/unresolvable signature: no change (v1 behaviour preserved)
+/// - a known-bad hash match hard-forces [`RiskLevel::HighRisk`], overriding
+///   the computed score entirely.
+pub fn score_with_signals(
+    entry: &PersistenceEntry,
+    signature: SignatureStatus,
+    hash_match: Option<&str>,
+) -> ScoredEntry {
     let mut score: i32 = 0;
     let mut reasons: Vec<String> = Vec::new();
 
@@ -93,13 +130,48 @@ pub fn score_entry(entry: &PersistenceEntry) -> ScoredEntry {
         reasons.push("+10 executable runs directly from a user profile folder".to_string());
     }
 
-    let score = score.max(0);
-    ScoredEntry {
-        entry: entry.clone(),
-        score,
-        risk: risk_level(score),
-        reasons,
+    // --- Detection Engine v2: binary reputation signals ---
+    // Applied after heuristics so the unsigned penalty can see whether
+    // other warning signs are already on the board.
+    match signature {
+        SignatureStatus::ValidSigned => {
+            reasons.push(format!(
+                "-{SIGNED_DISCOUNT} Digitally signed with a valid Authenticode signature"
+            ));
+            score -= SIGNED_DISCOUNT;
+        }
+        SignatureStatus::Invalid => {
+            reasons.push(format!(
+                "+{INVALID_SIGNATURE_PENALTY} Digital signature is present but invalid/tampered"
+            ));
+            score += INVALID_SIGNATURE_PENALTY;
+        }
+        SignatureStatus::Unsigned if score > 0 => {
+            reasons.push(format!(
+                "+{UNSIGNED_WITH_WARNINGS_PENALTY} executable is unsigned and other warning signs are present"
+            ));
+            score += UNSIGNED_WITH_WARNINGS_PENALTY;
+        }
+        SignatureStatus::Unsigned | SignatureStatus::Unknown => {}
     }
+
+    let mut scored = ScoredEntry {
+        entry: entry.clone(),
+        score: score.max(0),
+        risk: RiskLevel::Safe,
+        reasons,
+    };
+    scored.risk = risk_level(scored.score);
+
+    if let Some(description) = hash_match {
+        // Hard IOC override: beats every heuristic, even a valid signature.
+        scored.reasons.push(format!(
+            "Matches known malicious hash: {description}"
+        ));
+        scored.risk = RiskLevel::HighRisk;
+    }
+
+    scored
 }
 
 fn normalize(text: &str) -> String {
@@ -115,12 +187,15 @@ mod tests {
         PersistenceEntry::new(PersistenceSource::StartupFolder, name, command, "")
     }
 
+    // ---- heuristic behaviour, unchanged from v1 (Unknown / no hash) ----
+
     #[test]
     fn trusted_binary_is_safe() {
-        let scored = score_entry(&entry(
-            "AcmeTray",
-            r#""C:\Program Files\Acme\acmetray.exe" /quiet"#,
-        ));
+        let scored = score_with_signals(
+            &entry("AcmeTray", r#""C:\Program Files\Acme\acmetray.exe" /quiet"#),
+            SignatureStatus::Unknown,
+            None,
+        );
         assert_eq!(scored.risk, RiskLevel::Safe);
         assert_eq!(scored.score, 0);
         assert!(scored.reasons.iter().any(|r| r.starts_with("-20")));
@@ -128,20 +203,22 @@ mod tests {
 
     #[test]
     fn system32_task_is_safe() {
-        let scored = score_entry(&entry(
-            "DiskCleanup",
-            r"C:\Windows\System32\cleanmgr.exe /autoclean",
-        ));
+        let scored = score_with_signals(
+            &entry("DiskCleanup", r"C:\Windows\System32\cleanmgr.exe /autoclean"),
+            SignatureStatus::Unknown,
+            None,
+        );
         assert_eq!(scored.risk, RiskLevel::Safe);
         assert_eq!(scored.score, 0);
     }
 
     #[test]
     fn temp_folder_random_name_is_high_risk() {
-        let scored = score_entry(&entry(
-            "a7x9k2p9",
-            r"C:\Users\bob\AppData\Local\Temp\a7x9k2p9.exe",
-        ));
+        let scored = score_with_signals(
+            &entry("a7x9k2p9", r"C:\Users\bob\AppData\Local\Temp\a7x9k2p9.exe"),
+            SignatureStatus::Unknown,
+            None,
+        );
         assert_eq!(scored.risk, RiskLevel::HighRisk);
         assert!(scored.score >= 40);
         assert!(scored.reasons.iter().any(|r| r.starts_with("+30")));
@@ -151,10 +228,14 @@ mod tests {
 
     #[test]
     fn encoded_powershell_is_flagged() {
-        let scored = score_entry(&entry(
-            "OfficeTelemetry",
-            "powershell.exe -nop -enc SQBFAFgAKABOAGUAdwAtAE8AYgBqAGUAYwB0AA",
-        ));
+        let scored = score_with_signals(
+            &entry(
+                "OfficeTelemetry",
+                "powershell.exe -nop -enc SQBFAFgAKABOAGUAdwAtAE8AYgBqAGUAYwB0AA",
+            ),
+            SignatureStatus::Unknown,
+            None,
+        );
         assert!(scored.reasons.iter().any(|r| r.contains("PowerShell")));
         assert_eq!(scored.score, 25);
         assert_eq!(scored.risk, RiskLevel::Suspicious);
@@ -162,20 +243,190 @@ mod tests {
 
     #[test]
     fn hidden_window_powershell_is_flagged() {
-        let scored = score_entry(&entry(
-            "UpdaterSvc",
-            "poWERSHELL -WindowStyle Hidden -File C:\\tools\\sync.ps1",
-        ));
+        let scored = score_with_signals(
+            &entry(
+                "UpdaterSvc",
+                "poWERSHELL -WindowStyle Hidden -File C:\\tools\\sync.ps1",
+            ),
+            SignatureStatus::Unknown,
+            None,
+        );
         assert!(scored.reasons.iter().any(|r| r.contains("PowerShell")));
         assert_eq!(scored.score, 25);
     }
 
     #[test]
     fn plain_user_profile_exe_gets_small_bump_only() {
-        let scored = score_entry(&entry("toolkit", r"C:\Users\bob\toolkit.exe"));
+        let scored = score_with_signals(
+            &entry("toolkit", r"C:\Users\bob\toolkit.exe"),
+            SignatureStatus::Unknown,
+            None,
+        );
         assert_eq!(scored.score, 10);
         assert_eq!(scored.risk, RiskLevel::Safe);
     }
+
+    #[test]
+    fn unresolved_path_preserves_v1_scoring() {
+        // no resolved file => Unknown signature + no hash lookup => identical
+        let e = entry(
+            "OfficeTelemetry",
+            "powershell.exe -nop -enc SQBFAFgAKABOAGUAdwAtAE8AYgBqAGUAYwB0AA",
+        );
+        let live = score_entry(&e, None);
+        let pure = score_with_signals(&e, SignatureStatus::Unknown, None);
+        assert_eq!(live.score, pure.score);
+        assert_eq!(live.risk, pure.risk);
+        assert_eq!(pure.score, 25);
+        assert!(!pure
+            .reasons
+            .iter()
+            .any(|r| r.contains("signature") || r.contains("hash")));
+    }
+
+    // ---- Detection Engine v2: signature scoring ----
+
+    #[test]
+    fn valid_signature_scores_lower_than_unsigned_for_same_path() {
+        let e = entry("a7x9k2p9", r"C:\Users\bob\AppData\Local\Temp\a7x9k2p9.exe");
+        let signed = score_with_signals(&e, SignatureStatus::ValidSigned, None);
+        let unsigned = score_with_signals(&e, SignatureStatus::Unsigned, None);
+
+        assert!(signed.score < unsigned.score);
+        // 65 heuristic - 40 discount = 25 => drops a level
+        assert_eq!(signed.score, 25);
+        assert_eq!(signed.risk, RiskLevel::Suspicious);
+        assert!(signed.reasons.iter().any(|r| r.starts_with("-40")));
+
+        // unsigned +10 fires only because other warning signs exist here
+        assert_eq!(unsigned.score, 75);
+        assert_eq!(unsigned.risk, RiskLevel::HighRisk);
+        assert!(unsigned
+            .reasons
+            .iter()
+            .any(|r| r.starts_with("+10 executable is unsigned")));
+    }
+
+    #[test]
+    fn unsigned_binary_without_other_signals_is_not_penalized() {
+        // benign-looking location: unsigned alone must not add points
+        let scored = score_with_signals(
+            &entry("AcmeTray", r#""C:\Program Files\Acme\acmetray.exe" /quiet"#),
+            SignatureStatus::Unsigned,
+            None,
+        );
+        assert_eq!(scored.score, 0);
+        assert_eq!(scored.risk, RiskLevel::Safe);
+        assert!(!scored.reasons.iter().any(|r| r.contains("unsigned")));
+    }
+
+    #[test]
+    fn invalid_signature_forces_high_risk() {
+        let scored = score_with_signals(
+            &entry("toolkit", r"C:\Users\bob\toolkit.exe"),
+            SignatureStatus::Invalid,
+            None,
+        );
+        // 10 profile bump + 40 invalid signature = 50
+        assert_eq!(scored.score, 50);
+        assert_eq!(scored.risk, RiskLevel::HighRisk);
+        assert!(scored.reasons.iter().any(|r| r.starts_with("+40")));
+    }
+
+    #[test]
+    fn valid_signature_can_downgrade_a_suspicious_entry() {
+        // sneaky powershell +25 normally Suspicious; signed tool calms it down
+        let scored = score_with_signals(
+            &entry(
+                "OfficeTelemetry",
+                "powershell.exe -nop -enc SQBFAFgAKABOAGUAdwAtAE8AYgBqAGUAYwB0AA",
+            ),
+            SignatureStatus::ValidSigned,
+            None,
+        );
+        assert_eq!(scored.score, 0);
+        assert_eq!(scored.risk, RiskLevel::Safe);
+    }
+
+    // ---- Detection Engine v2: hash IOC override ----
+
+    #[test]
+    fn known_bad_hash_overrides_everything_including_valid_signature() {
+        let scored = score_with_signals(
+            &entry("DiskCleanup", r"C:\Windows\System32\cleanmgr.exe /autoclean"),
+            SignatureStatus::ValidSigned,
+            Some("CURE test fixture #1 (placeholder string hash)"),
+        );
+        assert_eq!(scored.risk, RiskLevel::HighRisk);
+        assert!(scored
+            .reasons
+            .iter()
+            .any(|r| r.starts_with("Matches known malicious hash")));
+    }
+
+    #[test]
+    fn known_bad_hash_overrides_low_heuristic_score() {
+        let scored = score_with_signals(
+            &entry("toolkit", r"C:\Users\bob\toolkit.exe"),
+            SignatureStatus::Unsigned,
+            Some("CURE demo fixture"),
+        );
+        assert_eq!(scored.score, 20); // score itself stays honest...
+        assert_eq!(scored.risk, RiskLevel::HighRisk); // ...but the IOC wins
+    }
+
+    // ---- live pipeline on Windows (real WinTrust + real files) ----
+
+    #[cfg(windows)]
+    #[test]
+    fn live_pipeline_verifies_signed_system_binary_as_safe() {
+        let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+        let notepad = Path::new(&system_root).join("System32").join("notepad.exe");
+        if !notepad.is_file() {
+            return;
+        }
+        let cmd = format!("{} /newinstance", notepad.display());
+        let resolved = crate::signature::resolve_executable_path(&cmd).expect("notepad exists");
+        let scored = score_entry(&entry("NotepadAutostart", &cmd), Some(resolved.as_path()));
+        assert_eq!(scored.risk, RiskLevel::Safe);
+        assert!(scored
+            .reasons
+            .iter()
+            .any(|r| r.starts_with("-40 Digitally signed")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn live_pipeline_flags_tampered_copy_as_high_risk() {
+        let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+        let source = Path::new(&system_root)
+            .join("System32")
+            .join("chkdsk.exe");
+        if !source.is_file() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let copy = dir.path().join("tampered-chkdsk.exe");
+        let mut bytes = std::fs::read(&source).unwrap();
+        let flip_at = bytes.len() / 2;
+        bytes[flip_at] ^= 0xFF;
+        std::fs::write(&copy, &bytes).unwrap();
+
+        let cmd = format!("{}", copy.display());
+        let scored = score_entry(&entry("DiskDoctor", &cmd), Some(copy.as_path()));
+        // Tampering must never look like a trusted binary: on embedded-signed
+        // systems the verdict is Invalid (+40); on catalog-only systems it
+        // degrades to Unsigned (+10 alongside the other warning signs).
+        assert_eq!(scored.risk, RiskLevel::HighRisk);
+        assert!(scored.reasons.iter().any(|r| r.starts_with("+40")
+            || r.starts_with("+10 executable is unsigned")));
+        assert!(!scored
+            .reasons
+            .iter()
+            .any(|r| r.starts_with("-40 Digitally signed")));
+    }
+
+    // ---- helpers (unchanged) ----
 
     #[test]
     fn quoted_and_unquoted_paths_are_extracted() {

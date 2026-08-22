@@ -187,7 +187,15 @@ page error.
   search capturing only the first `<Command>`; COM-handler tasks are invisible.
 - Heuristics are substring/ratio checks: false positives (legit tools in
   Downloads) and false negatives (lookalike names like `svchost`) exist.
-  No Authenticode verification yet.
+- Signature verification is verdict-only: a valid Authenticode signature
+  (embedded or security-catalog-backed, via WinVerifyTrust) discounts -40,
+  an invalid embedded signature adds +40, and unsigned binaries add +10
+  only alongside other warning signs — but the publisher/certificate
+  subject is not extracted yet, so "validly signed" cannot be narrowed to
+  a trusted publisher. Catalog fallback enumerates up to 64 catalogs per
+  file; hash IOC matching uses a compiled-in seed list of synthetic demo
+  entries (a real deployment should regenerate it from a feed such as
+  abuse.ch MalwareBazaar).
 - Auto-clean quarantining a task XML does not kill an already-running instance.
 - Drive detection polls every 1.5 s (a sub-second plug-in race is possible) and
   treats any mounted letter as a drive.

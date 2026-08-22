@@ -104,7 +104,13 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
             if count == 1 { "y" } else { "ies" }
         ),
     );
-    let scored: Vec<ScoredEntry> = entries.iter().map(risk::score_entry).collect();
+    let scored: Vec<ScoredEntry> = entries
+        .iter()
+        .map(|e| {
+            let exe_path = cure_core::signature::resolve_executable_path(&e.command);
+            risk::score_entry(e, exe_path.as_deref())
+        })
+        .collect();
 
     emit_stage(&app, "item-scan", "Inspecting each persistence entry");
 

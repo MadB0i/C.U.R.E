@@ -104,7 +104,13 @@ fn collect(paths: &ResolvedPaths) -> Vec<PersistenceEntry> {
 }
 
 fn score_all(entries: &[PersistenceEntry]) -> Vec<ScoredEntry> {
-    let mut scored: Vec<ScoredEntry> = entries.iter().map(risk::score_entry).collect();
+    let mut scored: Vec<ScoredEntry> = entries
+        .iter()
+        .map(|e| {
+            let exe_path = cure_core::signature::resolve_executable_path(&e.command);
+            risk::score_entry(e, exe_path.as_deref())
+        })
+        .collect();
     scored.sort_by(|a, b| {
         b.score
             .cmp(&a.score)

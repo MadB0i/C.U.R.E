@@ -1,0 +1,6 @@
+{
+  "_comment": "C.U.R.E known-bad SHA-256 seed list. ALL entries below are synthetic TEST/DEMO fixtures - they are hashes of literal ASCII strings, not real malware samples. Do not read anything into them matching a file; only a file containing exactly those bytes matches.",
+  "f46d5d9e42156545e2712a39d631c3d652df961c6cf9cb00b39fd0b875fb4c7d": "CURE test fixture #1: sha256 of the literal string CURE-TEST-MALWARE-SIGNATURE-DO-NOT-USE (demo data, not real malware)",
+  "f5be9a829f1c30f65074fc9dee3610243f18a6a9edf45e3b2328df5fba67e22b": "CURE test fixture #2: sha256 of the literal string cure-demo-second-placeholder-payload (demo data, not real malware)",
+  "aa91b8854ef89ed390d9f4349b82cad16f3e529822abf382c664faf64597b758": "CURE test fixture #3: sha256 of the literal string CURE-RANSOMWARE-SIMULATION-HASH-NOT-A-REAL-SAMPLE (demo data, not real malware)"
+}
