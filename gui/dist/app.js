@@ -119,9 +119,9 @@
   // results-view map re-renders it settled at its own scale.
   const TRAVEL = 360;
   const RGB = {
-    Safe: [77, 227, 176],
-    Suspicious: [255, 196, 107],
-    HighRisk: [255, 93, 110],
+    Safe: [79, 174, 125],
+    Suspicious: [209, 161, 63],
+    HighRisk: [225, 89, 79],
   };
 
   const NetStore = (() => {
@@ -156,7 +156,7 @@
     const canvas = document.getElementById("radar");
     const ctx = canvas.getContext("2d");
     const DPR = Math.min(window.devicePixelRatio || 1, 2);
-    const ACCENT = (a) => "rgba(77, 227, 176, " + a + ")";
+    const ACCENT = (a) => "rgba(124, 108, 240, " + a + ")";
 
     let rafId = null;
     let pings = [];
@@ -228,15 +228,15 @@
     function drawBackdrop(now) {
       const M = Math.max(RX, R);
       const vg = ctx.createRadialGradient(CX, CY, R * 0.15, CX, CY, M * 1.35);
-      vg.addColorStop(0, "rgba(2,5,9,0)");
-      vg.addColorStop(1, "rgba(2,5,9,0.62)");
+      vg.addColorStop(0, "rgba(10,10,11,0)");
+      vg.addColorStop(1, "rgba(10,10,11,0.62)");
       ctx.fillStyle = vg;
       ctx.fillRect(0, 0, W, H);
 
       const glow = ctx.createRadialGradient(CX, CY, 0, CX, CY, M);
-      glow.addColorStop(0, "rgba(77,227,176,0.07)");
-      glow.addColorStop(0.45, "rgba(77,227,176,0.025)");
-      glow.addColorStop(1, "rgba(77,227,176,0)");
+      glow.addColorStop(0, "rgba(124,108,240,0.05)");
+      glow.addColorStop(0.45, "rgba(124,108,240,0.018)");
+      glow.addColorStop(1, "rgba(124,108,240,0)");
       ctx.fillStyle = glow;
       ctx.fillRect(0, 0, W, H);
 
@@ -272,7 +272,7 @@
       const breathe = REDUCED ? 0.5 : 0.5 + 0.5 * Math.sin(now / 850);
       const haloR = (16 + 14 * breathe) * k * DPR;
       const halo = ctx.createRadialGradient(CX, CY, 0, CX, CY, haloR);
-      halo.addColorStop(0, ACCENT((0.30 + 0.18 * breathe).toFixed(3)));
+      halo.addColorStop(0, ACCENT((0.22 + 0.12 * breathe).toFixed(3)));
       halo.addColorStop(1, ACCENT(0));
       ctx.fillStyle = halo;
       ctx.beginPath();
@@ -281,22 +281,22 @@
 
       ctx.lineWidth = 1.2 * DPR;
       if (!REDUCED) {
-        ctx.strokeStyle = ACCENT(0.65);
+        ctx.strokeStyle = ACCENT(0.5);
         ctx.beginPath();
         ctx.arc(CX, CY, 15 * k * DPR, now / 2400, now / 2400 + 1.15);
         ctx.stroke();
-        ctx.strokeStyle = ACCENT(0.35);
+        ctx.strokeStyle = ACCENT(0.26);
         ctx.beginPath();
         ctx.arc(CX, CY, 20 * k * DPR, -now / 3600, -now / 3600 + 0.7);
         ctx.stroke();
       } else {
-        ctx.strokeStyle = ACCENT(0.45);
+        ctx.strokeStyle = ACCENT(0.36);
         ring(CX, CY, 15 * k * DPR);
       }
 
-      ctx.fillStyle = "#eafff6";
-      ctx.shadowColor = "rgba(77, 227, 176, 0.95)";
-      ctx.shadowBlur = (10 + 10 * breathe) * DPR;
+      ctx.fillStyle = "#7c6cf0";
+      ctx.shadowColor = "rgba(124, 108, 240, 0.5)";
+      ctx.shadowBlur = (4 + 3 * breathe) * DPR;
       ctx.beginPath();
       ctx.arc(CX, CY, (3.4 + 1.1 * breathe) * k * DPR, 0, Math.PI * 2);
       ctx.fill();
@@ -304,15 +304,14 @@
     }
 
     function edgeAlpha(risk) {
-      if (risk === "HighRisk") return 0.3;
-      if (risk === "Suspicious") return 0.24;
-      return 0.17;
+      // uniform violet connectors — risk color lives on the node dots
+      return 0.22;
     }
 
     function labelAlphaFor(risk) {
-      if (risk === "HighRisk") return 0.78;
-      if (risk === "Suspicious") return 0.62;
-      return 0.38;
+      if (risk === "HighRisk") return 0.7;
+      if (risk === "Suspicious") return 0.55;
+      return 0.34;
     }
 
     function dotRadius(risk) {
@@ -348,21 +347,21 @@
         const hy = gapY + (p.y - gapY) * ease;
 
         if (t < 1) {
-          ctx.strokeStyle = rgba(c, (0.65 * (0.35 + 0.65 * t)).toFixed(3));
+          ctx.strokeStyle = ACCENT((0.3 * (0.35 + 0.65 * t)).toFixed(3));
           ctx.lineWidth = 1.3 * DPR;
           ctx.beginPath();
           ctx.moveTo(gapX, gapY);
           ctx.lineTo(hx, hy);
           ctx.stroke();
-          ctx.fillStyle = "rgba(234,255,246,0.95)";
-          ctx.shadowColor = rgba(c, 0.95);
-          ctx.shadowBlur = 11 * DPR;
+          ctx.fillStyle = "rgba(237,237,239,0.9)";
+          ctx.shadowColor = rgba(c, 0.9);
+          ctx.shadowBlur = 4 * DPR;
           ctx.beginPath();
           ctx.arc(hx, hy, 2.4 * DPR, 0, Math.PI * 2);
           ctx.fill();
           ctx.shadowBlur = 0;
         } else {
-          ctx.strokeStyle = rgba(c, edgeAlpha(nd.risk));
+          ctx.strokeStyle = ACCENT(edgeAlpha(nd.risk));
           ctx.lineWidth = 1 * DPR;
           ctx.beginPath();
           ctx.moveTo(gapX, gapY);
@@ -376,9 +375,9 @@
           const flash = t >= 1 ? Math.max(0, 1 - sinceArrival / 480) : 0;
           ctx.fillStyle = rgba(c, na.toFixed(2));
           ctx.shadowColor = rgba(c, 0.9);
-          ctx.shadowBlur = (2.5 + flash * 10) * DPR;
+          ctx.shadowBlur = (2 + flash * 5) * DPR;
           ctx.beginPath();
-          ctx.arc(p.x, p.y, dotRadius(nd.risk) * (1 + flash * 0.45) * DPR, 0, Math.PI * 2);
+          ctx.arc(p.x, p.y, dotRadius(nd.risk) * (1 + flash * 0.35) * DPR, 0, Math.PI * 2);
           ctx.fill();
           ctx.shadowBlur = 0;
         }
@@ -389,10 +388,11 @@
             labelAlphaFor(nd.risk);
           if (la > 0.01) {
             const right = Math.cos(nd.ang) >= 0;
-            ctx.font = 10 * DPR + 'px Consolas, "Cascadia Mono", monospace';
+            ctx.font =
+              10 * DPR + 'px ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace';
             ctx.textAlign = right ? "left" : "right";
-            ctx.fillStyle = rgba(c, la.toFixed(2));
-            ctx.shadowColor = "rgba(2,5,9,0.9)";
+            ctx.fillStyle = "rgba(139,139,147," + la.toFixed(2) + ")";
+            ctx.shadowColor = "rgba(10,10,11,0.9)";
             ctx.shadowBlur = 4 * DPR;
             ctx.fillText(shortName(nd), p.x + (right ? 1 : -1) * 9 * DPR, p.y);
             ctx.shadowBlur = 0;
@@ -408,11 +408,11 @@
         const t = (now - p.born) / 1300;
         ctx.lineWidth = 2.2 * DPR;
         ctx.strokeStyle =
-          "rgba(255,93,110," + ((1 - t) * 0.85).toFixed(3) + ")";
+          "rgba(225,89,79," + ((1 - t) * 0.55).toFixed(3) + ")";
         ring(pos.x, pos.y, t * 46 * DPR);
         ctx.lineWidth = 1 * DPR;
         ctx.strokeStyle =
-          "rgba(255,93,110," + ((1 - t) * 0.4).toFixed(3) + ")";
+          "rgba(225,89,79," + ((1 - t) * 0.26).toFixed(3) + ")";
         ring(pos.x, pos.y, t * 26 * DPR);
       }
     }
@@ -444,7 +444,7 @@
       drawNetwork(now);
       for (const p of pings) {
         const pos = nodeXY(p);
-        ctx.fillStyle = "rgba(255,93,110,0.75)";
+        ctx.fillStyle = "rgba(225,89,79,0.55)";
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, 3 * DPR, 0, Math.PI * 2);
         ctx.fill();
@@ -516,7 +516,7 @@
     }
     const ctx = canvas.getContext("2d");
     const DPR = Math.min(window.devicePixelRatio || 1, 2);
-    const ACCENT = (a) => "rgba(77, 227, 176, " + a + ")";
+    const ACCENT = (a) => "rgba(124, 108, 240, " + a + ")";
     const TRAVELER_MS = 1500;
 
     let rafId = null;
@@ -586,13 +586,12 @@
       };
     }
     function edgeAlpha(risk) {
-      if (risk === "HighRisk") return 0.28;
-      if (risk === "Suspicious") return 0.22;
-      return 0.15;
+      // uniform violet connectors — risk color lives on the node dots
+      return 0.22;
     }
     function labelAlphaFor(risk) {
-      if (risk === "HighRisk") return 0.72;
-      if (risk === "Suspicious") return 0.56;
+      if (risk === "HighRisk") return 0.66;
+      if (risk === "Suspicious") return 0.52;
       return 0.32;
     }
     function dotRadius(risk) {
@@ -621,15 +620,15 @@
     function drawBackdrop(now) {
       const M = Math.max(RX, R);
       const vg = ctx.createRadialGradient(CX, CY, R * 0.2, CX, CY, M * 1.25);
-      vg.addColorStop(0, "rgba(2,5,9,0)");
-      vg.addColorStop(1, "rgba(2,5,9,0.5)");
+      vg.addColorStop(0, "rgba(10,10,11,0)");
+      vg.addColorStop(1, "rgba(10,10,11,0.5)");
       ctx.fillStyle = vg;
       ctx.fillRect(0, 0, W, H);
 
       const glow = ctx.createRadialGradient(CX, CY, 0, CX, CY, M);
-      glow.addColorStop(0, "rgba(77,227,176,0.05)");
-      glow.addColorStop(0.5, "rgba(77,227,176,0.018)");
-      glow.addColorStop(1, "rgba(77,227,176,0)");
+      glow.addColorStop(0, "rgba(124,108,240,0.04)");
+      glow.addColorStop(0.5, "rgba(124,108,240,0.014)");
+      glow.addColorStop(1, "rgba(124,108,240,0)");
       ctx.fillStyle = glow;
       ctx.fillRect(0, 0, W, H);
 
@@ -656,7 +655,7 @@
         REDUCED ? 0.5 : 0.5 + 0.5 * Math.sin(now / 2100);
       const haloR = (12 + 9 * breathe) * k * DPR;
       const halo = ctx.createRadialGradient(CX, CY, 0, CX, CY, haloR);
-      halo.addColorStop(0, ACCENT((0.22 + 0.13 * breathe).toFixed(3)));
+      halo.addColorStop(0, ACCENT((0.18 + 0.1 * breathe).toFixed(3)));
       halo.addColorStop(1, ACCENT(0));
       ctx.fillStyle = halo;
       ctx.beginPath();
@@ -664,12 +663,12 @@
       ctx.fill();
 
       ctx.lineWidth = 1 * DPR;
-      ctx.strokeStyle = ACCENT(REDUCED ? 0.4 : 0.42 + 0.14 * breathe);
+      ctx.strokeStyle = ACCENT(REDUCED ? 0.32 : 0.32 + 0.12 * breathe);
       ring(CX, CY, 11 * k * DPR);
 
-      ctx.fillStyle = "#eafff6";
-      ctx.shadowColor = "rgba(77, 227, 176, 0.85)";
-      ctx.shadowBlur = (7 + 6 * breathe) * DPR;
+      ctx.fillStyle = "#7c6cf0";
+      ctx.shadowColor = "rgba(124, 108, 240, 0.45)";
+      ctx.shadowBlur = (3 + 2 * breathe) * DPR;
       ctx.beginPath();
       ctx.arc(CX, CY, (2.6 + 0.7 * breathe) * k * DPR, 0, Math.PI * 2);
       ctx.fill();
@@ -685,7 +684,7 @@
         const gapX = CX + Math.cos(nd.ang) * 9 * DPR;
         const gapY = CY + Math.sin(nd.ang) * 9 * DPR;
 
-        ctx.strokeStyle = rgba(c, edgeAlpha(nd.risk));
+        ctx.strokeStyle = ACCENT(edgeAlpha(nd.risk));
         ctx.lineWidth = 1 * DPR;
         ctx.beginPath();
         ctx.moveTo(gapX, gapY);
@@ -693,15 +692,16 @@
         ctx.stroke();
 
         ctx.fillStyle = rgba(c, 0.92);
-        ctx.shadowColor = rgba(c, 0.75);
-        ctx.shadowBlur = 3.5 * DPR;
+        ctx.shadowColor = rgba(c, 0.6);
+        ctx.shadowBlur = 2.5 * DPR;
         ctx.beginPath();
         ctx.arc(p.x, p.y, dotRadius(nd.risk) * DPR, 0, Math.PI * 2);
         ctx.fill();
         ctx.shadowBlur = 0;
 
         if (showLabel(nd)) {
-          ctx.font = 9 * DPR + 'px Consolas, "Cascadia Mono", monospace';
+          ctx.font =
+            9 * DPR + 'px ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace';
           const label = shortName(nd);
           // default: extend away from the core; flip whenever the label
           // would run off-canvas on its chosen side (measured, not guessed)
@@ -713,8 +713,8 @@
             align = "left";
           }
           ctx.textAlign = align;
-          ctx.fillStyle = rgba(c, labelAlphaFor(nd.risk));
-          ctx.shadowColor = "rgba(2,5,9,0.9)";
+          ctx.fillStyle = "rgba(139,139,147," + labelAlphaFor(nd.risk).toFixed(2) + ")";
+          ctx.shadowColor = "rgba(10,10,11,0.9)";
           ctx.shadowBlur = 4 * DPR;
           ctx.fillText(label, p.x + (align === "left" ? 1 : -1) * 8 * DPR, p.y);
           ctx.shadowBlur = 0;
@@ -736,9 +736,9 @@
         const x = gapX + (p.x - gapX) * ease;
         const y = gapY + (p.y - gapY) * ease;
         const fade = Math.min(1, t * 4) * Math.min(1, (1 - t) * 3.2);
-        ctx.fillStyle = rgba(c, (0.65 * fade).toFixed(3));
-        ctx.shadowColor = rgba(c, 0.8);
-        ctx.shadowBlur = 6 * DPR;
+        ctx.fillStyle = rgba(c, (0.55 * fade).toFixed(3));
+        ctx.shadowColor = rgba(c, 0.7);
+        ctx.shadowBlur = 4 * DPR;
         ctx.beginPath();
         ctx.arc(x, y, 1.7 * DPR, 0, Math.PI * 2);
         ctx.fill();
@@ -806,6 +806,23 @@
       '<svg viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M11 12L21 2"/><path d="M17 6l3 3"/><path d="M14 9l2.5 2.5"/></svg>',
   };
 
+  const SOURCE_LABELS = {
+    StartupFolder: "Startup folder",
+    ScheduledTask: "Scheduled task",
+    RegistryRun: "Registry run",
+  };
+
+  const BADGE_CHECK =
+    '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+  const BADGE_WARN =
+    '<svg viewBox="0 0 24 24"><path d="M12 3L22 20H2z"/><line x1="12" y1="9.5" x2="12" y2="14"/><circle cx="12" cy="16.8" r="0.6"/></svg>';
+
+  function findingsHeadline(n) {
+    return n === 1
+      ? "1 finding needs a decision"
+      : n + " findings need a decision";
+  }
+
   function reasonChipLabel(reason) {
     const lower = reason.toLowerCase();
     if (lower.includes("drop zone")) return ["Suspicious path", "red"];
@@ -868,6 +885,11 @@
 
     const chips = document.createElement("div");
     chips.className = "chips";
+    const srcChip = document.createElement("span");
+    srcChip.className = "chip src";
+    srcChip.textContent = SOURCE_LABELS[rawSource] || "Persistence";
+    srcChip.title = entry.entry.location;
+    chips.appendChild(srcChip);
     const reasons = Array.isArray(entry.reasons) ? entry.reasons : [];
     for (const reason of reasons.slice(0, 4)) {
       const [label, tone] = reasonChipLabel(String(reason));
@@ -884,12 +906,12 @@
     if (cleaned) {
       const done = document.createElement("span");
       done.className = "manual-note";
-      done.textContent = "QUARANTINED";
+      done.textContent = "Quarantined";
       card.appendChild(done);
     } else if (rawSource === "RegistryRun") {
       const note = document.createElement("span");
       note.className = "manual-note";
-      note.textContent = "MANUAL REMOVAL REQUIRED";
+      note.textContent = "Manual removal required";
       note.title =
         entry.entry.location +
         " — registry values are not auto-disabled in this version";
@@ -897,7 +919,7 @@
     } else {
       const btn = document.createElement("button");
       btn.className = "quarantine-btn";
-      btn.textContent = "QUARANTINE";
+      btn.textContent = "Quarantine";
       btn.addEventListener("click", async () => {
         btn.disabled = true;
         try {
@@ -906,7 +928,7 @@
             name: entry.entry.name,
             command: entry.entry.command,
           });
-          btn.textContent = "QUARANTINED ✓";
+          btn.textContent = "Quarantined ✓";
           btn.classList.add("row-done");
         } catch (err) {
           btn.disabled = false;
@@ -939,16 +961,35 @@
     const trouble = cleanedCount + reviewCount;
 
     badge.className = "badge " + (trouble ? "warn" : "clean");
-    badge.textContent = trouble ? "⚠" : "✓";
-    headline.textContent = trouble
-      ? cleanedCount
-        ? "THREATS NEUTRALIZED"
-        : "REVIEW REQUIRED"
-      : "ALL CLEAR";
+    badge.innerHTML = trouble ? BADGE_WARN : BADGE_CHECK;
+
+    const subline = document.getElementById("subline");
+    if (reviewCount > 0) {
+      headline.textContent = findingsHeadline(reviewCount);
+      subline.textContent =
+        summary.total + " entries checked" +
+        (cleanedCount
+          ? ", " + cleanedCount + " cleaned automatically"
+          : "");
+    } else if (cleanedCount > 0) {
+      headline.textContent = "Threats cleaned automatically";
+      subline.textContent =
+        summary.total + " entries checked, " + cleanedCount +
+        " cleaned, nothing left to review";
+    } else {
+      headline.textContent = "System is clean";
+      subline.textContent =
+        summary.total + " entries checked, nothing needs attention";
+    }
 
     countUp(document.getElementById("stat-cleaned"), cleanedCount);
     countUp(document.getElementById("stat-review"), reviewCount);
     countUp(document.getElementById("stat-safe"), summary.safe);
+
+    // zeros shouldn't shout — neutralize accent line + number on empty stats
+    document.querySelector(".stat.tint-teal").classList.toggle("stat-zero", cleanedCount === 0);
+    document.querySelector(".stat.tint-amber").classList.toggle("stat-zero", reviewCount === 0);
+    document.querySelector(".stat.tint-neutral").classList.toggle("stat-zero", summary.safe === 0);
 
     fillCards(
       document.getElementById("review-cards"),

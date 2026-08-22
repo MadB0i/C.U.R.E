@@ -26,13 +26,13 @@ const stats = await page.evaluate(() => {
   const img = ctx.getImageData(0, 0, w, h).data;
   let teal = 0, amber = 0, red = 0;
   const near = (r, g, b, tr, tg, tb) =>
-    Math.abs(r - tr) < 60 && Math.abs(g - tg) < 60 && Math.abs(b - tb) < 60;
+    Math.abs(r - tr) < 45 && Math.abs(g - tg) < 45 && Math.abs(b - tb) < 45;
   for (let i = 0; i < img.length; i += 4) {
     if (img[i + 3] < 40) continue;
     const r = img[i], g = img[i + 1], b = img[i + 2];
-    if (near(r, g, b, 255, 196, 107)) amber++;
-    else if (near(r, g, b, 255, 93, 110)) red++;
-    else if (near(r, g, b, 77, 227, 176)) teal++;
+    if (near(r, g, b, 209, 161, 63)) amber++;
+    else if (near(r, g, b, 225, 89, 79)) red++;
+    else if (near(r, g, b, 79, 174, 125)) teal++;
   }
   return {
     tealPx: teal,
@@ -73,13 +73,13 @@ const mapStats = await page.evaluate(() => {
   const img = ctx.getImageData(0, 0, w, h).data;
   let teal = 0, amber = 0, red = 0;
   const near = (r, g, b, tr, tg, tb) =>
-    Math.abs(r - tr) < 60 && Math.abs(g - tg) < 60 && Math.abs(b - tb) < 60;
+    Math.abs(r - tr) < 45 && Math.abs(g - tg) < 45 && Math.abs(b - tb) < 45;
   for (let i = 0; i < img.length; i += 4) {
     if (img[i + 3] < 40) continue;
     const r = img[i], g = img[i + 1], b = img[i + 2];
-    if (near(r, g, b, 255, 196, 107)) amber++;
-    else if (near(r, g, b, 255, 93, 110)) red++;
-    else if (near(r, g, b, 77, 227, 176)) teal++;
+    if (near(r, g, b, 209, 161, 63)) amber++;
+    else if (near(r, g, b, 225, 89, 79)) red++;
+    else if (near(r, g, b, 79, 174, 125)) teal++;
   }
   return {
     w,

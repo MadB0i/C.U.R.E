@@ -140,7 +140,7 @@ async function runFlow(browser, label, reducedMotion) {
     await btn.click();
     await page.waitForTimeout(900);
     const label2 = (await btn.textContent()) ?? "";
-    if (!label2.includes("QUARANTINED")) {
+    if (!/quarantined/i.test(label2)) {
       errors.push(`[${label}] quarantine button did not confirm (text: "${label2.trim()}")`);
     }
     if (!reducedMotion) {

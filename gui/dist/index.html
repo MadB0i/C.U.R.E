@@ -15,7 +15,13 @@
 
   <div id="app" class="app hidden">
     <header class="topbar">
-      <div class="wordmark">C.U.R.E<span>CLEAN USB RESCUE ENGINE</span></div>
+      <div class="brand">
+        <svg class="brand-mark" width="26" height="26" viewBox="0 0 26 26" fill="none">
+          <rect x="1.5" y="1.5" width="23" height="23" rx="7" stroke="#7c6cf0" stroke-width="1.6"/>
+          <path d="M8 13.5L11.5 17L18 9.5" stroke="#7c6cf0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <div class="wordmark">C.U.R.E<span>CLEAN USB RESCUE ENGINE</span></div>
+      </div>
       <div id="status-pill" class="pill scanning">
         <span class="pill-dot"></span>
         <svg class="pill-icon" viewBox="0 0 16 16"><path d="M2 8.5l4 4L14 4"/></svg>
@@ -43,10 +49,13 @@
         <div class="results-main">
         <div class="results-stack">
         <div class="results-head">
-          <div id="badge" class="badge clean reveal" style="--d:0ms">✓</div>
-          <div id="headline" class="headline reveal" style="--d:90ms">ALL CLEAR</div>
+          <div id="badge" class="badge clean reveal" style="--d:0ms"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+          <div class="headline-wrap">
+            <div id="headline" class="headline reveal" style="--d:90ms">System is clean</div>
+            <div id="subline" class="subline reveal" style="--d:140ms"></div>
+          </div>
           <span class="flex-spacer"></span>
-          <button id="rescan-btn" class="btn reveal" style="--d:420ms">SCAN AGAIN</button>
+          <button id="rescan-btn" class="btn reveal" style="--d:420ms">Scan again</button>
         </div>
 
         <div class="stats" id="stats-row">
@@ -84,9 +93,9 @@
 
     <footer class="footbar">
       <div id="footbar-msg" role="status"></div>
-      <button class="ghost-btn" id="btn-quarantine-folder">OPEN QUARANTINE FOLDER</button>
-      <button class="ghost-btn" id="btn-view-log">VIEW FULL LOG</button>
-      <button class="ghost-btn" id="btn-exit">EXIT</button>
+      <button class="ghost-btn" id="btn-quarantine-folder">Open quarantine folder</button>
+      <button class="ghost-btn" id="btn-view-log">View full log</button>
+      <button class="ghost-btn" id="btn-exit">Exit</button>
     </footer>
   </div>
 
