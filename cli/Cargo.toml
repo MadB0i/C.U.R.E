@@ -1,0 +1,13 @@
+[package]
+name = "cure_cli"
+version.workspace = true
+edition.workspace = true
+description = "C.U.R.E command-line interface: scan, diff, quarantine, undo"
+
+[[bin]]
+name = "cure"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+cure_core = { path = "../core" }

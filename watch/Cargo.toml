@@ -1,0 +1,12 @@
+[package]
+name = "cure_watch"
+version.workspace = true
+edition.workspace = true
+description = "C.U.R.E background watcher: auto-launches the rescue GUI when a trigger USB is inserted"
+
+[[bin]]
+name = "cure-watch"
+path = "src/main.rs"
+
+[dev-dependencies]
+tempfile = "3"

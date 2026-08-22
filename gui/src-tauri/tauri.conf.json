@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CURE",
+  "version": "0.1.0",
+  "identifier": "com.cure.rescue.engine",
+  "build": {
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "C.U.R.E — Clean USB Rescue Engine",
+        "width": 900,
+        "height": 600,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": [],
+    "icon": ["icons/icon.ico"]
+  }
+}

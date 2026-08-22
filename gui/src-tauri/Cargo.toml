@@ -1,0 +1,19 @@
+[package]
+name = "cure_gui"
+version = "0.1.0"
+edition = "2021"
+description = "C.U.R.E animated rescue GUI (Tauri v2)"
+
+[workspace]
+
+[[bin]]
+name = "cure-gui"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+cure_core = { path = "../../core" }
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2", features = [] }

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>C.U.R.E — Clean USB Rescue Engine</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="fallback" class="fallback hidden">
+    <h1>C.U.R.E</h1>
+    <p>This interface must run inside the C.U.R.E desktop app.</p>
+    <p class="dim">Launch it via <code>cure-gui.exe</code> (or let <code>cure-watch.exe</code> start it when a rescue USB is inserted).</p>
+  </div>
+
+  <div id="app" class="app hidden">
+    <header class="topbar">
+      <div class="wordmark">C.U.R.E<span>CLEAN USB RESCUE ENGINE</span></div>
+      <div id="status-line" class="status">initializing…</div>
+    </header>
+
+    <section id="scan-view" class="view">
+      <canvas id="radar"></canvas>
+      <ul id="log" class="log"></ul>
+    </section>
+
+    <section id="results-view" class="view hidden">
+      <div id="badge" class="badge clean">✓</div>
+      <div id="headline" class="headline">ALL CLEAR</div>
+
+      <div class="stats">
+        <div class="stat"><span id="stat-cleaned">0</span><label>AUTO-CLEANED</label></div>
+        <div class="stat warn"><span id="stat-review">0</span><label>NEEDS REVIEW</label></div>
+        <div class="stat ok"><span id="stat-safe">0</span><label>SAFE</label></div>
+      </div>
+
+      <div id="cleaned-block" class="block hidden">
+        <h3>QUARANTINED AUTOMATICALLY</h3>
+        <ul id="cleaned-list" class="entry-list cleaned"></ul>
+      </div>
+
+      <div id="review-block" class="block hidden">
+        <h3>NEEDS YOUR REVIEW</h3>
+        <ul id="review-list" class="entry-list"></ul>
+      </div>
+
+      <button id="rescan-btn" class="btn">SCAN AGAIN</button>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
