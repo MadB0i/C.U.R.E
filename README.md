@@ -77,3 +77,7 @@ USB itself.
 - Not yet covered: services, WMI subscriptions, IFEO, COM hijacks
 - Startup `.lnk` targets aren't resolved; task XML parsing only grabs the
   first `<Command>`
+
+## License
+
+MIT — see [LICENSE](LICENSE).
