@@ -1,3 +1,4 @@
 /target
 gui/src-tauri/target/
 gui/src-tauri/gen/
+node_modules/

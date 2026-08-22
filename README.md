@@ -140,6 +140,10 @@ Verified on Windows 11 x64 (MSVC, Rust 1.97):
 - GUI: compiled with Tauri v2, launched for real, and observed through the full
   pipeline (webview boot → JS invoke → Rust scan → progress events →
   baseline.json written to `--data-dir`, HighRisk startup item auto-quarantined).
+- GUI frontend: visually verified with a Playwright headless-browser harness
+  against the mock backend (see below) — mid-scan radar, results view, and the
+  quarantine-button flow were screenshotted and reviewed; both normal and
+  `prefers-reduced-motion` modes are exercised automatically.
 
 Written but not exercised automatically:
 
@@ -147,8 +151,30 @@ Written but not exercised automatically:
   or tested with a physical USB insertion (running it would install itself into
   the user's Startup folder). Its pure-logic halves are unit-tested; the OS
   glue is deliberately tiny.
-- The radar animation visuals were not human-reviewed pixel-by-pixel; the
-  non-Tauri fallback guard and event wiring were exercised via the real launch.
+
+## Frontend dev harness (no Tauri needed)
+
+`gui/dist/index.dev.html` is a dev-only copy of the UI that loads
+`mock-tauri.js` before `app.js`. The mock fakes `window.__TAURI__`:
+progress events with realistic delays, a fake scan summary (cleaned /
+needs-review / safe entries), and a stubbed `quarantine_entry` — so the whole
+UI runs in any plain browser. The production entry point `index.html` never
+references the mock, so it can't leak into the shipped app.
+
+Re-run the visual check:
+
+```bat
+cd gui\devtools
+npm install                        :: once — installs Playwright
+npx playwright install chromium    :: once — downloads the browser
+npm run verify                     :: headless run → gui\dev-screenshots\*.png
+```
+
+`verify.mjs` opens the page at 900x600 (matching the Tauri window), captures
+mid-scan/results/post-quarantine screenshots in both normal and reduced-motion
+modes, asserts the quarantine button confirms, checks that stagger animations
+are skipped under `prefers-reduced-motion`, and fails loudly on any console or
+page error.
 
 ## Current limitations (honest list)
 

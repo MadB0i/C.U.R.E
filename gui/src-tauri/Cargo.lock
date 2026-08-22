@@ -484,6 +484,7 @@ dependencies = [
  "serde",
  "tauri",
  "tauri-build",
+ "tokio",
 ]
 
 [[package]]

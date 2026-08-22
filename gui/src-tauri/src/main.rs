@@ -63,7 +63,22 @@ fn tasks_root() -> PathBuf {
         .unwrap_or_else(scanners::scheduled_tasks::default_tasks_root)
 }
 
-fn blocking_scan(app: AppHandle) -> Result<ScanSummary, String> {
+const SCAN_TARGET_TOTAL_MS: u64 = 5000;
+const SCAN_MIN_PER_ITEM_MS: u64 = 15;
+const SCAN_MAX_PER_ITEM_MS: u64 = 250;
+
+#[derive(Debug, Clone, Serialize)]
+struct ItemScannedEvent {
+    stage: String,
+    name: String,
+    source: String,
+    location: String,
+    risk: String,
+    score: i32,
+}
+
+#[tauri::command]
+async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     let data_dir = resolve_data_dir();
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("cannot create data dir: {e}"))?;
 
@@ -79,35 +94,57 @@ fn blocking_scan(app: AppHandle) -> Result<ScanSummary, String> {
     emit_stage(&app, "tasks", "Parsing scheduled task definitions");
     entries.extend(scanners::scheduled_tasks::scan(&tasks_root()));
 
+    let count = entries.len();
     emit_stage(
         &app,
         "scoring",
         format!(
             "Risk-scoring {} persistence entr{}",
-            entries.len(),
-            if entries.len() == 1 { "y" } else { "ies" }
+            count,
+            if count == 1 { "y" } else { "ies" }
         ),
     );
     let scored: Vec<ScoredEntry> = entries.iter().map(risk::score_entry).collect();
 
-    emit_stage(&app, "cleaning", "Auto-cleaning high-risk file-backed persistence");
+    emit_stage(&app, "item-scan", "Inspecting each persistence entry");
+
+    let per_item_ms = (SCAN_TARGET_TOTAL_MS / std::cmp::max(count, 1) as u64)
+        .clamp(SCAN_MIN_PER_ITEM_MS, SCAN_MAX_PER_ITEM_MS);
+
     let mut high_risk_cleaned = Vec::new();
     let mut suspicious_for_review = Vec::new();
     let mut safe = 0usize;
-    for s in scored {
+
+    for s in scored.iter() {
+        let _ = app.emit(
+            "scan-progress",
+            ItemScannedEvent {
+                stage: "item-scanned".to_string(),
+                name: s.entry.name.clone(),
+                source: s.entry.source.tag().to_string(),
+                location: s.entry.location.clone(),
+                risk: format!("{:?}", s.risk),
+                score: s.score,
+            },
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(per_item_ms)).await;
+
         match s.risk {
             RiskLevel::HighRisk => match s.entry.source {
-                PersistenceSource::RegistryRun => suspicious_for_review.push(s),
-                _ => match quarantine::quarantine_file(&data_dir, &s.entry) {
-                    Ok(_) => high_risk_cleaned.push(s),
-                    Err(err) => {
-                        let mut flagged = s;
-                        flagged.reasons.push(format!("auto-clean failed: {err}"));
-                        suspicious_for_review.push(flagged);
+                PersistenceSource::RegistryRun => suspicious_for_review.push(s.clone()),
+                _ => {
+                    emit_stage(&app, "cleaning", format!("Auto-cleaning {}", s.entry.name));
+                    match quarantine::quarantine_file(&data_dir, &s.entry) {
+                        Ok(_) => high_risk_cleaned.push(s.clone()),
+                        Err(err) => {
+                            let mut flagged = s.clone();
+                            flagged.reasons.push(format!("auto-clean failed: {err}"));
+                            suspicious_for_review.push(flagged);
+                        }
                     }
-                },
+                }
             },
-            RiskLevel::Suspicious => suspicious_for_review.push(s),
+            RiskLevel::Suspicious => suspicious_for_review.push(s.clone()),
             RiskLevel::Safe => safe += 1,
         }
     }
@@ -123,14 +160,6 @@ fn blocking_scan(app: AppHandle) -> Result<ScanSummary, String> {
         suspicious_for_review,
         safe,
     })
-}
-
-#[tauri::command]
-async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
-    let handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || blocking_scan(handle))
-        .await
-        .map_err(|e| format!("scan task failed: {e}"))?
 }
 
 fn find_current_entry(id: &str) -> Option<PersistenceEntry> {
@@ -160,12 +189,45 @@ fn undo_entry(id: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn open_quarantine_folder() -> Result<String, String> {
+    let dir = resolve_data_dir().join("quarantine");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("cannot create quarantine folder: {e}"))?;
+    std::process::Command::new("explorer")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| format!("cannot open explorer: {e}"))?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn view_log() -> Result<String, String> {
+    let path = resolve_data_dir().join("baseline.json");
+    if !path.exists() {
+        return Err("No scan log yet — run a scan first".to_string());
+    }
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", &path.display().to_string()])
+        .spawn()
+        .map_err(|e| format!("cannot open log viewer: {e}"))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn exit_app(app: AppHandle) {
+    app.exit(0);
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             run_auto_scan,
             quarantine_entry,
-            undo_entry
+            undo_entry,
+            open_quarantine_folder,
+            view_log,
+            exit_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running cure-gui");
