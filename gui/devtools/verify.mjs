@@ -116,7 +116,7 @@ async function runFlow(browser, label, reducedMotion) {
   if (!mapOk.ok || mapOk.hidden || mapOk.w < 60 || mapOk.h < 60) {
     errors.push(`[${label}] scan map panel not visible: ${JSON.stringify(mapOk)}`);
   } else {
-    if (!/^\d+ NODES$/.test(mapOk.countText)) {
+    if (!/^\d+ nodes$/.test(mapOk.countText)) {
       errors.push(`[${label}] map count text unexpected: "${mapOk.countText}"`);
     }
     if (!(mapOk.cw > 50 && mapOk.ch > 50)) {

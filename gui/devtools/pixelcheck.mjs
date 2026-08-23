@@ -105,7 +105,7 @@ if (mapStats.tealPx < 30 || mapStats.redPx < 10) {
   console.error("FAIL: scan map missing risk-colored nodes/edges");
   process.exit(1);
 }
-const expectedCount = String(mapStats.mockCount) + " NODES";
+const expectedCount = String(mapStats.mockCount) + " nodes";
 if (mapStats.countText !== expectedCount) {
   console.error(`FAIL: map count "${mapStats.countText}" != "${expectedCount}"`);
   process.exit(1);

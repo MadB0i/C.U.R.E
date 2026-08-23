@@ -775,7 +775,7 @@
 
     return {
       show(summaryTotal) {
-        if (countEl) countEl.textContent = summaryTotal + " NODES";
+        if (countEl) countEl.textContent = summaryTotal + " nodes";
         travelers = [];
         lastSpawn = performance.now() - 2400;
         if (REDUCED) {
@@ -985,11 +985,6 @@
     countUp(document.getElementById("stat-cleaned"), cleanedCount);
     countUp(document.getElementById("stat-review"), reviewCount);
     countUp(document.getElementById("stat-safe"), summary.safe);
-
-    // zeros shouldn't shout — neutralize accent line + number on empty stats
-    document.querySelector(".stat.tint-teal").classList.toggle("stat-zero", cleanedCount === 0);
-    document.querySelector(".stat.tint-amber").classList.toggle("stat-zero", reviewCount === 0);
-    document.querySelector(".stat.tint-neutral").classList.toggle("stat-zero", summary.safe === 0);
 
     fillCards(
       document.getElementById("review-cards"),
