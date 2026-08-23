@@ -1,4 +1,5 @@
 /target
 gui/src-tauri/target/
 gui/src-tauri/gen/
+testing/fake-overlay/target/
 node_modules/

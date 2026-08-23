@@ -3,6 +3,8 @@ mod detector;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod drives;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+mod logger;
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod trigger;
 
 const POLL_INTERVAL_MS: u64 = 1500;
@@ -27,6 +29,14 @@ fn main() {
 #[cfg(target_os = "windows")]
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     self_install()?;
+    logger::log(
+        "startup",
+        &format!(
+            "watcher started (pid {}, polling every {} ms)",
+            std::process::id(),
+            POLL_INTERVAL_MS
+        ),
+    );
     println!("cure-watch is watching for rescue USBs (Ctrl+C to stop)...");
 
     let mut previous = drives::list_drives();
@@ -35,12 +45,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         let current = drives::list_drives();
         for drive in detector::newly_arrived(&previous, &current) {
             println!("drive appeared: {drive}");
+            logger::log("drive", &format!("new drive appeared: {drive}"));
             let root = std::path::PathBuf::from(&drive);
             if trigger::has_valid_trigger(&root) {
                 println!("valid C.U.R.E trigger found on {drive}; launching GUI");
+                logger::log(
+                    "trigger",
+                    &format!("VALID C.U.R.E trigger on {drive}; launching GUI"),
+                );
                 launch_gui(&root);
             } else {
                 println!("no C.U.R.E trigger on {drive}; ignoring");
+                logger::log(
+                    "trigger",
+                    &format!("invalid/missing trigger on {drive}; ignoring"),
+                );
             }
         }
         previous = current;
@@ -58,11 +77,19 @@ fn startup_dir() -> Option<std::path::PathBuf> {
 fn self_install() -> Result<(), Box<dyn std::error::Error>> {
     let Some(startup) = startup_dir() else {
         println!("APPDATA not set; skipping self-install (portable mode)");
+        logger::log(
+            "install",
+            "APPDATA not set; skipped self-install (portable mode)",
+        );
         return Ok(());
     };
     std::fs::create_dir_all(&startup)?;
     let dest = startup.join(WATCHER_EXE_NAME);
     if dest.exists() {
+        logger::log(
+            "install",
+            &format!("already installed at {}", dest.display()),
+        );
         return Ok(());
     }
     let exe = std::env::current_exe()?;
@@ -71,6 +98,10 @@ fn self_install() -> Result<(), Box<dyn std::error::Error>> {
     }
     std::fs::copy(&exe, &dest)?;
     println!("installed watcher to {}", dest.display());
+    logger::log(
+        "install",
+        &format!("installed watcher to {}", dest.display()),
+    );
     Ok(())
 }
 
@@ -80,10 +111,7 @@ fn launch_gui(drive_root: &std::path::Path) {
         .ok()
         .and_then(|exe| exe.parent().map(|dir| dir.to_path_buf()))
         .map(|dir| dir.join(GUI_EXE_NAME));
-    let candidates = [
-        Some(drive_root.join(GUI_EXE_NAME)),
-        beside_watcher,
-    ];
+    let candidates = [Some(drive_root.join(GUI_EXE_NAME)), beside_watcher];
     for candidate in candidates.into_iter().flatten() {
         if candidate.is_file() {
             match std::process::Command::new(&candidate)
@@ -91,8 +119,17 @@ fn launch_gui(drive_root: &std::path::Path) {
                 .arg(drive_root)
                 .spawn()
             {
-                Ok(_) => println!("launched {}", candidate.display()),
-                Err(err) => println!("failed to launch {}: {err}", candidate.display()),
+                Ok(_) => {
+                    println!("launched {}", candidate.display());
+                    logger::log("launch", &format!("launched {}", candidate.display()));
+                }
+                Err(err) => {
+                    println!("failed to launch {}: {err}", candidate.display());
+                    logger::log(
+                        "launch-error",
+                        &format!("failed to launch {}: {err}", candidate.display()),
+                    );
+                }
             }
             return;
         }
@@ -100,5 +137,11 @@ fn launch_gui(drive_root: &std::path::Path) {
     println!(
         "no {} found on the USB drive or next to the watcher; nothing to launch",
         GUI_EXE_NAME
+    );
+    logger::log(
+        "launch-error",
+        &format!(
+            "no {GUI_EXE_NAME} found on the USB drive or next to the watcher; nothing to launch"
+        ),
     );
 }

@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use cure_core::{baseline, quarantine, risk, scanners};
 use cure_core::model::{PersistenceEntry, PersistenceSource, RiskLevel, ScoredEntry};
@@ -38,6 +38,19 @@ fn arg_value(name: &str) -> Option<String> {
         .position(|a| a == name)
         .and_then(|pos| args.get(pos + 1))
         .cloned()
+}
+
+const RESURFACE_DELAY_MS: u64 = 1200;
+
+fn launched_by_watcher() -> bool {
+    arg_value("--data-dir").is_some()
+}
+
+fn surface_above_overlays(handle: &AppHandle) {
+    if let Some(window) = handle.get_webview_window("main") {
+        let _ = window.set_always_on_top(true);
+        let _ = window.set_focus();
+    }
 }
 
 fn resolve_data_dir() -> PathBuf {
@@ -235,6 +248,17 @@ fn main() {
             view_log,
             exit_app
         ])
+        .setup(|app| {
+            if launched_by_watcher() {
+                let handle = app.handle().clone();
+                surface_above_overlays(&handle);
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(RESURFACE_DELAY_MS));
+                    surface_above_overlays(&handle);
+                });
+            }
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running cure-gui");
 }

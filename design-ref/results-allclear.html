@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>C.U.R.E</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+      <rect x="1.5" y="1.5" width="23" height="23" rx="7" stroke="#7c6cf0" stroke-width="1.6"/>
+      <path d="M8 13.5L11.5 17L18 9.5" stroke="#7c6cf0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div class="brand-text">
+      <div class="brand-name">C.U.R.E</div>
+      <div class="brand-sub">Clean USB Rescue Engine</div>
+    </div>
+  </div>
+  <div class="status-pill">
+    <span class="status-dot"></span>
+    Scan complete — all clear
+  </div>
+</header>
+
+<main>
+  <div class="column">
+
+    <div class="result-head">
+      <div class="result-head-left">
+        <div class="result-badge">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path d="M4 9.5L7.2 13L14 5.5" stroke="#4fae7d" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div>
+          <div class="result-title">System is clean</div>
+          <div class="result-sub">17 persistence entries checked, nothing needs attention</div>
+        </div>
+      </div>
+      <button class="btn btn-primary">Scan again</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat-card">
+        <div class="stat-value safe">0</div>
+        <div class="stat-label">Auto-cleaned</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">0</div>
+        <div class="stat-label">Needs review</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">17</div>
+        <div class="stat-label">Safe</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">Needs your review</div>
+      <div class="empty-row">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M2.5 7.3L5.3 10L11.5 3.5" stroke="#4fae7d" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Nothing needs your attention
+      </div>
+    </div>
+
+  </div>
+
+  <div class="side">
+    <div class="side-head">
+      <div class="side-title">Scan map</div>
+      <div class="side-count">17 nodes</div>
+    </div>
+    <div class="map-canvas">
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;">
+        <g stroke="rgba(124,108,240,0.22)" stroke-width="0.3" fill="none">
+          <line x1="50" y1="48" x2="22" y2="18"/>
+          <line x1="50" y1="48" x2="60" y2="12"/>
+          <line x1="50" y1="48" x2="82" y2="24"/>
+          <line x1="50" y1="48" x2="15" y2="46"/>
+          <line x1="50" y1="48" x2="86" y2="52"/>
+          <line x1="50" y1="48" x2="20" y2="74"/>
+          <line x1="50" y1="48" x2="78" y2="80"/>
+          <line x1="50" y1="48" x2="52" y2="88"/>
+        </g>
+      </svg>
+      <div class="map-node" style="left:50%; top:48%;">
+        <span class="map-dot core"></span>
+      </div>
+      <div class="map-node" style="left:22%; top:18%;"><span class="map-dot"></span><span class="map-label">OneDrive</span></div>
+      <div class="map-node" style="left:60%; top:12%;"><span class="map-dot"></span><span class="map-label">LGHUB</span></div>
+      <div class="map-node" style="left:82%; top:24%;"><span class="map-dot"></span><span class="map-label">EdgeAuto</span></div>
+      <div class="map-node" style="left:15%; top:46%;"><span class="map-dot"></span><span class="map-label">EpicLauncher</span></div>
+      <div class="map-node" style="left:86%; top:52%;"><span class="map-dot"></span><span class="map-label">SecurityHealth</span></div>
+      <div class="map-node" style="left:20%; top:74%;"><span class="map-dot"></span><span class="map-label">Windscribe</span></div>
+      <div class="map-node" style="left:78%; top:80%;"><span class="map-dot"></span><span class="map-label">Discord</span></div>
+      <div class="map-node" style="left:52%; top:88%;"><span class="map-dot"></span><span class="map-label">RtkAudService</span></div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <button>Open quarantine folder</button>
+  <button>View full log</button>
+  <button>Exit</button>
+</footer>
+
+</body>
+</html>
