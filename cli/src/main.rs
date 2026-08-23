@@ -2,10 +2,12 @@ use std::error::Error;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use clap::{Parser, Subcommand};
 
 use cure_core::baseline;
+use cure_core::cleanup as disk_cleanup;
 use cure_core::model::{PersistenceEntry, PersistenceSource, RiskLevel, ScoredEntry};
 use cure_core::quarantine;
 use cure_core::risk;
@@ -51,6 +53,26 @@ enum Command {
     Diff,
     Quarantine { id: String },
     Undo { id: String },
+    Cleanup {
+        #[command(subcommand)]
+        action: CleanupAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum CleanupAction {
+    /// Report reclaimable junk (temp, caches, recycle bin, Windows.old,
+    /// old installers in Downloads). Deletes nothing.
+    Scan,
+    /// Delete scanned candidates after showing a breakdown you confirm.
+    Run {
+        #[arg(long, help = "also offer old .exe/.msi files in Downloads (extra explicit confirmation)")]
+        include_downloads: bool,
+        #[arg(long, value_name = "DAYS", default_value_t = 30, help = "Downloads installers older than this many days")]
+        downloads_age_days: u32,
+        #[arg(long, help = "run DISM component-store cleanup afterwards (elevated shell required)")]
+        dism: bool,
+    },
 }
 
 struct ResolvedPaths {
@@ -96,6 +118,14 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
         Command::Diff => cmd_diff(&paths),
         Command::Quarantine { id } => cmd_quarantine(&paths, id),
         Command::Undo { id } => cmd_undo(&paths, id),
+        Command::Cleanup { action } => match action {
+            CleanupAction::Scan => cmd_cleanup_scan(),
+            CleanupAction::Run {
+                include_downloads,
+                downloads_age_days,
+                dism,
+            } => cmd_cleanup_run(*include_downloads, *downloads_age_days, *dism),
+        },
     }
 }
 
@@ -288,4 +318,171 @@ fn cmd_undo(paths: &ResolvedPaths, id: &str) -> Result<(), Box<dyn Error>> {
         }
         Err(err) => Err(err.into()),
     }
+}
+
+// ---------------------------------------------------------------------------
+// disk cleanup
+// ---------------------------------------------------------------------------
+
+fn print_cleanup_row(label: &str, item_count: usize, bytes: u64) {
+    println!(
+        "{:<24} {:>4} item{} | {:>9}",
+        label,
+        item_count,
+        if item_count == 1 { "" } else { "s" },
+        disk_cleanup::format_size(bytes)
+    );
+}
+
+fn cmd_cleanup_scan() -> Result<(), Box<dyn Error>> {
+    println!("C.U.R.E disk cleanup - scan only, nothing is deleted");
+    println!();
+
+    let candidates = disk_cleanup::scan_all();
+    let downloads = disk_cleanup::scan_old_downloads(30);
+    let summary = disk_cleanup::summarize(&candidates);
+
+    for row in &summary {
+        match row.category {
+            disk_cleanup::CleanupCategory::DownloadsInstaller => {}
+            cat => print_cleanup_row(cat.label(), row.item_count, row.total_bytes),
+        }
+    }
+    print_cleanup_row(
+        "old installers (>30d)",
+        downloads.len(),
+        downloads.iter().map(|c| c.size_bytes).sum(),
+    );
+
+    let total: u64 = candidates.iter().map(|c| c.size_bytes).sum::<u64>()
+        + downloads.iter().map(|c| c.size_bytes).sum::<u64>();
+    println!("{:-<44}", "");
+    println!(
+        "{:<24} {:>4} item{} | {:>9}",
+        "TOTAL reclaimable",
+        candidates.len() + downloads.len(),
+        if candidates.len() + downloads.len() == 1 { "" } else { "s" },
+        disk_cleanup::format_size(total)
+    );
+    println!();
+    println!("next: `cure cleanup run` (add --include-downloads / --dism for extras)");
+    Ok(())
+}
+
+fn confirm(prompt: &str) -> bool {
+    use std::io::Write as _;
+    print!("{prompt} [y/N] ");
+    let _ = io::stdout().flush();
+    let mut line = String::new();
+    std::io::stdin()
+        .read_line(&mut line)
+        .is_ok_and(|_| matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes"))
+}
+
+fn file_age_days(path: &Path) -> u64 {
+    let Ok(md) = fs::metadata(path) else {
+        return 0;
+    };
+    let age = md
+        .modified()
+        .ok()
+        .and_then(|m| SystemTime::now().duration_since(m).ok())
+        .unwrap_or_default();
+    age.as_secs() / 86_400
+}
+
+fn cmd_cleanup_run(include_downloads: bool, downloads_age_days: u32, dism: bool) -> Result<(), Box<dyn Error>> {
+    let mut candidates = disk_cleanup::scan_all();
+
+    println!("C.U.R.E disk cleanup - deletion plan");
+    println!();
+    for row in disk_cleanup::summarize(&candidates) {
+        if row.item_count > 0 {
+            print_cleanup_row(row.category.label(), row.item_count, row.total_bytes);
+        }
+    }
+    let safe_total: u64 = candidates.iter().map(|c| c.size_bytes).sum();
+    if candidates.is_empty() {
+        println!("nothing reclaimable found.");
+    } else if !confirm(&format!(
+        "\nDelete {} item{} ({})? These are direct deletes - no quarantine.",
+        candidates.len(),
+        if candidates.len() == 1 { "" } else { "s" },
+        disk_cleanup::format_size(safe_total)
+    )) {
+        println!("aborted - nothing was deleted.");
+        return Ok(());
+    }
+
+    if include_downloads {
+        let downloads = disk_cleanup::scan_old_downloads(downloads_age_days);
+        if !downloads.is_empty() {
+            println!();
+            println!(
+                "{} installer{} older than {downloads_age_days} day{} in Downloads:",
+                downloads.len(),
+                if downloads.len() == 1 { "" } else { "s" },
+                if downloads_age_days == 1 { "" } else { "s" },
+            );
+            for candidate in &downloads {
+                println!(
+                    "  {:>9}  {:>4}d old  {}",
+                    disk_cleanup::format_size(candidate.size_bytes),
+                    file_age_days(&candidate.path),
+                    candidate.path.file_name().unwrap_or_default().to_string_lossy(),
+                );
+            }
+            if !confirm("\nAlso delete these installers? They may still be needed.") {
+                println!("skipping Downloads installers.");
+            } else {
+                candidates.extend(downloads);
+            }
+        } else {
+            println!("\nno installers older than {downloads_age_days} days in Downloads.");
+        }
+    }
+
+    if candidates.is_empty() {
+        println!("\nnothing selected - no deletions performed.");
+        return Ok(());
+    }
+
+    println!();
+    let result = disk_cleanup::delete_candidates(&candidates);
+    println!(
+        "deleted {} of {} item{}, freed {}.",
+        result.deleted,
+        result.attempted,
+        if result.attempted == 1 { "" } else { "s" },
+        disk_cleanup::format_size(result.bytes_freed)
+    );
+    if result.failed > 0 {
+        println!("{} item(s) could not be deleted:", result.failed);
+        for failure in &result.failures {
+            println!("  {}: {}", failure.path.display(), failure.reason);
+        }
+    }
+
+    if dism {
+        println!();
+        println!("running DISM component-store cleanup (can take several minutes)…");
+        match disk_cleanup::run_dism_cleanup() {
+            Ok(output) => {
+                let tail: String = output.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>().join("\n");
+                println!("{}", truncate_tail(&tail, 400));
+            }
+            Err(err) => {
+                eprintln!("DISM failed: {err}");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn truncate_tail(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    let cut: String = text.chars().skip(text.chars().count() - max_chars).collect();
+    format!("…{cut}")
 }

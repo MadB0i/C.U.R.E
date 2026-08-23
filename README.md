@@ -42,6 +42,15 @@ cure.exe quarantine <id> --data-dir E:\cure-data
 cure.exe undo <id>       --data-dir E:\cure-data
 ```
 
+Disk cleanup (scan-only report, then explicit confirmed deletes of
+regenerable junk — temp files, browser caches, recycle bin, Windows.old;
+`--include-downloads` additionally lists old installers for per-file opt-in):
+
+```bat
+cure.exe cleanup scan
+cure.exe cleanup run [--include-downloads] [--dism]
+```
+
 Risk scoring: temp/downloads drop zone +30, trusted system path −20,
 randomized name +25, hidden/encoded PowerShell +25, valid Authenticode
 signature −40, invalid signature +40, known-malware hash match = forced

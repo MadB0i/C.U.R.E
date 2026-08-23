@@ -77,6 +77,24 @@
           <h3>QUARANTINED AUTOMATICALLY</h3>
           <div id="cleaned-cards" class="entry-cards cleaned"></div>
         </div>
+
+        <div class="panel reveal" id="cleanup-block" style="--d:340ms">
+          <h3>DISK CLEANUP</h3>
+          <div id="cleanup-loading" class="cleanup-note dim">measuring reclaimable space…</div>
+          <div id="cleanup-body" class="hidden">
+            <div id="cleanup-total" class="cleanup-total"></div>
+            <div id="cleanup-grid" class="cleanup-grid"></div>
+            <div id="cleanup-downloads" class="hidden">
+              <div class="dl-head">OLD INSTALLERS IN DOWNLOADS — TICK WHAT MAY GO</div>
+              <ul id="cleanup-dl-list" class="dl-list"></ul>
+            </div>
+            <div class="cleanup-actions">
+              <button id="cleanup-btn" class="btn" disabled>Clean up</button>
+              <span id="cleanup-status" class="dim"></span>
+            </div>
+            <ul id="cleanup-failures" class="dl-list cleanup-failures hidden"></ul>
+          </div>
+        </div>
         </div>
         </div>
 

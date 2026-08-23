@@ -169,6 +169,104 @@
 
   let scanRuns = 0;
 
+  // ---- disk cleanup mock --------------------------------------------------
+
+  //   __CURE_MOCK_CLEANUP_FAILURES  when true, run_cleanup reports one locked file
+  if (window.__CURE_MOCK_CLEANUP_FAILURES === undefined) {
+    window.__CURE_MOCK_CLEANUP_FAILURES = false;
+  }
+
+  const CLEANUP_CATEGORIES = [
+    { key: "temp", label: "Temp files", item_count: 1242, total_bytes: 6871947674 },
+    { key: "browser_cache", label: "Browser caches", item_count: 2, total_bytes: 283115776 },
+    { key: "recycle_bin", label: "Recycle Bin", item_count: 0, total_bytes: 0 },
+    { key: "windows_old", label: "Windows.old", item_count: 1, total_bytes: 32851861504 },
+  ];
+
+  const CLEANUP_DOWNLOADS = [
+    {
+      path: "C:\\Users\\bob\\Downloads\\setup_toolkit.exe",
+      name: "setup_toolkit.exe",
+      size_bytes: 48923136,
+      age_days: 63,
+    },
+    {
+      path: "C:\\Users\\bob\\Downloads\\driver_pack_2024.msi",
+      name: "driver_pack_2024.msi",
+      size_bytes: 12582912,
+      age_days: 41,
+    },
+    {
+      path: "C:\\Users\\bob\\Downloads\\old-installer.exe",
+      name: "old-installer.exe",
+      size_bytes: 2097152,
+      age_days: 122,
+    },
+  ];
+
+  function snapshotCleanupMock() {
+    return {
+      categories: CLEANUP_CATEGORIES.map((c) => ({ ...c })),
+      downloads: CLEANUP_DOWNLOADS.map((d) => ({ ...d })),
+      total_bytes:
+        CLEANUP_CATEGORIES.reduce((sum, c) => sum + c.total_bytes, 0) +
+        CLEANUP_DOWNLOADS.reduce((sum, d) => sum + d.size_bytes, 0),
+    };
+  }
+
+  function scanCleanupMock() {
+    return delay(420).then(snapshotCleanupMock);
+  }
+
+  function runCleanupMock(args) {
+    window.__CURE_LAST_CLEANUP_CALL = JSON.parse(JSON.stringify(args || {}));
+    return delay(750).then(() => {
+      // real tauri maps camelCase JS keys to snake_case rust params; accept both
+      const catSel = args.categories || [];
+      const dlSel = args.download_paths || args.downloadPaths || [];
+      if (window.__CURE_MOCK_CLEANUP_FAILURES) {
+        const freed =
+          catSel.reduce((sum, key) => {
+            const cat = CLEANUP_CATEGORIES.find((c) => c.key === key);
+            return sum + (cat ? Math.round(cat.total_bytes * 0.9) : 0);
+          }, 0) +
+          dlSel.reduce((sum, p) => {
+            const dl = CLEANUP_DOWNLOADS.find((d) => d.path === p);
+            return sum + (dl ? dl.size_bytes : 0);
+          }, 0);
+        return {
+          attempted: catSel.length + dlSel.length,
+          deleted: Math.max(0, catSel.length - 1) + dlSel.length,
+          failed: 1,
+          bytes_freed: freed,
+          failures: [
+            {
+              path: "C:\\Windows\\Temp\\locked-by-running-process.tmp",
+              reason:
+                "The process cannot access the file because it is being used by another process. (os error 32)",
+            },
+          ],
+        };
+      }
+      const freed =
+        catSel.reduce((sum, key) => {
+          const cat = CLEANUP_CATEGORIES.find((c) => c.key === key);
+          return sum + (cat ? cat.total_bytes : 0);
+        }, 0) +
+        dlSel.reduce((sum, p) => {
+          const dl = CLEANUP_DOWNLOADS.find((d) => d.path === p);
+          return sum + (dl ? dl.size_bytes : 0);
+        }, 0);
+      return {
+        attempted: catSel.length + dlSel.length,
+        deleted: catSel.length + dlSel.length,
+        failed: 0,
+        bytes_freed: freed,
+        failures: [],
+      };
+    });
+  }
+
   async function runAutoScan() {
     scanRuns += 1;
     window.__CURE_SCAN_DONE = false;
@@ -270,6 +368,10 @@
                 console.info("[mock-tauri] exit_app invoked (dev harness stays open)");
               }
             });
+          case "scan_cleanup":
+            return scanCleanupMock();
+          case "run_cleanup":
+            return runCleanupMock(args);
           default:
             return Promise.reject(new Error("mock-tauri: unknown command " + command));
         }

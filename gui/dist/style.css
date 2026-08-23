@@ -727,3 +727,108 @@ body {
   #footbar-msg { transition: none !important; }
   .log li.item-line.fresh { animation: none !important; }
 }
+
+/* ---------- disk cleanup ---------- */
+
+.cleanup-note { font-size: 12.5px; }
+
+.cleanup-total {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.cleanup-total b {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.cleanup-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cleanup-cat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 150px;
+  padding: 10px 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, opacity 0.15s, background 0.15s;
+}
+.cleanup-cat:hover:not(:disabled) { border-color: var(--accent-border); }
+.cleanup-cat.on {
+  border-color: var(--accent-border);
+  background:
+    linear-gradient(var(--accent-dim), var(--accent-dim)),
+    var(--panel-2);
+}
+.cleanup-cat.off { opacity: 0.45; }
+.cleanup-cat.off .cc-name { text-decoration: line-through; }
+.cleanup-cat:disabled { opacity: 0.35; cursor: default; }
+
+.cc-name { font-size: 12.5px; }
+.cc-size { font-family: var(--font-mono); font-size: 16px; font-weight: 600; }
+.cc-count { font-size: 11px; color: var(--text-faint); }
+
+.dl-head {
+  margin-top: 14px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--caution);
+}
+
+.dl-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dl-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+.dl-item input[type="checkbox"] { accent-color: var(--danger); }
+.dl-item .dl-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-item .dl-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.cleanup-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+#cleanup-btn.arm-danger {
+  background: var(--danger);
+  border-color: transparent;
+  color: #fff;
+}
+
+.cleanup-failures li {
+  font-size: 11.5px;
+  color: var(--caution);
+  overflow-wrap: anywhere;
+}

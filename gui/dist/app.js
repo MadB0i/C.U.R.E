@@ -1067,6 +1067,7 @@
       await switchView(scanView, resultsView);
       if (token !== scanToken) return;
       renderResults(summary);
+      loadCleanup(true);
     } catch (err) {
       radar.stop();
       setPill("error", String(err));
@@ -1150,6 +1151,222 @@
       await invoke("exit_app");
     } catch (err) {
       footFeedback(cleanErrText(err, "Could not exit app"), true);
+    }
+  });
+
+  // ---- disk cleanup -------------------------------------------------------
+
+  function fmtBytes(n) {
+    if (n >= 1073741824) return (n / 1073741824).toFixed(1) + " GB";
+    if (n >= 1048576) return (n / 1048576).toFixed(1) + " MB";
+    if (n >= 1024) return Math.round(n / 1024) + " KB";
+    return n + " B";
+  }
+
+  const cleanupEls = {
+    loading: document.getElementById("cleanup-loading"),
+    body: document.getElementById("cleanup-body"),
+    total: document.getElementById("cleanup-total"),
+    grid: document.getElementById("cleanup-grid"),
+    downloads: document.getElementById("cleanup-downloads"),
+    dlList: document.getElementById("cleanup-dl-list"),
+    btn: document.getElementById("cleanup-btn"),
+    status: document.getElementById("cleanup-status"),
+    failures: document.getElementById("cleanup-failures"),
+  };
+
+  const cleanupState = {
+    summary: null,
+    selectedCats: new Set(),
+    checkedDownloads: new Set(),
+    armed: false,
+    armTimer: null,
+    running: false,
+  };
+
+  function disarmCleanupButton() {
+    cleanupState.armed = false;
+    clearTimeout(cleanupState.armTimer);
+    cleanupEls.status.textContent = "";
+    updateCleanupButton();
+  }
+
+  function cleanupSelectionBytes() {
+    let bytes = 0;
+    for (const cat of cleanupState.summary.categories) {
+      if (cat.item_count > 0 && cleanupState.selectedCats.has(cat.key)) {
+        bytes += cat.total_bytes;
+      }
+    }
+    for (const dl of cleanupState.summary.downloads) {
+      if (cleanupState.checkedDownloads.has(dl.path)) bytes += dl.size_bytes;
+    }
+    return bytes;
+  }
+
+  function updateCleanupButton() {
+    const s = cleanupState.summary;
+    const anyCat =
+      s &&
+      s.categories.some(
+        (c) => c.item_count > 0 && cleanupState.selectedCats.has(c.key)
+      );
+    const anyDl = cleanupState.checkedDownloads.size > 0;
+    const enabled = (anyCat || anyDl) && !cleanupState.running;
+    cleanupEls.btn.disabled = !enabled;
+    cleanupEls.btn.classList.toggle("arm-danger", cleanupState.armed);
+    cleanupEls.btn.textContent = cleanupState.armed
+      ? "Really free " + fmtBytes(cleanupSelectionBytes()) + "?"
+      : "Clean up";
+  }
+
+  function renderCleanup(summary, keepResult = false) {
+    cleanupState.summary = summary;
+    cleanupState.selectedCats = new Set();
+    cleanupState.checkedDownloads = new Set();
+    cleanupState.armed = false;
+    clearTimeout(cleanupState.armTimer);
+    cleanupState.running = false;
+
+    cleanupEls.loading.classList.add("hidden");
+    cleanupEls.body.classList.remove("hidden");
+    if (!keepResult) {
+      cleanupEls.status.textContent = "";
+      cleanupEls.failures.classList.add("hidden");
+      cleanupEls.failures.innerHTML = "";
+    }
+
+    const itemCount = summary.categories.reduce((n, c) => n + c.item_count, 0);
+    cleanupEls.total.innerHTML =
+      "≈ <b>" + fmtBytes(summary.total_bytes) + "</b> reclaimable across " +
+      (itemCount + summary.downloads.length) + " items";
+
+    cleanupEls.grid.innerHTML = "";
+    for (const cat of summary.categories) {
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "cleanup-cat";
+      card.dataset.key = cat.key;
+      card.disabled = cat.item_count === 0;
+      const on = cat.item_count > 0;
+      if (on) cleanupState.selectedCats.add(cat.key);
+      card.classList.toggle("on", on);
+      card.classList.toggle("off", !on);
+      card.title = on
+        ? "Click to skip this category"
+        : cat.item_count === 0
+          ? "Nothing found in this category"
+          : "Currently skipped — click to include";
+      const name = document.createElement("span");
+      name.className = "cc-name";
+      name.textContent = cat.label;
+      const size = document.createElement("span");
+      size.className = "cc-size";
+      size.textContent = fmtBytes(cat.total_bytes);
+      const count = document.createElement("span");
+      count.className = "cc-count";
+      count.textContent =
+        cat.item_count + (cat.item_count === 1 ? " item" : " items");
+      card.append(name, size, count);
+      card.addEventListener("click", () => {
+        if (card.disabled) return;
+        const nowOn = !cleanupState.selectedCats.has(cat.key);
+        if (nowOn) cleanupState.selectedCats.add(cat.key);
+        else cleanupState.selectedCats.delete(cat.key);
+        card.classList.toggle("on", nowOn);
+        card.classList.toggle("off", !nowOn);
+        card.title = nowOn ? "Click to skip this category" : "Currently skipped — click to include";
+        disarmCleanupButton();
+      });
+      cleanupEls.grid.appendChild(card);
+    }
+
+    cleanupEls.downloads.classList.toggle(
+      "hidden",
+      summary.downloads.length === 0
+    );
+    cleanupEls.dlList.innerHTML = "";
+    for (const dl of summary.downloads) {
+      const li = document.createElement("li");
+      li.className = "dl-item";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.dataset.path = dl.path;
+      box.addEventListener("change", () => {
+        if (box.checked) cleanupState.checkedDownloads.add(dl.path);
+        else cleanupState.checkedDownloads.delete(dl.path);
+        disarmCleanupButton();
+      });
+      const name = document.createElement("span");
+      name.className = "dl-name";
+      name.textContent = dl.name;
+      name.title = dl.path;
+      const meta = document.createElement("span");
+      meta.className = "dl-meta";
+      meta.textContent = fmtBytes(dl.size_bytes) + " · " + dl.age_days + "d old";
+      li.append(box, name, meta);
+      cleanupEls.dlList.appendChild(li);
+    }
+
+    updateCleanupButton();
+  }
+
+  async function loadCleanup(clearStatus = false) {
+    if (clearStatus) cleanupEls.status.textContent = "";
+    cleanupEls.body.classList.add("hidden");
+    cleanupEls.loading.classList.remove("hidden");
+    cleanupEls.loading.textContent = "measuring reclaimable space…";
+    try {
+      const summary = await invoke("scan_cleanup");
+      renderCleanup(summary, !clearStatus);
+    } catch (err) {
+      cleanupEls.loading.textContent =
+        "disk cleanup unavailable: " + cleanErrText(err, String(err));
+    }
+  }
+
+  cleanupEls.btn.addEventListener("click", async () => {
+    if (cleanupState.running || cleanupEls.btn.disabled) return;
+    if (!cleanupState.armed) {
+      cleanupState.armed = true;
+      updateCleanupButton();
+      clearTimeout(cleanupState.armTimer);
+      cleanupState.armTimer = setTimeout(disarmCleanupButton, 4000);
+      return;
+    }
+    cleanupState.running = true;
+    clearTimeout(cleanupState.armTimer);
+    cleanupState.armed = false;
+    cleanupEls.btn.disabled = true;
+    cleanupEls.btn.textContent = "Cleaning…";
+    try {
+      const result = await invoke("run_cleanup", {
+        categories: Array.from(cleanupState.selectedCats),
+        downloadPaths: Array.from(cleanupState.checkedDownloads),
+      });
+      cleanupEls.status.textContent =
+        "Freed " + fmtBytes(result.bytes_freed) +
+        " — deleted " + result.deleted + " of " + result.attempted +
+        (result.failed ? ", " + result.failed + " locked or failed" : "");
+      if (result.failures.length > 0) {
+        cleanupEls.failures.innerHTML = "";
+        for (const failure of result.failures) {
+          const li = document.createElement("li");
+          li.textContent = failure.path + " — " + failure.reason;
+          cleanupEls.failures.appendChild(li);
+        }
+        cleanupEls.failures.classList.remove("hidden");
+      }
+      footFeedback(
+        "Disk cleanup freed " + fmtBytes(result.bytes_freed),
+        false
+      );
+    } catch (err) {
+      cleanupEls.status.textContent =
+        "cleanup failed: " + cleanErrText(err, String(err));
+    } finally {
+      cleanupState.running = false;
+      loadCleanup();
     }
   });
 

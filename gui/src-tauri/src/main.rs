@@ -6,6 +6,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use cure_core::{baseline, quarantine, risk, scanners};
+use cure_core::cleanup as disk_cleanup;
 use cure_core::model::{PersistenceEntry, PersistenceSource, RiskLevel, ScoredEntry};
 
 #[derive(Debug, Clone, Serialize)]
@@ -238,6 +239,138 @@ fn exit_app(app: AppHandle) {
     app.exit(0);
 }
 
+// ---------------------------------------------------------------------------
+// disk cleanup
+// ---------------------------------------------------------------------------
+
+const CLEANUP_DOWNLOADS_AGE_DAYS: u32 = 30;
+
+#[derive(Serialize)]
+struct CleanupCategorySummary {
+    key: String,
+    label: String,
+    item_count: usize,
+    total_bytes: u64,
+}
+
+#[derive(Serialize)]
+struct CleanupDownloadItem {
+    path: String,
+    name: String,
+    size_bytes: u64,
+    age_days: u64,
+}
+
+#[derive(Serialize)]
+struct CleanupScanSummary {
+    categories: Vec<CleanupCategorySummary>,
+    downloads: Vec<CleanupDownloadItem>,
+    total_bytes: u64,
+}
+
+fn downloads_age_days(path: &Path) -> u64 {
+    std::fs::metadata(path)
+        .ok()
+        .and_then(|md| md.modified().ok())
+        .and_then(|m| std::time::SystemTime::now().duration_since(m).ok())
+        .map(|d| d.as_secs() / 86_400)
+        .unwrap_or(0)
+}
+
+fn scan_cleanup_candidates() -> (Vec<disk_cleanup::CleanupCandidate>, Vec<disk_cleanup::CleanupCandidate>) {
+    let safe = disk_cleanup::scan_all();
+    let downloads = disk_cleanup::scan_old_downloads(CLEANUP_DOWNLOADS_AGE_DAYS);
+    (safe, downloads)
+}
+
+#[tauri::command]
+fn scan_cleanup() -> Result<CleanupScanSummary, String> {
+    let (safe, downloads) = scan_cleanup_candidates();
+
+    let categories = disk_cleanup::summarize(&safe)
+        .into_iter()
+        .filter(|row| row.category != disk_cleanup::CleanupCategory::DownloadsInstaller)
+        .map(|row| CleanupCategorySummary {
+            key: row.category.key().to_string(),
+            label: row.category.label().to_string(),
+            item_count: row.item_count,
+            total_bytes: row.total_bytes,
+        })
+        .collect();
+
+    let download_items: Vec<CleanupDownloadItem> = downloads
+        .iter()
+        .map(|candidate| CleanupDownloadItem {
+            path: candidate.path.to_string_lossy().into_owned(),
+            name: candidate
+                .path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+            size_bytes: candidate.size_bytes,
+            age_days: downloads_age_days(&candidate.path),
+        })
+        .collect();
+
+    let total_bytes = safe.iter().map(|c| c.size_bytes).sum::<u64>()
+        + downloads.iter().map(|c| c.size_bytes).sum::<u64>();
+
+    Ok(CleanupScanSummary {
+        categories,
+        downloads: download_items,
+        total_bytes,
+    })
+}
+
+#[derive(Serialize)]
+struct CleanupResultDto {
+    attempted: usize,
+    deleted: usize,
+    failed: usize,
+    bytes_freed: u64,
+    failures: Vec<CleanupFailureDto>,
+}
+
+#[derive(Serialize)]
+struct CleanupFailureDto {
+    path: String,
+    reason: String,
+}
+
+#[tauri::command]
+fn run_cleanup(
+    categories: Vec<String>,
+    download_paths: Vec<String>,
+) -> Result<CleanupResultDto, String> {
+    let (safe, downloads) = scan_cleanup_candidates();
+
+    let mut targets: Vec<disk_cleanup::CleanupCandidate> = safe
+        .into_iter()
+        .filter(|c| categories.iter().any(|key| key == c.category.key()))
+        .collect();
+    targets.extend(downloads.into_iter().filter(|candidate| {
+        let as_str = candidate.path.to_string_lossy();
+        download_paths.iter().any(|p| p == &as_str)
+    }));
+
+    let result = disk_cleanup::delete_candidates(&targets);
+    Ok(CleanupResultDto {
+        attempted: result.attempted,
+        deleted: result.deleted,
+        failed: result.failed,
+        bytes_freed: result.bytes_freed,
+        failures: result
+            .failures
+            .into_iter()
+            .map(|f| CleanupFailureDto {
+                path: f.path.to_string_lossy().into_owned(),
+                reason: f.reason,
+            })
+            .collect(),
+    })
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -246,7 +379,9 @@ fn main() {
             undo_entry,
             open_quarantine_folder,
             view_log,
-            exit_app
+            exit_app,
+            scan_cleanup,
+            run_cleanup
         ])
         .setup(|app| {
             if launched_by_watcher() {
