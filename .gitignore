@@ -3,3 +3,7 @@ gui/src-tauri/target/
 gui/src-tauri/gen/
 testing/fake-overlay/target/
 node_modules/
+
+testing/vm-stage/*.exe
+testing/vm-stage/cure-evidence/
+testing/vm-stage/System Volume Information/

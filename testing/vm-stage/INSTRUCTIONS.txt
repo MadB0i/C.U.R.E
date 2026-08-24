@@ -1,0 +1,60 @@
+C.U.R.E REAL-VM VALIDATION - GUEST MANUAL STEPS (test-only)
+============================================================
+
+You only do THREE things inside the VM. Everything else is automated
+by run-cure-validation.ps1 or handled from the host.
+
+STEP 1 - Setup (one manual cure-watch launch, then it gets killed)
+------------------------------------------------------------------
+1. Log in to Windows.
+2. Open Explorer, go to the "cure-stage" shared-folder drive
+   (or type \\VBoxSVR\cure-stage in the address bar).
+3. Open PowerShell in that folder (File menu > Open Windows PowerShell).
+4. Run:
+
+   Copy-Item run-cure-validation.ps1 C:\cure-test-run.ps1
+   powershell -NoProfile -ExecutionPolicy Bypass -File C:\cure-test-run.ps1 -Phase Setup
+
+   (Copying the runner to C:\ first keeps it alive across the reboot.)
+
+5. Wait for "SETUP VERDICT: PASS". It has now:
+   - verified WebView2, copied exes, launched cure-watch ONCE,
+   - confirmed the [install] log line and the Startup-folder file,
+   - KILLED the manually-launched instance.
+   If WebView2 is reported MISSING: install Edge or the WebView2 runtime
+   inside the guest first, then re-run the same command.
+
+STEP 2 - Reboot (the actual test)
+---------------------------------
+6. Reboot the VM normally (Start > Restart). Do NOT touch anything else.
+7. Log back in. The Startup-folder copy of cure-watch must now have
+   started ITSELF - do not start anything manually.
+8. Immediately run:
+
+   powershell -NoProfile -ExecutionPolicy Bypass -File C:\cure-test\run-cure-validation.ps1 -Phase PostReboot
+
+9. Wait for "POST-REBOOT VERDICT: PASS ... zero manual action".
+   This is the whole point of this validation.
+
+STEP 3 - Overlay + USB
+----------------------
+10. Run:
+
+    powershell -NoProfile -ExecutionPolicy Bypass -File C:\cure-test\run-cure-validation.ps1 -Phase OverlayAndUSB
+
+11. The screen will be covered by the red fullscreen TEST FIXTURE.
+    When it says so, TELL THE HOST OPERATOR ("ready for USB") -
+    they will attach a physical USB drive to the VM from VirtualBox.
+12. Keep hands off keyboard/mouse for ~60 seconds. The script polls,
+    collects all evidence (log, z-order, pixels, screenshots,
+    baseline.json) and prints the FINAL CHECKLIST.
+13. Report the verdict back to the host operator. Done - cleanup
+    happens on the host via snapshot restore.
+
+Notes
+-----
+- Evidence files appear in C:\cure-test\evidence and are mirrored to
+  \\VBoxSVR\cure-stage\cure-evidence automatically.
+- If anything FAILs, do not fix or retry silently - just tell the
+  host operator what the summary said. That is exactly what we want
+  to capture.
