@@ -685,7 +685,7 @@
       // available height so the constellation fills the panel instead of
       // floating as a landscape-biased blob mid-card
       R = Math.max(10, (H / 2 - 8 * DPR) * 0.92);
-      RX = Math.max(30, Math.min(W / 2 - 16 * DPR, R * 1.5));
+      RX = Math.max(30, Math.min(W / 2 - 12 * DPR, R * 2.2));
       return true;
     }
     function onResize() {
@@ -713,9 +713,11 @@
       return "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + a + ")";
     }
     function nodeXY(nd) {
+      // spread nodes toward the panel edges: rf [0.58..0.92] -> [0.6..0.975]
+      const rm = 0.6 + (nd.rf - 0.58) * 1.1;
       return {
-        x: CX + Math.cos(nd.ang) * nd.rf * RX,
-        y: CY + Math.sin(nd.ang) * nd.rf * R,
+        x: CX + Math.cos(nd.ang) * rm * RX,
+        y: CY + Math.sin(nd.ang) * rm * R,
       };
     }
     function edgeAlpha(risk) {
@@ -1254,6 +1256,11 @@
         "Scan complete — review needed"
       );
     }
+
+    // idle mascot keeps the all-clear map company; hides while findings
+    // are up so it never collides with the darting quarantine mascot
+    const idleOrb = document.getElementById("map-idle-orb");
+    if (idleOrb) idleOrb.classList.toggle("hidden", trouble !== 0);
 
     const revealables = resultsView.querySelectorAll(".reveal");
     if (!REDUCED && revealables.length > 0) {

@@ -57,6 +57,22 @@
 
   function makeMockItems(n) {
     const items = [];
+    if (window.__CURE_MOCK_ALL_CLEAR) {
+      for (let i = 0; i < n; i++) {
+        items.push({
+          source: "scheduled-task",
+          name: "Microsoft\\Windows\\Maintenance\\TelemetrySvc" + (i || ""),
+          command: "C:\\Windows\\System32\\telemetrysvc" + i + ".exe /quiet",
+          location: "C:\\Windows\\System32\\Tasks\\Microsoft\\Windows\\Maintenance\\TelemetrySvc" + i,
+          risk: "Safe",
+          score: 0,
+          reasons: [
+            "-20 command path is a trusted install location (Program Files/System32)",
+          ],
+        });
+      }
+      return items;
+    }
     for (let i = 0; i < n; i++) {
       const base =
         NAME_PREFIXES[i % NAME_PREFIXES.length] + (i % 3 === 0 ? String(i) : "");

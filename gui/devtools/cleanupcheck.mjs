@@ -31,6 +31,8 @@ async function openPage(browser, init = {}, viewport = { width: 900, height: 600
     window.__CURE_MOCK_CLEANUP_DELAY_MS = cfg.delayMs ?? 900;
   }, init);
   await page.goto(devPageUrl);
+  await page.waitForSelector("#landing-view:not(.hidden)", { timeout: 15000 });
+  await page.click("#start-rescue-btn");
   await page.waitForSelector("#results-view:not(.hidden)", { timeout: 60000 });
   return { context, page, pageErrors };
 }
@@ -45,7 +47,7 @@ const browser = await chromium.launch();
     "old embedded cleanup panel is gone",
     (await page.$("#cleanup-block")) === null
   );
-  check("ghost link visible in results view", await page.isVisible("#open-cleanup"));
+  check("disk-space card visible in results view", await page.isVisible("#open-cleanup"));
 
   await page.click("#open-cleanup");
   await page.waitForSelector("#cleanup-view:not(.hidden)", { timeout: 15000 });

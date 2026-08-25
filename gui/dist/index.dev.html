@@ -89,6 +89,15 @@
           </div>
         </div>
 
+        <button id="open-cleanup" class="disk-card reveal" style="--d:260ms">
+          <svg class="disk-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="18" height="10" rx="2.2"/><path d="M7.5 12h6.2"/><circle cx="16.9" cy="12" r="1" fill="currentColor" stroke="none"/></svg>
+          <span class="disk-copy">
+            <span class="disk-label">Check disk space</span>
+            <span class="disk-sub">Reclaim temp files, browser caches and old installers</span>
+          </span>
+          <svg class="disk-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 6.5l5.5 5.5-5.5 5.5"/></svg>
+        </button>
+
         <div class="panel reveal" id="cleaned-block" style="--d:300ms">
           <h3>QUARANTINED AUTOMATICALLY</h3>
           <div id="cleaned-cards" class="entry-cards cleaned"></div>
@@ -113,10 +122,6 @@
             to check for a known decryptor. C.U.R.E cannot decrypt files.
           </div>
         </div>
-
-        <div class="cleanup-link-row reveal" style="--d:380ms">
-          <button id="open-cleanup" class="ghost-btn">Check disk space</button>
-        </div>
         </div>
         </div>
 
@@ -127,7 +132,21 @@
             <span class="feed-title">SCAN MAP</span>
             <span id="map-count" class="feed-count">0 nodes</span>
           </div>
-          <div id="map-stage"><canvas id="map-canvas"></canvas></div>
+          <div id="map-stage">
+            <canvas id="map-canvas"></canvas>
+            <div id="map-idle-orb" class="idle-orb hidden" aria-hidden="true">
+              <svg viewBox="-20 -20 40 40" width="34" height="34">
+                <defs>
+                  <radialGradient id="orb-grad-map" cx="35%" cy="32%" r="80%">
+                    <stop offset="0%" stop-color="#d9d4ff"/>
+                    <stop offset="45%" stop-color="#7c6cf0"/>
+                    <stop offset="100%" stop-color="#453aa6"/>
+                  </radialGradient>
+                </defs>
+                <circle r="13" fill="url(#orb-grad-map)"/>
+              </svg>
+            </div>
+          </div>
         </aside>
       </section>
         <section id="cleanup-view" class="view hidden">
@@ -150,8 +169,22 @@
 
               <div class="panel reveal" id="cleanup-panel" style="--d:160ms">
                 <div id="cleanup-idle" class="cleanup-idle hidden">
-                  <div class="cleanup-note dim">Check for reclaimable junk — temp files, browser caches, Recycle Bin, Windows.old, old installers. Nothing is scanned or deleted until you start.</div>
-                  <button id="cleanup-scan-btn" class="btn" style="margin-top:10px">Scan disk</button>
+                  <div class="idle-orb cleanup-idle-orb" aria-hidden="true">
+                    <svg viewBox="-20 -20 40 40" width="40" height="40">
+                      <defs>
+                        <radialGradient id="orb-grad-idle" cx="35%" cy="32%" r="80%">
+                          <stop offset="0%" stop-color="#d9d4ff"/>
+                          <stop offset="45%" stop-color="#7c6cf0"/>
+                          <stop offset="100%" stop-color="#453aa6"/>
+                        </radialGradient>
+                      </defs>
+                      <circle r="13" fill="url(#orb-grad-idle)"/>
+                    </svg>
+                  </div>
+                  <div class="cleanup-idle-copy">
+                    <div class="cleanup-note dim">Check for reclaimable junk — temp files, browser caches, Recycle Bin, Windows.old, old installers. Nothing is scanned or deleted until you start.</div>
+                    <button id="cleanup-scan-btn" class="btn" style="margin-top:10px">Scan disk</button>
+                  </div>
                 </div>
                 <div id="cleanup-loading" class="cleanup-note dim hidden">measuring reclaimable space…</div>
                 <div id="cleanup-body" class="hidden">
