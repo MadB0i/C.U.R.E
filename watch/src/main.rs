@@ -1,4 +1,6 @@
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+mod consent;
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod detector;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod drives;
@@ -6,6 +8,8 @@ mod drives;
 mod logger;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod trigger;
+
+use consent::{ConsentDecision, CONSENT_FILE_NAME};
 
 const POLL_INTERVAL_MS: u64 = 1500;
 const WATCHER_EXE_NAME: &str = "cure-watch.exe";
@@ -28,6 +32,88 @@ fn main() {
 
 #[cfg(target_os = "windows")]
 fn run() -> Result<(), Box<dyn std::error::Error>> {
+    match consent::decide_consent(read_consent_marker().as_deref()) {
+        ConsentDecision::SkipDeclined => {
+            logger::log("consent", "previously declined; exiting without watching");
+            println!(
+                "background watching is declined on this machine ({}). \
+Delete that file, then run cure-watch.exe again to be asked once more.",
+                CONSENT_FILE_NAME
+            );
+            return Ok(());
+        }
+        ConsentDecision::ProceedEnabled => {
+            logger::log("consent", "previously enabled; proceeding");
+            start_watching()?;
+        }
+        ConsentDecision::AskNow => {
+            logger::log("consent", "first run: asking for consent");
+            if prompt_enable() {
+                logger::log("consent", "user ENABLED background watching");
+                write_consent_marker(true);
+                start_watching()?;
+            } else {
+                logger::log("consent", "user DECLINED background watching");
+                write_consent_marker(false);
+                println!(
+                    "declined — nothing was installed and the watcher is not running. \
+Delete {} and re-run to be asked again.",
+                    CONSENT_FILE_NAME
+                );
+                return Ok(());
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn read_consent_marker() -> Option<String> {
+    std::fs::read_to_string(consent::marker_path()?).ok()
+}
+
+#[cfg(target_os = "windows")]
+fn write_consent_marker(enabled: bool) {
+    if let Some(path) = consent::marker_path() {
+        if let Err(err) = std::fs::write(&path, consent::marker_body(enabled)) {
+            logger::log("consent", &format!("failed to write marker: {err}"));
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn prompt_enable() -> bool {
+    use windows::core::PCWSTR;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        MessageBoxW, IDYES, MB_ICONQUESTION, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO,
+    };
+
+    const TEXT: &str = "C.U.R.E Watcher wants to run quietly in the background:\n\n\
+  \u{2022} It watches for newly inserted USB drives.\n\
+  \u{2022} When a drive carrying a valid C.U.R.E trigger file is detected, it \
+auto-launches a one-click rescue scan from that drive.\n\
+  \u{2022} Nothing is scanned, launched or changed until such a trigger drive \
+is inserted.\n\n\
+Enable background watching? (Yes = enable and start on login; No = decline, \
+nothing gets installed)";
+
+    const CAPTION: &str = "C.U.R.E — background rescue watcher";
+
+    let text: Vec<u16> = TEXT.encode_utf16().chain(std::iter::once(0)).collect();
+    let caption: Vec<u16> = CAPTION.encode_utf16().chain(std::iter::once(0)).collect();
+    let result = unsafe {
+        MessageBoxW(
+            None,
+            PCWSTR(text.as_ptr()),
+            PCWSTR(caption.as_ptr()),
+            MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST,
+        )
+    };
+    result == IDYES
+}
+
+#[cfg(target_os = "windows")]
+fn start_watching() -> Result<(), Box<dyn std::error::Error>> {
     self_install()?;
     logger::log(
         "startup",

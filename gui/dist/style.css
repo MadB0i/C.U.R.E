@@ -832,3 +832,72 @@ body {
   color: var(--caution);
   overflow-wrap: anywhere;
 }
+
+/* ---------- cleanup link + separate cleanup view + mascot ---------- */
+
+.cleanup-link-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.toss-stage { flex: none; }
+.toss-stage svg { display: block; overflow: visible; }
+
+.cleanup-live-counter {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--accent);
+}
+
+/* ---------- landing (manual launch) + cleanup idle/result states ---------- */
+
+.landing {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+  max-width: 460px;
+}
+.landing .subline { text-align: center; }
+.landing-orb {
+  filter: drop-shadow(0 0 18px rgba(124, 108, 240, 0.35));
+  animation: orb-bob 3.2s ease-in-out infinite;
+}
+@keyframes orb-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+.cleanup-idle {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.cleanup-idle .cleanup-note { margin: 0; }
+
+.cleanup-result {
+  margin-top: 10px;
+  font-size: 12.5px;
+}
+
+.pill.idle .pill-dot { background: var(--text-faint); }
+
+#cleanup-btn.btn-active {
+  background: var(--accent-dim);
+  border-color: var(--accent-border);
+  color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-orb { animation: none !important; }
+}
+
+/* cleanup view must fit a 600px-tall window without pushing the result
+   line below the fold */
+#cleanup-view .results-stack { gap: 16px; }
+#cleanup-view .results-main { padding-top: 14px; }
+#cleanup-view .results-head { margin-bottom: -6px; }

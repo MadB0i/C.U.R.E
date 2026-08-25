@@ -172,8 +172,19 @@
   // ---- disk cleanup mock --------------------------------------------------
 
   //   __CURE_MOCK_CLEANUP_FAILURES  when true, run_cleanup reports one locked file
+  //   __CURE_MOCK_CLEANUP_DELAY_MS  how long run_cleanup pretends to take
+  //   __CURE_MOCK_RESCUE            when false, launch_info reports a manual
+  //                                 (double-clicked) launch -> landing state.
+  //                                 Defaults to true so harnesses keep the
+  //                                 watcher-triggered auto-scan flow.
   if (window.__CURE_MOCK_CLEANUP_FAILURES === undefined) {
     window.__CURE_MOCK_CLEANUP_FAILURES = false;
+  }
+  if (window.__CURE_MOCK_CLEANUP_DELAY_MS === undefined) {
+    window.__CURE_MOCK_CLEANUP_DELAY_MS = 750;
+  }
+  if (window.__CURE_MOCK_RESCUE === undefined) {
+    window.__CURE_MOCK_RESCUE = true;
   }
 
   const CLEANUP_CATEGORIES = [
@@ -220,7 +231,7 @@
 
   function runCleanupMock(args) {
     window.__CURE_LAST_CLEANUP_CALL = JSON.parse(JSON.stringify(args || {}));
-    return delay(750).then(() => {
+    return delay(window.__CURE_MOCK_CLEANUP_DELAY_MS).then(() => {
       // real tauri maps camelCase JS keys to snake_case rust params; accept both
       const catSel = args.categories || [];
       const dlSel = args.download_paths || args.downloadPaths || [];
@@ -337,6 +348,10 @@
     core: {
       invoke(command, args) {
         switch (command) {
+          case "launch_info":
+            return delay(30).then(() => ({
+              rescue: window.__CURE_MOCK_RESCUE !== false,
+            }));
           case "run_auto_scan":
             return runAutoScan();
           case "quarantine_entry":

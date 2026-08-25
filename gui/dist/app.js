@@ -19,6 +19,8 @@
   const feedCountEl = document.getElementById("feed-count");
   const scanView = document.getElementById("scan-view");
   const resultsView = document.getElementById("results-view");
+  const cleanupView = document.getElementById("cleanup-view");
+  const landingView = document.getElementById("landing-view");
 
   let scanToken = 0;
   window.__curePingCount = 0;
@@ -162,6 +164,7 @@
     let pings = [];
     let pulses = [];
     let lastPulse = 0;
+    let mascot = null;
     let W = 0;
     let H = 0;
     let CX = 0;
@@ -417,6 +420,71 @@
       }
     }
 
+    // ---- mascot: violet orb that darts core -> node and knocks threats out
+    const MASCOT_TRAVEL_MS = 340;
+    const MASCOT_IMPACT_MS = 220;
+
+    function drawMascot(now) {
+      if (!mascot) return;
+      const p = nodeXY(mascot.nd);
+      const t = Math.min((now - mascot.start) / MASCOT_TRAVEL_MS, 1);
+      const e = 1 - Math.pow(1 - t, 2.4);
+      const x = CX + (p.x - CX) * e;
+      const y = CY + (p.y - CY) * e;
+
+      mascot.trail.push({ x, y });
+      if (mascot.trail.length > 7) mascot.trail.shift();
+      for (let i = 0; i < mascot.trail.length; i++) {
+        const tr = mascot.trail[i];
+        ctx.fillStyle = ACCENT((((i + 1) / mascot.trail.length) * 0.2).toFixed(3));
+        ctx.beginPath();
+        ctx.arc(tr.x, tr.y, Math.max(0.6, 2.1 - i * 0.18) * DPR, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const stretch = 1 + 0.26 * Math.sin(t * Math.PI);
+      let sx = stretch;
+      let sy = 1 / stretch;
+      let r = 6.2 * DPR;
+
+      if (t >= 1) {
+        const it = Math.min((now - mascot.start - MASCOT_TRAVEL_MS) / MASCOT_IMPACT_MS, 1);
+        const pulse = Math.sin(it * Math.PI);
+        sx = 1 + 0.42 * pulse;
+        sy = 1 - 0.34 * pulse;
+        ctx.lineWidth = 2 * DPR;
+        ctx.strokeStyle = ACCENT(((1 - it) * 0.75).toFixed(3));
+        ring(p.x, p.y, (4 + it * 26) * DPR);
+        ctx.lineWidth = 1 * DPR;
+        ctx.strokeStyle = "rgba(237,237,239," + ((1 - it) * 0.5).toFixed(3) + ")";
+        ring(p.x, p.y, (2 + it * 14) * DPR);
+        r *= 1 + 0.22 * (1 - it);
+        if (it >= 1) {
+          mascot = null;
+          window.__cureMascotActive = false;
+          return;
+        }
+      }
+
+      const ang = Math.atan2(p.y - CY, p.x - CX);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(ang);
+      ctx.scale(sx, sy);
+      const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+      g.addColorStop(0, "#d9d4ff");
+      g.addColorStop(0.5, "#7c6cf0");
+      g.addColorStop(1, "#453aa6");
+      ctx.shadowColor = "rgba(124,108,240,0.65)";
+      ctx.shadowBlur = 10 * DPR;
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+
     function frame(now) {
       if (!pulses.length || now - lastPulse > 2800) {
         pulses.push({ born: now });
@@ -434,6 +502,7 @@
       drawNetwork(now);
       drawPings(now);
       drawCore(now);
+      drawMascot(now);
       rafId = requestAnimationFrame(frame);
     }
 
@@ -457,6 +526,8 @@
         size();
         pings = [];
         pulses = [];
+        mascot = null;
+        window.__cureMascotActive = false;
         NetStore.reset();
         lastPulse = performance.now();
         if (REDUCED) {
@@ -485,6 +556,12 @@
           born: performance.now(),
         });
         if (REDUCED && !rafId) drawStaticFrame();
+      },
+      dispatchMascot(nd) {
+        window.__cureMascotCount = (window.__cureMascotCount || 0) + 1;
+        if (REDUCED || !nd) return;
+        mascot = { nd, start: performance.now(), trail: [] };
+        window.__cureMascotActive = true;
       },
     };
   })();
@@ -1067,7 +1144,6 @@
       await switchView(scanView, resultsView);
       if (token !== scanToken) return;
       renderResults(summary);
-      loadCleanup(true);
     } catch (err) {
       radar.stop();
       setPill("error", String(err));
@@ -1098,7 +1174,7 @@
     setPill("scanning", payload.message);
     if (payload.stage === "cleaning") {
       glitchPillText();
-      radar.ping(lastItemNode);
+      radar.dispatchMascot(lastItemNode);
       lastItemNode = null;
       appendStageLine(payload.stage, payload.message);
       return;
@@ -1154,7 +1230,7 @@
     }
   });
 
-  // ---- disk cleanup -------------------------------------------------------
+  // ---- disk cleanup (separate flow / own view) ----------------------------
 
   function fmtBytes(n) {
     if (n >= 1073741824) return (n / 1073741824).toFixed(1) + " GB";
@@ -1164,6 +1240,13 @@
   }
 
   const cleanupEls = {
+    openBtn: document.getElementById("open-cleanup"),
+    backBtn: document.getElementById("cleanup-back"),
+    statusLine: document.getElementById("cleanup-status-line"),
+    statusText: document.getElementById("cleanup-status-text"),
+    subline: document.getElementById("cleanup-subline"),
+    idle: document.getElementById("cleanup-idle"),
+    scanBtn: document.getElementById("cleanup-scan-btn"),
     loading: document.getElementById("cleanup-loading"),
     body: document.getElementById("cleanup-body"),
     total: document.getElementById("cleanup-total"),
@@ -1173,6 +1256,8 @@
     btn: document.getElementById("cleanup-btn"),
     status: document.getElementById("cleanup-status"),
     failures: document.getElementById("cleanup-failures"),
+    stage: document.getElementById("toss-stage"),
+    liveCounter: document.getElementById("cleanup-live-counter"),
   };
 
   const cleanupState = {
@@ -1182,12 +1267,218 @@
     armed: false,
     armTimer: null,
     running: false,
+    open: false,
+    savedPill: null,
   };
+
+  function setCleanupPill(state, text) {
+    cleanupEls.statusLine.className = "pill " + state;
+    cleanupEls.statusText.textContent = text;
+  }
+
+  // ---- mascot toss animation (SVG, cleanup view) ---------------------------
+
+  const toss = {
+    raf: null,
+    start: 0,
+    expected: 0,
+    active: false,
+    settling: false,
+    svg: null,
+    orbG: null,
+    orb: null,
+    glyphs: null,
+    lid: null,
+    trailG: null,
+    trail: [],
+    flash: null,
+  };
+  const TOSS_CYCLE_MS = 520;
+  const GLYPH_BASE = [
+    [6, 30],
+    [27, 30],
+    [48, 30],
+  ];
+  const ORB_REST = [24, 16];
+  const TRASH_MOUTH = [124, 22];
+
+  function tossInit() {
+    if (toss.svg) return;
+    toss.svg = cleanupEls.stage.querySelector("svg");
+    toss.orbG = document.getElementById("mascot-g");
+    toss.orb = document.getElementById("mascot-orb");
+    toss.glyphs = Array.from(document.querySelectorAll("#file-glyphs .file-glyph"));
+    toss.lid = document.getElementById("trash-lid");
+    toss.trailG = document.getElementById("trail-g");
+    toss.orb.setAttribute("cx", "0");
+    toss.orb.setAttribute("cy", "0");
+    toss.orbG.setAttribute("transform", "translate(" + ORB_REST[0] + " " + ORB_REST[1] + ")");
+    const NS = "http://www.w3.org/2000/svg";
+    for (let i = 0; i < 3; i++) {
+      const c = document.createElementNS(NS, "circle");
+      c.setAttribute("r", "3");
+      c.setAttribute("fill", "rgba(124,108,240,0.3)");
+      c.setAttribute("opacity", "0");
+      toss.trailG.appendChild(c);
+    }
+    toss.flash = document.createElementNS(NS, "circle");
+    toss.flash.setAttribute("r", "0");
+    toss.flash.setAttribute("fill", "none");
+    toss.flash.setAttribute("stroke", "rgba(124,108,240,0.8)");
+    toss.flash.setAttribute("stroke-width", "1.6");
+    toss.flash.setAttribute("opacity", "0");
+    toss.svg.appendChild(toss.flash);
+  }
+
+  function tossSetOrb(x, y, sx, sy) {
+    toss.orbG.setAttribute(
+      "transform",
+      "translate(" + x + " " + y + ") scale(" + sx + " " + sy + ")"
+    );
+  }
+
+  function tossGlyphTransform(i, x, y, s, opacity) {
+    const g = toss.glyphs[i];
+    g.setAttribute("transform", "translate(" + x + " " + y + ") scale(" + s + ")");
+    g.setAttribute("opacity", String(opacity));
+  }
+
+  function easeInOut(t) {
+    return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+  }
+
+  function tossFrame(now) {
+    if (!toss.active) return;
+    const elapsed = now - toss.start;
+    const cycleT = (elapsed % TOSS_CYCLE_MS) / TOSS_CYCLE_MS;
+    const gi = Math.floor(elapsed / TOSS_CYCLE_MS) % toss.glyphs.length;
+    const [gx, gy] = GLYPH_BASE[gi];
+
+    let ox = ORB_REST[0];
+    let oy = ORB_REST[1];
+    let sx = 1;
+    let sy = 1;
+
+    if (cycleT < 0.32) {
+      const t = easeInOut(cycleT / 0.32);
+      ox = ORB_REST[0] + (gx + 6 - ORB_REST[0]) * t;
+      oy = ORB_REST[1] + (gy + 7 - ORB_REST[1]) * t;
+      const stretch = 1 + 0.22 * Math.sin(t * Math.PI);
+      sx = stretch;
+      sy = 1 / stretch;
+      tossGlyphTransform(gi, gx, gy, 1, 1);
+    } else if (cycleT < 0.4) {
+      const t = (cycleT - 0.32) / 0.08;
+      ox = gx + 6;
+      oy = gy + 7;
+      sx = 1 + 0.35 * Math.sin(t * Math.PI);
+      sy = 1 - 0.28 * Math.sin(t * Math.PI);
+      tossGlyphTransform(gi, gx, gy, 1 - 0.2 * t, 1 - 0.6 * t);
+    } else if (cycleT < 0.78) {
+      const t = easeInOut((cycleT - 0.4) / 0.38);
+      const tx = TRASH_MOUTH[0];
+      const ty = TRASH_MOUTH[1];
+      const cxp = (gx + 6 + tx) / 2;
+      const cyp = Math.min(gy, ty) - 26;
+      const gx2 = (1 - t) * (gx + 6) + 2 * (1 - t) * t * cxp + t * t * tx;
+      const gy2 = (1 - t) * (gy + 7) + 2 * (1 - t) * t * cyp + t * t * ty;
+      const ot = Math.max(0, t - 0.06);
+      ox = (1 - ot) * (gx + 6) + 2 * (1 - ot) * ot * cxp + ot * ot * tx;
+      oy = (1 - ot) * (gy + 7) + 2 * (1 - ot) * ot * (cyp + 6) + ot * ot * (ty + 3);
+      const stretch = 1 + 0.2 * Math.sin(t * Math.PI);
+      sx = stretch;
+      sy = 1 / stretch;
+      tossGlyphTransform(gi, gx2, gy2, 1 - 0.35 * t, 1 - 0.6 * t);
+    } else {
+      const t = (cycleT - 0.78) / 0.22;
+      ox = TRASH_MOUTH[0] + (ORB_REST[0] - TRASH_MOUTH[0]) * easeInOut(t);
+      oy = TRASH_MOUTH[1] + (ORB_REST[1] - TRASH_MOUTH[1]) * easeInOut(t);
+      const pop = Math.sin(Math.min(t * 2.2, 1) * Math.PI);
+      toss.lid.setAttribute("transform", "rotate(" + -34 * pop + " -9 -9) translate(0 " + -3 * pop + ")");
+      toss.flash.setAttribute("r", String(2 + pop * 9));
+      toss.flash.setAttribute("opacity", String((1 - t) * 0.8));
+      toss.flash.setAttribute("cx", String(TRASH_MOUTH[0]));
+      toss.flash.setAttribute("cy", String(TRASH_MOUTH[1]));
+      tossGlyphTransform(gi, gx, gy, 0.4, 0);
+    }
+
+    tossSetOrb(ox, oy, sx, sy);
+
+    const trailEls = toss.trailG.children;
+    for (let i = trailEls.length - 1; i >= 0; i--) {
+      const src = trailEls[i];
+      const behind = trailEls.length - i;
+      src.setAttribute("cx", String(ox - behind * 4));
+      src.setAttribute("cy", String(oy + behind * 1.2));
+      src.setAttribute("opacity", String(0.3 - behind * 0.08));
+    }
+
+    const ramp = Math.min(elapsed / 1400, 1);
+    cleanupEls.liveCounter.textContent =
+      "+" + fmtBytes(Math.round(toss.expected * ramp));
+
+    toss.raf = requestAnimationFrame(tossFrame);
+  }
+
+  function startToss(expectedBytes) {
+    window.__cureTossSeen = true;
+    tossInit();
+    cleanupEls.stage.classList.remove("hidden");
+    if (REDUCED) {
+      tossSetOrb(ORB_REST[0], ORB_REST[1], 1, 1);
+      return;
+    }
+    toss.active = true;
+    toss.start = performance.now();
+    toss.expected = Math.max(expectedBytes, 1);
+    window.__cureTossActive = true;
+    cleanupEls.liveCounter.classList.remove("hidden");
+    toss.lid.setAttribute("transform", "");
+    toss.raf = requestAnimationFrame(tossFrame);
+  }
+
+  function stopToss(freedBytes) {
+    if (REDUCED || !toss.active) {
+      if (REDUCED) tossSetOrb(ORB_REST[0], ORB_REST[1], 1, 1);
+      return;
+    }
+    toss.active = false;
+    cancelAnimationFrame(toss.raf);
+    window.__cureTossActive = false;
+    toss.lid.setAttribute("transform", "");
+    toss.flash.setAttribute("opacity", "0");
+    for (let i = 0; i < toss.glyphs.length; i++) {
+      const [gx, gy] = GLYPH_BASE[i];
+      tossGlyphTransform(i, gx, gy, 1, 1);
+    }
+    tossSetOrb(ORB_REST[0], ORB_REST[1], 1, 1);
+    const trailEls = toss.trailG.children;
+    for (const tr of trailEls) tr.setAttribute("opacity", "0");
+    cleanupEls.liveCounter.classList.add("hidden");
+  }
+
+  function resetToss() {
+    if (toss.active) {
+      toss.active = false;
+      cancelAnimationFrame(toss.raf);
+    }
+    if (toss.svg) {
+      tossSetOrb(ORB_REST[0], ORB_REST[1], 1, 1);
+      for (let i = 0; i < toss.glyphs.length; i++) {
+        const [gx, gy] = GLYPH_BASE[i];
+        tossGlyphTransform(i, gx, gy, 1, 1);
+      }
+    }
+    cleanupEls.liveCounter.classList.add("hidden");
+  }
+
+  // ---- cleanup state / rendering -------------------------------------------
 
   function disarmCleanupButton() {
     cleanupState.armed = false;
     clearTimeout(cleanupState.armTimer);
     cleanupEls.status.textContent = "";
+    cleanupEls.status.classList.add("hidden");
     updateCleanupButton();
   }
 
@@ -1215,6 +1506,9 @@
     const enabled = (anyCat || anyDl) && !cleanupState.running;
     cleanupEls.btn.disabled = !enabled;
     cleanupEls.btn.classList.toggle("arm-danger", cleanupState.armed);
+    if (!cleanupState.running) {
+      cleanupEls.btn.classList.remove("btn-active");
+    }
     cleanupEls.btn.textContent = cleanupState.armed
       ? "Really free " + fmtBytes(cleanupSelectionBytes()) + "?"
       : "Clean up";
@@ -1232,6 +1526,7 @@
     cleanupEls.body.classList.remove("hidden");
     if (!keepResult) {
       cleanupEls.status.textContent = "";
+      cleanupEls.status.classList.add("hidden");
       cleanupEls.failures.classList.add("hidden");
       cleanupEls.failures.innerHTML = "";
     }
@@ -1240,6 +1535,8 @@
     cleanupEls.total.innerHTML =
       "≈ <b>" + fmtBytes(summary.total_bytes) + "</b> reclaimable across " +
       (itemCount + summary.downloads.length) + " items";
+    cleanupEls.subline.textContent =
+      itemCount + summary.downloads.length + " cleanable items found on this machine";
 
     cleanupEls.grid.innerHTML = "";
     for (const cat of summary.categories) {
@@ -1311,19 +1608,68 @@
     updateCleanupButton();
   }
 
-  async function loadCleanup(clearStatus = false) {
-    if (clearStatus) cleanupEls.status.textContent = "";
+  async function startCleanupScan(keepResult = false) {
+    cleanupEls.idle.classList.add("hidden");
     cleanupEls.body.classList.add("hidden");
     cleanupEls.loading.classList.remove("hidden");
     cleanupEls.loading.textContent = "measuring reclaimable space…";
+    if (!keepResult) {
+      setCleanupPill("scanning", "measuring reclaimable space…");
+    }
     try {
       const summary = await invoke("scan_cleanup");
-      renderCleanup(summary, !clearStatus);
+      renderCleanup(summary, keepResult);
+      if (!keepResult) {
+        setCleanupPill(
+          "clean",
+          "Disk scan complete — " + fmtBytes(summary.total_bytes) + " reclaimable"
+        );
+      }
     } catch (err) {
       cleanupEls.loading.textContent =
         "disk cleanup unavailable: " + cleanErrText(err, String(err));
+      if (!keepResult) {
+        setCleanupPill("error", "Disk cleanup unavailable");
+      }
     }
   }
+
+  function showCleanupIdle() {
+    resetToss();
+    cleanupEls.stage.classList.add("hidden");
+    cleanupEls.body.classList.add("hidden");
+    cleanupEls.loading.classList.add("hidden");
+    cleanupEls.idle.classList.remove("hidden");
+    setCleanupPill("idle", "Disk cleanup — ready when you are");
+  }
+
+  async function openCleanup() {
+    if (cleanupState.open) return;
+    cleanupState.open = true;
+    cleanupState.savedPill = {
+      cls: statusPill.className,
+      text: statusText.textContent,
+    };
+    showCleanupIdle();
+    await switchView(resultsView, cleanupView);
+  }
+
+  function closeCleanup() {
+    if (!cleanupState.open) return;
+    cleanupState.open = false;
+    disarmCleanupButton();
+    resetToss();
+    cleanupEls.stage.classList.add("hidden");
+    if (cleanupState.savedPill) {
+      statusPill.className = cleanupState.savedPill.cls;
+      statusText.textContent = cleanupState.savedPill.text;
+    }
+    switchView(cleanupView, resultsView);
+  }
+
+  cleanupEls.openBtn.addEventListener("click", openCleanup);
+  cleanupEls.backBtn.addEventListener("click", closeCleanup);
+  cleanupEls.scanBtn.addEventListener("click", () => startCleanupScan(false));
 
   cleanupEls.btn.addEventListener("click", async () => {
     if (cleanupState.running || cleanupEls.btn.disabled) return;
@@ -1338,16 +1684,27 @@
     clearTimeout(cleanupState.armTimer);
     cleanupState.armed = false;
     cleanupEls.btn.disabled = true;
+    cleanupEls.btn.classList.remove("arm-danger");
+    cleanupEls.btn.classList.add("btn-active");
     cleanupEls.btn.textContent = "Cleaning…";
+    const expected = cleanupSelectionBytes();
+    startToss(expected);
     try {
       const result = await invoke("run_cleanup", {
         categories: Array.from(cleanupState.selectedCats),
         downloadPaths: Array.from(cleanupState.checkedDownloads),
       });
+      stopToss(result.bytes_freed);
+      setCleanupPill(
+        result.failed ? "warn" : "clean",
+        "Freed " + fmtBytes(result.bytes_freed) +
+          (result.failed ? " — " + result.failed + " item(s) locked or failed" : "")
+      );
       cleanupEls.status.textContent =
         "Freed " + fmtBytes(result.bytes_freed) +
         " — deleted " + result.deleted + " of " + result.attempted +
         (result.failed ? ", " + result.failed + " locked or failed" : "");
+      cleanupEls.status.classList.remove("hidden");
       if (result.failures.length > 0) {
         cleanupEls.failures.innerHTML = "";
         for (const failure of result.failures) {
@@ -1357,18 +1714,36 @@
         }
         cleanupEls.failures.classList.remove("hidden");
       }
-      footFeedback(
-        "Disk cleanup freed " + fmtBytes(result.bytes_freed),
-        false
-      );
     } catch (err) {
+      stopToss(0);
+      setCleanupPill("error", "Disk cleanup failed");
       cleanupEls.status.textContent =
         "cleanup failed: " + cleanErrText(err, String(err));
+      cleanupEls.status.classList.remove("hidden");
     } finally {
       cleanupState.running = false;
-      loadCleanup();
+      cleanupEls.btn.classList.remove("btn-active");
+      updateCleanupButton();
+      startCleanupScan(true);
     }
   });
 
-  runScan();
+  (async () => {
+    let rescue = true;
+    try {
+      rescue = (await invoke("launch_info")).rescue === true;
+    } catch {
+      rescue = true;
+    }
+    if (rescue) {
+      runScan();
+      return;
+    }
+    scanView.classList.add("hidden");
+    landingView.classList.remove("hidden");
+    document.getElementById("start-scan-btn").addEventListener("click", async () => {
+      await switchView(landingView, scanView);
+      runScan();
+    });
+  })();
 })();

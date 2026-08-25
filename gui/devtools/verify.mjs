@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+﻿import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "playwright";
@@ -49,7 +49,7 @@ async function runFlow(browser, label, reducedMotion) {
   }
 
   if (!reducedMotion) {
-    await page.waitForFunction(() => window.__curePingCount > 0, null, { timeout: 20000 });
+    await page.waitForFunction(() => window.__cureMascotCount > 0, null, { timeout: 20000 });
     await page.waitForTimeout(420);
     const feedLines = await page.locator("#log li.item-line").count();
     if (feedLines < 1) {
@@ -242,7 +242,7 @@ try {
   wireErrorCapture(pageLg, "large");
   await pageLg.goto(devPageUrl);
   await pageLg.waitForSelector("#app:not(.hidden)", { state: "attached", timeout: 10000 });
-  await pageLg.waitForFunction(() => window.__curePingCount > 0, null, { timeout: 20000 });
+  await pageLg.waitForFunction(() => window.__cureMascotCount > 0, null, { timeout: 20000 });
   await pageLg.waitForTimeout(420);
   await shot(pageLg, "07-midscan-1400x900.png");
   await pageLg.waitForSelector("#results-view:not(.hidden)", { timeout: 20000 });

@@ -8,5 +8,11 @@ description = "C.U.R.E background watcher: auto-launches the rescue GUI when a t
 name = "cure-watch"
 path = "src/main.rs"
 
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
 [dev-dependencies]
 tempfile = "3"

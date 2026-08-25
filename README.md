@@ -12,6 +12,10 @@ user data.
   trusted rescue USB is plugged in (zero-click)
 - **GUI** (Tauri v2) — live animated scan interface with a real-time
   network-graph visualization, auto-cleans high-risk file persistence
+- **GUI Disk Cleanup** — a separate flow (its own screen behind
+  "Check disk space") that scans reclaimable junk — temp files, browser
+  caches, Recycle Bin, Windows.old, old installers in Downloads — and
+  deletes only what you explicitly confirm
 - **`cure_core`** — shared engine: scanners, risk scoring, baseline diffing,
   quarantine, Authenticode + hash-based detection
 
@@ -27,7 +31,7 @@ cure/
 
 ```bat
 cargo build --release          :: cure.exe + cure-watch.exe
-cargo test  --workspace        :: 60+ tests, engine + watcher
+cargo test  --workspace        :: 87 tests, engine + watcher
 
 cd gui\src-tauri
 cargo build                    :: cure-gui.exe (needs WebView2, preinstalled on Win10/11)
@@ -52,9 +56,10 @@ cure.exe cleanup run [--include-downloads] [--dism]
 ```
 
 Risk scoring: temp/downloads drop zone +30, trusted system path −20,
-randomized name +25, hidden/encoded PowerShell +25, valid Authenticode
-signature −40, invalid signature +40, known-malware hash match = forced
-HIGH-RISK. Scores are a triage aid — read the printed reasons.
+randomized name +25, hidden/encoded PowerShell +25, runs directly from a
+user profile folder +10, valid Authenticode signature −40, invalid
+signature +40, known-malware hash match = forced HIGH-RISK. Scores are a
+triage aid — read the printed reasons.
 
 ## Making a rescue USB
 

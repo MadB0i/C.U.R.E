@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Listener, Manager};
 
 use cure_core::{baseline, quarantine, risk, scanners};
 use cure_core::cleanup as disk_cleanup;
@@ -283,6 +283,20 @@ fn scan_cleanup_candidates() -> (Vec<disk_cleanup::CleanupCandidate>, Vec<disk_c
     (safe, downloads)
 }
 
+#[derive(Serialize)]
+struct LaunchInfo {
+    rescue: bool,
+}
+
+/// True when the GUI was started by cure-watch (rescue flow: auto-scan on
+/// launch). A plain double-click gets the idle landing state instead.
+#[tauri::command]
+fn launch_info() -> LaunchInfo {
+    LaunchInfo {
+        rescue: arg_value("--data-dir").is_some(),
+    }
+}
+
 #[tauri::command]
 fn scan_cleanup() -> Result<CleanupScanSummary, String> {
     let (safe, downloads) = scan_cleanup_candidates();
@@ -374,6 +388,7 @@ fn run_cleanup(
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
+            launch_info,
             run_auto_scan,
             quarantine_entry,
             undo_entry,
@@ -392,8 +407,87 @@ fn main() {
                     surface_above_overlays(&handle);
                 });
             }
+            maybe_start_e2e_driver(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running cure-gui");
+}
+
+// ---------------------------------------------------------------------------
+// E2E driver (test-only, inert unless CURE_E2E_CLEANUP is set)
+//
+// Drives the REAL webview UI (real invoke() plumbing, real backend deletes)
+// through one full disk-cleanup flow, then emits the outcome as an event and
+// exits. Never active in normal launches; exists to close the audit gap of
+// cleanup being verified mock-only.
+// ---------------------------------------------------------------------------
+
+const E2E_RUNNER_JS: &str = r##"(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const waitFor = async (f, t = 60000) => {
+    for (let i = 0; i < t / 100; i++) { if (f()) return true; await wait(100); }
+    return false;
+  };
+  const emit = (payload) => window.__TAURI__.event.emit("e2e-done", JSON.stringify(payload));
+  try {
+    if (!await waitFor(() => document.getElementById("results-view") !== null)) {
+      throw new Error("app DOM never became ready");
+    }
+    if (!await waitFor(() => !document.getElementById("results-view").classList.contains("hidden"))) {
+      throw new Error("security results never appeared");
+    }
+    await wait(600);
+    document.getElementById("open-cleanup").click();
+    if (!await waitFor(() =>
+      !document.getElementById("cleanup-view").classList.contains("hidden") &&
+      !document.getElementById("cleanup-idle").classList.contains("hidden"))) {
+      throw new Error("cleanup view never showed idle state");
+    }
+    document.getElementById("cleanup-scan-btn").click();
+    if (!await waitFor(() =>
+      !document.getElementById("cleanup-body").classList.contains("hidden"))) {
+      throw new Error("cleanup scan never loaded");
+    }
+    await wait(400);
+    const boxes = document.querySelectorAll("#cleanup-dl-list input[type=checkbox]");
+    if (boxes.length) boxes[0].click();
+    const btn = document.getElementById("cleanup-btn");
+    btn.click();
+    await wait(150);
+    btn.click();
+    if (!await waitFor(() => document.getElementById("cleanup-status").textContent.startsWith("Freed"), 60000)) {
+      throw new Error("cleanup status never showed Freed");
+    }
+    await wait(300);
+    emit({
+      ok: true,
+      status: document.getElementById("cleanup-status").textContent,
+      pill: document.getElementById("cleanup-status-text").textContent,
+      downloadsTicked: boxes.length > 0,
+      tossSeen: window.__cureTossSeen === true,
+      failures: Array.from(document.querySelectorAll("#cleanup-failures li")).map((li) => li.textContent),
+    });
+  } catch (err) {
+    emit({ ok: false, error: String(err) });
+  }
+})();"##;
+
+fn maybe_start_e2e_driver(handle: AppHandle) {
+    if std::env::var("CURE_E2E_CLEANUP").is_err() {
+        return;
+    }
+    let out_path = std::env::var("CURE_E2E_OUT")
+        .unwrap_or_else(|_| "e2e-result.json".to_string());
+    let listen_handle = handle.clone();
+    handle.listen("e2e-done", move |event| {
+        let _ = std::fs::write(&out_path, event.payload());
+        listen_handle.exit(0);
+    });
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        if let Some(window) = handle.get_webview_window("main") {
+            let _ = window.eval(E2E_RUNNER_JS);
+        }
+    });
 }
