@@ -487,6 +487,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tokio",
+ "windows 0.58.0",
 ]
 
 [[package]]

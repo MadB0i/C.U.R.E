@@ -57,8 +57,8 @@
             <circle r="13" fill="url(#orb-grad-l)"/>
           </svg>
           <div class="headline">Ready when you are</div>
-          <div class="subline">C.U.R.E is standing by. Start a scan to check this machine's persistence points — nothing runs until you say so.</div>
-          <button id="start-scan-btn" class="btn">Start Scan</button>
+          <div class="subline">C.U.R.E is standing by. Start Rescue closes suspicious fullscreen lock windows, then scans this machine's persistence points — nothing runs until you press it.</div>
+          <button id="start-rescue-btn" class="btn">Start Rescue</button>
         </div>
       </section>
       <section id="results-view" class="view hidden">
@@ -92,6 +92,26 @@
         <div class="panel reveal" id="cleaned-block" style="--d:300ms">
           <h3>QUARANTINED AUTOMATICALLY</h3>
           <div id="cleaned-cards" class="entry-cards cleaned"></div>
+        </div>
+
+        <div class="panel reveal hidden" id="process-block" style="--d:320ms">
+          <h3>SUSPICIOUS PROCESSES</h3>
+          <div id="process-cards" class="entry-cards"></div>
+          <div class="kill-row">
+            <button id="kill-procs-btn" class="btn" disabled>Kill selected</button>
+            <span id="kill-procs-status" class="kill-status hidden"></span>
+          </div>
+        </div>
+
+        <div class="panel reveal hidden" id="ransom-block" style="--d:340ms">
+          <h3>RANSOM INDICATORS</h3>
+          <div id="ransom-cards" class="entry-cards"></div>
+          <div id="ransom-link" class="hidden" style="margin-top:8px;font-size:12px;color:#c9a0ff">
+            If a ransomware family was identified, visit
+            <a href="https://www.nomoreransom.org/" target="_blank" rel="noopener"
+               style="color:#c9a0ff;text-decoration:underline">nomoreransom.org</a>
+            to check for a known decryptor. C.U.R.E cannot decrypt files.
+          </div>
         </div>
 
         <div class="cleanup-link-row reveal" style="--d:380ms">

@@ -25,6 +25,8 @@ async function capture(label, viewport, opts = {}) {
     window.__CURE_MOCK_ALL_SAFE = !!cfg.allSafe;
   }, { n: itemCount, allSafe: !!opts.allSafe });
   await page.goto(devPageUrl);
+  await page.waitForSelector("#start-rescue-btn", { timeout: 15000 });
+  await page.click("#start-rescue-btn");
 
   if (opts.phase === "early") {
     // fixed stage delays total ~1950ms before the first item event

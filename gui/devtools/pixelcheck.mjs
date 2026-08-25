@@ -14,6 +14,8 @@ const page = await browser.newPage({
 await page.addInitScript(() => { window.__CURE_MOCK_ITEM_COUNT = 30; });
 
 await page.goto(devPageUrl);
+await page.waitForSelector("#start-rescue-btn", { timeout: 15000 });
+await page.click("#start-rescue-btn");
 await page.waitForFunction(() => (window.__cureNodeCount || 0) >= 14, null, {
   timeout: 20000,
 });

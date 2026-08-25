@@ -173,18 +173,14 @@
 
   //   __CURE_MOCK_CLEANUP_FAILURES  when true, run_cleanup reports one locked file
   //   __CURE_MOCK_CLEANUP_DELAY_MS  how long run_cleanup pretends to take
-  //   __CURE_MOCK_RESCUE            when false, launch_info reports a manual
-  //                                 (double-clicked) launch -> landing state.
-  //                                 Defaults to true so harnesses keep the
-  //                                 watcher-triggered auto-scan flow.
   if (window.__CURE_MOCK_CLEANUP_FAILURES === undefined) {
     window.__CURE_MOCK_CLEANUP_FAILURES = false;
   }
   if (window.__CURE_MOCK_CLEANUP_DELAY_MS === undefined) {
     window.__CURE_MOCK_CLEANUP_DELAY_MS = 750;
   }
-  if (window.__CURE_MOCK_RESCUE === undefined) {
-    window.__CURE_MOCK_RESCUE = true;
+  if (window.__CURE_MOCK_OVERLAY_HITS === undefined) {
+    window.__CURE_MOCK_OVERLAY_HITS = 1;
   }
 
   const CLEANUP_CATEGORIES = [
@@ -336,22 +332,53 @@
     window.__CURE_SCAN_DONE = true;
     console.info("[mock-tauri] run #" + scanRuns + ": " + n + " items @ " + perItem + "ms/item");
 
-    return {
+    var result = {
       total: n,
       high_risk_cleaned: cleaned.map(toScored),
       suspicious_for_review: review.map(toScored),
       safe,
     };
+
+    if (window.__CURE_MOCK_SWEEP) {
+      var sweepProcs = [
+        { name: "suspicious_loader.exe", pid: 4242, exe_path: "C:\\Users\\test\\AppData\\Local\\Temp\\suspicious_loader.exe", score: 62, risk: "HighRisk", reasons: ["Unsigned binary", "Random name"] },
+        { name: "unknown_tool.exe", pid: 8080, exe_path: "C:\\Users\\test\\Downloads\\unknown_tool.exe", score: 41, risk: "HighRisk", reasons: ["Profile exe", "Unsigned Binary"] },
+        { name: "helper.dll", pid: 11234, exe_path: "C:\\ProgramData\\helper.dll", score: 22, risk: "Suspicious", reasons: ["Unsigned Binary"] },
+      ];
+      var sweepRansom = [
+        { finding_type: "ransom-note", path: "C:\\Users\\test\\Documents\\DECRYPT_MY_FILES.txt", detail: "Matched pattern: DECRYPT — \"All your files have been encrypted by LockBit 3.0.\"", suspected_family: "LockBit", nomoreransom_url: "https://www.nomoreransom.org/" },
+        { finding_type: "bulk-encryption", path: "C:\\Users\\test\\Pictures", detail: "17 files with unusual extension \".locked\" (avg age 3 days)", suspected_family: null, nomoreransom_url: null },
+      ];
+      sweepProcs.forEach(function(p) {
+        emit("scan-progress", { stage: "process-flagged", name: p.name, pid: p.pid, risk: p.risk, score: p.score });
+      });
+      sweepRansom.forEach(function(r) {
+        emit("scan-progress", { stage: "ransom-found", detail: r.detail });
+      });
+      result.process_findings = sweepProcs;
+      result.ransom_findings = sweepRansom;
+    }
+
+    return result;
   }
 
   window.__TAURI__ = {
     core: {
       invoke(command, args) {
         switch (command) {
-          case "launch_info":
-            return delay(30).then(() => ({
-              rescue: window.__CURE_MOCK_RESCUE !== false,
-            }));
+          case "dismiss_overlays": {
+            const hits = window.__CURE_MOCK_OVERLAY_HITS || 0;
+            const closed = [];
+            for (let i = 0; i < hits; i++) {
+              closed.push({
+                title: i === 0 ? "SIMULATED RANSOM SCREEN" : "OVERLAY WINDOW " + (i + 1),
+                process: i === 0 ? "fake-overlay.exe" : "overlay-" + (i + 1) + ".exe",
+                signature: "unsigned",
+                terminated: false,
+              });
+            }
+            return delay(80).then(() => ({ checked: 12, closed: closed }));
+          }
           case "run_auto_scan":
             return runAutoScan();
           case "quarantine_entry":
@@ -387,6 +414,20 @@
             return scanCleanupMock();
           case "run_cleanup":
             return runCleanupMock(args);
+          case "kill_high_risk_processes":
+            return delay(350).then(function() {
+              var procs = (args && args.processes) || [];
+              var killed = [];
+              var failed = [];
+              procs.forEach(function(pair) {
+                if (pair[0] === "fail-on-kill.exe") {
+                  failed.push(pair[0] + " (access denied)");
+                } else {
+                  killed.push({ name: pair[0], pid: pair[1], exe_path: "", score: 0, risk: "HighRisk", reasons: [] });
+                }
+              });
+              return { killed: killed, failed: failed };
+            });
           default:
             return Promise.reject(new Error("mock-tauri: unknown command " + command));
         }

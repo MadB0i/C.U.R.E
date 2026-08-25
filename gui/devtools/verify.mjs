@@ -40,6 +40,8 @@ async function runFlow(browser, label, reducedMotion) {
 
   await page.goto(devPageUrl);
   await page.waitForSelector("#app:not(.hidden)", { state: "attached", timeout: 10000 });
+  await page.waitForSelector("#start-rescue-btn", { timeout: 15000 });
+  await page.click("#start-rescue-btn");
 
   const reduceActive = await page.evaluate(
     () => window.matchMedia("(prefers-reduced-motion: reduce)").matches
@@ -222,6 +224,8 @@ async function timedScan(browser, label, itemCount) {
   }, itemCount);
   const t0 = Date.now();
   await page.goto(devPageUrl);
+  await page.waitForSelector("#start-rescue-btn", { timeout: 15000 });
+  await page.click("#start-rescue-btn");
   await page.waitForSelector("#results-view:not(.hidden)", { timeout: 45000 });
   const ms = Date.now() - t0;
   console.log(`pacing [${label}] items=${itemCount}: ${ms}ms end-to-end`);
@@ -242,6 +246,8 @@ try {
   wireErrorCapture(pageLg, "large");
   await pageLg.goto(devPageUrl);
   await pageLg.waitForSelector("#app:not(.hidden)", { state: "attached", timeout: 10000 });
+  await pageLg.waitForSelector("#start-rescue-btn", { timeout: 15000 });
+  await pageLg.click("#start-rescue-btn");
   await pageLg.waitForFunction(() => window.__cureMascotCount > 0, null, { timeout: 20000 });
   await pageLg.waitForTimeout(420);
   await shot(pageLg, "07-midscan-1400x900.png");

@@ -29,6 +29,8 @@ async function checkChips(viewport, items) {
     window.__CURE_MOCK_ALL_SAFE = false;
   }, { n: items });
   await page.goto(devPageUrl);
+  await page.waitForSelector("#start-rescue-btn", { timeout: 15000 });
+  await page.click("#start-rescue-btn");
   await page.waitForSelector("#results-view:not(.hidden)", { timeout: 60000 });
   await page.waitForTimeout(1900);
 

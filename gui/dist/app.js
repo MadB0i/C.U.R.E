@@ -27,6 +27,10 @@
   let itemFeedCount = 0;
   let lastItemNode = null;
 
+  function escHtml(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
   function setPill(state, text) {
     statusPill.className = "pill " + state;
     statusText.textContent = text;
@@ -109,6 +113,58 @@
     score.textContent = "(" + String(p.score) + ")";
 
     li.append(arrow, name, src, risk, score);
+    logList.appendChild(li);
+    while (logList.children.length > 200) logList.removeChild(logList.firstChild);
+    logList.scrollTop = logList.scrollHeight;
+    itemFeedCount += 1;
+    if (feedCountEl) feedCountEl.textContent = itemFeedCount + " ITEMS";
+  }
+
+  function appendProcessLine(p) {
+    const li = document.createElement("li");
+    li.className = "item-line fresh risk-" + String(p.risk || "Safe").toLowerCase();
+
+    const arrow = document.createElement("span");
+    arrow.className = "arrow";
+    arrow.textContent = "\u26A0";
+
+    const name = document.createElement("span");
+    name.className = "iname";
+    name.textContent = String(p.name || "?") + " (pid " + p.pid + ")";
+
+    const src = document.createElement("span");
+    src.className = "isrc";
+    src.textContent = "[process]";
+
+    const risk = document.createElement("span");
+    risk.className = "irisk";
+    risk.textContent = String(p.risk || "?");
+
+    const score = document.createElement("span");
+    score.className = "iscore";
+    score.textContent = "(" + String(p.score) + ")";
+
+    li.append(arrow, name, src, risk, score);
+    logList.appendChild(li);
+    while (logList.children.length > 200) logList.removeChild(logList.firstChild);
+    logList.scrollTop = logList.scrollHeight;
+    itemFeedCount += 1;
+    if (feedCountEl) feedCountEl.textContent = itemFeedCount + " ITEMS";
+  }
+
+  function appendRansomLine(p) {
+    const li = document.createElement("li");
+    li.className = "item-line fresh risk-highrisk";
+    const arrow = document.createElement("span");
+    arrow.className = "arrow";
+    arrow.textContent = "\u26A0";
+    const name = document.createElement("span");
+    name.className = "iname";
+    name.textContent = p.finding_type === "ransom-note" ? "Ransom note" : "Bulk encryption";
+    const detail = document.createElement("span");
+    detail.className = "isrc";
+    detail.textContent = p.detail || "";
+    li.append(arrow, name, detail);
     logList.appendChild(li);
     while (logList.children.length > 200) logList.removeChild(logList.firstChild);
     logList.scrollTop = logList.scrollHeight;
@@ -1035,7 +1091,9 @@
 
     const cleanedCount = summary.high_risk_cleaned.length;
     const reviewCount = summary.suspicious_for_review.length;
-    const trouble = cleanedCount + reviewCount;
+    const procCount = (summary.process_findings || []).length;
+    const ransomCount = (summary.ransom_findings || []).length;
+    const trouble = cleanedCount + reviewCount + procCount + ransomCount;
 
     badge.className = "badge " + (trouble ? "warn" : "clean");
     badge.innerHTML = trouble ? BADGE_WARN : BADGE_CHECK;
@@ -1082,6 +1140,109 @@
     const showCleanedPanel = cleanedCount > 0;
     cleanedBlock.classList.toggle("hidden", !showCleanedPanel);
 
+    // Process findings panel
+    const processBlock = document.getElementById("process-block");
+    const ransomBlock = document.getElementById("ransom-block");
+    if (processBlock) {
+      const procFindings = summary.process_findings || [];
+      sweepState.findings = procFindings;
+      sweepState.checked.clear();
+      sweepState.armed = false;
+      clearTimeout(sweepState.armTimer);
+      const procCards = document.getElementById("process-cards");
+      if (procCards) {
+        procCards.innerHTML = "";
+        procFindings.forEach(function(p) {
+          const card = document.createElement("li");
+          card.className = "review-card proc-entry";
+          card.dataset.name = p.name;
+          card.dataset.pid = String(p.pid);
+          card.dataset.exe = p.exe_path || "";
+          const box = document.createElement("input");
+          box.type = "checkbox";
+          box.addEventListener("change", function() {
+            if (box.checked) sweepState.checked.add(p.pid);
+            else sweepState.checked.delete(p.pid);
+            disarmKillButton();
+            card.classList.toggle("proc-selected", box.checked);
+          });
+          const main = document.createElement("div");
+          main.className = "rc-main";
+          const topRow = document.createElement("div");
+          topRow.className = "rc-top";
+          const nameEl = document.createElement("span");
+          nameEl.className = "rc-name";
+          nameEl.textContent = p.name;
+          nameEl.title = p.exe_path || "";
+          const scoreEl = document.createElement("span");
+          scoreEl.className = "score-chip " + scoreChipClass(p.score);
+          scoreEl.textContent = String(p.score);
+          scoreEl.title = p.risk + " · risk score " + p.score;
+          topRow.append(nameEl, scoreEl);
+          main.appendChild(topRow);
+          const chips = document.createElement("div");
+          chips.className = "chips";
+          var pidChip = document.createElement("span");
+          pidChip.className = "chip";
+          pidChip.textContent = "pid " + p.pid;
+          chips.appendChild(pidChip);
+          if (p.exe_path) {
+            var exeChip = document.createElement("span");
+            exeChip.className = "chip";
+            exeChip.textContent = p.exe_path.split(/[/\\]/).pop();
+            exeChip.title = p.exe_path;
+            chips.appendChild(exeChip);
+          }
+          var reasons = Array.isArray(p.reasons) ? p.reasons : [];
+          for (var ri = 0; ri < Math.min(reasons.length, 4); ri++) {
+            var lr = reasonChipLabel(String(reasons[ri]));
+            var rc = document.createElement("span");
+            rc.className = "chip" + (lr[1] ? " " + lr[1] : "");
+            rc.textContent = lr[0];
+            rc.title = reasons[ri];
+            chips.appendChild(rc);
+          }
+          if (chips.children.length > 0) main.appendChild(chips);
+          card.append(box, main);
+          procCards.appendChild(card);
+        });
+      }
+      updateKillButton();
+      var killStatus = document.getElementById("kill-procs-status");
+      if (killStatus) { killStatus.textContent = ""; killStatus.classList.add("hidden"); }
+      processBlock.classList.toggle("hidden", procFindings.length === 0);
+    }
+
+    // Ransom findings panel
+    if (ransomBlock) {
+      const ransomFindings = summary.ransom_findings || [];
+      const ransomCards = document.getElementById("ransom-cards");
+      const ransomLink = document.getElementById("ransom-link");
+      if (ransomCards) {
+        ransomCards.innerHTML = "";
+        let hasFamily = false;
+        ransomFindings.forEach(function(r) {
+          const card = document.createElement("div");
+          card.className = "entry-card";
+          let html =
+            '<div class="card-header"><span class="card-name">' +
+            escHtml(r.finding_type === "ransom-note" ? "Ransom note" : "Bulk encryption detected") +
+            '</span></div><div class="card-detail">' + escHtml(r.detail) + "</div>";
+          if (r.suspected_family) {
+            html += '<div class="card-detail" style="color:#c9a0ff">Suspected family: ' +
+              escHtml(r.suspected_family) + "</div>";
+            hasFamily = true;
+          }
+          card.innerHTML = html;
+          ransomCards.appendChild(card);
+        });
+        if (ransomLink) {
+          ransomLink.classList.toggle("hidden", !hasFamily);
+        }
+      }
+      ransomBlock.classList.toggle("hidden", ransomFindings.length === 0);
+    }
+
     if (trouble === 0) {
       setPill("clean", "Scan complete — all clear");
     } else {
@@ -1122,7 +1283,7 @@
     });
   }
 
-  async function runScan() {
+  async function runScan(preLines = []) {
     const token = ++scanToken;
     resultsView.classList.add("hidden");
     netmap.hide();
@@ -1134,6 +1295,9 @@
     itemFeedCount = 0;
     lastItemNode = null;
     if (feedCountEl) feedCountEl.textContent = "0 ITEMS";
+    for (const line of preLines) {
+      appendLog("overlay", line);
+    }
     setPill("scanning", "sweeping persistence locations…");
     radar.start();
     try {
@@ -1169,6 +1333,15 @@
     if (payload.stage === "item-scanned") {
       appendItemLine(payload);
       lastItemNode = radar.addNode(payload.risk, payload.name);
+      return;
+    }
+    if (payload.stage === "process-flagged") {
+      appendProcessLine(payload);
+      radar.addNode(payload.risk, payload.name);
+      return;
+    }
+    if (payload.stage === "ransom-found") {
+      appendRansomLine(payload);
       return;
     }
     setPill("scanning", payload.message);
@@ -1270,6 +1443,33 @@
     open: false,
     savedPill: null,
   };
+
+  const sweepState = {
+    findings: [],
+    checked: new Set(),
+    armed: false,
+    armTimer: null,
+    running: false,
+  };
+
+  function disarmKillButton() {
+    sweepState.armed = false;
+    clearTimeout(sweepState.armTimer);
+    const statusEl = document.getElementById("kill-procs-status");
+    if (statusEl) { statusEl.textContent = ""; statusEl.classList.add("hidden"); }
+    updateKillButton();
+  }
+
+  function updateKillButton() {
+    const btn = document.getElementById("kill-procs-btn");
+    if (!btn) return;
+    const enabled = sweepState.checked.size > 0 && !sweepState.running;
+    btn.disabled = !enabled;
+    btn.classList.toggle("arm-danger", sweepState.armed);
+    btn.textContent = sweepState.armed
+      ? "Click again to kill " + sweepState.checked.size + " process(es)"
+      : "Kill selected (" + sweepState.checked.size + ")";
+  }
 
   function setCleanupPill(state, text) {
     cleanupEls.statusLine.className = "pill " + state;
@@ -1728,22 +1928,84 @@
     }
   });
 
+  var killBtn = document.getElementById("kill-procs-btn");
+  var killStatus = document.getElementById("kill-procs-status");
+  if (killBtn) {
+    killBtn.addEventListener("click", async function() {
+      if (sweepState.running || killBtn.disabled) return;
+      if (!sweepState.armed) {
+        sweepState.armed = true;
+        updateKillButton();
+        clearTimeout(sweepState.armTimer);
+        sweepState.armTimer = setTimeout(disarmKillButton, 4000);
+        return;
+      }
+      sweepState.running = true;
+      clearTimeout(sweepState.armTimer);
+      sweepState.armed = false;
+      killBtn.disabled = true;
+      killBtn.classList.remove("arm-danger");
+      killBtn.classList.add("btn-active");
+      killBtn.textContent = "Killing…";
+      if (killStatus) { killStatus.textContent = ""; killStatus.classList.add("hidden"); }
+      var targets = [];
+      sweepState.findings.forEach(function(f) {
+        if (sweepState.checked.has(f.pid)) targets.push([f.name, f.pid]);
+      });
+      try {
+        var report = await invoke("kill_high_risk_processes", { processes: targets });
+        var killed = report.killed || [];
+        var failed = report.failed || [];
+        if (killed.length > 0) {
+          var pidSet = new Set(killed.map(function(k) { return k.pid; }));
+          var cards = document.querySelectorAll("#process-cards .review-card.proc-entry");
+          cards.forEach(function(card) {
+            if (pidSet.has(Number(card.dataset.pid))) {
+              card.classList.add("proc-killed");
+              var cb = card.querySelector('input[type="checkbox"]');
+              if (cb) cb.disabled = true;
+            }
+          });
+        }
+        sweepState.checked.clear();
+        var parts = [];
+        if (killed.length > 0) parts.push("Killed " + killed.length + " process(es)");
+        if (failed.length > 0) parts.push(failed.length + " failed");
+        var msg = parts.join(", ") || "No processes were killed";
+        setPill(killed.length > 0 && failed.length === 0 ? "clean" : "warn", msg);
+        if (killStatus) { killStatus.textContent = msg; killStatus.classList.remove("hidden"); }
+      } catch (err) {
+        setPill("error", "Kill failed: " + String(err));
+        if (killStatus) { killStatus.textContent = "Error: " + String(err); killStatus.classList.remove("hidden"); }
+      } finally {
+        sweepState.running = false;
+        killBtn.classList.remove("btn-active");
+        updateKillButton();
+      }
+    });
+  }
+
   (async () => {
-    let rescue = true;
-    try {
-      rescue = (await invoke("launch_info")).rescue === true;
-    } catch {
-      rescue = true;
-    }
-    if (rescue) {
-      runScan();
-      return;
-    }
     scanView.classList.add("hidden");
     landingView.classList.remove("hidden");
-    document.getElementById("start-scan-btn").addEventListener("click", async () => {
+    document.getElementById("start-rescue-btn").addEventListener("click", async () => {
+      setPill("scanning", "checking for suspicious overlays…");
       await switchView(landingView, scanView);
-      runScan();
+      const lines = [];
+      try {
+        const rep = await invoke("dismiss_overlays");
+        if (rep.closed && rep.closed.length > 0) {
+          lines.push("Closed " + rep.closed.length + " suspicious window(s): " + rep.closed.map(function (c) { return c.process; }).join(", "));
+          for (const c of rep.closed) {
+            lines.push("  ↳ closed " + c.title + " — " + c.signature + (c.terminated ? " (terminated)" : ""));
+          }
+        } else {
+          lines.push("No suspicious overlay windows found");
+        }
+      } catch (e) {
+        lines.push("Overlay check unavailable: " + e);
+      }
+      runScan(lines);
     });
   })();
 })();

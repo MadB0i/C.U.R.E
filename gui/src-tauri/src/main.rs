@@ -7,7 +7,11 @@ use tauri::{AppHandle, Emitter, Listener, Manager};
 
 use cure_core::{baseline, quarantine, risk, scanners};
 use cure_core::cleanup as disk_cleanup;
+use cure_core::overlay::{self, WindowDesc};
 use cure_core::model::{PersistenceEntry, PersistenceSource, RiskLevel, ScoredEntry};
+use cure_core::signature::SignatureStatus;
+use cure_core::process_scan::{self, ProcessInfo, ProcessScore};
+use cure_core::ransom_detect::{self, RansomFinding as RansomFindingCore};
 
 #[derive(Debug, Clone, Serialize)]
 struct ProgressEvent {
@@ -21,6 +25,33 @@ struct ScanSummary {
     high_risk_cleaned: Vec<ScoredEntry>,
     suspicious_for_review: Vec<ScoredEntry>,
     safe: usize,
+    process_findings: Vec<ProcessFinding>,
+    ransom_findings: Vec<RansomFinding>,
+}
+
+#[derive(Serialize)]
+struct ProcessFinding {
+    name: String,
+    pid: u32,
+    exe_path: String,
+    score: i32,
+    risk: String,
+    reasons: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct RansomFinding {
+    finding_type: String,
+    path: String,
+    detail: String,
+    suspected_family: Option<String>,
+    nomoreransom_url: Option<String>,
+}
+
+#[derive(Serialize)]
+struct KillReport {
+    killed: Vec<ProcessFinding>,
+    failed: Vec<String>,
 }
 
 fn emit_stage(app: &AppHandle, stage: &str, message: impl Into<String>) {
@@ -81,6 +112,193 @@ const SCAN_TARGET_TOTAL_MS: u64 = 5000;
 const SCAN_MIN_PER_ITEM_MS: u64 = 15;
 const SCAN_MAX_PER_ITEM_MS: u64 = 250;
 
+// ---------------------------------------------------------------------------
+// Live process enumeration (windows-only OS glue)
+// ---------------------------------------------------------------------------
+
+#[cfg(windows)]
+fn enumerate_running_processes() -> Vec<ProcessInfo> {
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    use windows::Win32::System::Threading::{QueryFullProcessImageNameW, PROCESS_NAME_WIN32};
+
+    let mut results = Vec::new();
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    let Ok(snapshot) = snapshot else { return results };
+
+    let mut entry = PROCESSENTRY32W {
+        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+        ..unsafe { std::mem::zeroed() }
+    };
+
+    if unsafe { Process32FirstW(snapshot, &mut entry) }.is_err() {
+        let _ = unsafe { windows::Win32::Foundation::CloseHandle(snapshot) };
+        return results;
+    }
+
+    loop {
+        let pid = entry.th32ProcessID;
+        let exe_wide: Vec<u16> = entry
+            .szExeFile
+            .iter()
+            .take_while(|&&c| c != 0)
+            .copied()
+            .collect();
+        let name = String::from_utf16_lossy(&exe_wide);
+
+        // Resolve full exe path for scoring
+        let mut exe_path = String::new();
+        unsafe {
+            if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+                let mut buf = [0u16; 1024];
+                let mut size = buf.len() as u32;
+                if QueryFullProcessImageNameW(
+                    handle,
+                    PROCESS_NAME_WIN32,
+                    windows::core::PWSTR(buf.as_mut_ptr()),
+                    &mut size,
+                )
+                .is_ok()
+                {
+                    exe_path = String::from_utf16_lossy(&buf[..size as usize]).to_string();
+                }
+                let _ = windows::Win32::Foundation::CloseHandle(handle);
+            }
+        }
+
+        // Heuristic: does this process own a visible window?
+        // (Checked later in the scoring pipeline, default to false here)
+        let from_user_profile = exe_path
+            .to_ascii_lowercase()
+            .contains("appdata")
+            || exe_path
+                .to_ascii_lowercase()
+                .contains("users");
+
+        results.push(ProcessInfo {
+            name,
+            pid,
+            exe_path,
+            has_visible_window: false,
+            from_user_profile,
+        });
+
+        if unsafe { Process32NextW(snapshot, &mut entry) }.is_err() {
+            break;
+        }
+    }
+
+    let _ = unsafe { windows::Win32::Foundation::CloseHandle(snapshot) };
+
+    // Mark processes that have visible windows
+    mark_visible_processes(&mut results);
+
+    results
+}
+
+/// Cross-reference our process list against visible windows from the overlay module.
+#[cfg(windows)]
+fn mark_visible_processes(processes: &mut [ProcessInfo]) {
+    // Collect pids of processes that own a visible window
+    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowThreadProcessId, IsWindowVisible};
+    use windows::Win32::Foundation::{HWND, LPARAM};
+
+    let mut visible_pids: std::collections::HashSet<u32> = std::collections::HashSet::new();
+
+    unsafe extern "system" fn collect_visible(hwnd: HWND, lparam: LPARAM) -> windows::Win32::Foundation::BOOL {
+        unsafe {
+            if IsWindowVisible(hwnd).as_bool() {
+                let set = &mut *(lparam.0 as *mut std::collections::HashSet<u32>);
+                let mut pid = 0u32;
+                GetWindowThreadProcessId(hwnd, Some(&mut pid));
+                if pid != 0 {
+                    set.insert(pid);
+                }
+            }
+        }
+        true.into()
+    }
+
+    let set_ptr = &mut visible_pids as *mut _ as isize;
+    unsafe { let _ = EnumWindows(Some(collect_visible), LPARAM(set_ptr)); }
+
+    for p in processes.iter_mut() {
+        if visible_pids.contains(&p.pid) {
+            p.has_visible_window = true;
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn enumerate_running_processes() -> Vec<ProcessInfo> {
+    Vec::new()
+}
+
+// ---------------------------------------------------------------------------
+// Ransom-detection folder scanning (OS glue: read-only directory walks)
+// ---------------------------------------------------------------------------
+
+fn user_folder_candidates() -> Vec<PathBuf> {
+    let mut folders = Vec::new();
+    if let Ok(home) = std::env::var("USERPROFILE") {
+        let home = PathBuf::from(home);
+        for sub in &["Desktop", "Documents", "Downloads"] {
+            let p = home.join(sub);
+            if p.is_dir() {
+                folders.push(p);
+            }
+        }
+    }
+    folders
+}
+
+fn read_dir_entries(folder: &Path) -> Vec<cure_core::ransom_detect::DirEntry> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    std::fs::read_dir(folder)
+        .ok()
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .filter_map(|e| {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    let age_days = e
+                        .metadata()
+                        .ok()
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                        .map(|d| (now.saturating_sub(d.as_secs())) / 86_400)
+                        .unwrap_or(0);
+                    Some(cure_core::ransom_detect::DirEntry { name, age_days })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Kill a process by PID.  Returns Ok(()) on success.
+#[cfg(windows)]
+fn kill_process_by_pid(pid: u32) -> Result<(), String> {
+    use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+    unsafe {
+        let handle =
+            OpenProcess(PROCESS_TERMINATE, false, pid).map_err(|e| format!("OpenProcess failed: {e}"))?;
+        let _ = TerminateProcess(handle, 1);
+        let _ = windows::Win32::Foundation::CloseHandle(handle);
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn kill_process_by_pid(_pid: u32) -> Result<(), String> {
+    Err("process killing not supported on this platform".to_string())
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct ItemScannedEvent {
     stage: String,
@@ -89,6 +307,23 @@ struct ItemScannedEvent {
     location: String,
     risk: String,
     score: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ProcessFlaggedEvent {
+    stage: String,
+    name: String,
+    pid: u32,
+    risk: String,
+    score: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct RansomFoundEvent {
+    stage: String,
+    finding_type: String,
+    path: String,
+    detail: String,
 }
 
 #[tauri::command]
@@ -169,6 +404,111 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         }
     }
 
+    // ── live process scan ──────────────────────────────────────────────
+
+    emit_stage(&app, "process-scan", "Enumerating running processes");
+    let processes = enumerate_running_processes();
+    let mut process_findings: Vec<ProcessFinding> = Vec::new();
+
+    if !processes.is_empty() {
+        emit_stage(
+            &app,
+            "process-scan",
+            format!("Checking {} running processes", processes.len()),
+        );
+        let scored_procs: Vec<(ProcessInfo, ProcessScore)> = processes
+            .iter()
+            .map(|p| {
+                let sig = cure_core::signature::check_signature(
+                    std::path::Path::new(&p.exe_path),
+                );
+                let hash = cure_core::hash_intel::check_hash(
+                    std::path::Path::new(&p.exe_path),
+                );
+                let ps = process_scan::score_process(p, &sig, hash.as_deref());
+                (p.clone(), ps)
+            })
+            .collect();
+
+        let suspicious_idx = process_scan::pick_suspicious_processes(&scored_procs);
+        for &idx in &suspicious_idx {
+            let (info, ps) = &scored_procs[idx];
+            let finding = ProcessFinding {
+                name: info.name.clone(),
+                pid: info.pid,
+                exe_path: info.exe_path.clone(),
+                score: ps.score,
+                risk: format!("{:?}", ps.risk),
+                reasons: ps.reasons.clone(),
+            };
+            let _ = app.emit(
+                "scan-progress",
+                ProcessFlaggedEvent {
+                    stage: "process-flagged".to_string(),
+                    name: info.name.clone(),
+                    pid: info.pid,
+                    risk: format!("{:?}", ps.risk),
+                    score: ps.score,
+                },
+            );
+            process_findings.push(finding);
+        }
+    }
+
+    // ── ransom detection ───────────────────────────────────────────────
+
+    emit_stage(&app, "ransom-detect", "Checking for ransom notes and mass encryption");
+    let folders: Vec<(PathBuf, Vec<cure_core::ransom_detect::DirEntry>)> =
+        user_folder_candidates()
+            .into_iter()
+            .map(|f| (f.clone(), read_dir_entries(&f)))
+            .collect();
+
+    let ransom_core_findings = ransom_detect::scan_folders(&folders);
+    let mut ransom_findings: Vec<RansomFinding> = Vec::new();
+
+    for f in &ransom_core_findings {
+        let rf = match f {
+            RansomFindingCore::Note(note) => {
+                let snippet = ransom_detect::load_note_content(&note.path, 4096);
+                let family = ransom_detect::guess_family(&snippet);
+                let url = family.map(|_| "https://www.nomoreransom.org/".to_string());
+                RansomFinding {
+                    finding_type: "ransom-note".to_string(),
+                    path: note.path.to_string_lossy().to_string(),
+                    detail: if snippet.is_empty() {
+                        format!("Matched pattern: {}", note.matched_stem)
+                    } else {
+                        format!("Matched pattern: {} — \"{}\"", note.matched_stem, &snippet[..snippet.len().min(120)])
+                    },
+                    suspected_family: family.map(|s| s.to_string()),
+                    nomoreransom_url: url,
+                }
+            }
+            RansomFindingCore::BulkEncryption(cluster) => RansomFinding {
+                finding_type: "bulk-encryption".to_string(),
+                path: cluster.folder.to_string_lossy().to_string(),
+                detail: format!(
+                    "{} files with unusual extension \".{}\" (avg age {} days)",
+                    cluster.file_count, cluster.extension, cluster.avg_age_days
+                ),
+                suspected_family: None,
+                nomoreransom_url: None,
+            },
+        };
+
+        let _ = app.emit(
+            "scan-progress",
+            RansomFoundEvent {
+                stage: "ransom-found".to_string(),
+                finding_type: rf.finding_type.clone(),
+                path: rf.path.clone(),
+                detail: rf.detail.clone(),
+            },
+        );
+        ransom_findings.push(rf);
+    }
+
     emit_stage(&app, "done", "Saving baseline");
     baseline::save_baseline(&data_dir.join("baseline.json"), &entries)
         .map_err(|e| format!("cannot write baseline: {e}"))?;
@@ -179,6 +519,8 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         high_risk_cleaned,
         suspicious_for_review,
         safe,
+        process_findings,
+        ransom_findings,
     })
 }
 
@@ -207,6 +549,32 @@ fn undo_entry(id: String) -> Result<(), String> {
     quarantine::undo(&resolve_data_dir(), &id)
         .map(|_| ())
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn kill_high_risk_processes(processes: Vec<(String, u32)>) -> Result<KillReport, String> {
+    let mut killed = Vec::new();
+    let mut failed = Vec::new();
+
+    for (name, pid) in processes {
+        match kill_process_by_pid(pid) {
+            Ok(()) => {
+                killed.push(ProcessFinding {
+                    name: name.clone(),
+                    pid,
+                    exe_path: String::new(),
+                    score: 0,
+                    risk: "HighRisk".to_string(),
+                    reasons: vec!["killed by user request".to_string()],
+                });
+            }
+            Err(e) => {
+                failed.push(format!("{name} (pid {pid}): {e}"));
+            }
+        }
+    }
+
+    Ok(KillReport { killed, failed })
 }
 
 #[tauri::command]
@@ -281,20 +649,6 @@ fn scan_cleanup_candidates() -> (Vec<disk_cleanup::CleanupCandidate>, Vec<disk_c
     let safe = disk_cleanup::scan_all();
     let downloads = disk_cleanup::scan_old_downloads(CLEANUP_DOWNLOADS_AGE_DAYS);
     (safe, downloads)
-}
-
-#[derive(Serialize)]
-struct LaunchInfo {
-    rescue: bool,
-}
-
-/// True when the GUI was started by cure-watch (rescue flow: auto-scan on
-/// launch). A plain double-click gets the idle landing state instead.
-#[tauri::command]
-fn launch_info() -> LaunchInfo {
-    LaunchInfo {
-        rescue: arg_value("--data-dir").is_some(),
-    }
 }
 
 #[tauri::command]
@@ -388,8 +742,9 @@ fn run_cleanup(
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            launch_info,
             run_auto_scan,
+            dismiss_overlays,
+            kill_high_risk_processes,
             quarantine_entry,
             undo_entry,
             open_quarantine_folder,
@@ -415,6 +770,240 @@ fn main() {
 }
 
 // ---------------------------------------------------------------------------
+// suspicious-overlay dismissal (runs when the user presses Start Rescue)
+//
+// OS glue only: enumeration, style/process interrogation, close/terminate.
+// The DECISION (which windows deserve closing) lives in
+// cure_core::overlay and is unit-tested there.
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct ClosedOverlay {
+    title: String,
+    process: String,
+    signature: String,
+    /// true = WM_CLOSE was ignored and the process had to be terminated.
+    terminated: bool,
+}
+
+#[derive(Serialize)]
+struct DismissReport {
+    checked: usize,
+    closed: Vec<ClosedOverlay>,
+}
+
+#[cfg(windows)]
+fn is_under_windows_dir(path: &Path) -> bool {
+    let windir = std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".to_string());
+    path.as_os_str()
+        .to_string_lossy()
+        .to_ascii_lowercase()
+        .starts_with(&windir.to_ascii_lowercase())
+}
+
+#[cfg(windows)]
+fn overlay_log_path() -> PathBuf {
+    resolve_data_dir().join("overlay-dismissal.log")
+}
+
+#[cfg(windows)]
+fn log_overlay_action(line: &str) {
+    use std::io::Write as _;
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(overlay_log_path())
+    {
+        let _ = writeln!(f, "{secs} [overlay] {line}");
+    }
+}
+
+/// Enumerate visible top-level windows and describe each one. Pure glue:
+/// every judgement call is delegated to cure_core::overlay.
+#[cfg(windows)]
+fn collect_window_candidates()
+    -> Result<Vec<(isize, WindowDesc, SignatureStatus)>, String>
+{
+    use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW,
+        GetWindowThreadProcessId, IsWindowVisible, GWL_EXSTYLE, GWL_STYLE, WS_CAPTION,
+        WS_EX_TOPMOST,
+    };
+
+    let mut out: Vec<(isize, WindowDesc, SignatureStatus)> = Vec::new();
+    let own_exe = std::env::current_exe().ok().and_then(|e| e.canonicalize().ok());
+
+    extern "system" fn callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        unsafe {
+            let list = lparam.0 as *mut Vec<isize>;
+            if IsWindowVisible(hwnd).as_bool() {
+                (*list).push(hwnd.0 as isize);
+            }
+        }
+        true.into()
+    }
+
+    let mut hwnds: Vec<isize> = Vec::new();
+    let list_ptr = &mut hwnds as *mut _ as isize;
+    unsafe {
+        EnumWindows(Some(callback), LPARAM(list_ptr))
+            .map_err(|e| format!("EnumWindows failed: {e}"))?;
+    }
+
+    for raw in hwnds {
+        let hwnd = HWND(raw as *mut core::ffi::c_void);
+        unsafe {
+            let exstyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+            let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
+            let is_topmost = exstyle & WS_EX_TOPMOST.0 != 0;
+            let is_borderless = style & WS_CAPTION.0 == 0;
+
+            let len = GetWindowTextLengthW(hwnd);
+            let mut buf = vec![0u16; (len + 1) as usize];
+            GetWindowTextW(hwnd, &mut buf);
+            let title = String::from_utf16_lossy(&buf[..len as usize]);
+
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+            if pid == 0 {
+                continue;
+            }
+            let process_path = match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+                Ok(handle) => {
+                    let mut buf = [0u16; 1024];
+                    let mut size = buf.len() as u32;
+                    if QueryFullProcessImageNameW(
+                        handle,
+                        PROCESS_NAME_WIN32,
+                        windows::core::PWSTR(buf.as_mut_ptr()),
+                        &mut size,
+                    )
+                    .is_ok()
+                    {
+                        PathBuf::from(String::from_utf16_lossy(&buf[..size as usize]))
+                    } else {
+                        continue; // cannot attribute the window -> leave it alone
+                    }
+                }
+                Err(_) => continue, // protected process -> leave it alone
+            };
+
+            let canonical = std::fs::canonicalize(&process_path).unwrap_or_else(|_| process_path.clone());
+            let is_own = own_exe.as_ref() == Some(&canonical);
+            let is_system = is_under_windows_dir(&process_path);
+            let signature = cure_core::signature::check_signature(&process_path);
+
+            out.push((
+                raw,
+                WindowDesc {
+                    title,
+                    process_path,
+                    is_topmost,
+                    is_borderless,
+                    is_own_process: is_own,
+                    is_system_window: is_system,
+                },
+                signature,
+            ));
+        }
+    }
+    Ok(out)
+}
+
+/// WM_CLOSE first; if the window survives 500ms, terminate its process.
+#[cfg(windows)]
+fn close_overlay(hwnd_raw: isize) -> bool {
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::System::Threading::{
+        OpenProcess, TerminateProcess, PROCESS_TERMINATE,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{IsWindow, PostMessageW, WM_CLOSE};
+    let hwnd = HWND(hwnd_raw as *mut core::ffi::c_void);
+    unsafe {
+        if !IsWindow(hwnd).as_bool() {
+            return true; // already gone
+        }
+        let _ = PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        if IsWindow(hwnd).as_bool() {
+            let mut pid = 0u32;
+            windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(
+                hwnd,
+                Some(&mut pid),
+            );
+            if let Ok(handle) = OpenProcess(PROCESS_TERMINATE, false, pid) {
+                let _ = TerminateProcess(handle, 1);
+                let _ = windows::Win32::Foundation::CloseHandle(handle);
+                return true;
+            }
+            return false;
+        }
+        true
+    }
+}
+
+#[tauri::command]
+fn dismiss_overlays() -> Result<DismissReport, String> {
+    #[cfg(not(windows))]
+    {
+        return Ok(DismissReport {
+            checked: 0,
+            closed: Vec::new(),
+        });
+    }
+
+    #[cfg(windows)]
+    {
+        let candidates = collect_window_candidates()?;
+        let checked = candidates.len();
+        let picks = overlay::pick_overlays(
+            &candidates
+                .iter()
+                .map(|(_, desc, sig)| (desc.clone(), sig.clone()))
+                .collect::<Vec<_>>(),
+        );
+
+        let mut closed = Vec::new();
+        for idx in picks {
+            let (hwnd_raw, desc, sig) = &candidates[idx];
+            let process = desc.process_name();
+            let sig_text = match sig {
+                SignatureStatus::ValidSigned => "signed",
+                SignatureStatus::Invalid => "INVALID signature",
+                SignatureStatus::Unsigned => "unsigned",
+                SignatureStatus::Unknown => "unverifiable",
+            }
+            .to_string();
+            let went_away = close_overlay(*hwnd_raw);
+            let terminated = !went_away;
+            log_overlay_action(&format!(
+                "closed window {:?} (process {}, {}{})",
+                desc.title,
+                desc.process_path.display(),
+                sig_text,
+                if terminated { "; process TERMINATED after WM_CLOSE was ignored" } else { "" }
+            ));
+            closed.push(ClosedOverlay {
+                title: desc.title.clone(),
+                process,
+                signature: sig_text,
+                terminated,
+            });
+        }
+        Ok(DismissReport { checked, closed })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // E2E driver (test-only, inert unless CURE_E2E_CLEANUP is set)
 //
 // Drives the REAL webview UI (real invoke() plumbing, real backend deletes)
@@ -431,6 +1020,11 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
   };
   const emit = (payload) => window.__TAURI__.event.emit("e2e-done", JSON.stringify(payload));
   try {
+    if (!await waitFor(() => document.getElementById("start-rescue-btn") !== null)) {
+      throw new Error("start-rescue button never appeared");
+    }
+    await wait(300);
+    document.getElementById("start-rescue-btn").click();
     if (!await waitFor(() => document.getElementById("results-view") !== null)) {
       throw new Error("app DOM never became ready");
     }
@@ -490,4 +1084,79 @@ fn maybe_start_e2e_driver(handle: AppHandle) {
             let _ = window.eval(E2E_RUNNER_JS);
         }
     });
+}
+
+#[cfg(test)]
+#[cfg(windows)]
+mod overlay_fixture_tests {
+    use super::*;
+    use std::process::Command;
+
+    fn fake_overlay_bin() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../testing/fake-overlay/target/release/fake-overlay.exe")
+    }
+
+    #[test]
+    fn overlay_fixture_dismisses_fake_overlay_and_spares_notepad() {
+        let bin = fake_overlay_bin();
+        assert!(bin.exists(), "fake-overlay.exe not built yet — run: cargo build --release -p fake-overlay");
+
+        // 1. Spawn fake-overlay (borderless topmost window, unsigned binary)
+        let mut overlay_proc = Command::new(&bin).spawn().expect("spawn fake-overlay");
+        std::thread::sleep(std::time::Duration::from_secs(2));
+
+        // 2. Spawn notepad (legitimate topmost=false, borderless=false)
+        let mut notepad_proc = Command::new("notepad.exe").spawn().expect("spawn notepad");
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        // 3. Collect all window candidates
+        let candidates = collect_window_candidates().expect("collect_window_candidates failed");
+        assert!(candidates.len() >= 2, "expected at least 2 window candidates, got {}", candidates.len());
+
+        // 4. Check that pick_overlays flags the fake-overlay but not notepad
+        let scored: Vec<(WindowDesc, SignatureStatus)> = candidates
+            .iter()
+            .map(|(_, desc, sig)| (desc.clone(), sig.clone()))
+            .collect();
+        let picks = overlay::pick_overlays(&scored);
+
+        let overlay_name = bin.file_stem().unwrap().to_string_lossy().to_string();
+        let mut found_overlay = false;
+        let mut found_notepad = false;
+        for &idx in &picks {
+            let (_, desc, _) = &candidates[idx];
+            if desc.process_name().to_ascii_lowercase().contains(&overlay_name.to_ascii_lowercase()) {
+                found_overlay = true;
+            }
+        }
+        // Notepad should NOT be in the picks
+        for &idx in &picks {
+            let (_, desc, _) = &candidates[idx];
+            assert!(
+                !desc.process_name().to_ascii_lowercase().contains("notepad"),
+                "notepad was incorrectly flagged for dismissal"
+            );
+        }
+        assert!(found_overlay, "fake-overlay was not detected as a suspicious overlay");
+
+        // 5. Close the fake-overlay
+        let (hwnd_raw, _, _) = candidates.iter().find(|(_, desc, _)| {
+            desc.process_name().to_ascii_lowercase().contains(&overlay_name.to_ascii_lowercase())
+        }).expect("fake-overlay hwnd not found");
+        let closed = close_overlay(*hwnd_raw);
+        assert!(closed, "fake-overlay window was not closed");
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        assert!(!is_window_alive(*hwnd_raw), "fake-overlay process still alive after close_overlay");
+
+        // 6. Kill notepad (cleanup)
+        let _ = notepad_proc.kill();
+    }
+
+    fn is_window_alive(hwnd_raw: isize) -> bool {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::IsWindow;
+        let hwnd = HWND(hwnd_raw as *mut core::ffi::c_void);
+        unsafe { IsWindow(hwnd).as_bool() }
+    }
 }

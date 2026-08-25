@@ -901,3 +901,27 @@ body {
 #cleanup-view .results-stack { gap: 16px; }
 #cleanup-view .results-main { padding-top: 14px; }
 #cleanup-view .results-head { margin-bottom: -6px; }
+
+/* ── process kill row ─────────────────────────────────────────── */
+.kill-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px 10px;
+}
+.kill-status {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.kill-status.hidden { display: none; }
+.review-card.proc-entry input[type="checkbox"] {
+  accent-color: var(--danger);
+  flex: none;
+  margin-right: -4px;
+}
+.review-card.proc-entry.proc-killed {
+  opacity: 0.5;
+}
+.review-card.proc-entry.proc-killed .rc-name {
+  text-decoration: line-through;
+}

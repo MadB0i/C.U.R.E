@@ -19,7 +19,6 @@ async function captureLanding(viewport, tag) {
   });
   const page = await context.newPage();
   await page.addInitScript(() => {
-    window.__CURE_MOCK_RESCUE = false;
     window.__CURE_MOCK_ITEM_COUNT = 8;
   });
   await page.goto(devPageUrl);
@@ -42,7 +41,8 @@ async function captureSet(viewport, tag) {
   }, 50);
   await page.goto(devPageUrl);
 
-  // watcher-triggered flow: auto-scan starts immediately (unchanged behavior)
+  await page.waitForSelector("#landing-view:not(.hidden)", { timeout: 15000 });
+  await page.click("#start-rescue-btn");
   await page.waitForFunction(() => window.__cureMascotActive === true, null, {
     timeout: 60000,
   });

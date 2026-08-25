@@ -5,6 +5,11 @@ common ways malware survives a reboot, risk-scores every finding, and lets
 you **quarantine (never delete)** anything malicious — without touching
 user data.
 
+When you press **Start Rescue**, C.U.R.E first attempts to close any
+suspicious fullscreen lock windows (borderless, topmost windows from
+unsigned processes — a common ransom-screen pattern), then scans every
+persistence point on the machine.
+
 ## What's in the box
 
 - **`cure`** (CLI) — scan / diff / quarantine / undo from any terminal
@@ -27,11 +32,21 @@ cure/
 └── gui/      cure-gui.exe (Tauri v2 + animated frontend)
 ```
 
+## Your control, always
+
+C.U.R.E never scans, cleans, or modifies anything without you pressing a
+button first. There is no silent background scanning of your files. The
+only thing that ever runs unprompted is cure-watch's drive-letter polling
+(checking whether a new drive letter exists — no file access, no scanning)
+and, if a valid trigger USB is detected, bringing the already-open GUI
+window to the front so you can see it. Nothing is scanned, cleaned, or
+removed until you explicitly press Start Rescue or the Disk Cleanup button.
+
 ## Build
 
 ```bat
 cargo build --release          :: cure.exe + cure-watch.exe
-cargo test  --workspace        :: 87 tests, engine + watcher
+cargo test  --workspace        :: 85+ tests, engine + watcher
 
 cd gui\src-tauri
 cargo build                    :: cure-gui.exe (needs WebView2, preinstalled on Win10/11)
@@ -69,9 +84,8 @@ triage aid — read the printed reasons.
 
 Once `cure-watch.exe` is running on a machine (self-installs to Startup on
 first run, no admin needed), it polls for new drives every ~1.5s and
-auto-launches the GUI when it sees a valid trigger file — full scan, live
-progress, auto-quarantine of high-risk findings, all state saved to the
-USB itself.
+brings the GUI window to the front when it sees a valid trigger file — the
+user then presses **Start Rescue** to begin scanning.
 
 ## Safety model
 
