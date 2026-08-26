@@ -8,6 +8,8 @@ mod drives;
 mod logger;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod trigger;
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+mod canary;
 
 use consent::{ConsentDecision, CONSENT_FILE_NAME};
 
@@ -124,6 +126,9 @@ fn start_watching() -> Result<(), Box<dyn std::error::Error>> {
         ),
     );
     println!("cure-watch is watching for rescue USBs (Ctrl+C to stop)...");
+
+    // Start canary guard: plant decoys + watch user folders + poll tripwire
+    let _canary_stop = canary::start();
 
     let mut previous = drives::list_drives();
     loop {
