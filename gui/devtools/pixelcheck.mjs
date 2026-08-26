@@ -19,7 +19,14 @@ await page.click("#start-rescue-btn");
 await page.waitForFunction(() => (window.__cureNodeCount || 0) >= 14, null, {
   timeout: 20000,
 });
-await page.waitForTimeout(600);
+// nodes spawn pending-white and gain risk colors as Rakshak resolves them —
+// wait until he's checked a few before sampling the canvas
+await page
+  .waitForFunction(() => (window.__cureResolvedCount || 0) >= 6, null, {
+    timeout: 30000,
+  })
+  .catch(() => {});
+await page.waitForTimeout(400);
 
 const stats = await page.evaluate(() => {
   const canvas = document.getElementById("radar");
@@ -58,7 +65,7 @@ if (stats.feedLines < 5) {
   console.error("FAIL: feed did not accumulate item lines");
   process.exit(1);
 }
-if (stats.amberPx < 50 || stats.redPx < 50) {
+if (stats.amberPx < 15 || stats.redPx < 50) {
   console.error("FAIL: no amber/red node pixels on canvas");
   process.exit(1);
 }

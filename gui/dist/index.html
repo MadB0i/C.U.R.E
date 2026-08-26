@@ -132,20 +132,9 @@
             <span class="feed-title">SCAN MAP</span>
             <span id="map-count" class="feed-count">0 nodes</span>
           </div>
+          <div id="rakshak-status" class="rakshak-status"><span class="rk-name">Rakshak</span> is patrolling</div>
           <div id="map-stage">
             <canvas id="map-canvas"></canvas>
-            <div id="map-idle-orb" class="idle-orb hidden" aria-hidden="true">
-              <svg viewBox="-20 -20 40 40" width="34" height="34">
-                <defs>
-                  <radialGradient id="orb-grad-map" cx="35%" cy="32%" r="80%">
-                    <stop offset="0%" stop-color="#d9d4ff"/>
-                    <stop offset="45%" stop-color="#7c6cf0"/>
-                    <stop offset="100%" stop-color="#453aa6"/>
-                  </radialGradient>
-                </defs>
-                <circle r="13" fill="url(#orb-grad-map)"/>
-              </svg>
-            </div>
           </div>
         </aside>
       </section>
@@ -233,6 +222,7 @@
     </main>
 
     <footer class="footbar">
+      <span class="rakshak-credit"><span class="rk-name">Rakshak</span> — your system's guardian</span>
       <div id="footbar-msg" role="status"></div>
       <button class="ghost-btn" id="btn-quarantine-folder">Open quarantine folder</button>
       <button class="ghost-btn" id="btn-view-log">View full log</button>

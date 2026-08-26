@@ -198,6 +198,7 @@
           born: performance.now() - (REDUCED ? TRAVEL : 0),
           risk,
           name: String(name || "?"),
+          resolved: true,
         };
         nodes.push(nd);
         window.__cureNodeCount = (window.__cureNodeCount || 0) + 1;
@@ -221,6 +222,9 @@
     let pulses = [];
     let lastPulse = 0;
     let mascot = null;
+    let visit = null;
+    let visitQueue = [];
+    let visitsDone = 0;
     let W = 0;
     let H = 0;
     let CX = 0;
@@ -399,7 +403,8 @@
         const t = Math.min((now - nd.born) / TRAVEL, 1);
         const ease = 1 - Math.pow(1 - t, 3);
         const p = nodeXY(nd);
-        const c = RGB[nd.risk] || RGB.Safe;
+        const pending = nd.resolved === false;
+        const c = pending ? [222, 220, 240] : (RGB[nd.risk] || RGB.Safe);
         const gapX = CX + Math.cos(nd.ang) * 12 * DPR;
         const gapY = CY + Math.sin(nd.ang) * 12 * DPR;
         const hx = gapX + (p.x - gapX) * ease;
@@ -430,13 +435,14 @@
 
         const na = t >= 1 ? 1 : Math.max(0, (t - 0.6) / 0.4);
         if (na > 0) {
-          const sinceArrival = now - (nd.born + TRAVEL);
-          const flash = t >= 1 ? Math.max(0, 1 - sinceArrival / 480) : 0;
+          const flashAt = nd.resolvedAt != null ? nd.resolvedAt : nd.born + TRAVEL;
+          const flash =
+            t >= 1 && !pending ? Math.max(0, 1 - (now - flashAt) / 480) : 0;
           ctx.fillStyle = rgba(c, na.toFixed(2));
           ctx.shadowColor = rgba(c, 0.9);
           ctx.shadowBlur = (2 + flash * 5) * DPR;
           ctx.beginPath();
-          ctx.arc(p.x, p.y, dotRadius(nd.risk) * (1 + flash * 0.35) * DPR, 0, Math.PI * 2);
+          ctx.arc(p.x, p.y, (pending ? 2.4 : dotRadius(nd.risk)) * (1 + flash * 0.35) * DPR, 0, Math.PI * 2);
           ctx.fill();
           ctx.shadowBlur = 0;
         }
@@ -479,6 +485,108 @@
     // ---- mascot: violet orb that darts core -> node and knocks threats out
     const MASCOT_TRAVEL_MS = 340;
     const MASCOT_IMPACT_MS = 220;
+    // Rakshak's per-node patrol: travel to each new node, pause a beat to
+    // "check" it (node resolves to its risk color), then move on. Speeds
+    // adapt to backlog so a normal scan shows a real visit per node.
+    const VISIT_TRAVEL_MS = 420;
+    const VISIT_TRAVEL_MIN_MS = 150;
+    const CHECK_MS = 340;
+    const CHECK_MIN_MS = 0;
+    const VISIT_QUEUE_CAP = 10;
+    const MAX_VISITS = 48;
+
+    // ---- Rakshak's patrol visits: travel to each pending node, check it,
+    // resolve its color, escalate to the fight gesture on threats.
+
+    function drawOrbAt(x, y, r, sx, sy) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(sx, sy);
+      const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+      g.addColorStop(0, "#d9d4ff");
+      g.addColorStop(0.5, "#7c6cf0");
+      g.addColorStop(1, "#453aa6");
+      ctx.shadowColor = "rgba(124,108,240,0.65)";
+      ctx.shadowBlur = 10 * DPR;
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+
+    function startNextVisit(now) {
+      if (visit || !visitQueue.length) return;
+      const entry = visitQueue.shift();
+      visit = { nd: entry.nd, fight: entry.fight, start: now, phase: "travel", trail: [] };
+      window.__cureVisitActive = true;
+    }
+
+    function drawVisit(now) {
+      if (!visit) return;
+      const p = nodeXY(visit.nd);
+
+      if (visit.phase === "travel") {
+        // hustle when nodes are backing up — calm when the scan is light
+        const load = Math.min(visitQueue.length, 6);
+        const dur = Math.max(VISIT_TRAVEL_MIN_MS, VISIT_TRAVEL_MS - load * 55);
+        const t = Math.min((now - visit.start) / dur, 1);
+        const e = 1 - Math.pow(1 - t, 2.2);
+        const x = CX + (p.x - CX) * e;
+        const y = CY + (p.y - CY) * e;
+
+        visit.trail.push({ x, y });
+        if (visit.trail.length > 7) visit.trail.shift();
+        for (let i = 0; i < visit.trail.length; i++) {
+          const tr = visit.trail[i];
+          ctx.fillStyle = ACCENT((((i + 1) / visit.trail.length) * 0.2).toFixed(3));
+          ctx.beginPath();
+          ctx.arc(tr.x, tr.y, Math.max(0.6, 2.1 - i * 0.18) * DPR, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        const stretch = 1 + 0.22 * Math.sin(t * Math.PI);
+        const ang = Math.atan2(p.y - CY, p.x - CX);
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(ang);
+        drawOrbAt(0, 0, 6.2 * DPR, stretch, 1 / stretch);
+        ctx.restore();
+
+        if (t >= 1) {
+          visit.phase = "check";
+          visit.start = now;
+        }
+        return;
+      }
+
+      // check phase: a quick pause + glow pulse while the node resolves
+      const load = Math.min(visitQueue.length, 6);
+      const dur = Math.max(CHECK_MIN_MS, CHECK_MS - load * 55);
+      const ct = (now - visit.start) / dur;
+      const pulse = Math.sin(Math.min(ct, 1) * Math.PI);
+      drawOrbAt(p.x, p.y, (6.2 + 0.6 * pulse) * DPR, 1, 1);
+      if (dur > 0 && ct < 1) {
+        ctx.lineWidth = 1.6 * DPR;
+        ctx.strokeStyle = ACCENT((0.5 * (1 - ct)).toFixed(3));
+        ring(p.x, p.y, (6 + ct * 17) * DPR);
+      }
+      if (ct >= 1) {
+        visit.nd.resolved = true;
+        visit.nd.resolvedAt = now;
+        visitsDone += 1;
+        window.__cureResolvedCount = (window.__cureResolvedCount || 0) + 1;
+        if (visit.fight) {
+          // fight gesture plays in place: pre-complete the legacy travel so
+          // only the existing impact rings/squash animate at the node
+          mascot = { nd: visit.nd, start: now - MASCOT_TRAVEL_MS, trail: [] };
+          window.__cureMascotActive = true;
+        }
+        visit = null;
+        window.__cureVisitActive = visitQueue.length > 0;
+      }
+    }
 
     function drawMascot(now) {
       if (!mascot) return;
@@ -559,6 +667,8 @@
       drawPings(now);
       drawCore(now);
       drawMascot(now);
+      startNextVisit(now);
+      drawVisit(now);
       rafId = requestAnimationFrame(frame);
     }
 
@@ -583,7 +693,12 @@
         pings = [];
         pulses = [];
         mascot = null;
+        visit = null;
+        visitQueue = [];
+        visitsDone = 0;
         window.__cureMascotActive = false;
+        window.__cureVisitActive = false;
+        window.__cureResolvedCount = 0;
         NetStore.reset();
         lastPulse = performance.now();
         if (REDUCED) {
@@ -601,6 +716,15 @@
       },
       addNode(risk, name) {
         const nd = NetStore.add(RGB[risk] ? risk : "Safe", name);
+        // Rakshak personally visits new nodes while there's budget; once the
+        // queue saturates (huge scans) nodes resolve instantly via the
+        // existing pulse-only birth animation.
+        if (!REDUCED && visitsDone < MAX_VISITS && visitQueue.length < VISIT_QUEUE_CAP) {
+          nd.resolved = false;
+          visitQueue.push({ nd, fight: false });
+        } else {
+          window.__cureResolvedCount = (window.__cureResolvedCount || 0) + 1;
+        }
         if (REDUCED && !rafId) drawStaticFrame();
         return nd;
       },
@@ -616,6 +740,21 @@
       dispatchMascot(nd) {
         window.__cureMascotCount = (window.__cureMascotCount || 0) + 1;
         if (REDUCED || !nd) return;
+        // HighRisk: escalate this node's visit into the fight gesture. If the
+        // visit is queued, jump it to the front; if Rakshak is already mid-
+        // visit to it, flag the escalation; otherwise fall back to the
+        // legacy core->node dart (existing animation, unchanged).
+        const qi = visitQueue.findIndex(function(e) { return e.nd === nd; });
+        if (qi !== -1) {
+          const entry = visitQueue.splice(qi, 1)[0];
+          entry.fight = true;
+          visitQueue.unshift(entry);
+          return;
+        }
+        if (visit && visit.nd === nd) {
+          visit.fight = true;
+          return;
+        }
         mascot = { nd, start: performance.now(), trail: [] };
         window.__cureMascotActive = true;
       },
@@ -651,10 +790,18 @@
     const DPR = Math.min(window.devicePixelRatio || 1, 2);
     const ACCENT = (a) => "rgba(124, 108, 240, " + a + ")";
     const TRAVELER_MS = 1500;
+    // Rakshak's results-view life: a one-time "secured" wash sweeps outward
+    // from the core while he holds a guard pose, then he relaxes into a slow
+    // figure-eight patrol around the core.
+    const WASH_MS = 850;
+    const GUARD_HOLD_MS = 2600;
+    const GUARD_RELAX_MS = 1400;
 
     let rafId = null;
     let travelers = [];
     let lastSpawn = 0;
+    let flourish = null;
+    let guardUntil = 0;
     let W = 0;
     let H = 0;
     let CX = 0;
@@ -887,10 +1034,90 @@
       travelers.push({ idx: Math.floor(Math.random() * n), born: now });
     }
 
+    function drawWash(now) {
+      if (!flourish) return;
+      if (now < flourish.start) return; // wait out the panel reveal fade
+      const t = (now - flourish.start) / WASH_MS;
+      if (t >= 1) {
+        flourish = null;
+        return;
+      }
+      const e = 1 - Math.pow(1 - t, 2.5);
+      // leading edge sweeping through the constellation
+      ctx.lineWidth = 2.4 * DPR;
+      ctx.strokeStyle = ACCENT((0.55 * (1 - t)).toFixed(3));
+      ellipse(CX, CY, Math.max(1, e * RX), Math.max(1, e * R));
+      // trailing soft fill behind the edge
+      const grd = ctx.createRadialGradient(
+        CX, CY, Math.max(0, e * Math.min(RX, R) - 44 * DPR),
+        CX, CY, Math.max(2, e * Math.max(RX, R) * 1.02)
+      );
+      grd.addColorStop(0, "rgba(124,108,240,0)");
+      grd.addColorStop(0.82, "rgba(124,108,240," + (0.08 * (1 - t)).toFixed(3) + ")");
+      grd.addColorStop(1, "rgba(124,108,240,0)");
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, W, H);
+      // inner echo ring
+      const e2 = Math.max(0, e - 0.16);
+      ctx.lineWidth = 1 * DPR;
+      ctx.strokeStyle = ACCENT((0.28 * (1 - t)).toFixed(3));
+      ellipse(CX, CY, Math.max(1, e2 * RX), Math.max(1, e2 * R));
+    }
+
+    function drawRakshak(now) {
+      const k = Math.min(1.2, Math.max(0.6, Math.min(RX, R) / 260));
+      const guarding = now < guardUntil;
+      let x = CX;
+      let y = CY;
+
+      if (!guarding) {
+        // figure-eight patrol drift around the core, slow enough to read as
+        // "watching over"; eases out of the guard pose instead of jumping
+        const pt = now / 1000;
+        const px = CX + Math.sin(pt * 0.42) * RX * 0.3;
+        const py = CY + Math.sin(pt * 0.84 + 1.2) * R * 0.2;
+        const relax = Math.min(Math.max((now - guardUntil) / GUARD_RELAX_MS, 0), 1);
+        const ease = 1 - Math.pow(1 - relax, 2);
+        x = CX + (px - CX) * ease;
+        y = CY + (py - CY) * ease;
+      }
+
+      const r = ((6.5 + 1.5 * k) * (guarding ? 1.08 : 1)) * DPR;
+      // guard rings ease in with the flourish, fade as patrol resumes
+      let ra;
+      if (guarding) {
+        ra = REDUCED ? 1 : Math.min((now - (guardUntil - GUARD_HOLD_MS)) / 600, 1);
+      } else {
+        ra = Math.max(0, 1 - (now - guardUntil) / 900);
+      }
+      if (ra > 0.01) {
+        const breathe = REDUCED ? 0 : 0.5 + 0.5 * Math.sin(now / 1300);
+        ctx.lineWidth = 1.4 * DPR;
+        ctx.strokeStyle = ACCENT((0.42 * ra * (0.8 + 0.2 * breathe)).toFixed(3));
+        ring(x, y, r * 1.9);
+        ctx.lineWidth = 1 * DPR;
+        ctx.strokeStyle = ACCENT((0.18 * ra * (0.8 + 0.2 * breathe)).toFixed(3));
+        ring(x, y, r * 2.7);
+      }
+
+      const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r);
+      g.addColorStop(0, "#d9d4ff");
+      g.addColorStop(0.5, "#7c6cf0");
+      g.addColorStop(1, "#453aa6");
+      ctx.shadowColor = "rgba(124,108,240,0.75)";
+      ctx.shadowBlur = 15 * DPR;
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
     function drawFrame(now) {
       ctx.clearRect(0, 0, W, H);
       drawBackdrop(now);
       drawGraph(now);
+      drawWash(now);
       if (!REDUCED) {
         if (now - lastSpawn > 3400 + Math.random() * 1600) {
           spawnTraveler(now);
@@ -901,6 +1128,7 @@
         travelers = [];
       }
       drawCore(now);
+      drawRakshak(now);
     }
 
     function loop(now) {
@@ -913,6 +1141,14 @@
         if (countEl) countEl.textContent = summaryTotal + " nodes";
         travelers = [];
         lastSpawn = performance.now() - 2400;
+        // any nodes Rakshak didn't reach (huge scans) settle into place here
+        for (const nd of NetStore.all()) nd.resolved = true;
+        // hold the wash until the map panel's entrance reveal has finished,
+        // so the flourish plays on the settled network, not under the fade
+        const t0 = performance.now();
+        const washStart = t0 + 750;
+        guardUntil = washStart + GUARD_HOLD_MS;
+        flourish = REDUCED ? null : { start: washStart };
         if (REDUCED) {
           if (rafId) cancelAnimationFrame(rafId);
           rafId = null;
@@ -927,6 +1163,7 @@
         if (rafId) cancelAnimationFrame(rafId);
         rafId = null;
         travelers = [];
+        flourish = null;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
       },
     };
@@ -1257,10 +1494,12 @@
       );
     }
 
-    // idle mascot keeps the all-clear map company; hides while findings
-    // are up so it never collides with the darting quarantine mascot
-    const idleOrb = document.getElementById("map-idle-orb");
-    if (idleOrb) idleOrb.classList.toggle("hidden", trouble !== 0);
+    // Rakshak's status line under the scan-map header
+    const rkStatus = document.getElementById("rakshak-status");
+    if (rkStatus) {
+      rkStatus.innerHTML = '<span class="rk-name">Rakshak</span> secured ' +
+        summary.total + " node" + (summary.total === 1 ? "" : "s");
+    }
 
     const revealables = resultsView.querySelectorAll(".reveal");
     if (!REDUCED && revealables.length > 0) {

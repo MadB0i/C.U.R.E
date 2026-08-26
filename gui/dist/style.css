@@ -911,17 +911,21 @@ body {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-3px); }
 }
-#map-idle-orb {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 34px;
-  height: 34px;
-  margin: -33px 0 0 -17px;
-  z-index: 2;
-}
 .cleanup-idle-orb { flex: none; }
 .cleanup-idle-copy { min-width: 0; }
+
+.rakshak-status {
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0.2px;
+  margin: -8px 0 14px;
+}
+.rk-name { color: var(--accent); }
+.rakshak-credit {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-right: 22px;
+}
 
 .toss-stage { flex: none; }
 .toss-stage svg { display: block; overflow: visible; }
