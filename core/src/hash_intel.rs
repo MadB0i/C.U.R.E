@@ -45,9 +45,27 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 /// Looks the file's SHA-256 up in the embedded known-bad list.
 /// Returns `Some(description)` on a match and `None` otherwise (including
 /// when the file cannot be read — absence of evidence is not evidence).
+///
+/// The file is streamed in fixed-size chunks instead of being read into
+/// memory in one go: process scanning feeds this every running executable,
+/// and modern exes can be hundreds of megabytes.
 pub fn check_hash(exe_path: &Path) -> Option<String> {
-    let bytes = std::fs::read(exe_path).ok()?;
-    let hex = sha256_hex(&bytes);
+    use std::io::Read;
+    let mut file = std::fs::File::open(exe_path).ok()?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 256 * 1024];
+    loop {
+        let n = file.read(&mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity(64);
+    for byte in digest {
+        hex.push_str(&format!("{byte:02x}"));
+    }
     known_bad().get(&hex).cloned()
 }
 

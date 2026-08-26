@@ -55,6 +55,12 @@ const BORING_EXTENSIONS: &[&str] = &[
 /// to trigger the bulk-extension heuristic.
 const MIN_BULK_COUNT: usize = 10;
 
+/// Case-insensitive check for extensions too common to be useful signal.
+pub fn is_boring_extension(ext: &str) -> bool {
+    let e = ext.to_ascii_lowercase();
+    BORING_EXTENSIONS.iter().any(|&b| b == e)
+}
+
 /// Maximum ratio of "boring" (common) extensions allowed before the
 /// cluster is dismissed.  If more than 30 % of files in a cluster have
 /// boring extensions, skip it — likely a normal data directory.

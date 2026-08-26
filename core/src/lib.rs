@@ -1,4 +1,5 @@
 pub mod baseline;
+pub mod canary;
 pub mod cleanup;
 pub mod hash_intel;
 pub mod model;

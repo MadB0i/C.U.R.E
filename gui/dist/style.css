@@ -725,6 +725,142 @@ body {
   .map-card { width: 460px; padding: 28px 32px; }
 }
 
+/* ---------- canary guard ---------- */
+
+.canary-guard {
+  background: rgba(124,108,240,0.06);
+  border: 1px solid rgba(124,108,240,0.18);
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin-top: 10px;
+}
+.canary-guard-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.canary-shield {
+  width: 22px;
+  height: 22px;
+  color: #7c6cf0;
+  flex-shrink: 0;
+}
+.canary-guard-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+}
+.canary-guard-sub {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 8px;
+  line-height: 1.45;
+}
+.canary-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.canary-toggle-track {
+  width: 38px;
+  height: 20px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.15);
+  position: relative;
+  transition: background 0.2s, border-color 0.2s;
+}
+.canary-toggle.on .canary-toggle-track {
+  background: #7c6cf0;
+  border-color: #7c6cf0;
+}
+.canary-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text);
+  transition: transform 0.2s;
+}
+.canary-toggle.on .canary-toggle-thumb {
+  transform: translateX(18px);
+}
+.canary-toggle-text {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  min-width: 24px;
+  text-align: left;
+}
+.canary-toggle.on .canary-toggle-text {
+  color: #7c6cf0;
+}
+
+/* canary alert overlay */
+
+.canary-alert-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(18,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: canaryFadeIn 0.25s ease-out;
+}
+.canary-alert-overlay.hidden { display: none; }
+.canary-alert-box {
+  background: #1a0a0a;
+  border: 1.5px solid #e04040;
+  border-radius: 14px;
+  padding: 28px 32px;
+  max-width: 420px;
+  text-align: center;
+  box-shadow: 0 0 40px rgba(224,64,64,0.25);
+}
+.canary-alert-icon {
+  width: 48px;
+  height: 48px;
+  color: #e04040;
+  margin: 0 auto 12px;
+  display: block;
+}
+.canary-alert-title {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #e04040;
+  margin-bottom: 10px;
+}
+.canary-alert-detail {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 18px;
+}
+.canary-alert-actions .btn {
+  background: #e04040;
+  border-color: #e04040;
+  color: #fff;
+}
+.canary-alert-actions .btn:hover {
+  background: #ff5050;
+  border-color: #ff5050;
+}
+@keyframes canaryFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .caret, .pill.scanning .pill-dot { animation: none !important; }
   .view { transition: opacity 0.01s linear !important; transform: none !important; }
@@ -733,6 +869,7 @@ body {
   .btn, .quarantine-btn, .ghost-btn { transition: none !important; }
   #footbar-msg { transition: none !important; }
   .log li.item-line.fresh { animation: none !important; }
+  .canary-alert-overlay { animation: none !important; }
 }
 
 /* ---------- disk cleanup ---------- */

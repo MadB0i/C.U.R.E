@@ -484,6 +484,7 @@ version = "0.1.0"
 dependencies = [
  "cure_core",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tokio",

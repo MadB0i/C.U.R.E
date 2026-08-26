@@ -29,6 +29,7 @@
   if (window.__CURE_MOCK_ITEM_COUNT === undefined) window.__CURE_MOCK_ITEM_COUNT = 8;
   if (window.__CURE_MOCK_FOOTER_ERRORS === undefined) window.__CURE_MOCK_FOOTER_ERRORS = false;
   if (window.__CURE_MOCK_ALL_SAFE === undefined) window.__CURE_MOCK_ALL_SAFE = false;
+  if (window.__CURE_MOCK_CANARY_ALERT === undefined) window.__CURE_MOCK_CANARY_ALERT = false;
   window.__CURE_SCAN_DONE = false;
 
   const PASCAL_SOURCE = {
@@ -444,6 +445,26 @@
               });
               return { killed: killed, failed: failed };
             });
+          case "start_canary_guard":
+            return delay(150).then(function() {
+              if (window.__CURE_MOCK_CANARY_ALERT) {
+                setTimeout(function() {
+                  emit("canary-alert", {
+                    kind: "burst-encryption",
+                    folder: "C:\\Users\\bob\\Documents",
+                    file: "8 files in 30s",
+                    action: "burst",
+                    at_secs: Math.floor(Date.now() / 1000),
+                    severity: 1,
+                  });
+                }, 2000);
+              }
+              return "started";
+            });
+          case "stop_canary_guard":
+            return delay(80).then(function() { return "stopped"; });
+          case "canary_status":
+            return delay(20).then(function() { return { active: false, alert_count: 0 }; });
           default:
             return Promise.reject(new Error("mock-tauri: unknown command " + command));
         }

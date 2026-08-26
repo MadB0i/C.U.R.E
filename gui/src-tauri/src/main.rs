@@ -1,9 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, AtomicUsize, Ordering}};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Listener, Manager};
+use tauri::{AppHandle, Emitter, Listener, Manager, State};
 
 use cure_core::{baseline, quarantine, risk, scanners};
 use cure_core::cleanup as disk_cleanup;
@@ -12,6 +13,10 @@ use cure_core::model::{PersistenceEntry, PersistenceSource, RiskLevel, ScoredEnt
 use cure_core::signature::SignatureStatus;
 use cure_core::process_scan::{self, ProcessInfo, ProcessScore};
 use cure_core::ransom_detect::{self, RansomFinding as RansomFindingCore};
+use cure_core::canary::{
+    CanaryEngine, CanaryConfig, CanaryAlert, FileEvent, FileEventKind,
+    decoy_names, shadow_wipe_reason,
+};
 
 #[derive(Debug, Clone, Serialize)]
 struct ProgressEvent {
@@ -416,19 +421,40 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
             "process-scan",
             format!("Checking {} running processes", processes.len()),
         );
-        let scored_procs: Vec<(ProcessInfo, ProcessScore)> = processes
-            .iter()
-            .map(|p| {
-                let sig = cure_core::signature::check_signature(
-                    std::path::Path::new(&p.exe_path),
-                );
-                let hash = cure_core::hash_intel::check_hash(
-                    std::path::Path::new(&p.exe_path),
-                );
-                let ps = process_scan::score_process(p, &sig, hash.as_deref());
-                (p.clone(), ps)
+
+        // Scoring hits the disk (WinVerifyTrust + SHA-256 per exe), so run it
+        // in blocking batches and surface progress between them — otherwise a
+        // few hundred processes freeze the UI with no feedback for minutes.
+        const BATCH: usize = 24;
+        let mut scored_procs: Vec<(ProcessInfo, ProcessScore)> = Vec::new();
+        for chunk in processes.chunks(BATCH) {
+            let chunk = chunk.to_vec();
+            let done = scored_procs.len();
+            let total = processes.len();
+            emit_stage(
+                &app,
+                "process-scan",
+                format!("Scanning running processes {}–{} of {}", done + 1, done + chunk.len(), total),
+            );
+            let batch = tokio::task::spawn_blocking(move || {
+                chunk
+                    .into_iter()
+                    .map(|p| {
+                        let sig =
+                            cure_core::signature::check_signature(std::path::Path::new(&p.exe_path));
+                        let hash =
+                            cure_core::hash_intel::check_hash(std::path::Path::new(&p.exe_path));
+                        let ps = process_scan::score_process(&p, &sig, hash.as_deref());
+                        (p, ps)
+                    })
+                    .collect::<Vec<_>>()
             })
-            .collect();
+            .await;
+            match batch {
+                Ok(part) => scored_procs.extend(part),
+                Err(e) => return Err(format!("process scan failed: {e}")),
+            }
+        }
 
         let suspicious_idx = process_scan::pick_suspicious_processes(&scored_procs);
         for &idx in &suspicious_idx {
@@ -751,8 +777,12 @@ fn main() {
             view_log,
             exit_app,
             scan_cleanup,
-            run_cleanup
+            run_cleanup,
+            start_canary_guard,
+            stop_canary_guard,
+            canary_status
         ])
+        .manage(CanaryState::new())
         .setup(|app| {
             if launched_by_watcher() {
                 let handle = app.handle().clone();
@@ -1082,6 +1112,340 @@ fn maybe_start_e2e_driver(handle: AppHandle) {
         std::thread::sleep(std::time::Duration::from_millis(1500));
         if let Some(window) = handle.get_webview_window("main") {
             let _ = window.eval(E2E_RUNNER_JS);
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Ransomware canary guard — real-time folder monitoring + process tripwire
+// ---------------------------------------------------------------------------
+
+struct CanaryGuard {
+    stop: Arc<AtomicBool>,
+    alert_count: Arc<AtomicUsize>,
+}
+
+struct CanaryState {
+    guard: Mutex<Option<CanaryGuard>>,
+}
+
+impl CanaryState {
+    fn new() -> Self {
+        Self { guard: Mutex::new(None) }
+    }
+}
+
+#[derive(serde::Serialize, Clone)]
+struct CanaryAlertEvent {
+    kind: String,
+    folder: String,
+    file: String,
+    action: String,
+    at_secs: u64,
+    severity: u8,
+}
+
+#[tauri::command]
+fn start_canary_guard(state: State<'_, CanaryState>, app: AppHandle) -> Result<String, String> {
+    {
+        let g = state.guard.lock().map_err(|e| e.to_string())?;
+        if g.is_some() {
+            return Ok("already-active".into());
+        }
+    }
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let alert_count = Arc::new(AtomicUsize::new(0));
+
+    let dirs = user_folder_candidates();
+    for dir in &dirs {
+        if dir.is_dir() {
+            plant_decoys(dir);
+        }
+    }
+
+    let watch_dirs: Vec<PathBuf> = dirs.into_iter().filter(|d| d.is_dir()).collect();
+    for dir in &watch_dirs {
+        spawn_dir_watcher(dir.clone(), app.clone(), stop.clone(), alert_count.clone());
+    }
+
+    spawn_tripwire_poller(app.clone(), stop.clone(), alert_count.clone());
+
+    {
+        let mut g = state.guard.lock().map_err(|e| e.to_string())?;
+        *g = Some(CanaryGuard { stop, alert_count });
+    }
+    Ok("started".into())
+}
+
+#[tauri::command]
+fn stop_canary_guard(state: State<'_, CanaryState>) -> Result<String, String> {
+    let mut g = state.guard.lock().map_err(|e| e.to_string())?;
+    if let Some(guard) = g.take() {
+        guard.stop.store(true, Ordering::SeqCst);
+        Ok("stopped".into())
+    } else {
+        Ok("not-active".into())
+    }
+}
+
+#[tauri::command]
+fn canary_status(state: State<'_, CanaryState>) -> Result<serde_json::Value, String> {
+    let g = state.guard.lock().map_err(|e| e.to_string())?;
+    let active = g.is_some();
+    let count = g.as_ref()
+        .map(|g| g.alert_count.load(Ordering::Relaxed))
+        .unwrap_or(0);
+    Ok(serde_json::json!({ "active": active, "alert_count": count }))
+}
+
+fn plant_decoys(dir: &Path) {
+    let names = decoy_names(6);
+    for name in &names {
+        let path = dir.join(name);
+        if !path.exists() {
+            let content: Vec<u8> = (0..512).map(|i| (i * 73 + 11) as u8).collect();
+            let _ = std::fs::write(&path, &content);
+        }
+    }
+}
+
+fn to_wide(s: &str) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+    std::ffi::OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+}
+
+#[cfg(windows)]
+fn spawn_dir_watcher(
+    dir: PathBuf,
+    app: AppHandle,
+    stop: Arc<AtomicBool>,
+    _alert_count: Arc<AtomicUsize>,
+) {
+    std::thread::spawn(move || {
+        use windows::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+        use windows::core::PCWSTR;
+        use windows::Win32::Storage::FileSystem::{
+            CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_LIST_DIRECTORY, OPEN_EXISTING,
+            FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_SHARE_DELETE,
+            ReadDirectoryChangesW,
+            FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE,
+            FILE_NOTIFY_INFORMATION, FILE_ACTION_ADDED, FILE_ACTION_MODIFIED, FILE_ACTION_REMOVED,
+            FILE_ACTION_RENAMED_OLD_NAME, FILE_ACTION_RENAMED_NEW_NAME,
+        };
+        use windows::Win32::System::IO::{OVERLAPPED, GetOverlappedResult};
+        use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
+        use windows::Win32::Foundation::BOOL;
+
+        let dir_wide = to_wide(&dir.to_string_lossy());
+
+        let h_dir = unsafe {
+            CreateFileW(
+                PCWSTR(dir_wide.as_ptr()),
+                FILE_LIST_DIRECTORY.0,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                None,
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS,
+                None,
+            )
+        };
+        let h_dir = match h_dir {
+            Ok(h) if h != INVALID_HANDLE_VALUE => h,
+            _ => return,
+        };
+
+        let h_event = unsafe { CreateEventW(None, BOOL::from(false), BOOL::from(false), None) };
+        let h_event = match h_event {
+            Ok(h) => h,
+            Err(_) => {
+                let _ = unsafe { CloseHandle(h_dir) };
+                return;
+            }
+        };
+
+        let mut engine = CanaryEngine::new(CanaryConfig::default());
+        let mut buffer = [0u8; 4096];
+
+        while !stop.load(Ordering::Relaxed) {
+            let mut bytes_returned = 0u32;
+            let mut overlapped = OVERLAPPED::default();
+            overlapped.hEvent = h_event;
+
+            let ok = unsafe {
+                ReadDirectoryChangesW(
+                    h_dir,
+                    buffer.as_mut_ptr() as *mut core::ffi::c_void,
+                    buffer.len() as u32,
+                    BOOL::from(true),
+                    FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_SIZE,
+                    Some(&mut bytes_returned),
+                    Some(&mut overlapped),
+                    None,
+                )
+            };
+
+            if ok.is_err() {
+                break;
+            }
+
+            let wait_result = unsafe { WaitForSingleObject(h_event, 2000) };
+            if wait_result.0 != 0 {
+                continue;
+            }
+
+            unsafe {
+                let _ = GetOverlappedResult(h_dir, &mut overlapped, &mut bytes_returned, BOOL::from(false));
+            }
+
+            if bytes_returned == 0 {
+                continue;
+            }
+
+            let now_secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+
+            let mut offset: usize = 0;
+            let folder_str = dir.to_string_lossy().to_string();
+            let buf_end = bytes_returned as usize;
+
+            while offset + 12 <= buf_end {
+                let info = unsafe {
+                    &*(buffer.as_ptr().add(offset) as *const FILE_NOTIFY_INFORMATION)
+                };
+                let name_len = info.FileNameLength as usize;
+                // FileName starts at byte 12 (after NextEntryOffset + Action + FileNameLength)
+                let name_byte_offset = offset + 12;
+                if name_byte_offset + name_len > buf_end {
+                    break;
+                }
+                let name_bytes = unsafe {
+                    std::slice::from_raw_parts(
+                        buffer.as_ptr().add(name_byte_offset),
+                        name_len,
+                    )
+                };
+                let name = String::from_utf16_lossy(
+                    name_bytes
+                        .chunks_exact(2)
+                        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                );
+
+                let kind = if info.Action == FILE_ACTION_ADDED {
+                    FileEventKind::Added
+                } else if info.Action == FILE_ACTION_REMOVED {
+                    FileEventKind::Removed
+                } else if info.Action == FILE_ACTION_MODIFIED {
+                    FileEventKind::Modified
+                } else if info.Action == FILE_ACTION_RENAMED_OLD_NAME {
+                    FileEventKind::RenamedOldName
+                } else if info.Action == FILE_ACTION_RENAMED_NEW_NAME {
+                    FileEventKind::RenamedNewName
+                } else {
+                    FileEventKind::Modified
+                };
+
+                let ev = FileEvent {
+                    at_secs: now_secs,
+                    folder: folder_str.clone(),
+                    name,
+                    kind,
+                };
+
+                let alerts = engine.observe(ev);
+                for alert in alerts {
+                    let event = match &alert {
+                        CanaryAlert::CanaryTamper { folder, file, action, at_secs } => {
+                            CanaryAlertEvent {
+                                kind: "canary-tamper".into(),
+                                folder: folder.clone(),
+                                file: file.clone(),
+                                action: (*action).into(),
+                                at_secs: *at_secs,
+                                severity: alert.severity(),
+                            }
+                        }
+                        CanaryAlert::BurstEncryption { folder, distinct_files, window_secs, at_secs } => {
+                            CanaryAlertEvent {
+                                kind: "burst-encryption".into(),
+                                folder: folder.clone(),
+                                file: format!("{distinct_files} files in {window_secs}s"),
+                                action: "burst".into(),
+                                at_secs: *at_secs,
+                                severity: alert.severity(),
+                            }
+                        }
+                        CanaryAlert::ExtensionRewrite { folder, extension, renamed_count, at_secs } => {
+                            CanaryAlertEvent {
+                                kind: "extension-rewrite".into(),
+                                folder: folder.clone(),
+                                file: format!(".{extension}"),
+                                action: format!("{renamed_count} files renamed"),
+                                at_secs: *at_secs,
+                                severity: alert.severity(),
+                            }
+                        }
+                    };
+                    let _ = app.emit("canary-alert", &event);
+                }
+
+                if info.NextEntryOffset == 0 {
+                    break;
+                }
+                offset += info.NextEntryOffset as usize;
+            }
+        }
+
+        let _ = unsafe { CloseHandle(h_event) };
+        let _ = unsafe { CloseHandle(h_dir) };
+    });
+}
+
+#[cfg(not(windows))]
+fn spawn_dir_watcher(
+    _dir: PathBuf,
+    _app: AppHandle,
+    stop: Arc<AtomicBool>,
+    _alert_count: Arc<AtomicUsize>,
+) {
+    std::thread::spawn(move || {
+        while !stop.load(Ordering::Relaxed) {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+    });
+}
+
+fn spawn_tripwire_poller(app: AppHandle, stop: Arc<AtomicBool>, _alert_count: Arc<AtomicUsize>) {
+    std::thread::spawn(move || {
+        while !stop.load(Ordering::Relaxed) {
+            #[cfg(windows)]
+            {
+                let processes = enumerate_running_processes();
+                for p in &processes {
+                    let name = std::path::Path::new(&p.exe_path)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    if let Some(reason) = shadow_wipe_reason(&name, "") {
+                        let _ = app.emit("canary-alert", CanaryAlertEvent {
+                            kind: "shadow-wipe".into(),
+                            folder: String::new(),
+                            file: name,
+                            action: reason.into(),
+                            at_secs: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_secs())
+                                .unwrap_or(0),
+                            severity: 3,
+                        });
+                    }
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_secs(5));
         }
     });
 }

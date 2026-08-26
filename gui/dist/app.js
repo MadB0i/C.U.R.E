@@ -1506,6 +1506,7 @@
       void resultsView.offsetWidth;
     }
     netmap.show(summary.total);
+    syncCanaryStatus();
   }
 
   function switchView(fromEl, toEl) {
@@ -1648,6 +1649,76 @@
       footFeedback(cleanErrText(err, "Could not exit app"), true);
     }
   });
+
+  // ---- canary guard (ransomware decoy monitor) ----------------------------
+
+  const canaryToggle = document.getElementById("canary-toggle");
+  const canaryToggleText = canaryToggle ? canaryToggle.querySelector(".canary-toggle-text") : null;
+  let canaryActive = false;
+
+  async function syncCanaryStatus() {
+    try {
+      const st = await invoke("canary_status");
+      canaryActive = !!st.active;
+      updateCanaryUI();
+    } catch (_) { /* ignore */ }
+  }
+
+  function updateCanaryUI() {
+    if (canaryToggle) {
+      canaryToggle.setAttribute("aria-pressed", String(canaryActive));
+      canaryToggle.classList.toggle("on", canaryActive);
+    }
+    if (canaryToggleText) canaryToggleText.textContent = canaryActive ? "ON" : "OFF";
+  }
+
+  if (canaryToggle) {
+    canaryToggle.addEventListener("click", async () => {
+      try {
+        if (canaryActive) {
+          await invoke("stop_canary_guard");
+          canaryActive = false;
+          footFeedback("Canary guard deactivated", false);
+        } else {
+          await invoke("start_canary_guard");
+          canaryActive = true;
+          footFeedback("Canary guard active — decoys planted", false);
+        }
+      } catch (err) {
+        footFeedback(cleanErrText(err, "Could not toggle canary guard"), true);
+      }
+      updateCanaryUI();
+    });
+  }
+
+  // Listen for canary-alert events from backend
+  const canaryOverlay = document.getElementById("canary-alert-overlay");
+  const canaryDetail = document.getElementById("canary-alert-detail");
+  const canaryDismissBtn = document.getElementById("canary-dismiss-btn");
+
+  if (canaryDismissBtn) {
+    canaryDismissBtn.addEventListener("click", () => {
+      if (canaryOverlay) canaryOverlay.classList.add("hidden");
+    });
+  }
+
+  TAU.event.listen("canary-alert", (ev) => {
+    const payload = typeof ev.payload === "string" ? JSON.parse(ev.payload) : ev.payload;
+    if (canaryDetail) {
+      const kind = payload.kind || "unknown";
+      const folder = payload.folder || "";
+      const file = payload.file || "";
+      const action = payload.action || "";
+      canaryDetail.textContent =
+        kind.replace(/-/g, " ").toUpperCase() + " — " +
+        (folder ? folder + " " : "") + file +
+        (action ? " (" + action + ")" : "");
+    }
+    if (canaryOverlay) canaryOverlay.classList.remove("hidden");
+  });
+
+  // Auto-sync canary status when results view appears
+  const origRenderResults = typeof renderResults === "function" ? renderResults : null;
 
   // ---- disk cleanup (separate flow / own view) ----------------------------
 
