@@ -137,10 +137,10 @@ pub fn score_process(
     }
 
     // known-bad hash → force high risk
-    if hash_match.is_some() {
+    if let Some(ref desc) = hash_match {
         score = KNOWN_BAD_HASH_FORCE;
         reasons.clear();
-        reasons.push(format!("KNOWN BAD HASH: {}", hash_match.unwrap()));
+        reasons.push(format!("KNOWN BAD HASH: {}", desc));
     }
 
     let score = score.max(0);

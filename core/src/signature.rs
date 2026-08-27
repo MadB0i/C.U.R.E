@@ -178,8 +178,10 @@ mod imp {
 
         let mut verified = false;
         for &cat in &matched {
-            let mut info = CATALOG_INFO::default();
-            info.cbStruct = u32::try_from(std::mem::size_of::<CATALOG_INFO>()).unwrap_or(0);
+            let mut info = CATALOG_INFO {
+                cbStruct: u32::try_from(std::mem::size_of::<CATALOG_INFO>()).unwrap_or(0),
+                ..CATALOG_INFO::default()
+            };
             if unsafe { CryptCATCatalogInfoFromContext(cat, &mut info, 0) }.is_err() {
                 continue;
             }

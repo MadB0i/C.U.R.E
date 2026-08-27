@@ -155,8 +155,7 @@ fn spawn_dir_watcher(dir: PathBuf, stop: Arc<AtomicBool>) {
 
         while !stop.load(Ordering::Relaxed) {
             let mut bytes_returned = 0u32;
-            let mut overlapped = OVERLAPPED::default();
-            overlapped.hEvent = h_event;
+            let mut overlapped = OVERLAPPED { hEvent: h_event, ..OVERLAPPED::default() };
 
             let ok = unsafe {
                 ReadDirectoryChangesW(
@@ -181,7 +180,7 @@ fn spawn_dir_watcher(dir: PathBuf, stop: Arc<AtomicBool>) {
             }
 
             unsafe {
-                let _ = GetOverlappedResult(h_dir, &mut overlapped, &mut bytes_returned, BOOL::from(false));
+                let _ = GetOverlappedResult(h_dir, &overlapped, &mut bytes_returned, BOOL::from(false));
             }
 
             if bytes_returned == 0 {

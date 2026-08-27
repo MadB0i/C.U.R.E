@@ -55,7 +55,7 @@ pub fn list_records(data_dir: &Path) -> Vec<QuarantineRecord> {
     let mut records: Vec<QuarantineRecord> = load_records(data_dir)
         .map(|r| r.into_values().collect())
         .unwrap_or_default();
-    records.sort_by(|a, b| a.archived_at.cmp(&b.archived_at));
+    records.sort_by_key(|a| a.archived_at);
     records
 }
 
@@ -68,8 +68,7 @@ fn move_file(source: &Path, destination: &Path) -> io::Result<()> {
     let original_len = fs::metadata(source)?.len();
     if copied_len != original_len {
         let _ = fs::remove_file(destination);
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             "copy verification failed during move",
         ));
     }

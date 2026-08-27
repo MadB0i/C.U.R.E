@@ -123,15 +123,13 @@ fn stem_matches(name: &str) -> Option<String> {
     let upper = name.to_ascii_uppercase();
     let mut best: Option<(&str, usize)> = None;
     for &pattern in RANSOM_NOTE_STEMS {
-        let matched = if stem == pattern {
-            Some(pattern.len())
-        } else if upper.contains(pattern) {
+        let matched = if stem == pattern || upper.contains(pattern) {
             Some(pattern.len())
         } else {
             None
         };
         if let Some(len) = matched {
-            if best.map_or(true, |(_, bl)| len > bl) {
+            if best.is_none_or(|(_, bl)| len > bl) {
                 best = Some((pattern, len));
             }
         }
@@ -282,7 +280,7 @@ pub fn detect_bulk_extension(folder: PathBuf, entries: &[DirEntry]) -> Vec<BulkE
     }
 
     // Sort by count descending — most-affected folders first
-    results.sort_by(|a, b| b.file_count.cmp(&a.file_count));
+    results.sort_by_key(|b| std::cmp::Reverse(b.file_count));
     results
 }
 

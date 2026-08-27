@@ -270,7 +270,7 @@ fn read_dir_entries(folder: &Path) -> Vec<cure_core::ransom_detect::DirEntry> {
         .ok()
         .map(|rd| {
             rd.filter_map(|e| e.ok())
-                .filter_map(|e| {
+                .map(|e| {
                     let name = e.file_name().to_string_lossy().to_string();
                     let age_days = e
                         .metadata()
@@ -279,7 +279,7 @@ fn read_dir_entries(folder: &Path) -> Vec<cure_core::ransom_detect::DirEntry> {
                         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                         .map(|d| (now.saturating_sub(d.as_secs())) / 86_400)
                         .unwrap_or(0);
-                    Some(cure_core::ransom_detect::DirEntry { name, age_days })
+                    cure_core::ransom_detect::DirEntry { name, age_days }
                 })
                 .collect()
         })
@@ -998,7 +998,7 @@ fn dismiss_overlays() -> Result<DismissReport, String> {
         let picks = overlay::pick_overlays(
             &candidates
                 .iter()
-                .map(|(_, desc, sig)| (desc.clone(), sig.clone()))
+                .map(|(_, desc, sig)| (desc.clone(), *sig))
                 .collect::<Vec<_>>(),
         );
 
@@ -1269,8 +1269,7 @@ fn spawn_dir_watcher(
 
         while !stop.load(Ordering::Relaxed) {
             let mut bytes_returned = 0u32;
-            let mut overlapped = OVERLAPPED::default();
-            overlapped.hEvent = h_event;
+            let mut overlapped = OVERLAPPED { hEvent: h_event, ..OVERLAPPED::default() };
 
             let ok = unsafe {
                 ReadDirectoryChangesW(
@@ -1295,7 +1294,7 @@ fn spawn_dir_watcher(
             }
 
             unsafe {
-                let _ = GetOverlappedResult(h_dir, &mut overlapped, &mut bytes_returned, BOOL::from(false));
+                let _ = GetOverlappedResult(h_dir, &overlapped, &mut bytes_returned, BOOL::from(false));
             }
 
             if bytes_returned == 0 {
