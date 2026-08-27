@@ -23,7 +23,7 @@
           <rect x="1.5" y="1.5" width="23" height="23" rx="7" stroke="#7c6cf0" stroke-width="1.6"/>
           <path d="M8 13.5L11.5 17L18 9.5" stroke="#7c6cf0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        <div class="wordmark">C.U.R.E<span>Clean USB Rescue Engine · Mock</span></div>
+        <div class="wordmark">C.U.R.E<span>Clean USB Rescue Engine</span></div>
       </div>
       <div id="status-pill" class="pill scanning">
         <span class="pill-dot"></span>
@@ -115,7 +115,28 @@
         <div class="results-main">
         <div class="results-stack">
         <div class="results-head">
-          <div id="badge" class="badge clean reveal" style="--d:0ms"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+          <div id="badge" class="rakshak-sm reveal" style="--d:0ms">
+            <svg viewBox="-50 -55 100 115" width="60" height="68" aria-hidden="true">
+              <defs>
+                <radialGradient id="orb-grad-sm-r" cx="35%" cy="32%" r="80%">
+                  <stop offset="0%" stop-color="#d9d4ff"/>
+                  <stop offset="45%" stop-color="#7c6cf0"/>
+                  <stop offset="100%" stop-color="#453aa6"/>
+                </radialGradient>
+              </defs>
+              <circle class="sm-ring" r="44" fill="none" stroke="rgba(124,108,240,0.12)" stroke-width="0.5" stroke-dasharray="3 5"/>
+              <path d="M0,-38 C22,-38 36,-30 36,-15 C36,5 22,24 0,36 C-22,24 -36,5 -36,-15 C-36,-30 -22,-38 0,-38Z" fill="none" stroke="rgba(124,108,240,0.2)" stroke-width="0.8"/>
+              <circle r="22" fill="url(#orb-grad-sm-r)"/>
+              <circle cx="-7" cy="-4" r="3.6" fill="rgba(255,255,255,0.9)"/>
+              <circle cx="7" cy="-4" r="3.6" fill="rgba(255,255,255,0.9)"/>
+              <circle cx="-7" cy="-3.2" r="1.7" fill="#1a1a2e"/>
+              <circle cx="7" cy="-3.2" r="1.7" fill="#1a1a2e"/>
+              <circle cx="-5.5" cy="-5.5" r="0.8" fill="rgba(255,255,255,0.6)"/>
+              <circle cx="8.5" cy="-5.5" r="0.8" fill="rgba(255,255,255,0.6)"/>
+              <path d="M-3,5 Q0,8 3,5" fill="none" stroke="rgba(217,212,255,0.3)" stroke-width="0.7" stroke-linecap="round"/>
+              <circle id="badge-dot" class="badge-dot" cx="18" cy="-28" r="4" fill="var(--safe)"/>
+            </svg>
+          </div>
           <div class="headline-wrap">
             <div id="headline" class="headline reveal" style="--d:90ms">System is clean</div>
             <div id="subline" class="subline reveal" style="--d:140ms"></div>
@@ -227,7 +248,27 @@
           <div class="results-main">
             <div class="results-stack">
               <div class="results-head">
-                <div class="badge clean reveal" style="--d:0ms"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+                <div class="rakshak-sm reveal" style="--d:0ms">
+                  <svg viewBox="-50 -55 100 115" width="60" height="68" aria-hidden="true">
+                    <defs>
+                      <radialGradient id="orb-grad-sm-c" cx="35%" cy="32%" r="80%">
+                        <stop offset="0%" stop-color="#d9d4ff"/>
+                        <stop offset="45%" stop-color="#7c6cf0"/>
+                        <stop offset="100%" stop-color="#453aa6"/>
+                      </radialGradient>
+                    </defs>
+                    <circle class="sm-ring" r="44" fill="none" stroke="rgba(124,108,240,0.12)" stroke-width="0.5" stroke-dasharray="3 5"/>
+                    <path d="M0,-38 C22,-38 36,-30 36,-15 C36,5 22,24 0,36 C-22,24 -36,5 -36,-15 C-36,-30 -22,-38 0,-38Z" fill="none" stroke="rgba(124,108,240,0.2)" stroke-width="0.8"/>
+                    <circle r="22" fill="url(#orb-grad-sm-c)"/>
+                    <circle cx="-7" cy="-4" r="3.6" fill="rgba(255,255,255,0.9)"/>
+                    <circle cx="7" cy="-4" r="3.6" fill="rgba(255,255,255,0.9)"/>
+                    <circle cx="-7" cy="-3.2" r="1.7" fill="#1a1a2e"/>
+                    <circle cx="7" cy="-3.2" r="1.7" fill="#1a1a2e"/>
+                    <circle cx="-5.5" cy="-5.5" r="0.8" fill="rgba(255,255,255,0.6)"/>
+                    <circle cx="8.5" cy="-5.5" r="0.8" fill="rgba(255,255,255,0.6)"/>
+                    <path d="M-3,5 Q0,8 3,5" fill="none" stroke="rgba(217,212,255,0.3)" stroke-width="0.7" stroke-linecap="round"/>
+                  </svg>
+                </div>
                 <div class="headline-wrap">
                   <div class="headline reveal" style="--d:60ms">Disk Cleanup</div>
                   <div id="cleanup-subline" class="subline reveal" style="--d:110ms"></div>
@@ -244,7 +285,7 @@
               <div class="panel reveal" id="cleanup-panel" style="--d:160ms">
                 <div id="cleanup-idle" class="cleanup-idle hidden">
                   <div class="idle-orb cleanup-idle-orb" aria-hidden="true">
-                    <svg viewBox="-20 -20 40 40" width="40" height="40">
+                    <svg viewBox="-22 -22 44 44" width="48" height="48">
                       <defs>
                         <radialGradient id="orb-grad-idle" cx="35%" cy="32%" r="80%">
                           <stop offset="0%" stop-color="#d9d4ff"/>
@@ -252,11 +293,15 @@
                           <stop offset="100%" stop-color="#453aa6"/>
                         </radialGradient>
                       </defs>
-                      <circle r="13" fill="url(#orb-grad-idle)"/>
-                      <circle cx="-3.5" cy="-1.5" r="1.4" fill="rgba(255,255,255,0.85)"/>
-                      <circle cx="3.5" cy="-1.5" r="1.4" fill="rgba(255,255,255,0.85)"/>
-                      <circle cx="-3.5" cy="-1.5" r="0.6" fill="#1a1a2e"/>
-                      <circle cx="3.5" cy="-1.5" r="0.6" fill="#1a1a2e"/>
+                      <circle class="idle-ring" r="19" fill="none" stroke="rgba(124,108,240,0.15)" stroke-width="0.5" stroke-dasharray="2 4" style="animation: ring-spin 18s linear infinite"/>
+                      <circle r="12" fill="url(#orb-grad-idle)"/>
+                      <circle cx="-3.5" cy="-2" r="1.8" fill="rgba(255,255,255,0.9)"/>
+                      <circle cx="3.5" cy="-2" r="1.8" fill="rgba(255,255,255,0.9)"/>
+                      <circle cx="-3.5" cy="-1.5" r="0.8" fill="#1a1a2e"/>
+                      <circle cx="3.5" cy="-1.5" r="0.8" fill="#1a1a2e"/>
+                      <circle cx="-2.8" cy="-3" r="0.4" fill="rgba(255,255,255,0.5)"/>
+                      <circle cx="4.2" cy="-3" r="0.4" fill="rgba(255,255,255,0.5)"/>
+                      <path d="M-2,4 Q0,6 2,4" fill="none" stroke="rgba(217,212,255,0.3)" stroke-width="0.6" stroke-linecap="round"/>
                     </svg>
                   </div>
                   <div class="cleanup-idle-copy">
@@ -302,7 +347,7 @@
                           <circle cx="20.6" cy="14.8" r="0.9" fill="#1a1a2e"/>
                           <circle cx="27.4" cy="14.8" r="0.9" fill="#1a1a2e"/>
                         </g>
-                      </svg>
+                       </svg>
                     </div>
                     <button id="cleanup-btn" class="btn" disabled>Clean up</button>
                     <span id="cleanup-live-counter" class="cleanup-live-counter hidden"></span>
@@ -325,7 +370,6 @@
     </footer>
   </div>
 
-  <script src="mock-tauri.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

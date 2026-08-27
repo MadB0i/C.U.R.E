@@ -1217,11 +1217,6 @@
     RegistryRun: { id: "T1547.001", name: "Registry Run Keys" },
   };
 
-  const BADGE_CHECK =
-    '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
-  const BADGE_WARN =
-    '<svg viewBox="0 0 24 24"><path d="M12 3L22 20H2z"/><line x1="12" y1="9.5" x2="12" y2="14"/><circle cx="12" cy="16.8" r="0.6"/></svg>';
-
   function findingsHeadline(n) {
     return n === 1
       ? "1 finding needs a decision"
@@ -1375,8 +1370,11 @@
     const ransomCount = (summary.ransom_findings || []).length;
     const trouble = cleanedCount + reviewCount + procCount + ransomCount;
 
-    badge.className = "badge " + (trouble ? "warn" : "clean");
-    badge.innerHTML = trouble ? BADGE_WARN : BADGE_CHECK;
+    badge.className = "rakshak-sm reveal";
+    const dot = document.getElementById("badge-dot");
+    if (dot) {
+      dot.className = "badge-dot " + (trouble ? "warn" : "clean");
+    }
 
     const subline = document.getElementById("subline");
     if (reviewCount > 0) {

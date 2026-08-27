@@ -404,36 +404,24 @@ body {
   height: 100%;
 }
 
-.badge {
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
+/* ── rakshak-sm: small character in results/cleanup headers ──── */
+.rakshak-sm {
   flex-shrink: 0;
+  width: 60px;
+  height: 68px;
 }
-.badge svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.rakshak-sm svg {
+  display: block;
 }
-.badge.warn svg circle { fill: currentColor; stroke: none; }
-.badge.clean {
-  color: var(--safe);
-  background: var(--safe-dim);
-  border: 1px solid rgba(79, 174, 125, 0.3);
+.rakshak-sm .sm-ring {
+  animation: ring-spin 20s linear infinite;
+  transform-origin: center;
 }
-.badge.clean svg { stroke: var(--safe); }
-.badge.warn {
-  color: var(--caution);
-  background: var(--caution-dim);
-  border: 1px solid rgba(209, 161, 63, 0.35);
+.rakshak-sm .badge-dot {
+  filter: drop-shadow(0 0 3px currentColor);
 }
-.badge.warn svg { stroke: var(--caution); }
+.badge-dot.warn { fill: var(--caution); }
+.badge-dot.clean { fill: var(--safe); }
 
 .stats { display: flex; gap: 12px; }
 
