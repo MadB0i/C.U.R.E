@@ -215,6 +215,7 @@ dependencies = [
 name = "cure_watch"
 version = "0.1.0"
 dependencies = [
+ "cure_core",
  "tempfile",
  "windows",
 ]

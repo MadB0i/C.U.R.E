@@ -646,6 +646,14 @@
       ctx.arc(0, 0, r, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
+      // face: two dot eyes with pupils (eyes widen on impact)
+      const eR = r * 0.27, pR = r * 0.11, eW = t >= 1 ? 1.12 : 1;
+      ctx.fillStyle = "rgba(255,255,255,0.88)";
+      ctx.beginPath(); ctx.arc(-r * 0.34, -r * 0.12, eR * eW, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( r * 0.34, -r * 0.12, eR * eW, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#1a1a2e";
+      ctx.beginPath(); ctx.arc(-r * 0.34, -r * 0.12, pR, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc( r * 0.34, -r * 0.12, pR, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
 
@@ -772,6 +780,11 @@
       const eased = 1 - Math.pow(1 - t, 3);
       el.textContent = String(Math.round(target * eased));
       if (t < 1) requestAnimationFrame(tick);
+      else if (!REDUCED) {
+        el.style.transition = "color 0.4s ease";
+        el.style.color = "var(--accent)";
+        requestAnimationFrame(() => { el.style.color = ""; });
+      }
     };
     requestAnimationFrame(tick);
   }
@@ -1111,6 +1124,20 @@
       ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
+      // face: two dot eyes with patrol-aware pupils
+      const eR = r * 0.27, pR = r * 0.11, eW = guarding ? 1.12 : 1;
+      ctx.fillStyle = "rgba(255,255,255,0.88)";
+      ctx.beginPath(); ctx.arc(x - r * 0.34, y - r * 0.12, eR * eW, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + r * 0.34, y - r * 0.12, eR * eW, 0, Math.PI * 2); ctx.fill();
+      let pdx = 0, pdy = 0;
+      if (!guarding) {
+        const _pt = now / 1000;
+        pdx = Math.cos(_pt * 0.42) * pR * 0.4;
+        pdy = Math.sin(_pt * 0.84 + 1.2) * pR * 0.3;
+      }
+      ctx.fillStyle = "#1a1a2e";
+      ctx.beginPath(); ctx.arc(x - r * 0.34 + pdx, y - r * 0.12 + pdy, pR, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + r * 0.34 + pdx, y - r * 0.12 + pdy, pR, 0, Math.PI * 2); ctx.fill();
     }
 
     function drawFrame(now) {
@@ -1184,6 +1211,12 @@
     RegistryRun: "Registry run",
   };
 
+  const ATTACK_MAP = {
+    StartupFolder: { id: "T1547.001", name: "Startup Folder" },
+    ScheduledTask: { id: "T1053.005", name: "Scheduled Task" },
+    RegistryRun: { id: "T1547.001", name: "Registry Run Keys" },
+  };
+
   const BADGE_CHECK =
     '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
   const BADGE_WARN =
@@ -1221,7 +1254,7 @@
 
   function buildCard(entry, cleaned) {
     const card = document.createElement("li");
-    card.className = "review-card reveal" + (cleaned ? " cleaned" : "");
+    card.className = "review-card reveal" + (cleaned ? " cleaned" : "") + " risk-" + scoreChipClass(entry.score);
 
     const rawSource = String(entry.entry.source);
     const iconClass =
@@ -1262,6 +1295,14 @@
     srcChip.textContent = SOURCE_LABELS[rawSource] || "Persistence";
     srcChip.title = entry.entry.location;
     chips.appendChild(srcChip);
+    const atk = ATTACK_MAP[rawSource];
+    if (atk) {
+      const atkChip = document.createElement("span");
+      atkChip.className = "chip attack";
+      atkChip.textContent = atk.id;
+      atkChip.title = "MITRE ATT&CK: " + atk.name;
+      chips.appendChild(atkChip);
+    }
     const reasons = Array.isArray(entry.reasons) ? entry.reasons : [];
     for (const reason of reasons.slice(0, 4)) {
       const [label, tone] = reasonChipLabel(String(reason));
@@ -1393,7 +1434,7 @@
         procCards.innerHTML = "";
         procFindings.forEach(function(p) {
           const card = document.createElement("li");
-          card.className = "review-card proc-entry";
+          card.className = "review-card proc-entry risk-" + scoreChipClass(p.score);
           card.dataset.name = p.name;
           card.dataset.pid = String(p.pid);
           card.dataset.exe = p.exe_path || "";

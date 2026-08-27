@@ -1,0 +1,16 @@
+[
+  {
+    "ioc": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ioc_type": "sha256",
+    "source": "DEMO/TEST",
+    "description": "TEST/DEMO fixture — empty file hash, not a real threat",
+    "tags": ["demo", "test"]
+  },
+  {
+    "ioc": "cure-test-malware-signature-do-not-use",
+    "ioc_type": "sha256",
+    "source": "DEMO/TEST",
+    "description": "TEST/DEMO fixture — CURE test bytes, not a real threat",
+    "tags": ["demo", "test"]
+  }
+]

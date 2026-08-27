@@ -1,3 +1,4 @@
+pub mod attack;
 pub mod baseline;
 pub mod canary;
 pub mod cleanup;
@@ -10,3 +11,4 @@ pub mod ransom_detect;
 pub mod risk;
 pub mod scanners;
 pub mod signature;
+pub mod threat_intel;

@@ -21,7 +21,7 @@
 
   --radius: 10px;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--border);
-  --font-ui: -apple-system, "Segoe UI", "Inter", system-ui, sans-serif;
+  --font-ui: "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
 }
 
@@ -75,6 +75,7 @@ body {
   justify-content: space-between;
   padding: 14px 24px;
   border-bottom: 1px solid var(--border);
+  background: linear-gradient(to right, rgba(124, 108, 240, 0.04), transparent 60%);
   flex-shrink: 0;
 }
 
@@ -211,7 +212,7 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--panel);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.025);
   overflow: hidden;
 }
 
@@ -266,8 +267,8 @@ body {
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
 }
-.log li b { color: var(--accent); font-weight: 600; margin-right: 9px; opacity: 0.85; }
-.log li.warn-line b { color: var(--caution); }
+.log li b { color: var(--accent); font-weight: 600; margin-right: 9px; opacity: 0.85; background: var(--accent-dim); padding: 1px 6px; border-radius: 3px; font-size: 10px; }
+.log li.warn-line b { color: var(--caution); background: var(--caution-dim); }
 
 /* per-item scan feed lines — color-coded by real risk level */
 .log li.item-line {
@@ -443,7 +444,7 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 16px 18px;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.025);
 }
 
 .stat span {
@@ -472,7 +473,7 @@ body {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.025);
   overflow: hidden;
 }
 .panel h3 {
@@ -529,6 +530,11 @@ body {
 }
 .review-card:last-child,
 .review-card.cleaned:last-child { border-bottom: none; }
+
+.review-card.risk-low    { border-left: 3px solid var(--text-faint); }
+.review-card.risk-med    { border-left: 3px solid var(--caution); }
+.review-card.risk-high   { border-left: 3px solid var(--danger); }
+.review-card.risk-crit   { border-left: 3px solid var(--danger); box-shadow: inset 0 0 0 1px rgba(225, 89, 79, 0.06); }
 
 .src-icon {
   width: 30px;
@@ -616,6 +622,13 @@ body {
   color: var(--safe);
   border-color: rgba(79, 174, 125, 0.25);
 }
+.chip.attack {
+  background: rgba(124, 108, 240, 0.08);
+  color: var(--accent);
+  border-color: rgba(124, 108, 240, 0.2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
 
 .quarantine-btn {
   font-family: var(--font-ui);
@@ -627,10 +640,10 @@ body {
   border: 1px solid var(--border-strong);
   color: var(--text-muted);
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease;
+  transition: color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
   flex-shrink: 0;
 }
-.quarantine-btn:hover:not(:disabled) { color: var(--text); border-color: var(--text-muted); }
+.quarantine-btn:hover:not(:disabled) { color: var(--text); border-color: var(--text-muted); transform: scale(1.02); }
 .quarantine-btn:disabled { opacity: 0.4; cursor: default; }
 .row-done { color: var(--safe) !important; border-color: rgba(79, 174, 125, 0.45) !important; }
 .manual-note {
@@ -648,15 +661,15 @@ body {
   padding: 9px 16px;
   border-radius: 8px;
   border: 1px solid transparent;
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), #6b5ce6);
   color: #fff;
   cursor: pointer;
   transition: filter 0.15s ease, opacity 0.15s ease;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(124, 108, 240, 0.4);
   flex: none;
 }
-.btn:hover { filter: brightness(1.08); }
-.btn:active { filter: brightness(0.97); }
+.btn:hover { filter: brightness(1.1); }
+.btn:active { filter: brightness(0.95); }
 .btn:disabled { opacity: 0.45; cursor: default; }
 
 /* ---------- entrance stagger ---------- */
@@ -688,10 +701,11 @@ body {
   font-size: 12px;
   cursor: pointer;
   padding: 0;
-  transition: color 0.15s ease;
+  transition: color 0.15s ease, border-color 0.15s ease;
+  border-bottom: 1px solid transparent;
 }
 .ghost-btn + .ghost-btn { margin-left: 20px; }
-.ghost-btn:hover { color: var(--text); }
+.ghost-btn:hover { color: var(--text); border-bottom-color: rgba(124, 108, 240, 0.4); }
 
 #footbar-msg {
   position: absolute;
@@ -1089,6 +1103,14 @@ body {
   filter: drop-shadow(0 0 18px rgba(124, 108, 240, 0.35));
   animation: orb-bob 3.2s ease-in-out infinite;
 }
+.orb-ring {
+  transform-origin: center;
+  animation: orbSpin 18s linear infinite;
+}
+@keyframes orbSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 @keyframes orb-bob {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-5px); }
@@ -1118,7 +1140,12 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .landing-orb { animation: none !important; }
   .idle-orb { animation: none !important; }
+  .orb-ring { animation: none !important; }
   .disk-card, .disk-icon, .disk-chevron { transition: none !important; }
+  .quarantine-btn { transition: none !important; }
+  .ghost-btn { transition: none !important; }
+  .ghost-btn:hover { border-bottom-color: transparent; }
+  .quarantine-btn:hover:not(:disabled) { transform: none; }
 }
 
 /* cleanup view must fit a 600px-tall window without pushing the result

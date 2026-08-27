@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>C.U.R.E — DEV HARNESS (mock backend)</title>
+  <title>C.U.R.E — Clean USB Rescue Engine</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -54,7 +57,12 @@
                 <stop offset="100%" stop-color="#453aa6"/>
               </radialGradient>
             </defs>
+            <circle class="orb-ring" r="18" fill="none" stroke="rgba(124,108,240,0.18)" stroke-width="0.6" stroke-dasharray="3.2 4.8"/>
             <circle r="13" fill="url(#orb-grad-l)"/>
+            <circle class="orb-eye-l" cx="-3.5" cy="-1.5" r="1.6" fill="rgba(255,255,255,0.85)"/>
+            <circle class="orb-eye-r" cx="3.5" cy="-1.5" r="1.6" fill="rgba(255,255,255,0.85)"/>
+            <circle class="orb-pupil-l" cx="-3.5" cy="-1.5" r="0.7" fill="#1a1a2e"/>
+            <circle class="orb-pupil-r" cx="3.5" cy="-1.5" r="0.7" fill="#1a1a2e"/>
           </svg>
           <div class="headline">Ready when you are</div>
           <div class="subline">C.U.R.E is standing by. Start Rescue closes suspicious fullscreen lock windows, then scans this machine's persistence points — nothing runs until you press it.</div>
@@ -203,6 +211,10 @@
                         </radialGradient>
                       </defs>
                       <circle r="13" fill="url(#orb-grad-idle)"/>
+                      <circle cx="-3.5" cy="-1.5" r="1.4" fill="rgba(255,255,255,0.85)"/>
+                      <circle cx="3.5" cy="-1.5" r="1.4" fill="rgba(255,255,255,0.85)"/>
+                      <circle cx="-3.5" cy="-1.5" r="0.6" fill="#1a1a2e"/>
+                      <circle cx="3.5" cy="-1.5" r="0.6" fill="#1a1a2e"/>
                     </svg>
                   </div>
                   <div class="cleanup-idle-copy">
@@ -241,7 +253,13 @@
                           <line x1="-2.6" y1="-1.5" x2="-2.1" y2="12.5" stroke="rgba(237,237,239,0.32)" stroke-width="1.2"/>
                           <line x1="2.6" y1="-1.5" x2="2.1" y2="12.5" stroke="rgba(237,237,239,0.32)" stroke-width="1.2"/>
                         </g>
-                        <g id="mascot-g"><circle id="mascot-orb" cx="24" cy="16" r="10" fill="url(#orb-grad)"/></g>
+                        <g id="mascot-g">
+                          <circle id="mascot-orb" cx="24" cy="16" r="10" fill="url(#orb-grad)"/>
+                          <circle cx="20.6" cy="14.8" r="2.2" fill="rgba(255,255,255,0.85)"/>
+                          <circle cx="27.4" cy="14.8" r="2.2" fill="rgba(255,255,255,0.85)"/>
+                          <circle cx="20.6" cy="14.8" r="0.9" fill="#1a1a2e"/>
+                          <circle cx="27.4" cy="14.8" r="0.9" fill="#1a1a2e"/>
+                        </g>
                       </svg>
                     </div>
                     <button id="cleanup-btn" class="btn" disabled>Clean up</button>

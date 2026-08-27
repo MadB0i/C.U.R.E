@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  test:
+    name: Test (workspace)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: workspace
+      - name: Run workspace tests
+        run: cargo test --workspace
+      - name: Check workspace clippy
+        run: cargo clippy --workspace -- -D warnings
+
+  build-gui:
+    name: Build GUI
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: gui
+      - name: Build GUI (release)
+        run: cargo build --release
+        working-directory: gui/src-tauri
+      - name: Upload cure-gui artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cure-gui
+          path: gui/src-tauri/target/release/cure-gui.exe
+          retention-days: 14
+
+  build-watch:
+    name: Build Watch
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: watch
+      - name: Build cure-watch (release)
+        run: cargo build --release -p cure_watch
+      - name: Upload cure-watch artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cure-watch
+          path: target/release/cure-watch.exe
+          retention-days: 14
