@@ -1373,7 +1373,7 @@
     badge.className = "rakshak-sm reveal";
     const dot = document.getElementById("badge-dot");
     if (dot) {
-      dot.className = "badge-dot " + (trouble ? "warn" : "clean");
+      dot.setAttribute("class", "badge-dot " + (trouble ? "warn" : "clean"));
     }
 
     const subline = document.getElementById("subline");

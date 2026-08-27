@@ -414,7 +414,7 @@ body {
   display: block;
 }
 .rakshak-sm .sm-ring {
-  animation: ring-spin 20s linear infinite;
+  animation: ringSpin 20s linear infinite;
   transform-origin: center;
 }
 .rakshak-sm .badge-dot {
