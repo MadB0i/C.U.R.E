@@ -7,3 +7,7 @@ node_modules/
 testing/vm-stage/*.exe
 testing/vm-stage/cure-evidence/
 testing/vm-stage/System Volume Information/
+
+*.exe
+*.log
+baseline.json
