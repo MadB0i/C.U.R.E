@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  release:
+    name: Build release binaries
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build GUI (release)
+        run: cargo build --release
+        working-directory: gui/src-tauri
+
+      - name: Build CLI + Watch (release)
+        run: cargo build --release
+
+      - name: Stage binaries
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path staging -Force
+          Copy-Item gui/src-tauri/target/release/cure-gui.exe staging/
+          Copy-Item target/release/cure.exe staging/
+          Copy-Item target/release/cure-watch.exe staging/
+          Compress-Archive -Path staging/* -DestinationPath cure-$env:GITHUB_REF_NAME.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            cure-${{ github.ref_name }}.zip
+            staging/cure-gui.exe
+            staging/cure.exe
+            staging/cure-watch.exe
+          generate_release_notes: true
