@@ -354,7 +354,6 @@ body {
 
 .headline-wrap { min-width: 0; }
 
-.result-title,
 .headline {
   font-size: 18px;
   font-weight: 600;
@@ -485,7 +484,7 @@ body {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
 }
-#review-panel-main { flex: 0 1 auto; }
+
 
 .all-clear {
   padding: 20px 16px;
@@ -596,7 +595,6 @@ body {
   border: 1px solid rgba(225, 89, 79, 0.25);
 }
 
-.reason-chips,
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .chip {
   font-size: 10.5px;
@@ -1087,33 +1085,135 @@ body {
   color: var(--accent);
 }
 
-/* ---------- landing (manual launch) + cleanup idle/result states ---------- */
+/* ---------- landing hero: Rakshak as main character ---------- */
 
 .landing {
   margin: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
+  gap: 6px;
   text-align: center;
-  max-width: 460px;
+  max-width: 520px;
 }
-.landing .subline { text-align: center; }
-.landing-orb {
-  filter: drop-shadow(0 0 18px rgba(124, 108, 240, 0.35));
-  animation: orb-bob 3.2s ease-in-out infinite;
+
+.rakshak-hero {
+  position: relative;
+  width: 200px;
+  height: 210px;
+  animation: heroFloat 4s ease-in-out infinite;
 }
-.orb-ring {
+.hero-orb {
+  filter: drop-shadow(0 4px 20px rgba(124, 108, 240, 0.3));
+  width: 100%;
+  height: 100%;
+}
+.hero-ring {
   transform-origin: center;
-  animation: orbSpin 18s linear infinite;
 }
-@keyframes orbSpin {
+.ring-outer { animation: ringSpin 22s linear infinite; }
+.ring-inner { animation: ringSpin 16s linear infinite reverse; }
+@keyframes ringSpin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
-@keyframes orb-bob {
+.hero-shield {
+  animation: shieldPulse 4s ease-in-out infinite;
+}
+@keyframes shieldPulse {
+  0%, 100% { stroke-opacity: 0.22; }
+  50% { stroke-opacity: 0.38; }
+}
+@keyframes heroFloat {
   0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-5px); }
+  50% { transform: translateY(-6px); }
+}
+.hero-tagline {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.3px;
+  margin-top: 2px;
+}
+.hero-sub {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+/* action cards */
+.action-cards {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.action-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 210px;
+  padding: 18px 20px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  font-family: var(--font-ui);
+  color: var(--text);
+}
+.action-card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow), 0 6px 24px rgba(0, 0, 0, 0.25);
+}
+.action-card:active {
+  transform: translateY(0);
+}
+.card-rescue { border-left: 3px solid var(--accent); }
+.card-cleanup { border-left: 3px solid var(--safe); }
+.action-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.action-icon svg {
+  width: 20px;
+  height: 20px;
+}
+.rescue-icon {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.cleanup-icon {
+  background: var(--safe-dim);
+  color: var(--safe);
+}
+.action-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.action-desc {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* staggered entrance for landing elements */
+.landing .rakshak-hero { animation-delay: 0ms; }
+.landing .hero-tagline { opacity: 0; animation: heroFadeIn 0.5s ease forwards; animation-delay: 200ms; }
+.landing .hero-sub { opacity: 0; animation: heroFadeIn 0.5s ease forwards; animation-delay: 300ms; }
+.landing .action-cards { opacity: 0; animation: heroFadeIn 0.5s ease forwards; animation-delay: 400ms; }
+@keyframes heroFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .cleanup-idle {
@@ -1138,10 +1238,16 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .landing-orb { animation: none !important; }
+  .rakshak-hero { animation: none !important; }
+  .hero-ring { animation: none !important; }
+  .hero-shield { animation: none !important; }
+  .landing .hero-tagline,
+  .landing .hero-sub,
+  .landing .action-cards { animation: none !important; opacity: 1 !important; }
   .idle-orb { animation: none !important; }
-  .orb-ring { animation: none !important; }
   .disk-card, .disk-icon, .disk-chevron { transition: none !important; }
+  .action-card { transition: none !important; }
+  .action-card:hover { transform: none; }
   .quarantine-btn { transition: none !important; }
   .ghost-btn { transition: none !important; }
   .ghost-btn:hover { border-bottom-color: transparent; }
@@ -1177,3 +1283,28 @@ body {
 .review-card.proc-entry.proc-killed .rc-name {
   text-decoration: line-through;
 }
+
+/* ── kill button states ──────────────────────────────────────── */
+#kill-procs-btn.arm-danger {
+  background: var(--danger-dim);
+  border-color: rgba(225, 89, 79, 0.35);
+  color: var(--danger);
+}
+#kill-procs-btn.btn-active {
+  background: var(--accent-dim);
+  border-color: var(--accent-border);
+  color: var(--text);
+}
+
+/* ── ransom finding cards ────────────────────────────────────── */
+.entry-card {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.entry-card:last-child { border-bottom: none; }
+.card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.card-name { font-weight: 600; font-size: 13px; color: var(--text); }
+.card-detail { font-size: 12px; color: var(--text-muted); line-height: 1.45; }
+
+/* ── stat tint-neutral ───────────────────────────────────────── */
+.stat.tint-neutral span { color: var(--text-muted); }

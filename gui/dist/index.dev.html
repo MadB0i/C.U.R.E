@@ -49,24 +49,66 @@
       </section>
       <section id="landing-view" class="view hidden">
         <div class="landing">
-          <svg class="landing-orb" viewBox="-20 -20 40 40" width="72" height="72" aria-hidden="true">
-            <defs>
-              <radialGradient id="orb-grad-l" cx="35%" cy="32%" r="80%">
-                <stop offset="0%" stop-color="#d9d4ff"/>
-                <stop offset="45%" stop-color="#7c6cf0"/>
-                <stop offset="100%" stop-color="#453aa6"/>
-              </radialGradient>
-            </defs>
-            <circle class="orb-ring" r="18" fill="none" stroke="rgba(124,108,240,0.18)" stroke-width="0.6" stroke-dasharray="3.2 4.8"/>
-            <circle r="13" fill="url(#orb-grad-l)"/>
-            <circle class="orb-eye-l" cx="-3.5" cy="-1.5" r="1.6" fill="rgba(255,255,255,0.85)"/>
-            <circle class="orb-eye-r" cx="3.5" cy="-1.5" r="1.6" fill="rgba(255,255,255,0.85)"/>
-            <circle class="orb-pupil-l" cx="-3.5" cy="-1.5" r="0.7" fill="#1a1a2e"/>
-            <circle class="orb-pupil-r" cx="3.5" cy="-1.5" r="0.7" fill="#1a1a2e"/>
-          </svg>
-          <div class="headline">Ready when you are</div>
-          <div class="subline">C.U.R.E is standing by. Start Rescue closes suspicious fullscreen lock windows, then scans this machine's persistence points — nothing runs until you press it.</div>
-          <button id="start-rescue-btn" class="btn">Start Rescue</button>
+          <div class="rakshak-hero">
+            <svg class="hero-orb" viewBox="-90 -95 180 195" width="200" height="210" aria-hidden="true">
+              <defs>
+                <radialGradient id="orb-grad-l" cx="35%" cy="32%" r="80%">
+                  <stop offset="0%" stop-color="#d9d4ff"/>
+                  <stop offset="45%" stop-color="#7c6cf0"/>
+                  <stop offset="100%" stop-color="#453aa6"/>
+                </radialGradient>
+                <radialGradient id="shield-glow" cx="50%" cy="50%" r="55%">
+                  <stop offset="0%" stop-color="rgba(124,108,240,0.12)"/>
+                  <stop offset="100%" stop-color="rgba(124,108,240,0)"/>
+                </radialGradient>
+              </defs>
+              <!-- outer ring 1 -->
+              <circle class="hero-ring ring-outer" r="82" fill="none" stroke="rgba(124,108,240,0.1)" stroke-width="0.5" stroke-dasharray="4 6"/>
+              <!-- outer ring 2 -->
+              <circle class="hero-ring ring-inner" r="70" fill="none" stroke="rgba(124,108,240,0.14)" stroke-width="0.6" stroke-dasharray="2.5 8"/>
+              <!-- shield glow fill -->
+              <circle r="52" fill="url(#shield-glow)"/>
+              <!-- shield outline -->
+              <path class="hero-shield" d="M0,-58 C32,-58 52,-44 52,-22 C52,8 32,36 0,54 C-32,36 -52,8 -52,-22 C-52,-44 -32,-58 0,-58Z" fill="none" stroke="rgba(124,108,240,0.22)" stroke-width="1.2"/>
+              <!-- main orb -->
+              <circle r="34" fill="url(#orb-grad-l)"/>
+              <!-- eyes -->
+              <circle cx="-11" cy="-6" r="5.5" fill="rgba(255,255,255,0.9)"/>
+              <circle cx="11" cy="-6" r="5.5" fill="rgba(255,255,255,0.9)"/>
+              <!-- pupils -->
+              <circle cx="-11" cy="-5" r="2.6" fill="#1a1a2e"/>
+              <circle cx="11" cy="-5" r="2.6" fill="#1a1a2e"/>
+              <!-- specular highlights -->
+              <circle cx="-9" cy="-8" r="1.2" fill="rgba(255,255,255,0.7)"/>
+              <circle cx="13" cy="-8" r="1.2" fill="rgba(255,255,255,0.7)"/>
+              <!-- subtle mouth arc -->
+              <path d="M-5,8 Q0,13 5,8" fill="none" stroke="rgba(217,212,255,0.35)" stroke-width="1" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="hero-tagline">Your USB Guardian</div>
+          <div class="hero-sub">Pick what you need — Rakshak handles the rest.</div>
+          <div class="action-cards">
+            <button class="action-card card-rescue" id="start-rescue-btn">
+              <div class="action-icon rescue-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
+              </div>
+              <div class="action-label">Rescue Scan</div>
+              <div class="action-desc">Close suspicious windows, scan persistence points</div>
+            </button>
+            <button class="action-card card-cleanup" id="start-cleanup-btn">
+              <div class="action-icon cleanup-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                  <line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>
+                </svg>
+              </div>
+              <div class="action-label">Disk Cleanup</div>
+              <div class="action-desc">Reclaim space from temp files, caches, recycle bin</div>
+            </button>
+          </div>
         </div>
       </section>
       <section id="results-view" class="view hidden">

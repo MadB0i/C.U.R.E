@@ -1575,9 +1575,6 @@
     const token = ++scanToken;
     resultsView.classList.add("hidden");
     netmap.hide();
-    resultsView
-      .querySelectorAll(".reveal")
-      .forEach((el) => el.classList.remove("in"));
     scanView.classList.remove("hidden", "exiting", "pre-enter");
     logList.innerHTML = "";
     itemFeedCount = 0;
@@ -1757,9 +1754,6 @@
     }
     if (canaryOverlay) canaryOverlay.classList.remove("hidden");
   });
-
-  // Auto-sync canary status when results view appears
-  const origRenderResults = typeof renderResults === "function" ? renderResults : null;
 
   // ---- disk cleanup (separate flow / own view) ----------------------------
 
@@ -2364,6 +2358,12 @@
         lines.push("Overlay check unavailable: " + e);
       }
       runScan(lines);
+    });
+    document.getElementById("start-cleanup-btn").addEventListener("click", async () => {
+      cleanupState.open = true;
+      cleanupState.savedPill = { cls: statusPill.className, text: statusText.textContent };
+      await switchView(landingView, cleanupView);
+      showCleanupIdle();
     });
   })();
 })();
