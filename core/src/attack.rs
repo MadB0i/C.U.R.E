@@ -37,12 +37,75 @@ pub const TECHNIQUE_SCHEDULED_TASK: AttackTechnique = AttackTechnique {
     url: "https://attack.mitre.org/techniques/T1053/005/",
 };
 
-/// Maps a scanner source identifier to its ATT&CK technique.
+pub const TECHNIQUE_WINDOWS_SERVICE: AttackTechnique = AttackTechnique {
+    id: "T1543.003",
+    name: "Create or Modify System Process: Windows Service",
+    tactic: "Persistence",
+    url: "https://attack.mitre.org/techniques/T1543/003/",
+};
+
+pub const TECHNIQUE_WMI_EVENT: AttackTechnique = AttackTechnique {
+    id: "T1546.003",
+    name: "Event Triggered Execution: Windows Management Instrumentation Event Subscription",
+    tactic: "Persistence",
+    url: "https://attack.mitre.org/techniques/T1546/003/",
+};
+
+pub const TECHNIQUE_IFEO: AttackTechnique = AttackTechnique {
+    id: "T1546.012",
+    name: "Event Triggered Execution: Image File Execution Options Injection",
+    tactic: "Persistence",
+    url: "https://attack.mitre.org/techniques/T1546/012/",
+};
+
+pub const TECHNIQUE_APPINIT: AttackTechnique = AttackTechnique {
+    id: "T1546.010",
+    name: "Event Triggered Execution: AppInit DLLs",
+    tactic: "Persistence",
+    url: "https://attack.mitre.org/techniques/T1546/010/",
+};
+
+pub const TECHNIQUE_COM_HIJACK: AttackTechnique = AttackTechnique {
+    id: "T1546.015",
+    name: "Event Triggered Execution: Component Object Model Hijacking",
+    tactic: "Persistence",
+    url: "https://attack.mitre.org/techniques/T1546/015/",
+};
+
+/// Typed entry point — prefer this over the string form so new
+/// [`PersistenceSource`](crate::model::PersistenceSource) variants are a
+/// compile error here until mapped.
+pub fn technique_for(
+    source: &crate::model::PersistenceSource,
+) -> Option<&'static AttackTechnique> {
+    use crate::model::PersistenceSource::*;
+    Some(match source {
+        StartupFolder => &TECHNIQUE_STARTUP_FOLDER,
+        RegistryRun => &TECHNIQUE_REGISTRY_RUN,
+        ScheduledTask => &TECHNIQUE_SCHEDULED_TASK,
+        WindowsService => &TECHNIQUE_WINDOWS_SERVICE,
+        WmiSubscription => &TECHNIQUE_WMI_EVENT,
+        IfeoDebugger => &TECHNIQUE_IFEO,
+        AppInitDlls => &TECHNIQUE_APPINIT,
+        ComHijack => &TECHNIQUE_COM_HIJACK,
+    })
+}
+
+/// String entry point for serialized payloads and UI tags. Accepts both
+/// serialized variant names (`"WindowsService"`, as produced by serde) and
+/// [`PersistenceSource`](crate::model::PersistenceSource) tag strings
+/// (`"windows-service"`). Unknown strings map to `None` — callers must not
+/// display an ATT&CK ID in that case.
 pub fn technique_for_source(source: &str) -> Option<&'static AttackTechnique> {
     match source {
-        "StartupFolder" => Some(&TECHNIQUE_STARTUP_FOLDER),
-        "RegistryRun" => Some(&TECHNIQUE_REGISTRY_RUN),
-        "ScheduledTask" => Some(&TECHNIQUE_SCHEDULED_TASK),
+        "StartupFolder" | "startup-folder" => Some(&TECHNIQUE_STARTUP_FOLDER),
+        "RegistryRun" | "registry-run" => Some(&TECHNIQUE_REGISTRY_RUN),
+        "ScheduledTask" | "scheduled-task" => Some(&TECHNIQUE_SCHEDULED_TASK),
+        "WindowsService" | "windows-service" => Some(&TECHNIQUE_WINDOWS_SERVICE),
+        "WmiSubscription" | "wmi-subscription" => Some(&TECHNIQUE_WMI_EVENT),
+        "IfeoDebugger" | "ifeo-debugger" => Some(&TECHNIQUE_IFEO),
+        "AppInitDlls" | "appinit-dlls" => Some(&TECHNIQUE_APPINIT),
+        "ComHijack" | "com-hijack" => Some(&TECHNIQUE_COM_HIJACK),
         _ => None,
     }
 }

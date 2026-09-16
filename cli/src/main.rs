@@ -53,6 +53,13 @@ enum Command {
     Diff,
     Quarantine { id: String },
     Undo { id: String },
+    /// Write a JSON/TXT security report (explicit export; nothing is remediated).
+    Report {
+        #[arg(long, default_value = "txt", help = "json or txt")]
+        format: String,
+        #[arg(long, help = "redact home directory and username from paths")]
+        redact: bool,
+    },
     Cleanup {
         #[command(subcommand)]
         action: CleanupAction,
@@ -118,6 +125,7 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
         Command::Diff => cmd_diff(&paths),
         Command::Quarantine { id } => cmd_quarantine(&paths, id),
         Command::Undo { id } => cmd_undo(&paths, id),
+        Command::Report { format, redact } => cmd_report(&paths, format, *redact),
         Command::Cleanup { action } => match action {
             CleanupAction::Scan => cmd_cleanup_scan(),
             CleanupAction::Run {
@@ -129,18 +137,51 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn collect(paths: &ResolvedPaths) -> Vec<PersistenceEntry> {
-    scanners::collect_all(&paths.startup_root, &paths.tasks_root)
+fn collect(paths: &ResolvedPaths) -> (Vec<PersistenceEntry>, Vec<ServiceRecord>) {
+    let mut entries = scanners::collect_all(&paths.startup_root, &paths.tasks_root);
+    let services = scanners::collect_services();
+    entries.extend(services.iter().map(|r| r.entry.clone()));
+    (entries, services)
 }
 
-fn score_all(entries: &[PersistenceEntry]) -> Vec<ScoredEntry> {
+use cure_core::scanners::services::{ImageStatus, ServiceRecord};
+
+fn score_services(services: &[ServiceRecord]) -> Vec<ScoredEntry> {
+    services
+        .iter()
+        .map(|record| {
+            let status = scanners::services::image_status(&record.image_path);
+            let exe = match &status {
+                ImageStatus::Found(path) => Some(path.as_path()),
+                _ => None,
+            };
+            let missing = status == ImageStatus::Missing;
+            let signature = match exe {
+                Some(path) => cure_core::signature::check_signature(path),
+                None => cure_core::signature::SignatureStatus::Unknown,
+            };
+            let hash = if risk::service_needs_hash(&record.image_path, exe) {
+                exe.and_then(cure_core::hash_intel::check_hash)
+            } else {
+                None
+            };
+            risk::score_service(record, missing, signature, hash.as_deref())
+        })
+        .collect()
+}
+
+fn score_all(entries: &[PersistenceEntry], services: &[ServiceRecord]) -> Vec<ScoredEntry> {
     let mut scored: Vec<ScoredEntry> = entries
         .iter()
+        // Service entries are scored by score_services below (they need
+        // start-type/account evidence); skipping them here avoids doubles.
+        .filter(|e| e.source != PersistenceSource::WindowsService)
         .map(|e| {
             let exe_path = cure_core::signature::resolve_executable_path(&e.command);
             risk::score_entry(e, exe_path.as_deref())
         })
         .collect();
+    scored.extend(score_services(services));
     scored.sort_by(|a, b| {
         b.score
             .cmp(&a.score)
@@ -171,6 +212,33 @@ fn print_report(scored: &[ScoredEntry], data_dir: &Path) {
         if s.entry.location != s.entry.command {
             println!("             loc: {}", s.entry.location);
         }
+        if !s.attack.id.is_empty() {
+            println!("             att&ck: {} ({})", s.attack.id, s.attack.name);
+        }
+        // Shortcut targets: resolve without executing (popup forensics).
+        if s.entry.source == PersistenceSource::StartupFolder
+            && s.entry.name.len() > 4
+            && s.entry.name[s.entry.name.len() - 4..].eq_ignore_ascii_case(".lnk")
+        {
+            match cure_core::lnk::analyze(Path::new(&s.entry.location)) {
+                Some(info) => {
+                    let target = info.target.as_deref().unwrap_or("(unresolvable)");
+                    let exists = info
+                        .target
+                        .as_deref()
+                        .map(|t| Path::new(t).is_file())
+                        .unwrap_or(false);
+                    println!(
+                        "             lnk→: {target} [{}]",
+                        if exists { "exists" } else { "MISSING" }
+                    );
+                    if let Some(args) = info.arguments.as_deref().filter(|a| !a.is_empty()) {
+                        println!("             args : {args}");
+                    }
+                }
+                None => println!("             lnk→: (unparseable shortcut)"),
+            }
+        }
         for reason in &s.reasons {
             println!("             why: {reason}");
         }
@@ -188,18 +256,23 @@ fn summarize(scored: &[ScoredEntry]) -> (usize, usize, usize) {
 }
 
 fn cmd_scan(paths: &ResolvedPaths) -> Result<(), Box<dyn Error>> {
+    use std::time::Instant;
     println!("C.U.R.E - Clean USB Rescue Engine");
     println!("startup root : {}", paths.startup_root.display());
     println!("tasks root   : {}", paths.tasks_root.display());
     if cfg!(windows) {
-        println!("registry     : HKCU + HKLM Run / RunOnce");
+        println!("registry     : HKCU + HKLM Run / RunOnce + IFEO + AppInit + COM (HKCU) + WMI + services");
     } else {
         println!("registry     : unavailable on this OS (Windows-only source)");
     }
     println!();
 
-    let entries = collect(paths);
-    let scored = score_all(&entries);
+    let t_collect = Instant::now();
+    let (entries, services) = collect(paths);
+    let collect_ms = t_collect.elapsed().as_millis();
+    let t_score = Instant::now();
+    let scored = score_all(&entries, &services);
+    let score_ms = t_score.elapsed().as_millis();
     if scored.is_empty() {
         println!("no persistence entries found in the scanned locations.");
     } else {
@@ -214,6 +287,7 @@ fn cmd_scan(paths: &ResolvedPaths) -> Result<(), Box<dyn Error>> {
         scored.len(),
         if scored.len() == 1 { "y" } else { "ies" }
     );
+    println!("timing: collect {collect_ms} ms, score {score_ms} ms");
 
     let baseline_path = paths.data_dir.join("baseline.json");
     baseline::save(&baseline_path, &entries)?;
@@ -233,8 +307,8 @@ fn cmd_diff(paths: &ResolvedPaths) -> Result<(), Box<dyn Error>> {
         Err(err) => return Err(err.into()),
     };
 
-    let entries = collect(paths);
-    let scored = score_all(&entries);
+    let (entries, services) = collect(paths);
+    let scored = score_all(&entries, &services);
     let new_entries = baseline::diff(&scored, &baseline);
 
     if new_entries.is_empty() {
@@ -262,8 +336,8 @@ fn cmd_diff(paths: &ResolvedPaths) -> Result<(), Box<dyn Error>> {
 }
 
 fn cmd_quarantine(paths: &ResolvedPaths, id: &str) -> Result<(), Box<dyn Error>> {
-    let entries = collect(paths);
-    let scored = score_all(&entries);
+    let (entries, services) = collect(paths);
+    let scored = score_all(&entries, &services);
 
     let Some(found) = scored.iter().find(|s| s.entry.id == id) else {
         if quarantine::is_quarantined(&paths.data_dir, id) {
@@ -276,18 +350,14 @@ fn cmd_quarantine(paths: &ResolvedPaths, id: &str) -> Result<(), Box<dyn Error>>
         .into());
     };
 
+    // Only file-backed findings are relocated; everything else is manual
+    // guidance (C.U.R.E implements NO automatic service/registry/WMI/COM
+    // remediation — detection first, reversible file moves only).
+    if !found.entry.source.is_file_backed() {
+        print_manual_guidance(found);
+        return Ok(());
+    }
     match found.entry.source {
-        PersistenceSource::RegistryRun => {
-            println!("registry autoruns are detected and scored but NOT auto-disabled in this MVP.");
-            println!("remove manually:");
-            println!("  key   : {}", found.entry.location);
-            println!("  value : {}", found.entry.name);
-            println!(
-                "  e.g.  : reg delete \"{}\" /v \"{}\" /f",
-                found.entry.location, found.entry.name
-            );
-            println!("back up first with: reg export \"{}\" backup.reg", found.entry.location);
-        }
         PersistenceSource::StartupFolder => {
             let record = quarantine::quarantine_entry(&paths.data_dir, &found.entry)?;
             println!("moved: {}", record.original_path.display());
@@ -302,8 +372,48 @@ fn cmd_quarantine(paths: &ResolvedPaths, id: &str) -> Result<(), Box<dyn Error>>
             println!("      the task disappears from Task Scheduler after refresh.");
             println!("restore anytime with: cure undo {}", record.id);
         }
+        _ => unreachable!("non-file-backed sources handled above"),
     }
     Ok(())
+}
+
+/// Manual, reversible remediation guidance for findings C.U.R.E will never
+/// touch automatically. Every path starts with a backup step.
+fn print_manual_guidance(found: &ScoredEntry) {
+    println!("{} findings are detected and scored but NEVER auto-disabled.", found.entry.source);
+    println!("investigate first, back up, then remove manually:");
+    match found.entry.source {
+        PersistenceSource::RegistryRun => {
+            println!("  key   : {}", found.entry.location);
+            println!("  value : {}", found.entry.name);
+            println!("  1. backup: reg export \"{}\" backup.reg", found.entry.location);
+            println!("  2. remove: reg delete \"{}\" /v \"{}\" /f", found.entry.location, found.entry.name);
+        }
+        PersistenceSource::WindowsService => {
+            println!("  service : {} ({})", found.entry.name, found.entry.location);
+            println!("  image   : {}", found.entry.command);
+            println!("  1. inspect: sc.exe qc \"{}\"", found.entry.name);
+            println!("  2. backup : reg export \"{}\" backup-{}.reg", found.entry.location, found.entry.name);
+            println!("  3. disable (reversible): sc.exe config \"{}\" start= demand", found.entry.name);
+            println!("  4. delete only if malicious AND backed up: sc.exe delete \"{}\"", found.entry.name);
+        }
+        PersistenceSource::WmiSubscription => {
+            println!("  object  : {}", found.entry.location);
+            println!("  payload : {}", found.entry.command);
+            println!("  1. inspect: Get-CimInstance -Namespace root/subscription -ClassName __EventFilter | Format-List Name,Query");
+            println!("  2. backup : Get-CimInstance -Namespace root/subscription -Query \"SELECT * FROM __EventFilter WHERE Name='{}'\" > backup.txt", found.entry.name);
+            println!("  3. remove (filter, consumer, binding): Remove-CimInstance (same query) — only after backup");
+        }
+        PersistenceSource::IfeoDebugger | PersistenceSource::AppInitDlls | PersistenceSource::ComHijack => {
+            println!("  key     : {}", found.entry.location);
+            println!("  value   : {}", found.entry.command);
+            println!("  1. backup: reg export \"{}\" backup.reg", found.entry.location);
+            println!("  2. remove the value in regedit (or reg delete) only after backup");
+        }
+        PersistenceSource::StartupFolder | PersistenceSource::ScheduledTask => {
+            println!("  unexpected file-backed source reached manual guidance; use `cure quarantine {}`", found.entry.id);
+        }
+    }
 }
 
 fn cmd_undo(paths: &ResolvedPaths, id: &str) -> Result<(), Box<dyn Error>> {
@@ -318,6 +428,162 @@ fn cmd_undo(paths: &ResolvedPaths, id: &str) -> Result<(), Box<dyn Error>> {
         }
         Err(err) => Err(err.into()),
     }
+}
+
+// ---------------------------------------------------------------------------
+// security report export (explicit; remediates nothing)
+// ---------------------------------------------------------------------------
+
+fn user_profile_folders() -> Vec<PathBuf> {
+    let mut folders = Vec::new();
+    if let Ok(home) = std::env::var("USERPROFILE") {
+        let home = PathBuf::from(home);
+        for sub in ["Desktop", "Documents", "Downloads"] {
+            let candidate = home.join(sub);
+            if candidate.is_dir() {
+                folders.push(candidate);
+            }
+        }
+    }
+    folders
+}
+
+fn count_source(entries: &[PersistenceEntry], source: PersistenceSource) -> usize {
+    entries.iter().filter(|e| e.source == source).count()
+}
+
+fn cmd_report(paths: &ResolvedPaths, format: &str, redact: bool) -> Result<(), Box<dyn Error>> {
+    use cure_core::hash_intel::ThreatIntelProvider;
+    use cure_core::report::{CoverageRow, ReportOptions, ScanInput};
+
+    let format = format.to_ascii_lowercase();
+    if format != "json" && format != "txt" {
+        return Err(format!("unknown format {format}: use json or txt").into());
+    }
+    println!("C.U.R.E security report — collecting evidence (nothing is remediated)…");
+
+    let (entries, services) = collect(paths);
+    let scored = score_all(&entries, &services);
+
+    // Processes (Windows only; read-only snapshot + scoring).
+    let mut processes = Vec::new();
+    #[cfg(windows)]
+    {
+        for info in cure_core::process_scan::enumerate_processes() {
+            let sig = cure_core::signature::check_signature(Path::new(&info.exe_path));
+            let hash = cure_core::hash_intel::check_hash(Path::new(&info.exe_path));
+            let ps = cure_core::process_scan::score_process(&info, &sig, hash.as_deref());
+            processes.push((info, ps));
+        }
+    }
+
+    // Ransom indicators over the user profile (read-only directory reads).
+    let mut ransom = Vec::new();
+    let folders: Vec<(PathBuf, Vec<cure_core::ransom_detect::DirEntry>)> =
+        user_profile_folders()
+            .into_iter()
+            .map(|f| (f.clone(), cure_core::ransom_detect::read_dir_entries(&f)))
+            .collect();
+    if !folders.is_empty() {
+        ransom = cure_core::ransom_detect::scan_folders(&folders);
+    }
+
+    let on_windows = cfg!(windows);
+    let mut coverage = vec![
+        CoverageRow::checked(
+            "Startup folder",
+            format!("{} entries", count_source(&entries, PersistenceSource::StartupFolder)),
+        ),
+        CoverageRow::checked(
+            "Scheduled tasks",
+            format!("{} entries", count_source(&entries, PersistenceSource::ScheduledTask)),
+        ),
+        CoverageRow::checked(
+            "Services (auto-start)",
+            format!("{} services", services.len()),
+        ),
+        CoverageRow::checked(
+            "WMI subscriptions",
+            format!("{} entries", count_source(&entries, PersistenceSource::WmiSubscription)),
+        ),
+        CoverageRow::checked(
+            "IFEO debuggers",
+            format!("{} entries", count_source(&entries, PersistenceSource::IfeoDebugger)),
+        ),
+        CoverageRow::checked(
+            "AppInit DLLs",
+            format!("{} entries", count_source(&entries, PersistenceSource::AppInitDlls)),
+        ),
+        CoverageRow::checked(
+            "COM hijacks (HKCU)",
+            format!("{} entries", count_source(&entries, PersistenceSource::ComHijack)),
+        ),
+    ];
+    if on_windows {
+        coverage.push(CoverageRow::checked(
+            "Registry autoruns",
+            format!("{} entries", count_source(&entries, PersistenceSource::RegistryRun)),
+        ));
+        coverage.push(CoverageRow::checked(
+            "Running processes",
+            format!("{} enumerated", processes.len()),
+        ));
+    } else {
+        coverage.push(CoverageRow::unavailable(
+            "Registry autoruns",
+            "Windows-only source",
+        ));
+        coverage.push(CoverageRow::unavailable(
+            "Running processes",
+            "Windows-only source",
+        ));
+    }
+    if folders.is_empty() {
+        coverage.push(CoverageRow::not_checked(
+            "Ransom indicators",
+            "no user profile folders found",
+        ));
+    } else {
+        coverage.push(CoverageRow::checked(
+            "Ransom indicators",
+            format!("{} folders, {} findings", folders.len(), ransom.len()),
+        ));
+    }
+    coverage.push(CoverageRow::not_checked(
+        "Canary guard",
+        "session feature — enable in the GUI or watcher",
+    ));
+    coverage.push(CoverageRow::checked(
+        "Threat intel",
+        cure_core::hash_intel::fixture_provider().provider_label(),
+    ));
+
+    let report = cure_core::report::assemble(
+        ScanInput {
+            persistence: scored,
+            processes,
+            ransom,
+            canary_note: "session feature — enable in the GUI or watcher".to_string(),
+        },
+        coverage,
+        &ReportOptions { redact },
+    );
+    let body = if format == "json" {
+        cure_core::report::render_json(&report)
+    } else {
+        cure_core::report::render_txt(&report)
+    };
+    let stamp = cure_core::report::utc_stamp();
+    let filename = format!("cure-report-{stamp}.{format}");
+    let out_path = paths.data_dir.join(&filename);
+    fs::write(&out_path, body)?;
+    println!(
+        "report written: {} ({} findings, {} coverage areas)",
+        out_path.display(),
+        report.findings.len(),
+        report.coverage.len()
+    );
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

@@ -470,6 +470,7 @@ name = "cure_core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "quick-xml",
  "serde",
  "serde_json",
  "sha2",
@@ -479,10 +480,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cure_dirwatch"
+version = "0.1.0"
+dependencies = [
+ "cure_core",
+ "windows 0.58.0",
+]
+
+[[package]]
 name = "cure_gui"
 version = "0.1.0"
 dependencies = [
  "cure_core",
+ "cure_dirwatch",
  "serde",
  "serde_json",
  "tauri",

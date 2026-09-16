@@ -15,6 +15,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 cure_core = { path = "../../core" }
+cure_dirwatch = { path = "../../winwatch" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }
@@ -24,6 +25,7 @@ tokio = { version = "1", features = ["time"] }
 windows = { version = "0.58", features = [
   "Win32_Foundation",
   "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Shell",
   "Win32_System_Threading",
   "Win32_System_Diagnostics_ToolHelp",
   "Win32_Storage_FileSystem",

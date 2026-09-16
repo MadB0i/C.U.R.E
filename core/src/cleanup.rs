@@ -491,7 +491,7 @@ mod tests {
         write_file(&root.join("a.log"), 100);
         write_file(&root.join("nested").join("deep").join("b.tmp"), 250);
 
-        let found = scan_temp_files_in(&[root.clone()]);
+        let found = scan_temp_files_in(std::slice::from_ref(&root));
         assert_eq!(found.len(), 2);
         assert!(found
             .iter()

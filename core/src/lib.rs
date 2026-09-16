@@ -2,12 +2,17 @@ pub mod attack;
 pub mod baseline;
 pub mod canary;
 pub mod cleanup;
+pub mod entry_details;
+#[cfg(test)]
+pub mod fixtures;
 pub mod hash_intel;
+pub mod lnk;
 pub mod model;
 pub mod overlay;
 pub mod process_scan;
 pub mod quarantine;
 pub mod ransom_detect;
+pub mod report;
 pub mod risk;
 pub mod scanners;
 pub mod signature;

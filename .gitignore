@@ -11,3 +11,14 @@ testing/vm-stage/System Volume Information/
 *.exe
 *.log
 baseline.json
+
+# Playwright harness output. Only the README-referenced screenshots below
+# stay tracked; everything else the harnesses generate is ignored.
+# Redirect harness output with CURE_SHOTS_DIR=<dir> to avoid touching even
+# the tracked reference shots; copy deliberate asset updates back by hand.
+gui/dev-screenshots/*
+!gui/dev-screenshots/landing-1920.png
+!gui/dev-screenshots/mascot-scan-1920.png
+!gui/dev-screenshots/sweep-results-1920x1080.png
+!gui/dev-screenshots/rk-fight-900x600.png
+!gui/dev-screenshots/cleanup-result-fixed-900.png

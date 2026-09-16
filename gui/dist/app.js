@@ -22,6 +22,28 @@
   const cleanupView = document.getElementById("cleanup-view");
   const landingView = document.getElementById("landing-view");
 
+  // ---- UI V2 session state (all derived from real backend responses) ----
+  // lastSummary/lastScanAt/scanDurationMs are set only by runScan success.
+  // eventLog holds session events (scan progress, canary alerts, actions).
+  let lastSummary = null;
+  let lastScanAt = null;
+  let scanDurationMs = null;
+  let scanStartedAt = 0;
+  let scanPhase = "idle"; // idle | running | done
+  const eventLog = [];
+  const canarySessionAlerts = [];
+  let canaryTriggered = false;
+
+  function escAttr(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  function logEvent(kind, text) {
+    eventLog.push({ at: new Date(), kind: kind || "info", text: String(text) });
+    if (eventLog.length > 300) eventLog.splice(0, eventLog.length - 300);
+    appendEventLogRow(eventLog[eventLog.length - 1]);
+  }
+
   let scanToken = 0;
   window.__curePingCount = 0;
   let itemFeedCount = 0;
@@ -1203,19 +1225,62 @@
       '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>',
     RegistryRun:
       '<svg viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M11 12L21 2"/><path d="M17 6l3 3"/><path d="M14 9l2.5 2.5"/></svg>',
+    WindowsService:
+      '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>',
+    WmiSubscription:
+      '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg>',
+    IfeoDebugger:
+      '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 5V2M12 22v-3M5 12H2M22 12h-3"/></svg>',
+    AppInitDlls:
+      '<svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg>',
+    ComHijack:
+      '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 12h6"/></svg>',
   };
 
   const SOURCE_LABELS = {
     StartupFolder: "Startup folder",
     ScheduledTask: "Scheduled task",
     RegistryRun: "Registry run",
+    WindowsService: "Windows service",
+    WmiSubscription: "WMI subscription",
+    IfeoDebugger: "IFEO debugger",
+    AppInitDlls: "AppInit DLLs",
+    ComHijack: "COM hijack",
   };
 
+  // Fallback only: the backend attaches {id, name} per finding (single
+  // source of truth) and the UI prefers it — see attackFor().
   const ATTACK_MAP = {
     StartupFolder: { id: "T1547.001", name: "Startup Folder" },
     ScheduledTask: { id: "T1053.005", name: "Scheduled Task" },
     RegistryRun: { id: "T1547.001", name: "Registry Run Keys" },
+    WindowsService: { id: "T1543.003", name: "Windows Service" },
+    WmiSubscription: { id: "T1546.003", name: "WMI Event Subscription" },
+    IfeoDebugger: { id: "T1546.012", name: "Image File Execution Options Injection" },
+    AppInitDlls: { id: "T1546.010", name: "AppInit DLLs" },
+    ComHijack: { id: "T1546.015", name: "Component Object Model Hijacking" },
   };
+
+  function attackFor(scored) {
+    if (scored && scored.attack && scored.attack.id) {
+      return { id: scored.attack.id, name: scored.attack.name || "" };
+    }
+    const raw = scored && scored.entry ? String(scored.entry.source) : "";
+    return ATTACK_MAP[raw] || null;
+  }
+
+  function recommendedAction(scored) {
+    if (!scored) return "";
+    if (scored.risk === "HighRisk") {
+      const src = scored.entry ? String(scored.entry.source) : "";
+      if (src === "StartupFolder" || src === "ScheduledTask") {
+        return "Quarantine for review, then investigate before any deletion.";
+      }
+      return "Investigate before disabling. Back up the location first; removal is manual and must be reversible.";
+    }
+    if (scored.risk === "Suspicious") return "Investigate before disabling.";
+    return "No action needed.";
+  }
 
   function findingsHeadline(n) {
     return n === 1
@@ -1236,6 +1301,11 @@
     if (lower.includes("valid signature")) return ["Valid Signature", "teal"];
     if (lower.includes("known malware hash")) return ["Known Malware Hash", "red"];
     if (lower.includes("unsigned binary")) return ["Unsigned Binary", "amber"];
+    if (lower.includes("missing from disk")) return ["Missing image", "red"];
+    if (lower.includes("class redirection")) return ["COM redirect", "amber"];
+    if (lower.includes("service starts")) return ["Auto-start", ""];
+    if (lower.includes("runs as")) return ["Account", ""];
+    if (lower.includes("state at scan")) return ["State", ""];
     const stripped = reason.replace(/^[+-]\d+\s*/, "");
     return [stripped.split(/\s+/).slice(0, 3).join(" "), ""];
   }
@@ -1290,7 +1360,7 @@
     srcChip.textContent = SOURCE_LABELS[rawSource] || "Persistence";
     srcChip.title = entry.entry.location;
     chips.appendChild(srcChip);
-    const atk = ATTACK_MAP[rawSource];
+    const atk = attackFor(entry);
     if (atk) {
       const atkChip = document.createElement("span");
       atkChip.className = "chip attack";
@@ -1338,6 +1408,7 @@
           });
           btn.textContent = "Quarantined ✓";
           btn.classList.add("row-done");
+          logEvent("action", "quarantined: " + entry.entry.name);
         } catch (err) {
           btn.disabled = false;
           setPill("error", String(err));
@@ -1546,6 +1617,10 @@
     }
     netmap.show(summary.total);
     syncCanaryStatus();
+    enablePostScanNav();
+    renderOverview(summary);
+    renderAudit(summary);
+    renderProcesses(summary);
   }
 
   function switchView(fromEl, toEl) {
@@ -1569,11 +1644,87 @@
     });
   }
 
+  function currentView() {
+    const views = document.querySelectorAll(".stage > .view");
+    for (const v of views) {
+      if (!v.classList.contains("hidden")) return v;
+    }
+    return landingView;
+  }
+
+  const VIEW_TITLES = {
+    "view-overview": "Overview",
+    "scan-center": "Scan Center",
+    "scan-view": "Scan Center",
+    "landing-view": "Scan Center",
+    "results-view": "Scan Results",
+    "view-audit": "Startup Audit",
+    "view-processes": "Process Sentinel",
+    "view-quarantine": "Quarantine",
+    "cleanup-view": "Disk Cleanup",
+    "view-eventlog": "Event Log",
+    "view-canary": "Canary Guard",
+  };
+
+  function setNav(viewId) {
+    const items = document.querySelectorAll(".nav-item");
+    items.forEach((item) => {
+      const target = item.getAttribute("data-view");
+      const active =
+        target === viewId ||
+        (target === "scan-center" && (viewId === "scan-view" || viewId === "landing-view"));
+      item.setAttribute("aria-current", active ? "true" : "false");
+    });
+    const title = document.getElementById("view-title");
+    if (title) title.textContent = VIEW_TITLES[viewId] || "C.U.R.E";
+  }
+
+  function showViewInstant(el) {
+    const views = document.querySelectorAll(".stage > .view");
+    views.forEach((v) => {
+      if (v === el) v.classList.remove("hidden", "exiting", "pre-enter");
+      else v.classList.add("hidden");
+    });
+    if (el && el.id) setNav(el.id);
+  }
+
+  // Sidebar navigation. Cleanup entry/exit reuse the existing open/close
+  // paths so pill save/restore and the armed-button state stay consistent.
+  async function navTo(viewId) {
+    if (viewId === "scan-center") {
+      if (cleanupState.open) closeCleanup(scanPhase === "running" ? scanView : landingView);
+      else showViewInstant(scanPhase === "running" ? scanView : landingView);
+      return;
+    }
+    if (viewId === "cleanup-view") {
+      await openCleanup();
+      showViewInstant(cleanupView);
+      return;
+    }
+    const el = document.getElementById(viewId);
+    if (!el) return;
+    if (cleanupState.open) closeCleanup(el);
+    else showViewInstant(el);
+    if (viewId === "view-quarantine") refreshQuarantine();
+    if (viewId === "view-eventlog") renderEventLog();
+    if (viewId === "view-canary") { renderCanaryView(); syncCanaryStatus(); }
+  }
+
+  function enablePostScanNav() {
+    ["nav-results", "nav-audit", "nav-processes"].forEach((id) => {
+      const btn = document.getElementById(id);
+      if (btn) btn.disabled = false;
+    });
+  }
+
   async function runScan(preLines = []) {
     const token = ++scanToken;
+    scanPhase = "running";
+    scanStartedAt = performance.now();
     resultsView.classList.add("hidden");
     netmap.hide();
     scanView.classList.remove("hidden", "exiting", "pre-enter");
+    setNav("scan-view");
     logList.innerHTML = "";
     itemFeedCount = 0;
     lastItemNode = null;
@@ -1586,15 +1737,23 @@
     try {
       const summary = await invoke("run_auto_scan");
       if (token !== scanToken) return;
+      scanDurationMs = Math.round(performance.now() - scanStartedAt);
+      lastSummary = summary;
+      lastScanAt = new Date();
+      scanPhase = "done";
+      logEvent("info", "scan finished: " + summary.total + " checks in " + fmtDuration(scanDurationMs));
       appendLog("done", summary.total + " entries processed — scan finished");
       radar.stop();
-      await switchView(scanView, resultsView);
+      await switchView(currentView(), resultsView);
+      setNav("results-view");
       if (token !== scanToken) return;
       renderResults(summary);
     } catch (err) {
       radar.stop();
+      scanPhase = "idle";
       setPill("error", String(err));
       appendLog("error", String(err));
+      logEvent("info", "scan failed: " + String(err));
     }
   }
 
@@ -1621,10 +1780,12 @@
     if (payload.stage === "process-flagged") {
       appendProcessLine(payload);
       radar.addNode(payload.risk, payload.name);
+      logEvent("info", "process flagged: " + payload.name + " (pid " + payload.pid + ", " + payload.risk + " " + payload.score + ")");
       return;
     }
     if (payload.stage === "ransom-found") {
       appendRansomLine(payload);
+      logEvent("canary", "ransom indicator: " + (payload.finding_type || "unknown") + " — " + (payload.detail || payload.path || ""));
       return;
     }
     setPill("scanning", payload.message);
@@ -1633,8 +1794,15 @@
       radar.dispatchMascot(lastItemNode);
       lastItemNode = null;
       appendStageLine(payload.stage, payload.message);
+      logEvent("action", payload.message);
       return;
     }
+    if (payload.stage === "done") {
+      logEvent("info", payload.message);
+      appendLog(payload.stage, payload.message);
+      return;
+    }
+    logEvent("info", "[" + payload.stage + "] " + payload.message);
     appendLog(payload.stage, payload.message);
   });
 
@@ -1706,25 +1874,44 @@
       canaryToggle.classList.toggle("on", canaryActive);
     }
     if (canaryToggleText) canaryToggleText.textContent = canaryActive ? "ON" : "OFF";
+    const second = document.getElementById("can-toggle");
+    if (second) second.textContent = canaryActive ? "Disable guard" : "Enable guard";
+    const badge = document.getElementById("can-state");
+    if (badge) {
+      if (canaryTriggered) {
+        badge.textContent = "TRIGGERED";
+        badge.className = "severity-badge sev-bad";
+      } else if (canaryActive) {
+        badge.textContent = "ACTIVE";
+        badge.className = "severity-badge sev-info";
+      } else {
+        badge.textContent = "OFF";
+        badge.className = "severity-badge";
+      }
+    }
+  }
+
+  async function toggleCanary() {
+    try {
+      if (canaryActive) {
+        await invoke("stop_canary_guard");
+        canaryActive = false;
+        footFeedback("Canary guard deactivated", false);
+        logEvent("action", "canary guard deactivated");
+      } else {
+        await invoke("start_canary_guard");
+        canaryActive = true;
+        footFeedback("Canary guard active — decoys planted", false);
+        logEvent("action", "canary guard activated — decoys planted");
+      }
+    } catch (err) {
+      footFeedback(cleanErrText(err, "Could not toggle canary guard"), true);
+    }
+    updateCanaryUI();
   }
 
   if (canaryToggle) {
-    canaryToggle.addEventListener("click", async () => {
-      try {
-        if (canaryActive) {
-          await invoke("stop_canary_guard");
-          canaryActive = false;
-          footFeedback("Canary guard deactivated", false);
-        } else {
-          await invoke("start_canary_guard");
-          canaryActive = true;
-          footFeedback("Canary guard active — decoys planted", false);
-        }
-      } catch (err) {
-        footFeedback(cleanErrText(err, "Could not toggle canary guard"), true);
-      }
-      updateCanaryUI();
-    });
+    canaryToggle.addEventListener("click", toggleCanary);
   }
 
   // Listen for canary-alert events from backend
@@ -1740,15 +1927,22 @@
 
   TAU.event.listen("canary-alert", (ev) => {
     const payload = typeof ev.payload === "string" ? JSON.parse(ev.payload) : ev.payload;
+    const kind = payload.kind || "unknown";
+    const folder = payload.folder || "";
+    const file = payload.file || "";
+    const action = payload.action || "";
+    const text =
+      kind.replace(/-/g, " ").toUpperCase() + " — " +
+      (folder ? folder + " " : "") + file +
+      (action ? " (" + action + ")" : "");
+    canaryTriggered = true;
+    canarySessionAlerts.push({ at: new Date(), text });
+    if (canarySessionAlerts.length > 100) canarySessionAlerts.shift();
+    logEvent("canary", "canary alert: " + text);
+    appendCanaryAlertRow({ at: new Date(), text });
+    updateCanaryUI();
     if (canaryDetail) {
-      const kind = payload.kind || "unknown";
-      const folder = payload.folder || "";
-      const file = payload.file || "";
-      const action = payload.action || "";
-      canaryDetail.textContent =
-        kind.replace(/-/g, " ").toUpperCase() + " — " +
-        (folder ? folder + " " : "") + file +
-        (action ? " (" + action + ")" : "");
+      canaryDetail.textContent = text;
     }
     if (canaryOverlay) canaryOverlay.classList.remove("hidden");
   });
@@ -2201,10 +2395,11 @@
       text: statusText.textContent,
     };
     showCleanupIdle();
-    await switchView(resultsView, cleanupView);
+    await switchView(currentView(), cleanupView);
+    setNav("cleanup-view");
   }
 
-  function closeCleanup() {
+  function closeCleanup(backTo) {
     if (!cleanupState.open) return;
     cleanupState.open = false;
     disarmCleanupButton();
@@ -2214,11 +2409,13 @@
       statusPill.className = cleanupState.savedPill.cls;
       statusText.textContent = cleanupState.savedPill.text;
     }
-    switchView(cleanupView, resultsView);
+    const target = backTo && backTo.classList ? backTo : resultsView;
+    switchView(cleanupView, target);
+    if (target.id) setNav(target.id);
   }
 
   cleanupEls.openBtn.addEventListener("click", openCleanup);
-  cleanupEls.backBtn.addEventListener("click", closeCleanup);
+  cleanupEls.backBtn.addEventListener("click", () => closeCleanup(resultsView));
   cleanupEls.scanBtn.addEventListener("click", () => startCleanupScan(false));
 
   cleanupEls.btn.addEventListener("click", async () => {
@@ -2255,6 +2452,7 @@
         " — deleted " + result.deleted + " of " + result.attempted +
         (result.failed ? ", " + result.failed + " locked or failed" : "");
       cleanupEls.status.classList.remove("hidden");
+      logEvent("action", "cleanup: freed " + fmtBytes(result.bytes_freed) + ", deleted " + result.deleted + " of " + result.attempted + (result.failed ? ", " + result.failed + " failed" : ""));
       if (result.failures.length > 0) {
         cleanupEls.failures.innerHTML = "";
         for (const failure of result.failures) {
@@ -2323,6 +2521,7 @@
         if (failed.length > 0) parts.push(failed.length + " failed");
         var msg = parts.join(", ") || "No processes were killed";
         setPill(killed.length > 0 && failed.length === 0 ? "clean" : "warn", msg);
+        logEvent("action", "process kill: " + msg + (failed.length ? " — " + failed.join("; ") : ""));
         if (killStatus) { killStatus.textContent = msg; killStatus.classList.remove("hidden"); }
       } catch (err) {
         setPill("error", "Kill failed: " + String(err));
@@ -2335,12 +2534,615 @@
     });
   }
 
+  // ══════════════ UI V2 views (all data from real backend responses) ══════
+
+  function fmtDuration(ms) {
+    if (ms == null) return "—";
+    const s = ms / 1000;
+    if (s < 60) return s.toFixed(1) + "s";
+    const m = Math.floor(s / 60);
+    return m + "m " + Math.round(s % 60) + "s";
+  }
+
+  // ---- event log view ----
+
+  function appendEventLogRow(e) {
+    const list = document.getElementById("event-log-list");
+    if (!list) return;
+    const li = document.createElement("li");
+    if (e.kind === "canary") li.className = "ev-canary";
+    else if (e.kind === "action") li.className = "ev-action";
+    const time = document.createElement("span");
+    time.className = "ev-time";
+    time.textContent = e.at.toLocaleTimeString();
+    const tag = document.createElement("b");
+    tag.textContent = "[" + e.kind + "]";
+    const body = document.createElement("span");
+    body.textContent = e.text;
+    li.append(time, tag, body);
+    list.appendChild(li);
+    while (list.children.length > 300) list.removeChild(list.firstChild);
+    list.scrollTop = list.scrollHeight;
+    const empty = document.getElementById("event-log-empty");
+    if (empty) empty.classList.add("hidden");
+  }
+
+  function renderEventLog() {
+    const list = document.getElementById("event-log-list");
+    if (!list) return;
+    list.innerHTML = "";
+    for (const e of eventLog) {
+      const li = document.createElement("li");
+      if (e.kind === "canary") li.className = "ev-canary";
+      else if (e.kind === "action") li.className = "ev-action";
+      const time = document.createElement("span");
+      time.className = "ev-time";
+      time.textContent = e.at.toLocaleTimeString();
+      const tag = document.createElement("b");
+      tag.textContent = "[" + e.kind + "]";
+      const body = document.createElement("span");
+      body.textContent = e.text;
+      li.append(time, tag, body);
+      list.appendChild(li);
+    }
+    const empty = document.getElementById("event-log-empty");
+    if (empty) empty.classList.toggle("hidden", eventLog.length > 0);
+  }
+
+  // ---- canary view ----
+
+  function appendCanaryAlertRow(a) {
+    const list = document.getElementById("can-alerts");
+    if (!list) return;
+    const li = document.createElement("li");
+    li.className = "ev-canary";
+    const time = document.createElement("span");
+    time.className = "ev-time";
+    time.textContent = a.at.toLocaleTimeString();
+    const tag = document.createElement("b");
+    tag.textContent = "[alert]";
+    const body = document.createElement("span");
+    body.textContent = a.text;
+    li.append(time, tag, body);
+    list.appendChild(li);
+    const empty = document.getElementById("can-empty");
+    if (empty) empty.classList.add("hidden");
+  }
+
+  function renderCanaryView() {
+    const list = document.getElementById("can-alerts");
+    if (!list) return;
+    list.innerHTML = "";
+    for (const a of canarySessionAlerts) appendCanaryAlertRow(a);
+    const empty = document.getElementById("can-empty");
+    if (empty) empty.classList.toggle("hidden", canarySessionAlerts.length > 0);
+    updateCanaryUI();
+  }
+
+  // ---- overview ----
+
+  function troubleCounts(s) {
+    const cleaned = s.high_risk_cleaned.length;
+    const review = s.suspicious_for_review || [];
+    const procs = s.process_findings || [];
+    const ransom = s.ransom_findings || [];
+    const reviewHigh = review.filter((e) => e.risk === "HighRisk").length;
+    const reviewSusp = review.filter((e) => e.risk === "Suspicious").length;
+    const procHigh = procs.filter((p) => p.risk === "HighRisk").length;
+    const procSusp = procs.filter((p) => p.risk === "Suspicious").length;
+    return {
+      cleaned, review: review.length, proc: procs.length, ransom: ransom.length,
+      safe: s.safe, total: s.total,
+      critical: reviewHigh + procHigh + ransom.length,
+      suspicious: reviewSusp + procSusp,
+      findings: cleaned + review.length + procs.length + ransom.length,
+    };
+  }
+
+  function setMetric(id, text, tone) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.classList.remove("is-ok", "is-warn", "is-bad");
+    if (tone) el.classList.add(tone);
+  }
+
+  function covRow(name, detail, level) {
+    const li = document.createElement("li");
+    const dot = document.createElement("span");
+    dot.className = "cov-dot " + (level || "idle");
+    const nm = document.createElement("span");
+    nm.className = "cov-name";
+    nm.textContent = name;
+    const det = document.createElement("span");
+    det.className = "cov-detail";
+    det.textContent = detail;
+    li.append(dot, nm, det);
+    return li;
+  }
+
+  function renderOverview(summary) {
+    const t = troubleCounts(summary);
+    const posture = document.getElementById("ov-posture");
+    const subline = document.getElementById("ov-subline");
+    if (t.critical > 0) {
+      posture.textContent = "Investigation required";
+      posture.classList.add("is-bad"); posture.classList.remove("is-warn", "is-ok");
+      subline.textContent = t.critical + " critical finding(s) need a decision — see Startup Audit and Process Sentinel.";
+    } else if (t.findings > 0) {
+      posture.textContent = "Review required";
+      posture.classList.add("is-warn"); posture.classList.remove("is-bad", "is-ok");
+      subline.textContent = t.findings + " finding(s) recorded" +
+        (t.cleaned ? ", " + t.cleaned + " auto-quarantined" : "") + " — nothing was deleted.";
+    } else {
+      posture.textContent = "Protected";
+      posture.classList.add("is-ok"); posture.classList.remove("is-bad", "is-warn");
+      subline.textContent = summary.total + " checks completed — no persistence, process, or ransom findings.";
+    }
+    setMetric("ov-last-scan", lastScanAt ? lastScanAt.toLocaleString() : "—", null);
+    setMetric("ov-checks", String(summary.total), null);
+    setMetric("ov-findings", String(t.findings), t.findings ? "is-warn" : "is-ok");
+    setMetric("ov-critical", String(t.critical), t.critical ? "is-bad" : "is-ok");
+    setMetric("ov-suspicious", String(t.suspicious), t.suspicious ? "is-warn" : "is-ok");
+    setMetric("ov-duration", fmtDuration(scanDurationMs), null);
+
+    const bySource = {};
+    summary.high_risk_cleaned.concat(summary.suspicious_for_review).forEach((e) => {
+      const src = e.entry.source;
+      bySource[src] = bySource[src] || { n: 0, high: 0 };
+      bySource[src].n += 1;
+      if (e.risk === "HighRisk") bySource[src].high += 1;
+    });
+    const srcRow = (key, label) => {
+      const info = bySource[key] || { n: 0, high: 0 };
+      const detail = info.n ? info.n + " flagged" : "checked — nothing flagged";
+      const level = info.high ? "bad" : info.n ? "warn" : "ok";
+      return covRow(label, detail, level);
+    };
+    const cov = document.getElementById("ov-coverage");
+    cov.innerHTML = "";
+    cov.append(
+      srcRow("RegistryRun", "Registry autoruns (Run / RunOnce)"),
+      srcRow("StartupFolder", "Startup folder"),
+      srcRow("ScheduledTask", "Scheduled tasks"),
+      srcRow("WindowsService", "Auto-start services"),
+      srcRow("WmiSubscription", "WMI event subscriptions"),
+      srcRow("IfeoDebugger", "IFEO debuggers"),
+      srcRow("AppInitDlls", "AppInit DLLs"),
+      srcRow("ComHijack", "COM hijacks (HKCU)"),
+      covRow("Running processes", t.proc ? t.proc + " flagged" : "checked — none flagged", t.proc ? "warn" : "ok"),
+      covRow("Ransom indicators", t.ransom ? t.ransom + " found" : "none found", t.ransom ? "bad" : "ok"),
+      covRow(
+        "Canary guard",
+        canaryTriggered ? "TRIGGERED — see Canary Guard" : canaryActive ? "active — watching decoys" : "off",
+        canaryTriggered ? "bad" : canaryActive ? "ok" : "idle"
+      )
+    );
+  }
+
+  // ---- startup audit view ----
+
+  function evidenceText(scored) {
+    const e = scored.entry;
+    return (
+      "[CURE evidence] " + e.name + " | " + e.source + " | score " + scored.score + " (" + scored.risk + ")\n" +
+      "command: " + e.command + "\n" +
+      "location: " + e.location + "\n" +
+      "reasons: " + (scored.reasons || []).join("; ")
+    );
+  }
+
+  function copyEvidence(text, btn) {
+    const done = () => {
+      btn.textContent = "Copied ✓";
+      setTimeout(() => { btn.textContent = "Copy evidence"; }, 1800);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, () => footFeedback("Copy failed", true));
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); done(); }
+      catch (_) { footFeedback("Copy failed", true); }
+      ta.remove();
+    }
+  }
+
+  function buildAuditCard(scored, cleaned) {
+    const rawSource = String(scored.entry.source);
+    const card = document.createElement("li");
+    card.className = "review-card audit-card risk-" + scoreChipClass(scored.score);
+
+    const top = document.createElement("div");
+    top.className = "audit-top";
+    const iconWrap = document.createElement("div");
+    iconWrap.className = "src-icon " + (rawSource === "ScheduledTask" ? "icon-task" : rawSource === "RegistryRun" ? "icon-registry" : "icon-startup");
+    iconWrap.innerHTML = SOURCE_ICONS[rawSource] || SOURCE_ICONS.StartupFolder;
+    const main = document.createElement("div");
+    main.className = "rc-main";
+    const topRow = document.createElement("div");
+    topRow.className = "rc-top";
+    const name = document.createElement("span");
+    name.className = "rc-name";
+    name.textContent = scored.entry.name;
+    name.title = scored.entry.command;
+    const scoreEl = document.createElement("span");
+    scoreEl.className = "score-chip " + scoreChipClass(scored.score);
+    scoreEl.textContent = String(scored.score);
+    scoreEl.title = scored.risk + " · risk score " + scored.score;
+    topRow.append(name, scoreEl);
+    main.appendChild(topRow);
+    const chips = document.createElement("div");
+    chips.className = "chips";
+    const riskChip = document.createElement("span");
+    riskChip.className = "chip " + (scored.risk === "HighRisk" ? "red" : scored.risk === "Suspicious" ? "amber" : "teal");
+    riskChip.textContent = scored.risk === "HighRisk" ? "HIGH RISK" : scored.risk === "Suspicious" ? "SUSPICIOUS" : "SAFE";
+    chips.appendChild(riskChip);
+    const srcChip = document.createElement("span");
+    srcChip.className = "chip src";
+    srcChip.textContent = SOURCE_LABELS[rawSource] || "Persistence";
+    chips.appendChild(srcChip);
+    const atk = attackFor(scored);
+    if (atk) {
+      const atkChip = document.createElement("span");
+      atkChip.className = "chip attack";
+      atkChip.textContent = atk.id;
+      atkChip.title = "MITRE ATT&CK: " + atk.name;
+      chips.appendChild(atkChip);
+    }
+    const reasons = Array.isArray(scored.reasons) ? scored.reasons : [];
+    for (const reason of reasons.slice(0, 3)) {
+      const [label, tone] = reasonChipLabel(String(reason));
+      const chip = document.createElement("span");
+      chip.className = "chip" + (tone ? " " + tone : "");
+      chip.textContent = label;
+      chip.title = reason;
+      chips.appendChild(chip);
+    }
+    main.appendChild(chips);
+    top.append(iconWrap, main);
+
+    const actions = document.createElement("div");
+    actions.className = "audit-actions";
+    const toggle = document.createElement("button");
+    toggle.className = "detail-toggle";
+    toggle.textContent = "View details";
+    toggle.setAttribute("aria-expanded", "false");
+    const copy = document.createElement("button");
+    copy.className = "copy-btn";
+    copy.textContent = "Copy evidence";
+    copy.addEventListener("click", () => copyEvidence(evidenceText(scored), copy));
+    actions.append(toggle, copy);
+    // Open Location: strict id-based reveal (Explorer select, no shell).
+    // Offered only when something file-backed exists to reveal.
+    const reveal = document.createElement("button");
+    reveal.className = "copy-btn";
+    reveal.textContent = "Open location";
+    reveal.title = "Select this file in Explorer (opens nothing)";
+    reveal.addEventListener("click", async () => {
+      try {
+        await invoke("reveal_location", { id: scored.entry.id });
+      } catch (err) {
+        footFeedback(cleanErrText(err, "Nothing file-backed to reveal"), true);
+      }
+    });
+    actions.append(reveal);
+    if (cleaned) {
+      const undo = document.createElement("button");
+      undo.className = "quarantine-btn";
+      undo.textContent = "Undo";
+      undo.title = "Restore this file from quarantine";
+      undo.addEventListener("click", async () => {
+        undo.disabled = true;
+        try {
+          await invoke("undo_entry", { id: scored.entry.id });
+          undo.textContent = "Restored ✓";
+          undo.classList.add("row-done");
+          logEvent("action", "restored from quarantine: " + scored.entry.name);
+        } catch (err) {
+          undo.disabled = false;
+          footFeedback(cleanErrText(err, "Undo failed"), true);
+        }
+      });
+      actions.append(undo);
+    } else if (rawSource === "RegistryRun") {
+      const note = document.createElement("span");
+      note.className = "manual-note";
+      note.textContent = "Manual removal required";
+      actions.append(note);
+    } else {
+      const btn = document.createElement("button");
+      btn.className = "quarantine-btn";
+      btn.textContent = "Quarantine";
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        try {
+          await invoke("quarantine_entry", { id: scored.entry.id, name: scored.entry.name, command: scored.entry.command });
+          btn.textContent = "Quarantined ✓";
+          btn.classList.add("row-done");
+          logEvent("action", "quarantined: " + scored.entry.name);
+        } catch (err) {
+          btn.disabled = false;
+          footFeedback(cleanErrText(err, "Quarantine failed"), true);
+        }
+      });
+      actions.append(btn);
+    }
+    top.append(actions);
+    card.append(top);
+
+    const drawer = document.createElement("dl");
+    drawer.className = "detail-drawer hidden";
+    const rows = [
+      ["Name", scored.entry.name],
+      ["Source", (SOURCE_LABELS[rawSource] || rawSource) + (atk ? " · MITRE " + atk.id + " " + atk.name : "")],
+      ["Command", scored.entry.command],
+      ["Path", scored.entry.location],
+      ["Score", String(scored.score) + " (" + scored.risk + ")"],
+      ["Reasons", reasons.join(" · ") || "—"],
+      ["Recommended action", recommendedAction(scored)],
+    ];
+    for (const [k, v] of rows) {
+      const dt = document.createElement("dt");
+      dt.textContent = k;
+      const dd = document.createElement("dd");
+      dd.textContent = v;
+      if (k === "Recommended action") dd.classList.add("rec-action");
+      drawer.append(dt, dd);
+    }
+    // Forensic rows, filled lazily on first expand (one backend round-trip
+    // per card): signature/publisher plus shortcut/task specifics.
+    const sigDt = document.createElement("dt");
+    sigDt.textContent = "Signature";
+    const sigDd = document.createElement("dd");
+    sigDd.textContent = "…";
+    const pubDt = document.createElement("dt");
+    pubDt.textContent = "Publisher";
+    const pubDd = document.createElement("dd");
+    pubDd.textContent = "…";
+    drawer.append(sigDt, sigDd, pubDt, pubDd);
+    const evDt = document.createElement("dt");
+    evDt.textContent = "Evidence";
+    const evDd = document.createElement("dd");
+    const evUl = document.createElement("ul");
+    evUl.className = "evidence-list";
+    for (const reason of reasons.length ? reasons : ["No scored signals — listed for context."]) {
+      const li = document.createElement("li");
+      li.textContent = reason;
+      evUl.appendChild(li);
+    }
+    evDd.appendChild(evUl);
+    drawer.append(evDt, evDd);
+    let detailsLoaded = false;
+    async function loadDetails() {
+      if (detailsLoaded) return;
+      detailsLoaded = true;
+      let details = null;
+      try {
+        details = await invoke("entry_details", { id: scored.entry.id });
+      } catch (_) {
+        sigDd.textContent = "Unavailable";
+        pubDd.textContent = "Unavailable";
+        return;
+      }
+      if (!details) {
+        sigDd.textContent = "Unavailable";
+        pubDd.textContent = "Unavailable";
+        return;
+      }
+      sigDd.textContent = details.signature || "UNKNOWN";
+      pubDd.textContent = details.publisher || "Unavailable (unsigned or verdict-only check)";
+      const extra = [];
+      if (details.shortcut) {
+        const sc = details.shortcut;
+        if (sc.expanded_target) extra.push(["Shortcut target", sc.expanded_target + (sc.target_exists ? "" : "  [MISSING]")]);
+        if (sc.info && sc.info.arguments) extra.push(["Shortcut arguments", sc.info.arguments]);
+        if (sc.info && sc.info.working_dir) extra.push(["Shortcut workdir", sc.info.working_dir]);
+      }
+      if (details.task) {
+        const t = details.task;
+        t.actions.forEach((a, i) => {
+          extra.push(["Action " + (i + 1), a.command + (a.arguments ? " " + a.arguments : "")]);
+          if (a.working_dir) extra.push(["Action " + (i + 1) + " workdir", a.working_dir]);
+        });
+        if (t.author) extra.push(["Task author", t.author]);
+        if (t.run_level) extra.push(["Run level", t.run_level]);
+        if (t.user_id) extra.push(["Runs as", t.user_id]);
+        if (t.triggers && t.triggers.length) extra.push(["Triggers", t.triggers.join(", ")]);
+        extra.push(["Task enabled", t.enabled === false ? "No" : "Yes"]);
+        if (t.hidden) extra.push(["Task hidden flag", "Yes"]);
+      }
+      for (const [k, v] of extra) {
+        const dt = document.createElement("dt");
+        dt.textContent = k;
+        const dd = document.createElement("dd");
+        dd.textContent = v;
+        drawer.append(dt, dd);
+      }
+    }
+    toggle.addEventListener("click", () => {
+      const open = drawer.classList.toggle("hidden");
+      toggle.setAttribute("aria-expanded", String(!open));
+      toggle.textContent = open ? "View details" : "Hide details";
+      if (!open) loadDetails();
+    });
+    card.append(drawer);
+    return card;
+  }
+
+  function renderAudit(summary) {
+    const list = document.getElementById("audit-list");
+    if (!list) return;
+    list.innerHTML = "";
+    const entries = summary.high_risk_cleaned
+      .map((e) => ({ e, cleaned: true }))
+      .concat(summary.suspicious_for_review.map((e) => ({ e, cleaned: false })));
+    entries.sort((a, b) => b.e.score - a.e.score);
+    for (const { e, cleaned } of entries) list.append(buildAuditCard(e, cleaned));
+    const sub = document.getElementById("audit-subline");
+    if (sub) sub.textContent = entries.length + " persistence finding(s) in the last scan — nothing is disabled automatically.";
+    const note = document.getElementById("audit-note");
+    if (note) note.textContent = summary.safe + " safe entries are not listed individually. Publisher data is unavailable (signature checks are verdict-only).";
+  }
+
+  // ---- process sentinel view ----
+
+  let procFilter = "all";
+  let procCache = [];
+
+  function procRow(p) {
+    const tr = document.createElement("tr");
+    const nameTd = document.createElement("td");
+    nameTd.className = "proc-name";
+    nameTd.textContent = p.name;
+    const pidTd = document.createElement("td");
+    pidTd.className = "mono";
+    pidTd.textContent = String(p.pid);
+    const pathTd = document.createElement("td");
+    pathTd.className = "mono";
+    const short = (p.exe_path || "").split(/[/\\]/).pop() || "—";
+    pathTd.textContent = short;
+    pathTd.title = p.exe_path || "";
+    const scoreTd = document.createElement("td");
+    scoreTd.className = "mono";
+    scoreTd.textContent = String(p.score);
+    const riskTd = document.createElement("td");
+    const badge = document.createElement("span");
+    badge.className = "severity-badge " + (p.risk === "HighRisk" ? "sev-bad" : p.risk === "Suspicious" ? "sev-warn" : "sev-safe");
+    badge.textContent = p.risk === "HighRisk" ? "HIGH RISK" : (p.risk || "").toUpperCase();
+    riskTd.append(badge);
+    const rsnTd = document.createElement("td");
+    rsnTd.className = "row-reasons";
+    const reasons = Array.isArray(p.reasons) ? p.reasons : [];
+    rsnTd.textContent = reasons.slice(0, 3).join(" · ") || "—";
+    rsnTd.title = reasons.join("\n");
+    const actTd = document.createElement("td");
+    const kill = document.createElement("button");
+    kill.className = "kill-one";
+    kill.textContent = "Kill";
+    kill.title = "Terminate this process (asks for confirmation)";
+    kill.addEventListener("click", async () => {
+      if (kill.disabled) return;
+      if (!kill.classList.contains("arm-danger")) {
+        kill.classList.add("arm-danger");
+        kill.textContent = "Confirm kill?";
+        clearTimeout(kill._armTimer);
+        kill._armTimer = setTimeout(() => {
+          kill.classList.remove("arm-danger");
+          kill.textContent = "Kill";
+        }, 4000);
+        return;
+      }
+      clearTimeout(kill._armTimer);
+      kill.classList.remove("arm-danger");
+      kill.disabled = true;
+      kill.textContent = "Killing…";
+      try {
+        const report = await invoke("kill_high_risk_processes", { processes: [[p.name, p.pid]] });
+        const ok = (report.killed || []).length > 0;
+        kill.textContent = ok ? "Killed" : "Failed";
+        if (!ok) kill.disabled = false;
+        const msg = ok ? "Killed " + p.name + " (pid " + p.pid + ")" : "Kill failed: " + (report.failed || []).join("; ");
+        footFeedback(msg, !ok);
+        logEvent("action", msg);
+      } catch (err) {
+        kill.disabled = false;
+        kill.textContent = "Kill";
+        footFeedback(cleanErrText(err, "Kill failed"), true);
+      }
+    });
+    actTd.append(kill);
+    tr.append(nameTd, pidTd, pathTd, scoreTd, riskTd, rsnTd, actTd);
+    return tr;
+  }
+
+  function renderProcesses(summary) {
+    procCache = summary.process_findings || [];
+    const sub = document.getElementById("proc-subline");
+    if (sub) sub.textContent = procCache.length + " flagged process(es) in the last scan. Killing requires confirmation per process — PIDs are re-validated before termination.";
+    paintProcessRows();
+  }
+
+  function paintProcessRows() {
+    const body = document.getElementById("proc-rows");
+    if (!body) return;
+    body.innerHTML = "";
+    const rows = procCache.filter((p) => procFilter === "all" || p.risk === procFilter);
+    for (const p of rows) body.append(procRow(p));
+    const empty = document.getElementById("proc-empty");
+    if (empty) {
+      empty.classList.toggle("hidden", rows.length > 0);
+      if (!rows.length) empty.textContent = procCache.length ? "No processes match this filter." : "No flagged processes in the last scan.";
+    }
+  }
+
+  // ---- quarantine view (real backend data) ----
+
+  async function refreshQuarantine() {
+    const list = document.getElementById("q-list");
+    const empty = document.getElementById("q-empty");
+    if (!list) return;
+    let records = [];
+    try {
+      records = await invoke("list_quarantine");
+    } catch (err) {
+      footFeedback(cleanErrText(err, "Could not list quarantine"), true);
+      return;
+    }
+    list.innerHTML = "";
+    for (const r of records) {
+      const li = document.createElement("li");
+      li.className = "review-card q-row";
+      const top = document.createElement("div");
+      top.className = "q-top";
+      const name = document.createElement("span");
+      name.className = "rc-name";
+      name.textContent = r.name;
+      name.title = r.original_path;
+      const src = document.createElement("span");
+      src.className = "chip src";
+      src.textContent = r.source || "quarantine";
+      const when = document.createElement("span");
+      when.className = "q-archived";
+      try { when.textContent = new Date(r.archived_at).toLocaleString(); }
+      catch (_) { when.textContent = r.archived_at || ""; }
+      const undo = document.createElement("button");
+      undo.className = "copy-btn q-undo";
+      undo.textContent = "Undo";
+      undo.title = "Restore this file to its original location";
+      undo.addEventListener("click", async () => {
+        undo.disabled = true;
+        try {
+          await invoke("undo_entry", { id: r.id });
+          logEvent("action", "restored from quarantine: " + r.name);
+          await refreshQuarantine();
+        } catch (err) {
+          undo.disabled = false;
+          footFeedback(cleanErrText(err, "Undo failed"), true);
+        }
+      });
+      top.append(name, src, when, undo);
+      const paths = document.createElement("div");
+      paths.className = "q-paths";
+      paths.textContent = r.original_path + "  →  " + r.quarantine_path;
+      li.append(top, paths);
+      list.append(li);
+    }
+    if (empty) empty.classList.toggle("hidden", records.length > 0);
+    const sub = document.getElementById("q-subline");
+    if (sub && records.length) sub.textContent = records.length + " item(s) in quarantine — nothing is ever deleted by quarantine. Restore any item with Undo.";
+  }
+
   (async () => {
     scanView.classList.add("hidden");
     landingView.classList.remove("hidden");
+    setNav("scan-center");
     document.getElementById("start-rescue-btn").addEventListener("click", async () => {
       setPill("scanning", "checking for suspicious overlays…");
       await switchView(landingView, scanView);
+      setNav("scan-view");
       const lines = [];
       try {
         const rep = await invoke("dismiss_overlays");
@@ -2360,8 +3162,47 @@
     document.getElementById("start-cleanup-btn").addEventListener("click", async () => {
       cleanupState.open = true;
       cleanupState.savedPill = { cls: statusPill.className, text: statusText.textContent };
-      await switchView(landingView, cleanupView);
+      await switchView(currentView(), cleanupView);
+      setNav("cleanup-view");
       showCleanupIdle();
+    });
+    document.querySelectorAll(".nav-item").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (!btn.disabled) navTo(btn.getAttribute("data-view"));
+      });
+    });
+    const canToggle2 = document.getElementById("can-toggle");
+    if (canToggle2) canToggle2.addEventListener("click", toggleCanary);
+    const qRefresh = document.getElementById("q-refresh");
+    if (qRefresh) qRefresh.addEventListener("click", refreshQuarantine);
+    async function exportReport(format) {
+      const redactBox = document.getElementById("exp-redact");
+      const redact = redactBox ? !!redactBox.checked : true;
+      footFeedback("Exporting " + format.toUpperCase() + " report…", false);
+      try {
+        const path = await invoke("export_report", { format, redact });
+        footFeedback("Report saved: " + path, false);
+        logEvent("action", "exported " + format.toUpperCase() + " report to " + path);
+      } catch (err) {
+        footFeedback(cleanErrText(err, "Report export failed"), true);
+      }
+    }
+    const expTxt = document.getElementById("exp-txt");
+    if (expTxt) expTxt.addEventListener("click", () => exportReport("txt"));
+    const expJson = document.getElementById("exp-json");
+    if (expJson) expJson.addEventListener("click", () => exportReport("json"));
+    const logClear = document.getElementById("log-clear");
+    if (logClear) logClear.addEventListener("click", () => {
+      eventLog.length = 0;
+      renderEventLog();
+    });
+    document.querySelectorAll(".filter-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".filter-btn").forEach((b) => b.classList.remove("on"));
+        btn.classList.add("on");
+        procFilter = btn.getAttribute("data-f") || "all";
+        paintProcessRows();
+      });
     });
   })();
 })();

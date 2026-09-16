@@ -7,6 +7,11 @@ pub enum PersistenceSource {
     RegistryRun,
     StartupFolder,
     ScheduledTask,
+    WindowsService,
+    WmiSubscription,
+    IfeoDebugger,
+    AppInitDlls,
+    ComHijack,
 }
 
 impl PersistenceSource {
@@ -15,6 +20,27 @@ impl PersistenceSource {
             Self::RegistryRun => "registry-run",
             Self::StartupFolder => "startup-folder",
             Self::ScheduledTask => "scheduled-task",
+            Self::WindowsService => "windows-service",
+            Self::WmiSubscription => "wmi-subscription",
+            Self::IfeoDebugger => "ifeo-debugger",
+            Self::AppInitDlls => "appinit-dlls",
+            Self::ComHijack => "com-hijack",
+        }
+    }
+
+    /// True only for sources whose `location` is a regular file that
+    /// move-based quarantine can safely relocate with an exact undo.
+    /// Registry keys, service records, WMI objects and COM registrations
+    /// are NEVER auto-remediated — they get manual, backed-up instructions.
+    pub fn is_file_backed(&self) -> bool {
+        match self {
+            Self::StartupFolder | Self::ScheduledTask => true,
+            Self::RegistryRun
+            | Self::WindowsService
+            | Self::WmiSubscription
+            | Self::IfeoDebugger
+            | Self::AppInitDlls
+            | Self::ComHijack => false,
         }
     }
 }
@@ -77,6 +103,28 @@ pub struct ScoredEntry {
     pub score: i32,
     pub risk: RiskLevel,
     pub reasons: Vec<String>,
+    /// MITRE ATT&CK technique for the finding's source — the single source
+    /// of truth (see `attack::technique_for_source`). Empty when the source
+    /// has no mapping. Frontends must prefer these fields over any local
+    /// copy of the mapping.
+    pub attack: AttackInfo,
+}
+
+/// MITRE ATT&CK reference attached to a scored finding (owned strings so
+/// the struct stays serializable; values come from `attack::TECHNIQUE_*`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttackInfo {
+    pub id: String,
+    pub name: String,
+}
+
+impl AttackInfo {
+    pub fn none() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+        }
+    }
 }
 
 const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;

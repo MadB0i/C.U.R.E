@@ -1,27 +1,93 @@
-# TESTING.md — cure-watch live-fire validation
+# TESTING.md — validation procedures (Windows-only)
 
-End-to-end proof that **cure-watch**, already running on a machine, detects a
-rescue USB and launches the GUI **even while a fullscreen topmost overlay is
-covering the screen** — and that the GUI lands *on top* of that overlay.
+All procedures below are Windows 10/11-only. The engine's pure logic
+(risk scoring, canary state machine, baseline diff, task-XML parsing) is
+covered by `cargo test --workspace` on any platform, but every
+end-to-end flow here needs Windows: registry autoruns, Authenticode,
+`ReadDirectoryChangesW`, drive-letter polling, the Startup folder, and
+WebView2.
 
-Everything here runs against test fixtures only:
+> Honesty rule: do not claim a test was performed unless it was actually
+> performed. Record the outcome (PASS/FAIL + evidence) with each run.
 
-- `testing/fake-overlay/` — an inert, clearly-labeled fullscreen window
-  (`CURE TEST FIXTURE — NOT REAL MALWARE`). It renders static text and does
-  nothing else: no file access, no encryption, no network, no persistence.
-  Review `testing/fake-overlay/src/main.rs` before running it; it's ~200 lines
-  of plain WinAPI window creation.
+## 0. Unit + lint baseline (any Windows dev machine)
 
-## What you need
+```bat
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+```
 
-- A clean Windows 10/11 VM (snapshot first so you can roll back).
-- Rust toolchain (MSVC) in the VM, or copy built exes from the host.
-- A USB stick — or, if the VM has no USB passthrough, any folder + `subst`
-  (procedure below covers both; `subst` drives are indistinguishable to
-  cure-watch because it polls drive letters via `Path::exists()`).
-- WebView2 runtime (preinstalled on Win10/11; needed by cure-gui).
+Both must be fully green. `gui/` is a separate workspace (own lockfile):
+build it with `cargo build --release` inside `gui\src-tauri`.
 
-## Build
+## 1. Watcher: first-run consent
+
+On first launch `cure-watch.exe` shows a Yes/No message box:
+
+- **Yes** → writes `%APPDATA%\cure-watch-consent.json`
+  (`{"status":"enabled"}`), self-installs (see §2), starts watching.
+- **No** → writes `{"status":"declined"}`, installs nothing, exits.
+  Run again only after deleting the marker (see reset below).
+
+The marker is strict JSON: malformed content, a missing `status` field,
+or an unknown value re-asks on next launch (fail-closed — garbage never
+enables background watching). Covered by `consent::tests` unit tests.
+
+The prompt also discloses the experimental canary guard (decoy files +
+folder monitoring, §5) — enabling the watcher enables that too.
+
+### Reset consent for testing
+
+```bat
+del %APPDATA%\cure-watch-consent.json
+del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\cure-watch.exe"
+```
+
+Delete both: the marker (to be asked again) and the installed copy (to
+verify fresh self-install, not the update path).
+
+## 2. Watcher: self-install / self-update
+
+On every consented start the watcher reconciles
+`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\cure-watch.exe`
+with the binary actually running:
+
+| State | Behavior | Log line |
+|---|---|---|
+| No installed copy | copy self there | `[install] installed watcher to …` |
+| Byte-identical copy | do nothing (no churn) | `[install] installed copy already up to date at …` |
+| Different bytes | replace via temp-file + replacing move; **never** delete-first | `[install] updated stale watcher at …` |
+| Replace fails (in use / access denied) | old copy left intact, current process keeps watching | `[install] deferred update of …; old copy left intact` |
+| Already running from the installed copy | nothing to do | (no line) |
+
+Verify an update: install an older build, run the new binary from another
+folder with consent enabled, confirm the `updated stale watcher` line and
+that the Startup copy's bytes now match the new binary. Decision logic is
+unit-tested (`self_update::tests`, incl. temp-file replacement tests).
+
+## 3. How to verify the watcher is running
+
+1. Console prints `cure-watch is watching for rescue USBs (Ctrl+C to stop)…`.
+2. `%APPDATA%\cure-watch.log` gains `[startup] watcher started (pid …, polling every 1500 ms)`.
+3. A `cure-watch.exe` process exists in Task Manager.
+
+If `%APPDATA%` is unset the watcher runs in portable mode (no install, no
+durable log) and says so on the console. Logging is best-effort and never
+blocks watching.
+
+## 4. Trigger flow (live-fire, clean VM recommended)
+
+Fixtures: `testing/fake-overlay/` — an inert, clearly-labeled fullscreen
+window (`CURE TEST FIXTURE — NOT REAL MALWARE`). No file access, no
+encryption, no network, no persistence. Review
+`testing/fake-overlay/src/main.rs` (~200 lines of plain WinAPI) before
+running it.
+
+What you need: clean Windows 10/11 VM (snapshot first), Rust MSVC toolchain
+or copied release exes, a USB stick (or `subst` fallback), WebView2
+(preinstalled on Win10/11).
+
+Build:
 
 ```bat
 cargo build --release                        :: cure-watch.exe (+ core/cli)
@@ -29,76 +95,58 @@ cargo build --release                        :: in testing\fake-overlay\ -> fake
 cd gui\src-tauri && cargo build --release    :: cure-gui.exe
 ```
 
-## Procedure
+Procedure:
 
-1. **Install & start the watcher.** In the VM run
-   `target\release\cure-watch.exe` once. It copies itself into
-   `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\` and keeps
-   running. Confirm the console prints "watching for rescue USBs".
-
-2. **Confirm durable logging started.** Open `%APPDATA%\cure-watch.log`. You
-   should see a `[startup]` line and an `[install]` line (see expected output
-   below).
-
-3. **Launch the fake overlay.** Run
-   `testing\fake-overlay\target\release\fake-overlay.exe`. Verify it covers
-   the entire desktop edge-to-edge, including the taskbar, and that its title
-   reads `CURE TEST FIXTURE — NOT REAL MALWARE` (visible in taskbar/Alt+Tab).
-   Leave it running.
-
-4. **Prepare the rescue drive.** On a real USB:
+1. **Consent + install.** Run `target\release\cure-watch.exe` once in the
+   VM. Answer **Yes** at the consent prompt. Confirm the console prints
+   "watching for rescue USBs" and the log shows `[startup]` + `[install]`
+   lines (see expected shape below).
+2. **Launch the fake overlay.** Run `fake-overlay.exe`. Verify it covers
+   the desktop edge-to-edge and its title reads
+   `CURE TEST FIXTURE — NOT REAL MALWARE`. Leave it running.
+3. **Prepare the rescue drive.** On a real USB:
    ```bat
    copy gui\src-tauri\target\release\cure-gui.exe E:\
    echo CURE-TRIGGER-V1> E:\.cure-trigger
    ```
-   No-USB fallback inside the VM (adjust paths):
+   No-USB fallback:
    ```bat
    mkdir C:\cure-usb-test
    copy gui\src-tauri\target\release\cure-gui.exe C:\cure-usb-test\
    echo CURE-TRIGGER-V1> C:\cure-usb-test\.cure-trigger
    subst X: C:\cure-usb-test
    ```
-   Optional negative control (watcher must *ignore* this one):
+   Optional negative control (must be *ignored*):
    ```bat
    mkdir C:\cure-bad-test
    echo not-a-real-trigger> C:\cure-bad-test\.cure-trigger
    subst Y: C:\cure-bad-test
    ```
-
-5. **Attach/insert the drive** (plug in the USB, or run the `subst` commands).
-
-6. **Read the log within a few seconds.** Check `%APPDATA%\cure-watch.log`
-   for the detection sequence. Expected shape (UTC timestamps):
+4. **Attach/insert the drive**, then read `%APPDATA%\cure-watch.log`
+   within seconds. Expected shape (UTC):
    ```
    2026-08-23T14:02:11Z [startup] watcher started (pid 4188, polling every 1500 ms)
    2026-08-23T14:02:11Z [install] installed watcher to C:\Users\you\AppData\...\Startup\cure-watch.exe
    2026-08-23T14:05:47Z [drive] new drive appeared: X:\
-   2026-08-23T14:05:47Z [drive] new drive appeared: Y:\
    2026-08-23T14:05:47Z [trigger] VALID C.U.R.E trigger on X:\; launching GUI
    2026-08-23T14:05:48Z [launch] launched X:\cure-gui.exe
    2026-08-23T14:05:47Z [trigger] invalid/missing trigger on Y:\; ignoring
    ```
-   Event vocabulary: `startup`, `install`, `drive`, `trigger`, `launch`,
-   `launch-error`. If anything fails (GUI missing, spawn error), the reason is
-   in `launch-error` lines — this log is authoritative even if the visual
-   check is ambiguous.
-
-7. **Visual z-order check (the whole point).** Within ~2 seconds of insertion,
-   the C.U.R.E scan window should appear **in front of the fake overlay**
-   without any interaction. The auto-launched instance intentionally requests
-   topmost + focus at startup and again after ~1.2 s, then stays topmost for
-   the session (Defender-style surfacing; manual double-click launches are
-   unaffected and behave like normal windows).
-   - PASS: scan UI visible above the red TEST FIXTURE screen.
-   - FAIL: only the fixture visible → press Alt+Tab; if C.U.R.E is behind the
-     overlay, record it as a bug (topmost race) with the log excerpt.
-
-8. **Confirm a real scan happened.** After ~15 s the GUI finishes its animated
-   pass; verify a fresh `baseline.json` exists on the drive root (`X:\baseline.json`
-   / `E:\baseline.json`) and that its timestamp matches this run. That proves
-   the launched GUI actually completed work, not just opened a window.
-
-9. **Tear down.**
+   Event vocabulary: `startup`, `install`, `consent`, `drive`, `trigger`,
+   `launch`, `launch-error`, `canary`. The log is authoritative even if the
+   visual check is ambiguous.
+5. **Visual z-order check.** Within ~2 s the C.U.R.E window should appear
+   **in front of** the fake overlay, zero clicks (topmost + focus at
+   startup, re-surfaced after ~1.2 s; manual launches are normal windows).
+   - PASS: scan UI above the red fixture screen.
+   - FAIL: only fixture visible → Alt+Tab; if C.U.R.E is behind, record log
+     excerpt + Alt+Tab state as a topmost-race bug.
+6. **Confirm a real scan.** After ~15 s verify a fresh `baseline.json`
+   exists on the drive root with this run's timestamp. The scan now covers
+   auto-start services, WMI subscriptions, IFEO debuggers, AppInit DLLs,
+   and per-user COM hijacks in addition to Run keys, Startup, and tasks
+   (see `cure scan` output: each finding carries its ATT&CK id).
+7. **Tear down.**
    ```bat
    taskkill /IM cure-gui.exe /F
    taskkill /IM fake-overlay.exe /F
@@ -106,27 +154,158 @@ cd gui\src-tauri && cargo build --release    :: cure-gui.exe
    subst X: /D          :: if used
    subst Y: /D          :: if used
    ```
-   Roll back the VM snapshot (or delete the Startup-folder copy of
-   cure-watch.exe manually) so the watcher doesn't linger in the VM.
+   Roll back the snapshot (or delete the Startup copy + consent marker) so
+   the watcher doesn't linger.
 
-## Pass criteria
+Status: VM phases (Setup → PostReboot → OverlayAndUSB) last reported
+incomplete (guest aborted); do not mark them passed until re-run.
+
+## 5. Canary guard
+
+Two integrations share one engine (`core::canary`, pure state machine) and
+one acquisition loop (`cure_dirwatch::run_dir_guard`):
+
+- **Watcher** (automatic after consent): plants `~cure-canary-*` decoys in
+  Desktop/Documents/Downloads, watches them via `ReadDirectoryChangesW`,
+  polls for shadow-wipe tools. Alerts → `%APPDATA%\cure-watch.log` lines
+  tagged `[canary]` (`[TAMPER]` / `[BURST]` / `[REWRITE]` / `[SHADOW-WIPE]`).
+- **GUI** (manual toggle): same decoys + watchers, alerts → `canary-alert`
+  Tauri events rendered in the UI.
+
+Test on a scratch folder set (never your real profile if avoidable):
+
+1. Start the guard (answer Yes to watcher consent, or flip the GUI toggle).
+2. Confirm 6 `~cure-canary-*` files appear per watched dir.
+3. Modify/rename one decoy → expect a `[TAMPER]` log line / UI alert.
+4. Create ~10 new files with the same odd extension within seconds →
+   expect `[BURST]` / `[REWRITE]` alerts.
+5. Stop (kill watcher / GUI toggle off) and delete the decoys.
+
+The guard is **experimental**: it detects decoy tampering and crude
+bulk-encryption patterns. Never describe it as full ransomware protection.
+
+## 6. GUI cleanup E2E (real backend, sandboxed)
+
+The GUI ships a self-driving test mode compiled in (`E2E_RUNNER_JS` in
+`gui/src-tauri/src/main.rs`, inert unless env-gated). It drives the REAL
+webview through: Start Rescue (incl. real overlay dismissal) → results →
+footer buttons → cleanup scan → tick first download → arm + confirm →
+expect `Freed …` status → write JSON → exit(0). A second mode
+(`CURE_E2E_EXIT`) clicks the real Exit button so the harness can assert
+the process terminates.
+
+Sandboxed run (no real user data at risk — all scan roots are env-driven):
+
+```bat
+:: 1. seed a sandbox (adjust $sb); old installer must be >30 days old.
+::    Also drop a HighRisk startup seed so the scan auto-quarantines something:
+::    any random-looking name works because the sandbox lives under %TEMP%
+::    (drop-zone path + random name = HighRisk):
+@echo off> %sb%\startup\xk9q2zv7m1.bat
+:: 2. rebuild GUI from HEAD:  cd gui\src-tauri && cargo build --release
+:: 3. launch:
+set CURE_E2E_CLEANUP=1
+set CURE_E2E_OUT=%sb%\e2e-result.json
+set USERPROFILE=%sb%\home
+set TEMP=%sb%\temp & set TMP=%sb%\temp
+set LOCALAPPDATA=%sb%\local
+set SystemDrive=Q:
+cure-gui.exe --data-dir %sb%\data --startup-root %sb%\startup --tasks-root %sb%\tasks
+:: 4. wait for e2e-result.json (up to ~10 min on slow machines), then:
+set CURE_E2E_EXIT=1
+cure-gui.exe --data-dir %sb%\data --startup-root %sb%\startup --tasks-root %sb%\tasks
+:: 5. assert: process observed alive, then gone within ~30 s
+```
+
+What PASS looks like (2026-09-16 runs, see `E2E-LOG.md` notes):
+`ok:true`, `Freed 3.0 MB — deleted 3 of 4, 1 locked or failed`, the one
+failure being a Chromium temp file locked inside the sandboxed TEMP
+(os error 32, correctly reported per-item), `downloadsTicked:true`,
+`tossSeen:true`, footer messages
+(`No scan log yet…` pre-scan, `Quarantine folder opened`,
+`Scan log opened` post-scan), `quarantineVerified:true` (seed
+auto-quarantined → listed in the Quarantine view → undone through the UI),
+`viewsVerified` (all five new views render; posture non-empty; audit shows
+the seed), `canaryActive:true` (guard enabled, decoys on disk), and clean
+self-exit. The sandboxed scan also exercises the live service/WMI/IFEO/
+AppInit/COM enumerators (real machine services appear as findings).
+
+Caveats: overlay dismissal runs against the real desktop (conservative
+matcher — topmost + borderless + unsigned + not-own + not-system); the
+process scan enumerates real processes (read-only); old-installer deletion
+was proven on synthetic seeds only. A clean-VM run is still wanted for
+full fidelity.
+
+## 6b. Report export, details, and new-source spot checks
+
+```bat
+:: JSON + redacted TXT reports (explicit export; remediates nothing)
+cure.exe report --data-dir E:\cure-data
+cure.exe report --format json --redact --data-dir E:\cure-data
+```
+
+Verify: both files appear in the data dir; the TXT has COVERAGE with
+`[CHECKED]` / `[NOT CHECKED]` / `[UNAVAILABLE]` states and never claims
+"clean" for an unperformed check; the JSON has `findings`, `coverage`,
+`intel_provider` (`DEMO…`), and `redacted:true`; with `--redact` no
+username/home path survives (grep the file).
+
+```bat
+:: New persistence sources on a live machine (read-only)
+cure.exe scan --data-dir E:\cure-data
+```
+
+Expect: `windows-service` rows with `T1543.003` (each shows start type,
+account, scan-time state as evidence); `wmi-subscription` rows normally
+empty on a clean box (the stock SCM Event Log filter/consumer scores
+Safe when present); `ifeo-debugger`/`appinit-dlls` normally empty;
+`com-hijack` rows for per-user CLSIDs. `cure.exe quarantine <id>` on any
+non-file-backed finding must print backup-first manual guidance — never
+relocate anything. Scheduled-task enumeration needs read access to
+`C:\Windows\System32\Tasks`; unelevated runs may report 0 tasks (a
+coverage honesty note, not a bug — elevate to compare).
+
+Shortcut/task forensics: any `.lnk` finding prints its resolved target
+(`lnk→ … [exists|MISSING]`) in `cure scan`; the GUI Startup Audit drawer
+shows target/arguments/workdir, full task actions/author/run-level/
+triggers, signature state, and publisher on expand, plus an
+`Open location` button (Explorer select, strict id-based).
+
+`gui/devtools/*.mjs` drive `gui/dist/index.dev.html` + `mock-tauri.js`
+(canned backend) for pixel/DOM assertions: `verify.mjs`, `chipcheck.mjs`,
+`cleanupcheck.mjs`, `pixelcheck.mjs`, `canarycheck.mjs`, plus screenshot
+tools (`shots.mjs`, `sweepshots.mjs`, …).
+
+- They assert **UI behavior**, not backend correctness — a green
+  `cleanupcheck` does not prove the real Tauri plumbing (that's §6's job).
+- Screenshot output defaults to `gui/dev-screenshots/`; set
+  `CURE_SHOTS_DIR=<empty dir>` to keep runs from dirtying the repo. Only
+  the five README-referenced PNGs are tracked; copy deliberate asset
+  updates back by hand.
+- Needs `npm install` once in `gui/devtools` (Playwright).
+
+## Pass criteria (watcher live-fire)
 
 | # | Criterion | Evidence |
-|---|-----------|----------|
-| 1 | Watcher self-installed and logged startup | `[startup]`/`[install]` lines |
-| 2 | New drive detected while overlay covered screen | `[drive]` line |
-| 3 | Trigger validated (and invalid trigger rejected) | two `[trigger]` lines |
-| 4 | GUI spawned successfully | `[launch]` line |
-| 5 | GUI visible ABOVE the topmost fixture, zero clicks | screenshot / eyes |
-| 6 | Scan completed | fresh `baseline.json` on drive |
+|---|---|---|
+| 1 | Consent asked once, persisted, honored | marker file + `[consent]` lines |
+| 2 | Watcher self-installed and logged startup | `[startup]`/`[install]` lines |
+| 3 | New drive detected while overlay covered screen | `[drive]` line |
+| 4 | Trigger validated (and invalid trigger rejected) | two `[trigger]` lines |
+| 5 | GUI spawned successfully | `[launch]` line |
+| 6 | GUI visible ABOVE the topmost fixture, zero clicks | screenshot / eyes |
+| 7 | Scan completed | fresh `baseline.json` on drive |
 
 ## Troubleshooting
 
-- **No log file at all** — `%APPDATA%` unset? Logging is best-effort and never
-  blocks the watcher; the console output mirrors the same events.
-- **`[launch-error]` no cure-gui found** — exe wasn't copied to the drive root
-  before attachment, and none sits next to cure-watch.exe either.
-- **GUI opens but behind the overlay** — genuine finding; capture the log
-  excerpt + Alt+Tab state and report it. Known suspects: focus-stealing
-  prevention timing (the 1.2 s re-surface pass exists to cover this).
+- **No log file at all** — `%APPDATA%` unset? Logging is best-effort; the
+  console mirrors the same events.
+- **Consent re-asks every launch** — marker contains malformed JSON or an
+  unknown value (fail-closed by design); delete it to start clean.
+- **`[launch-error]` no cure-gui found** — exe wasn't on the drive root or
+  beside the watcher.
+- **GUI behind the overlay** — genuine finding; capture log + Alt+Tab state.
 - **GUI never opens, no error** — WebView2 runtime missing in the VM.
+- **`deferred update … old copy left intact`** — another watcher instance is
+  running from the Startup copy; stop it and restart once to complete the
+  update.

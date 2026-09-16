@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "cli", "watch"]
+members = ["core", "cli", "watch", "winwatch"]
 exclude = ["gui"]
 
 [workspace.package]

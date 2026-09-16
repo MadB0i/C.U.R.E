@@ -25,6 +25,13 @@
 use std::path::{Path, PathBuf};
 
 /// Outcome of Authenticode verification for one executable.
+///
+/// Display mapping used by the UI/report:
+/// VALID = `ValidSigned`, INVALID = `Invalid`, UNSIGNED = `Unsigned`,
+/// UNKNOWN = `Unknown` (unverifiable — file missing, unresolvable, or
+/// WinTrust could not run). There is deliberately no separate ERROR state:
+/// anything unverifiable is UNKNOWN, and UNKNOWN is never scored against
+/// an entry — absence of evidence is not evidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignatureStatus {
     /// A signature (embedded or catalog-backed) verifies cleanly.
@@ -69,15 +76,53 @@ pub fn resolve_executable_path(command: &str) -> Option<PathBuf> {
 /// Verifies a file's Authenticode signature. Non-Windows builds have no
 /// WinTrust and always answer `Unknown`.
 pub fn check_signature(exe_path: &Path) -> SignatureStatus {
+    signature_detail(exe_path).status
+}
+
+impl SignatureStatus {
+    /// Stable display token for UI/report/export: VALID, INVALID,
+    /// UNSIGNED, or UNKNOWN. UNKNOWN covers every unverifiable case
+    /// (missing file, unresolvable path, WinTrust failure) and must never
+    /// be presented as suspicion.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::ValidSigned => "VALID",
+            Self::Invalid => "INVALID",
+            Self::Unsigned => "UNSIGNED",
+            Self::Unknown => "UNKNOWN",
+        }
+    }
+}
+
+/// Verdict plus publisher extraction (both lazy — call only for display).
+///
+/// The publisher is the signer's `CERT_NAME_SIMPLE_DISPLAY_TYPE`
+/// (typically "Microsoft Corporation", "Acme Inc"). It is informational:
+/// UNSIGNED/UNKNOWN files have no publisher (`None`), and a present
+/// publisher says nothing about intent — signed malware exists.
+/// Extraction failures degrade to `publisher: None`; the verdict stands.
+pub fn signature_detail(exe_path: &Path) -> SignatureDetail {
     #[cfg(windows)]
     {
-        imp::verify(exe_path)
+        let status = imp::verify(exe_path);
+        let publisher = imp::signer_publisher(exe_path);
+        SignatureDetail { status, publisher }
     }
     #[cfg(not(windows))]
     {
         let _ = exe_path;
-        SignatureStatus::Unknown
+        SignatureDetail {
+            status: SignatureStatus::Unknown,
+            publisher: None,
+        }
     }
+}
+
+/// Verdict + optional publisher for one executable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureDetail {
+    pub status: SignatureStatus,
+    pub publisher: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -122,6 +167,155 @@ mod imp {
         catalog_verify(path)
     }
 
+    /// Best-effort signer display name (`CERT_NAME_SIMPLE_DISPLAY_TYPE`).
+    /// `None` on any failure — the caller keeps the verdict regardless.
+    /// Read-only: opens the file's certificate view, never modifies trust.
+    ///
+    /// Embedded signatures are read from the file itself; catalog-signed
+    /// system binaries (no embedded blob — trust comes from a `.cat`) fall
+    /// back to the verifying catalog's own PKCS#7 signer.
+    pub(super) fn signer_publisher(path: &Path) -> Option<String> {
+        use windows::Win32::Security::Cryptography::{
+            CERT_QUERY_CONTENT_FLAG_ALL, CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED,
+        };
+        if let Some(name) = publisher_from_query(path, CERT_QUERY_CONTENT_FLAG_ALL) {
+            return Some(name);
+        }
+        let catalog = verified_catalog_path(path)?;
+        publisher_from_query(&catalog, CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED)
+    }
+
+    fn publisher_from_query(
+        path: &Path,
+        content_flags: windows::Win32::Security::Cryptography::CERT_QUERY_CONTENT_TYPE_FLAGS,
+    ) -> Option<String> {
+        use windows::Win32::Security::Cryptography::{
+            CertCloseStore, CertEnumCertificatesInStore, CertFreeCertificateContext, CryptMsgClose,
+            CryptQueryObject, CERT_QUERY_FORMAT_FLAG_ALL, CERT_QUERY_OBJECT_FILE, HCERTSTORE,
+        };
+
+        struct StoreGuard {
+            store: HCERTSTORE,
+            msg: *mut core::ffi::c_void,
+        }
+        impl Drop for StoreGuard {
+            fn drop(&mut self) {
+                unsafe {
+                    if !self.msg.is_null() {
+                        let _ = CryptMsgClose(Some(self.msg as *const core::ffi::c_void));
+                    }
+                    if !self.store.is_invalid() {
+                        let _ = CertCloseStore(self.store, 0);
+                    }
+                }
+            }
+        }
+
+        unsafe {
+            let wpath = wide(path.as_os_str());
+            let mut store = HCERTSTORE::default();
+            let mut msg: *mut core::ffi::c_void = std::ptr::null_mut();
+            CryptQueryObject(
+                CERT_QUERY_OBJECT_FILE,
+                wpath.as_ptr() as *const core::ffi::c_void,
+                content_flags,
+                CERT_QUERY_FORMAT_FLAG_ALL,
+                0,
+                None,
+                None,
+                None,
+                Some(&mut store),
+                Some(&mut msg),
+                None,
+            )
+            .ok()?;
+            let _guard = StoreGuard { store, msg };
+            if store.is_invalid() || store == HCERTSTORE::default() {
+                return None;
+            }
+            // The store holds the file's chain (embedded) or the claiming
+            // catalog's chain. Prefer the first non-self-signed cert (the
+            // end-entity signer); fall back to the first cert overall.
+            // A null msg is normal for catalog-signed files — the store is
+            // what matters.
+            let mut certs: Vec<*const windows::Win32::Security::Cryptography::CERT_CONTEXT> =
+                Vec::new();
+            let mut prev: Option<*const windows::Win32::Security::Cryptography::CERT_CONTEXT> =
+                None;
+            loop {
+                let ctx = CertEnumCertificatesInStore(store, prev);
+                if ctx.is_null() {
+                    break;
+                }
+                certs.push(ctx);
+                if certs.len() >= 16 {
+                    break;
+                }
+                prev = Some(ctx);
+            }
+            let chosen = certs
+                .iter()
+                .find(|c| !is_self_signed(&***c))
+                .or_else(|| certs.first());
+            let name = match chosen {
+                Some(&ctx) => name_of(ctx),
+                None => None,
+            };
+            for ctx in certs {
+                let _ = CertFreeCertificateContext(Some(ctx));
+            }
+            name
+        }
+    }
+
+    fn blob_bytes(blob: &windows::Win32::Security::Cryptography::CRYPT_INTEGER_BLOB) -> &[u8] {
+        if blob.pbData.is_null() || blob.cbData == 0 {
+            return &[];
+        }
+        unsafe { std::slice::from_raw_parts(blob.pbData, blob.cbData as usize) }
+    }
+
+    fn is_self_signed(ctx: &windows::Win32::Security::Cryptography::CERT_CONTEXT) -> bool {
+        if ctx.pCertInfo.is_null() {
+            return false;
+        }
+        let info = unsafe { &*ctx.pCertInfo };
+        blob_bytes(&info.Subject) == blob_bytes(&info.Issuer)
+            && !blob_bytes(&info.Subject).is_empty()
+    }
+
+    fn name_of(
+        ctx: *const windows::Win32::Security::Cryptography::CERT_CONTEXT,
+    ) -> Option<String> {
+        use windows::Win32::Security::Cryptography::{
+            CertGetNameStringW, CERT_NAME_SIMPLE_DISPLAY_TYPE,
+        };
+        unsafe {
+            let len = CertGetNameStringW(ctx, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, None, None);
+            if len <= 1 {
+                return None;
+            }
+            let mut name = vec![0u16; len as usize];
+            let got = CertGetNameStringW(
+                ctx,
+                CERT_NAME_SIMPLE_DISPLAY_TYPE,
+                0,
+                None,
+                Some(name.as_mut_slice()),
+            );
+            if got <= 1 {
+                return None;
+            }
+            let text = String::from_utf16_lossy(&name[..got as usize - 1]);
+            let text = text.trim().to_string();
+            if text.is_empty() {
+                None
+            } else {
+                Some(text)
+            }
+        }
+    }
+
     fn wintrust_file_verify(path: &Path) -> i32 {
         let wpath = wide(path.as_os_str());
         let mut file_info = WINTRUST_FILE_INFO {
@@ -144,14 +338,27 @@ mod imp {
 
     /// Catalog stage: does any security catalog claim this exact binary?
     fn catalog_verify(path: &Path) -> SignatureStatus {
-        let Some(hash) = catalog_file_hash(path) else {
-            return SignatureStatus::Unknown;
-        };
+        match verified_catalog_path(path) {
+            Some(_) => SignatureStatus::ValidSigned,
+            None => {
+                // Distinguish "no catalog claims it" (Unsigned) from
+                // "could not even hash it" (Unknown).
+                if catalog_file_hash(path).is_none() {
+                    SignatureStatus::Unknown
+                } else {
+                    SignatureStatus::Unsigned
+                }
+            }
+        }
+    }
+
+    /// Path of the first catalog that verifies for this file, if any.
+    /// Shared by the catalog verdict and the publisher fallback.
+    fn verified_catalog_path(path: &Path) -> Option<std::path::PathBuf> {
+        let hash = catalog_file_hash(path)?;
         let wpath = wide(path.as_os_str());
         // The provider matches members by tag; system catalogs key them by file name.
-        let Some(file_name) = path.file_name() else {
-            return SignatureStatus::Unsigned;
-        };
+        let file_name = path.file_name()?;
         let member_tag = wide(file_name);
 
         let mut admin: isize = 0;
@@ -161,7 +368,7 @@ mod imp {
         if unsafe { CryptCATAdminAcquireContext(&mut admin, Some(&DRIVER_ACTION_VERIFY), 0) }
             .is_err()
         {
-            return SignatureStatus::Unknown;
+            return None;
         }
 
         // Enumerate ALL matching handles before verifying anything —
@@ -176,7 +383,7 @@ mod imp {
             matched.push(cat);
         }
 
-        let mut verified = false;
+        let mut verified_path: Option<std::path::PathBuf> = None;
         for &cat in &matched {
             let mut info = CATALOG_INFO {
                 cbStruct: u32::try_from(std::mem::size_of::<CATALOG_INFO>()).unwrap_or(0),
@@ -211,7 +418,9 @@ mod imp {
                 )
             };
             if hr == 0 {
-                verified = true;
+                verified_path = Some(std::path::PathBuf::from(String::from_utf16_lossy(
+                    &catalog_path[..catalog_path.len().saturating_sub(1)],
+                )));
                 break;
             }
         }
@@ -225,11 +434,7 @@ mod imp {
             let _ = CryptCATAdminReleaseContext(admin, 0);
         }
 
-        if verified {
-            SignatureStatus::ValidSigned
-        } else {
-            SignatureStatus::Unsigned
-        }
+        verified_path
     }
 
     fn catalog_file_hash(path: &Path) -> Option<Vec<u8>> {
@@ -482,5 +687,43 @@ mod tests {
         let ghost = std::env::temp_dir().join("cure-no-such-binary-evert.exe");
         let _ = std::fs::remove_file(&ghost);
         assert_eq!(check_signature(&ghost), SignatureStatus::Unknown);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn microsoft_binary_reports_microsoft_publisher() {
+        let notepad = system32("notepad.exe");
+        if !notepad.is_file() {
+            return;
+        }
+        let detail = signature_detail(&notepad);
+        assert_eq!(detail.status, SignatureStatus::ValidSigned);
+        let publisher = detail.publisher.expect("signed MS binary must name a publisher");
+        assert!(
+            publisher.to_ascii_lowercase().contains("microsoft"),
+            "unexpected publisher: {publisher}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn unsigned_binary_has_no_publisher() {
+        // Our own cargo-built test runner: a normal unsigned PE.
+        let Ok(exe) = std::env::current_exe() else {
+            return;
+        };
+        let detail = signature_detail(&exe);
+        assert_eq!(detail.status, SignatureStatus::Unsigned);
+        assert_eq!(detail.publisher, None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn missing_file_detail_is_unknown_without_publisher() {
+        let ghost = std::env::temp_dir().join("cure-no-such-publisher-evert.exe");
+        let _ = std::fs::remove_file(&ghost);
+        let detail = signature_detail(&ghost);
+        assert_eq!(detail.status, SignatureStatus::Unknown);
+        assert_eq!(detail.publisher, None);
     }
 }

@@ -22,17 +22,24 @@ pub enum ConsentDecision {
 
 /// Given the raw contents of the consent marker (None = file missing),
 /// decide what this run should do.
+///
+/// Strict and fail-closed: the marker must be valid JSON `{"status": ...}`
+/// with exactly `"enabled"` or `"declined"`. Anything else — missing file,
+/// malformed JSON, missing field, unknown value, or free text that merely
+/// *mentions* "enabled" — re-asks (or, equivalently, never grants consent).
 pub fn decide_consent(raw: Option<&str>) -> ConsentDecision {
     let Some(raw) = raw else {
         return ConsentDecision::AskNow;
     };
-    if raw.contains("\"enabled\"") {
-        return ConsentDecision::ProceedEnabled;
+    let parsed: serde_json::Value = match serde_json::from_str(raw) {
+        Ok(value) => value,
+        Err(_) => return ConsentDecision::AskNow,
+    };
+    match parsed.get("status").and_then(|status| status.as_str()) {
+        Some("enabled") => ConsentDecision::ProceedEnabled,
+        Some("declined") => ConsentDecision::SkipDeclined,
+        _ => ConsentDecision::AskNow,
     }
-    if raw.contains("\"declined\"") {
-        return ConsentDecision::SkipDeclined;
-    }
-    ConsentDecision::AskNow
 }
 
 /// Canonical marker contents. Written once per decision so the choice sticks.
@@ -84,10 +91,54 @@ mod tests {
     }
 
     #[test]
-    fn decision_keys_on_status_word_anywhere() {
+    fn free_text_mentioning_enabled_never_grants_consent() {
+        // Fail-closed: these contain the word "enabled" but are not the
+        // canonical marker, so they must NOT enable background watching.
+        assert_eq!(decide_consent(Some("enabled")), ConsentDecision::AskNow);
+        assert_eq!(
+            decide_consent(Some("junk enabled junk")),
+            ConsentDecision::AskNow
+        );
         assert_eq!(
             decide_consent(Some("junk {\"status\":\"declined\"} trailing")),
-            ConsentDecision::SkipDeclined
+            ConsentDecision::AskNow
+        );
+        assert_eq!(
+            decide_consent(Some("{\"status\":\"enabled\"} trailing junk")),
+            ConsentDecision::AskNow
+        );
+    }
+
+    #[test]
+    fn missing_status_field_reasks() {
+        assert_eq!(decide_consent(Some("{}")), ConsentDecision::AskNow);
+        assert_eq!(
+            decide_consent(Some("{\"foo\":\"enabled\"}")),
+            ConsentDecision::AskNow
+        );
+        assert_eq!(
+            decide_consent(Some("{\"status\":null}")),
+            ConsentDecision::AskNow
+        );
+        assert_eq!(
+            decide_consent(Some("{\"status\":true}")),
+            ConsentDecision::AskNow
+        );
+    }
+
+    #[test]
+    fn unknown_status_value_reasks() {
+        assert_eq!(
+            decide_consent(Some("{\"status\":\"maybe\"}")),
+            ConsentDecision::AskNow
+        );
+        assert_eq!(
+            decide_consent(Some("{\"status\":\"ENABLED\"}")),
+            ConsentDecision::AskNow
+        );
+        assert_eq!(
+            decide_consent(Some("{\"status\":\"\"}")),
+            ConsentDecision::AskNow
         );
     }
 

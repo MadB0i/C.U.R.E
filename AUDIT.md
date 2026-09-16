@@ -1,213 +1,180 @@
-# C.U.R.E Project Audit — 2026-08-24
+# C.U.R.E Project Audit — V2.1 (2026-09-16, post-hardening working tree)
 
-Full pre-scoping audit. Purpose: surface accumulated drift/debt across iterative
-development rounds, not to reassure. Every claim below was re-verified against
-the working tree on this date (commit `2ba4b27`, clean status).
+Re-verified against the working tree on this date. Supersedes the Phase-2
+audit. This phase added startup-coverage breadth (services, WMI, IFEO,
+AppInit, COM, `.lnk`, structured tasks), publisher intelligence, a
+provider-shaped threat-intel abstraction, ATT&CK single-sourcing, report
+export with redaction, and targeted UI additions — with no architecture
+rewrite and no new auto-remediation anywhere.
+
+Labels: **REAL** = implemented and exercised · **FIXTURE** = synthetic /
+test-only, labeled as such · **EXPERIMENTAL** = implemented but limited,
+labeled in UI/docs · **NOT IMPLEMENTED** = absent, no UI screen for it.
 
 ---
 
-## 1. Feature inventory — what actually exists
+## 1. New Windows coverage (all REAL, detection-only)
 
-### `core` (cure_core) — shared engine
-| Module | What it does |
+| Source | Technique | How (read-only) | Live result on dev box |
+|---|---|---|---|
+| Auto-start services | T1543.003 | EnumServicesStatusEx + QueryServiceConfig (Automatic/Delayed/Boot/System; Manual/Disabled excluded by design) | 94 services, incl. a genuinely-missing-image LocalSystem service flagged Suspicious with start/account/state evidence |
+| WMI subscriptions | T1546.003 | COM/WMI `ROOT\subscription` SELECTs (filters, consumers, bindings); forward-only enumerator, 5 s Next timeout, caps everywhere | 3 rows: the stock SCM Event Log filter/consumer/binding, all Safe |
+| IFEO debuggers | T1546.012 | `HKLM\…\Image File Execution Options\*\Debugger` values | 0 rows (clean) |
+| AppInit DLLs | T1546.010 | `AppInit_DLLs` + `LoadAppInit_DLLs` values | 0 rows (clean) |
+| COM hijacks | T1546.015 | `HKCU\Software\Classes\CLSID` `InprocServer32`/`TreatAs` (HKLM skipped: admin-owned, too large — documented) | 2 rows, Safe after GUID-name FP fix |
+| `.lnk` targets | (same as host entry) | MS-SHLLINK subset parser (StringData, LinkInfo path, env-block target); PIDLs never interpreted; nothing executed | CLI `lnk→` lines; drawer target/args/workdir + liveness |
+| Task details | T1053.005 | quick-xml pull parser (no DTD/entities processing): all Exec actions + args + workdir, author, principal/run-level, triggers, enabled/hidden; 4 MiB + 20k-event caps | multi-action/author/level/triggers verified by fixtures |
+
+Scoring: new sources flow through the same v2 weights (drop-zone,
+trusted, sneaky-PS, signatures, hash force) plus service-specific
+evidence (missing image +30, start/account/state as scoreless evidence).
+Services hash only outside trusted locations (perf bound, documented).
+Only `StartupFolder`/`ScheduledTask` (`is_file_backed`) are quarantinable
+or auto-cleaned; everything else lands in review with backup-first manual
+guidance and is rejected by the Tauri quarantine boundary.
+
+Popup investigation (4–5 transient post-login windows): check Startup
+Audit for IFEO debuggers first (per-exe launch hooks fire exactly this
+way), then auto-start services with user-writable images, then Run keys /
+Startup `.lnk` targets (drawer resolves them), then COM TreatAs and
+WMI consumers. See the final report for the exact walkthrough.
+
+## 2. Publisher / signature intelligence (REAL, lazy)
+
+`signature_detail()` returns verdict + signer display name
+(`CERT_NAME_SIMPLE_DISPLAY_TYPE`) from the embedded chain, falling back
+to the verifying catalog's PKCS#7 signer for catalog-signed system
+binaries (verified: notepad.exe → "Microsoft Windows"). Unsigned/
+unverifiable files yield `None` — normal, never suspicion. Display
+tokens: VALID / INVALID / UNSIGNED / UNKNOWN (UNKNOWN covers every
+unverifiable case; there is no separate ERROR state by design).
+Publisher is display-only: fetched lazily for drawers/reports/exports,
+never in the hot scan loop. UI states "Unavailable (unsigned or
+verdict-only check)" rather than inventing data. Signed ≠ trusted:
+signed malware exists and the UI does not claim otherwise.
+
+## 3. Threat intel (FIXTURE-backed store, provider-shaped)
+
+`ThreatIntelProvider` trait (`provider_name`, `provider_label`,
+`lookup_hash`) with a single implementation, `LocalFixtureProvider`,
+labeled `DEMO / TEST DATA — synthetic fixture hashes, not a live threat
+feed`. `check_hash` delegates to it (no behavior change). A future
+signed feed would implement the trait against a verified local snapshot;
+no network lookups exist or are planned — local-first is preserved.
+Unit tests lock the DEMO label, fixture hits, and random misses.
+
+## 4. ATT&CK single source (REAL)
+
+`attack::technique_for(&PersistenceSource)` is exhaustive over the enum
+(new variants are a compile error until mapped); `ScoredEntry.attack`
+carries `{id, name}` from the backend on every finding. The frontend
+prefers `entry.attack` and keeps its map as fallback for stale payloads
+only; ATT&CK IDs render only when the mapping exists (services T1543.003,
+WMI T1546.003, IFEO T1546.012, AppInit T1546.010, COM T1546.015, ransom
+T1486 in reports).
+
+## 5. Canary review (EXPERIMENTAL — unchanged status, hardened)
+
+- Acquisition buffer 4 KiB → 64 KiB (legit bursts overflowed it and
+  silently lost events; residual loss documented — decoy tamper, not
+  bursts, is the primary signal).
+- New behavior-locking tests: save-storms on one file stay quiet;
+  cross-extension renames stay quiet; build storms DO fire burst
+  (documented FP tradeoff, cooldown-bounded); restart starts clean
+  (in-memory state is intentionally forgotten).
+- Shutdown: stop flag → dir threads exit within the 2 s wait quantum,
+  handles closed on every path (no leaks added).
+- Resource: 3 dir threads + 1 tripwire poller per guard, 64 KiB buffers,
+  5 s poll cadence, bounded deques (4096 events) + 120 s alert cooldowns.
+- No full-protection claims anywhere (UI banner, report limitations,
+  TESTING §5).
+
+## 6. Watcher reliability (measured, not replaced)
+
+- Poll-cost guard test: 200 poll cycles (26 probes + set-diff each) run
+  in ~0.02 s — the 1.5 s loop is I/O-idle; CPU impact negligible.
+- Detection latency is the poll interval by design (≤ ~1.5 s + spawn).
+- Races assessed: letter reuse across polls is handled by set-diff
+  (arrival = in-current-not-in-previous); duplicate inserts within one
+  interval still trigger once per letter; trigger re-check happens per
+  arrival, so a trigger added after first sighting fires on the NEXT
+  arrival only (documented); inaccessible/network drives read as absent
+  (`Path::exists`), never errors.
+- WM_DEVICECHANGE migration plan (NOT implemented — polling stays):
+  to migrate, run the watcher message pump on a dedicated thread with an
+  invisible window (`HWND_MESSAGE`), handle `DBT_DEVICEARRIVAL` /
+  `DBT_DEVICEREMOVETYPE` volume flags, keep polling as fallback for
+  `subst`/network mounts (which never raise device messages). Benefit:
+  sub-second latency + zero polling. Cost: a windowed thread in a
+  console app, plus keeping both paths tested. Revisit only with VM
+  proof that polling misses a real insertion class.
+
+## 7. Action safety review (all remediation explicit/confirmed)
+
+- QUARANTINE: strict fresh-scan ids (CLI + Tauri); non-file-backed
+  sources → backup-first manual guidance; registry/services/WMI/IFEO/
+  AppInit/COM never relocated; undo preserved and E2E-proven.
+- PROCESS TERMINATION: PID→name re-validation + per-action two-step
+  confirm (results cards and sentinel rows).
+- CLEANUP: explicit scan → arm → confirm; safe categories only; per-item
+  failures never abort the batch.
+- STARTUP REMEDIATION: explicit quarantine/undo for files; manual +
+  backup-first for the rest.
+- SERVICE REMEDIATION: NOT implemented — `sc.exe` guidance text only,
+  disable-before-delete ordering, backup step first. No stop/disable/
+  delete code exists anywhere (verified by grep for `SERVICE_CHANGE_CONFIG`
+  / `DeleteService` / `ControlService`: zero hits outside tests).
+
+## 8. Privacy / export
+
+- `cure report [--format json|txt] [--redact]` (CLI) + Overview
+  Export TXT/JSON + redact checkbox (GUI, `export_report` command).
+- Redaction replaces the profile home dir (case-insensitive) with
+  `%USERPROFILE%` and the username with `<user>`; verified zero
+  username hits in a redacted export.
+- Reports distinguish Checked / Not checked / Unavailable per area and
+  never print "clean" for unperformed checks; SHA-256 digests appear for
+  HighRisk findings with resolvable binaries only.
+
+## 9. Performance observations (dev box, 114 findings incl. 94 services)
+
+- Release CLI scan: **1.3 s wall** (collect ~136 ms, score ~1.1 s),
+  peak working set **12.7 MB**. Debug build: ~4 s (score ~3.9 s).
+- Cost is per-binary WinVerifyTrust + streaming SHA-256 (every resolved
+  persistence exe; services additionally skip hashing inside trusted
+  locations). Enumeration (registry/services/WMI/COM/tasks walk) is
+  sub-second combined; the WMI COM query adds ~1 s.
+- Bounded by construction: 4 MiB task cap, 20k XML events, 64 WMI
+  objects/query, 128 WMI entries, 16-cert publisher cap, chunked
+  deletes/hashing, batched GUI scoring with progress.
+- No new optimization applied (per policy); the numbers say none is
+  needed on a normal machine.
+
+## 10. Verification status
+
+| Area | Result |
 |---|---|
-| `model.rs` | `PersistenceEntry` (id/source/name/command/location), `ScoredEntry`, `RiskLevel`, `PersistenceSource` |
-| `scanners/startup.rs` | Lists `.bat/.cmd/.ps1/.lnk/etc.` files in a Startup folder (root overridable) |
-| `scanners/scheduled_tasks.rs` | Walks task XML tree, extracts first `<Command>` (entity-decoding, UTF-16 aware) |
-| `scanners/registry.rs` | Read-only enumeration of HKCU+HKLM Run/RunOnce autoruns (Windows-only, cfg-gated) |
-| `risk.rs` | Heuristic scoring: drop-zone +30, trusted-path −20, random-name +25, hidden-PowerShell +25, profile-bump +10, signed −40, invalid-signature +40, known-bad hash forces HighRisk; thresholds HighRisk ≥40, Suspicious ≥15 |
-| `signature.rs` | Resolves command→exe path; Authenticode verdict via WinVerifyTrust (+ catalog APIs); non-Windows returns `Unverified` |
-| `hash_intel.rs` | SHA-256 of candidate binaries vs compile-time-embedded JSON seed list (3 synthetic demo hashes) |
-| `baseline.rs` | Save/load/diff persistence baselines (UTC timestamp, id-set diff) |
-| `quarantine.rs` | Move-based quarantine (rename, else copy+length-verify+remove-source; failed copy cleans up dest), JSON records, undo incl. parent-dir recreation |
-| `cleanup.rs` | Disk-cleanup scans (temp/browser-cache/recycle-bin/Windows.old/old-installers), direct `delete_candidates` w/ per-item failure capture, `run_dism_cleanup` shell-out |
+| `cargo test --workspace` | 188 core + 4 dirwatch + 33 watch = **225 passed, 0 failed** |
+| GUI fixture test | 1 passed (real desktop: overlay closed, notepad spared) |
+| Total | **226** |
+| `cargo clippy --workspace --all-targets -- -D warnings` | clean |
+| GUI clippy `--all-targets -- -D warnings` | clean |
+| Release builds | cure.exe, cure-watch.exe, cure-gui.exe |
+| GUI E2E run 6 (expanded scan) | PASS — cleanup, footer ×3, quarantine+undo, 5 views, canary ACTIVE, self-exit |
+| Mock Playwright | verify, cleanupcheck, chipcheck, canarycheck, pixelcheck PASS; V2.1 probe (attack chips, drawer+lazy details, export, 11 coverage rows) PASS, no page errors |
+| Live CLI spot checks | services/WMI/COM/IFEO/AppInit enumerate; WMI stock filter Safe; COM FP fixed; redacted export verified |
 
-### `cli` (cure.exe)
-Single `main.rs`: `scan` (report + write baseline), `diff` (new entries since
-baseline), `quarantine <id>` (moves file/task XML; prints manual reg-delete
-instructions for registry entries), `undo <id>`, `cleanup scan`,
-`cleanup run [--include-downloads] [--dism]` (confirm-gated deletes),
-global `--data-dir/--startup-root/--tasks-root`.
+**Honestly not performed**: clean-VM run; TRIGGERED canary via real FS
+event; watcher consent click-through (would persist on the dev box);
+DISM execution; USB passthrough; `subst`-only trigger timing.
 
-### `watch` (cure-watch.exe)
-| Module | What it does |
-|---|---|
-| `main.rs` | Self-installs to `%APPDATA%\...\Startup`, polls drive letters every 1500 ms, launches GUI (`--data-dir <drive>`) on valid trigger; GUI fallback search beside watcher |
-| `drives.rs` | A–Z drive-root existence probe (Windows; empty stub elsewhere) |
-| `detector.rs` | Set-diff of previous/current drive sets |
-| `trigger.rs` | `.cure-trigger` must contain `CURE-TRIGGER-V1` (trailing-whitespace tolerant, leading-whitespace/case strict) |
-| `logger.rs` | Best-effort UTC append log to `%APPDATA%\cure-watch.log` |
+## 11. Remaining limitations
 
-### `gui` (Tauri v2 + static frontend)
-Backend commands: `run_auto_scan` (scan all sources → score → auto-quarantine
-HighRisk non-registry → emit progress events → save baseline),
-`quarantine_entry`/`undo_entry`, `open_quarantine_folder`, `view_log`,
-`exit_app`, `scan_cleanup`, `run_cleanup`.
-Frontend: animated radar/net-map canvas views, live scan feed, results screen
-with reason-chip cards, footer actions, **DISK CLEANUP panel** (category toggle
-cards, downloads checklist, two-step armed confirm button, failure list).
-Dev harness: `index.dev.html` + `mock-tauri.js` (canned backend) +
-6 playwright tools in `devtools/`.
-
-### README cross-reference
-**README claims that hold:** poll interval "~1.5s" (=1500 ms ✓), self-install
-no-admin ✓, state-on-USB via `--data-dir <drive>` ✓, scoring weights ✓,
-"quarantine never deletes" ✓ (see §5), registry read-only ✓, CLI usage ✓,
-cleanup usage ✓, "hash-intel is a demo seed" ✓ (exactly 3 synthetic entries).
-
-**Drift found:**
-1. README says "**60+ tests**" — actual count is **81** (stale number).
-2. "What's in the box" does **not mention the GUI Disk-Cleanup feature**
-   (shipped in `6187110`) — code does more than README advertises.
-3. Scoring description omits the **+10 "runs directly from user profile
-   folder" bump** present in `risk.rs`.
-4. Minor: TESTING.md exists but isn't linked from README.
-
----
-
-## 2. Verification status matrix
-
-Legend: ✅ Automated-tested · 🔧 Manually-verified-on-real-hardware · ⚠️ Spec'd-but-unverified
-
-| Feature | Status | Evidence / honest notes |
-|---|---|---|
-| Startup-folder scanning | ✅ | unit tests (incl. missing-dir case) |
-| Scheduled-task XML parsing | ✅ | unit tests incl. UTF-16/entities |
-| Registry autorun reading | ✅ | `scan_completes_without_panicking`; live-reads real HKCU/HKLM in every test run on this machine |
-| Risk scoring | ✅ | extensive boundary/unit tests |
-| Known-bad hash matching | ✅ | unit tests with fixture hashes |
-| Authenticode verdict (WinVerifyTrust) | ✅🔧 | unit tests hit **real** MS binaries on this machine — effectively hardware-verified every CI/test run |
-| Baseline save/diff | ✅ | unit tests |
-| Quarantine + undo | ✅ | unit tests: move/metadata/undo/parent-recreate/double-quarantine; move implemented as verified copy-then-remove |
-| Watcher: poll/diff logic | ✅ | detector/trigger/drives units |
-| Watcher: self-install + launch chain | 🔧⚠️ | **live-fire PASS** on host (2026-08, subst-drives + fake-overlay, z-order/pixel/log proof) — but that simulated drive arrival via subst; **a real removable-device arrival event inside a VM is still unproven** |
-| GUI scan → results render | ✅🔧 | playwright harnesses (verify/chipcheck/pixelcheck/shots) + real launches on this machine |
-| GUI network graph/map | ✅ | pixelcheck + map-count assertions in dev harness; real-data rendering visually confirmed by operator in past rounds |
-| Footer buttons (quarantine folder / view log / exit) | ⚠️ | error/success paths asserted **only against the mock backend**; never explicitly exercised against the real Tauri backend |
-| Disk cleanup: core scans/deletes | ✅🔧 | 17 unit tests + **sandboxed end-to-end delete run on real filesystem** (env-isolated roots) + real-machine scan (41.7 GB found) |
-| Disk cleanup: GUI ↔ real Tauri backend | ⚠️ | **panel verified only via mock-tauri** (28/28 cleanupcheck assertions). The real `invoke("scan_cleanup"/"run_cleanup")` plumbing has never been driven end-to-end in the packaged app. Backend compiles; commands registered; plumbing unexercised. |
-| DISM component-store cleanup | ⚠️ | `run_dism_cleanup` has **never been executed at all** — not manually, not in a test. Only arg-list construction is unit-tested. |
-| Real-VM validation (GUNDA) | ⚠️ | **Incomplete.** Snapshot taken, staging shipped, INSTRUCTIONS delivered; guest phases (Setup → PostReboot → OverlayAndUSB) never reported complete; VM later found aborted. WebView2 presence inside guest unknown (host couldn't download bootstrapper). |
-| Physical USB passthrough | ⚠️ | VBoxUSBMon/VBoxUSB drivers were missing; hand-registered from INF specs; host rebooted; **attach itself still pending** (was interrupted by audit request). |
-
----
-
-## 3. Git/build hygiene
-
-- `git status`: **clean** — nothing uncommitted (HEAD `2ba4b27`).
-- `cargo build --release --workspace`: succeeds, **0 warnings, 0 errors**.
-- `cargo test --workspace`: **81 passed, 0 failed** (core 67 [incl. 17 cleanup],
-  watch 14).
-- GUI `cargo build --release` (src-tauri; tauri-cli not installed — equivalent
-  build): **0 warnings**, artifact `target/release/cure-gui.exe` produced.
-- Note: `gui` is workspace-excluded (own lockfile/target) — intentional, but
-  means its deps aren't pinned by the root `Cargo.lock`.
-
----
-
-## 4. Design consistency
-
-- `index.html` vs `index.dev.html`: diff is **exactly the expected 3 lines**
-  (title suffix, wordmark "· Mock", `<script src="mock-tauri.js">`). Zero
-  structural drift. ✓
-- Old neon-teal/hex-grid skin: **no artifacts found** (grepped neon/teal/
-  hexagon/hex-grid/#0ff/#00e5/cyber/glow/scanline across css/js/html).
-  Two cosmetic survivors, both *current*-design with legacy *names*:
-  - `.tint-teal` / `.chip.teal` classes now color with `var(--safe)` (green);
-    name says teal. Rename candidate only.
-  - `glow` identifiers in `app.js` are violet canvas radial gradients — current
-    design, just a generic variable name. Not debt.
-- Design tokens (`:root`, 21 custom properties): all **referenced** in
-  stylesheet (min 2 uses each) — no dead variables. Current palette:
-  bg `#0a0a0b`, panel `#131315`/`#17171a`, text `#ededef`/muted/faint greys,
-  accent violet `#7c6cf0` (+dim/border rgba), semantic safe `#4fae7d`,
-  caution `#d1a13f`, danger `#e1594f`, radius 10px, mono/ui font
-  stacks. (Original re-skin spec text predates this audit's context window;
-  verified internal consistency and full token utilization instead.)
-
----
-
-## 5. Safety invariants — re-confirmed
-
-1. **Quarantine never deletes**: implementation prefers `fs::rename`; on
-   cross-volume fallback it copies, **verifies byte-length equality**, removes
-   the source only after success, and cleans the destination on mismatch
-   (`quarantine.rs:66-77`). Undo restores identical bytes. ✓
-2. **Cleanup is a separate safety model, correctly isolated**: `disk_cleanup`
-   is imported only by the two explicit cleanup entry points (`cli`
-   `CleanupAction::*`, gui `scan_cleanup`/`run_cleanup`). Malware-quarantine
-   paths never call it; cleanup never calls quarantine. ✓
-3. **Cleanup cannot traverse outside its five target classes**: CLI accepts no
-   paths at all; GUI `run_cleanup` filters freshly-rescanned candidates by
-   category key and matches download paths by **exact string equality against
-   the scan result** — arbitrary/user-supplied paths can never reach
-   `delete_candidates`. Scan roots are env-derived standard locations only;
-   browser scan touches only `...\User Data\<profile>\Cache`; Documents/
-   Desktop are unreachable by construction. ✓
-4. **Registry untouched**: `scanners/registry.rs` contains zero write/delete/
-   create calls (grep-verified); quarantine of registry entries prints manual
-   instructions instead of acting. ✓
-
----
-
-## 6. Known gaps — canonical consolidated list
-
-1. **Trigger authenticity is a shared-secret string**, not crypto
-   (Ed25519 drive-signing planned).
-2. **Registry entries are never auto-remediated** — flagged with manual
-   instructions only.
-3. **Signature checking is verdict-only** — no publisher/certificate details.
-4. **Hash intel = 3 synthetic demo hashes**; no feed-update mechanism (idea on
-   record: refresh JSON at build time or load from USB).
-5. **Persistence coverage gaps**: services, WMI event subscriptions, IFEO,
-   COM hijacks.
-6. **Parser limits**: Startup `.lnk` targets unresolved; scheduled-task XML
-   parses only the first `<Command>`.
-7. **Real-VM validation chain incomplete** (biggest open item):
-   Setup/PostReboot/OverlayAndUSB phases unverified in GUNDA; WebView2-in-guest
-   unknown; host network blocked bootstrapper download.
-8. **Physical USB passthrough attach still pending** post driver-fix/reboot.
-9. **DISM path never executed anywhere** (design intent: manually-verified-only).
-10. **GUI cleanup panel untested against the real Tauri backend** (mock-only so far).
-11. **Footer buttons untested against real backend** (mock-only).
-12. Cleanup scope limits (by design, but list them): Recycle Bin = system drive
-    only; caches = Chrome/Edge only; locked files reported-not-forced;
-    GUI downloads-age fixed at 30 days; Windows.old delete may need elevation/
-    ACL takeover — never attempted against a real one (this machine HAS a
-    30.6 GB Windows.old — natural first real test, needs admin console).
-13. Watcher self-install **never updates an already-installed older copy**
-    (skips if `%APPDATA%` Startup file exists) — stale-binary hazard.
-14. Detection is letter-polling (1.5 s), not `WM_DEVICECHANGE` — fine in
-    practice, noted as deliberate simplicity.
-15. Session-level constraint (process, not product): visual QA relies on
-    playwright DOM/pixel assertions because screenshots can't be viewed in
-    these sessions.
-16. `gui/dev-screenshots/*.png` get byte-churned by every harness run and are
-    tracked — recurring commit noise.
-
----
-
-## 7. Dead ends / abandoned code
-
-| Item | Verdict |
-|---|---|
-| `baseline::save_baseline` — pure alias of `save`, GUI-only legacy name | **Consolidate** (keep one name) |
-| `.tint-teal`/`.chip.teal` class names carrying old-palette vocabulary | Cosmetic rename to `safe`/`positive` |
-| `testing/vm-stage/_parts/*.ps1` vs assembled `run-cure-validation.ps1` | Differs by **4 blank lines only** (join artifacts) — regenerate once to kill drift risk, or delete parts |
-| `gui/devtools/diag.mjs` | One-off timing debug tool; harmless, fold into `verify.mjs` or keep as dev util |
-| `design-ref/` (original skin references) | Historical; keep out of any release packaging |
-| `testing/fake-overlay/` | **Not dead** — intentional inert fixture documented in TESTING.md; keep |
-| Mock knobs | All four (`ITEM_COUNT`, `ALL_SAFE`, `FOOTER_ERRORS`, `CLEANUP_FAILURES`) consumed by harnesses — none orphaned |
-
-No orphaned source files, no commented-out code blocks, no unused Rust
-dependencies observed in any crate manifest.
-
----
-
-## Bottom line
-
-Engineering hygiene is strong (clean builds, 81 green tests, tight safety
-separation, honest in-code caveats). The project's weak axis is **end-to-end
-verification of the newest layer**: GUI-cleanup-over-real-backend, DISM,
-the real-VM self-install chain, and physical USB passthrough are all coded,
-plausibly correct, and unproven. §6 items 7–11 are where new work should start.
+Services: Manual/Disabled out of scope by design; image env-expansion is
+best-effort; delayed flag is best-effort. WMI: COM failures degrade to
+empty (a broken-WMI box reports "0 entries", indistinguishable from
+clean — noted in coverage detail as "0 entries", never "clean"). COM:
+HKLM hive not walked (documented boundary). Tasks: unelevated runs may
+see 0 system tasks (elevation note in TESTING). Publisher: first
+non-self-signed chain cert (approximation, documented). IOC: synthetic.
+Processes in CLI reports hash every binary (same policy as GUI scan).

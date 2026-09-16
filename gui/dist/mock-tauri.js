@@ -36,6 +36,22 @@
     "startup-folder": "StartupFolder",
     "scheduled-task": "ScheduledTask",
     "registry-run": "RegistryRun",
+    "windows-service": "WindowsService",
+    "wmi-subscription": "WmiSubscription",
+    "ifeo-debugger": "IfeoDebugger",
+    "appinit-dlls": "AppInitDlls",
+    "com-hijack": "ComHijack",
+  };
+
+  const MOCK_ATTACK = {
+    StartupFolder: { id: "T1547.001", name: "Startup Folder" },
+    ScheduledTask: { id: "T1053.005", name: "Scheduled Task" },
+    RegistryRun: { id: "T1547.001", name: "Registry Run Keys" },
+    WindowsService: { id: "T1543.003", name: "Windows Service" },
+    WmiSubscription: { id: "T1546.003", name: "WMI Event Subscription" },
+    IfeoDebugger: { id: "T1546.012", name: "Image File Execution Options Injection" },
+    AppInitDlls: { id: "T1546.010", name: "AppInit DLLs" },
+    ComHijack: { id: "T1546.015", name: "Component Object Model Hijacking" },
   };
 
   const NAME_PREFIXES = [
@@ -170,10 +186,11 @@
   }
 
   function toScored(item) {
+    const source = PASCAL_SOURCE[item.source] || "StartupFolder";
     return {
       entry: {
         id: item.id,
-        source: PASCAL_SOURCE[item.source] || "StartupFolder",
+        source,
         name: item.name,
         command: item.command,
         location: item.location,
@@ -181,10 +198,28 @@
       score: item.score,
       risk: item.risk,
       reasons: item.reasons || [],
+      attack: MOCK_ATTACK[source] || { id: "", name: "" },
     };
   }
 
   let scanRuns = 0;
+
+  // ---- quarantine mock (small in-memory store so the Quarantine view,
+  //      quarantine buttons, and undo can be exercised in the harness) ----
+  const __mockQuarantine = [
+    {
+      id: "mock-q-seed-1",
+      name: "acmetray0.bat",
+      source: "startup-folder",
+      original_path: STARTUP_DIR + "acmetray0.bat",
+      quarantine_path: "C:\\cure-mock\\data\\quarantine\\mock-q-seed-1_acmetray0.bat",
+      archived_at: new Date(Date.now() - 3600000).toISOString(),
+    },
+  ];
+
+  function snapshotQuarantine() {
+    return __mockQuarantine.map((r) => ({ ...r }));
+  }
 
   // ---- disk cleanup mock --------------------------------------------------
 
@@ -398,15 +433,40 @@
           }
           case "run_auto_scan":
             return runAutoScan();
-          case "quarantine_entry":
-            return delay(450).then(
-              () =>
-                "moved C:\\" +
-                String(args && args.name ? args.name : "entry") +
-                " -> quarantine (mock)"
-            );
+          case "quarantine_entry": {
+            const qid = String(args && args.id ? args.id : "mock-q-" + Date.now());
+            const qname = String(args && args.name ? args.name : "entry");
+            if (!__mockQuarantine.some((r) => r.id === qid)) {
+              __mockQuarantine.push({
+                id: qid,
+                name: qname,
+                source: "startup-folder",
+                original_path: STARTUP_DIR + qname,
+                quarantine_path: "C:\\cure-mock\\data\\quarantine\\" + qid + "_" + qname,
+                archived_at: new Date().toISOString(),
+              });
+            }
+            return delay(450).then(() => "moved C:\\" + qname + " -> quarantine (mock)");
+          }
           case "undo_entry":
-            return delay(250);
+            return delay(250).then(() => {
+              const qid = String(args && args.id ? args.id : "");
+              const qi = __mockQuarantine.findIndex((r) => r.id === qid);
+              if (qi !== -1) __mockQuarantine.splice(qi, 1);
+            });
+          case "list_quarantine":
+            return delay(200).then(snapshotQuarantine);
+          case "entry_details":
+            return delay(200).then(() => ({
+              signature: "UNKNOWN",
+              publisher: null,
+              shortcut: null,
+              task: null,
+            }));
+          case "reveal_location":
+            return delay(200).then(() => "C:\\cure-mock\\revealed");
+          case "export_report":
+            return delay(300).then(() => "C:\\cure-mock\\data\\cure-report-mock.txt");
           case "open_quarantine_folder":
             return delay(350).then(() => {
               if (window.__CURE_MOCK_FOOTER_ERRORS) {

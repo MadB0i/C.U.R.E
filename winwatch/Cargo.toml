@@ -1,0 +1,19 @@
+[package]
+name = "cure_dirwatch"
+version.workspace = true
+edition.workspace = true
+description = "C.U.R.E Windows directory-change event acquisition for the canary engine (shared GUI/watch glue)"
+
+[dependencies]
+cure_core = { path = "../core" }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -44,4 +44,25 @@ mod tests {
     fn stub_is_empty_off_windows() {
         assert!(list_drives().is_empty());
     }
+
+    /// Perf guard for the 1.5 s poll loop: one poll is 26 drive-letter
+    /// existence probes plus a set-diff. 200 polls must finish in well
+    /// under a second — the watcher is I/O-idle, not a CPU cost.
+    /// (Detection latency is dominated by the 1500 ms poll interval by
+    /// design; see TESTING.md §3 and the WM_DEVICECHANGE plan in AUDIT.md.)
+    #[test]
+    fn poll_cycle_is_cheap() {
+        let start = std::time::Instant::now();
+        let mut previous = list_drives();
+        for _ in 0..200 {
+            let current = list_drives();
+            let _ = crate::detector::newly_arrived(&previous, &current);
+            previous = current;
+        }
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(5),
+            "200 poll cycles took {elapsed:?} — the watcher must stay idle-cheap"
+        );
+    }
 }

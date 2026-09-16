@@ -5,7 +5,7 @@ import { chromium } from "playwright";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const distDir = join(here, "..", "dist");
-const shotsDir = join(here, "..", "dev-screenshots");
+const shotsDir = process.env.CURE_SHOTS_DIR || join(here, "..", "dev-screenshots");
 const devPageUrl = pathToFileURL(join(distDir, "index.dev.html")).href;
 
 mkdirSync(shotsDir, { recursive: true });

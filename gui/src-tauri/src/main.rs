@@ -13,10 +13,7 @@ use cure_core::model::{PersistenceEntry, PersistenceSource, RiskLevel, ScoredEnt
 use cure_core::signature::SignatureStatus;
 use cure_core::process_scan::{self, ProcessInfo, ProcessScore};
 use cure_core::ransom_detect::{self, RansomFinding as RansomFindingCore};
-use cure_core::canary::{
-    CanaryEngine, CanaryConfig, CanaryAlert, FileEvent, FileEventKind,
-    decoy_names, shadow_wipe_reason,
-};
+use cure_core::canary::{CanaryAlert, shadow_wipe_reason};
 
 #[derive(Debug, Clone, Serialize)]
 struct ProgressEvent {
@@ -117,130 +114,8 @@ const SCAN_TARGET_TOTAL_MS: u64 = 5000;
 const SCAN_MIN_PER_ITEM_MS: u64 = 15;
 const SCAN_MAX_PER_ITEM_MS: u64 = 250;
 
-// ---------------------------------------------------------------------------
-// Live process enumeration (windows-only OS glue)
-// ---------------------------------------------------------------------------
-
-#[cfg(windows)]
-fn enumerate_running_processes() -> Vec<ProcessInfo> {
-    use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
-        TH32CS_SNAPPROCESS,
-    };
-    use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
-    use windows::Win32::System::Threading::{QueryFullProcessImageNameW, PROCESS_NAME_WIN32};
-
-    let mut results = Vec::new();
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
-    let Ok(snapshot) = snapshot else { return results };
-
-    let mut entry = PROCESSENTRY32W {
-        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
-        ..unsafe { std::mem::zeroed() }
-    };
-
-    if unsafe { Process32FirstW(snapshot, &mut entry) }.is_err() {
-        let _ = unsafe { windows::Win32::Foundation::CloseHandle(snapshot) };
-        return results;
-    }
-
-    loop {
-        let pid = entry.th32ProcessID;
-        let exe_wide: Vec<u16> = entry
-            .szExeFile
-            .iter()
-            .take_while(|&&c| c != 0)
-            .copied()
-            .collect();
-        let name = String::from_utf16_lossy(&exe_wide);
-
-        // Resolve full exe path for scoring
-        let mut exe_path = String::new();
-        unsafe {
-            if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
-                let mut buf = [0u16; 1024];
-                let mut size = buf.len() as u32;
-                if QueryFullProcessImageNameW(
-                    handle,
-                    PROCESS_NAME_WIN32,
-                    windows::core::PWSTR(buf.as_mut_ptr()),
-                    &mut size,
-                )
-                .is_ok()
-                {
-                    exe_path = String::from_utf16_lossy(&buf[..size as usize]).to_string();
-                }
-                let _ = windows::Win32::Foundation::CloseHandle(handle);
-            }
-        }
-
-        // Heuristic: does this process own a visible window?
-        // (Checked later in the scoring pipeline, default to false here)
-        let from_user_profile = exe_path
-            .to_ascii_lowercase()
-            .contains("appdata")
-            || exe_path
-                .to_ascii_lowercase()
-                .contains("users");
-
-        results.push(ProcessInfo {
-            name,
-            pid,
-            exe_path,
-            has_visible_window: false,
-            from_user_profile,
-        });
-
-        if unsafe { Process32NextW(snapshot, &mut entry) }.is_err() {
-            break;
-        }
-    }
-
-    let _ = unsafe { windows::Win32::Foundation::CloseHandle(snapshot) };
-
-    // Mark processes that have visible windows
-    mark_visible_processes(&mut results);
-
-    results
-}
-
-/// Cross-reference our process list against visible windows from the overlay module.
-#[cfg(windows)]
-fn mark_visible_processes(processes: &mut [ProcessInfo]) {
-    // Collect pids of processes that own a visible window
-    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowThreadProcessId, IsWindowVisible};
-    use windows::Win32::Foundation::{HWND, LPARAM};
-
-    let mut visible_pids: std::collections::HashSet<u32> = std::collections::HashSet::new();
-
-    unsafe extern "system" fn collect_visible(hwnd: HWND, lparam: LPARAM) -> windows::Win32::Foundation::BOOL {
-        unsafe {
-            if IsWindowVisible(hwnd).as_bool() {
-                let set = &mut *(lparam.0 as *mut std::collections::HashSet<u32>);
-                let mut pid = 0u32;
-                GetWindowThreadProcessId(hwnd, Some(&mut pid));
-                if pid != 0 {
-                    set.insert(pid);
-                }
-            }
-        }
-        true.into()
-    }
-
-    let set_ptr = &mut visible_pids as *mut _ as isize;
-    unsafe { let _ = EnumWindows(Some(collect_visible), LPARAM(set_ptr)); }
-
-    for p in processes.iter_mut() {
-        if visible_pids.contains(&p.pid) {
-            p.has_visible_window = true;
-        }
-    }
-}
-
-#[cfg(not(windows))]
-fn enumerate_running_processes() -> Vec<ProcessInfo> {
-    Vec::new()
-}
+// Live process enumeration lives in cure_core::process_scan
+// (shared with the CLI report) — pure scoring stays there too.
 
 // ---------------------------------------------------------------------------
 // Ransom-detection folder scanning (OS glue: read-only directory walks)
@@ -261,29 +136,7 @@ fn user_folder_candidates() -> Vec<PathBuf> {
 }
 
 fn read_dir_entries(folder: &Path) -> Vec<cure_core::ransom_detect::DirEntry> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    std::fs::read_dir(folder)
-        .ok()
-        .map(|rd| {
-            rd.filter_map(|e| e.ok())
-                .map(|e| {
-                    let name = e.file_name().to_string_lossy().to_string();
-                    let age_days = e
-                        .metadata()
-                        .ok()
-                        .and_then(|m| m.modified().ok())
-                        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                        .map(|d| (now.saturating_sub(d.as_secs())) / 86_400)
-                        .unwrap_or(0);
-                    cure_core::ransom_detect::DirEntry { name, age_days }
-                })
-                .collect()
-        })
-        .unwrap_or_default()
+    cure_core::ransom_detect::read_dir_entries(folder)
 }
 
 /// Kill a process by PID.  Returns Ok(()) on success.
@@ -348,6 +201,21 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     emit_stage(&app, "tasks", "Parsing scheduled task definitions");
     entries.extend(scanners::scheduled_tasks::scan(&tasks_root()));
 
+    emit_stage(&app, "services", "Enumerating auto-start services");
+    let service_records = scanners::collect_services();
+    entries.extend(service_records.iter().map(|r| r.entry.clone()));
+
+    #[cfg(windows)]
+    {
+        emit_stage(&app, "wmi", "Querying WMI event subscriptions");
+        entries.extend(scanners::wmi::scan());
+        emit_stage(&app, "ifeo", "Checking IFEO debuggers and AppInit DLLs");
+        entries.extend(scanners::ifeo::scan());
+        entries.extend(scanners::appinit::scan());
+        emit_stage(&app, "com", "Walking per-user COM registrations");
+        entries.extend(scanners::com::scan());
+    }
+
     let count = entries.len();
     emit_stage(
         &app,
@@ -358,13 +226,71 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
             if count == 1 { "y" } else { "ies" }
         ),
     );
-    let scored: Vec<ScoredEntry> = entries
+    let mut scored: Vec<ScoredEntry> = entries
         .iter()
+        // Service entries are scored below with start-type/account evidence.
+        .filter(|e| e.source != PersistenceSource::WindowsService)
         .map(|e| {
             let exe_path = cure_core::signature::resolve_executable_path(&e.command);
             risk::score_entry(e, exe_path.as_deref())
         })
         .collect();
+
+    // Service scoring hits the disk per image (Authenticode), so batch it
+    // with progress like the process scan. Services are NEVER auto-cleaned
+    // (see the review rule below) — detection only.
+    if !service_records.is_empty() {
+        const SVC_BATCH: usize = 24;
+        let mut done = 0usize;
+        let total = service_records.len();
+        for chunk in service_records.chunks(SVC_BATCH) {
+            let chunk = chunk.to_vec();
+            emit_stage(
+                &app,
+                "services",
+                format!("Scoring auto-start services {}–{} of {}", done + 1, done + chunk.len(), total),
+            );
+            let batch = tokio::task::spawn_blocking(move || {
+                chunk
+                    .into_iter()
+                    .map(|record| {
+                        let status =
+                            cure_core::scanners::services::image_status(&record.image_path);
+                        let exe = match &status {
+                            cure_core::scanners::services::ImageStatus::Found(path) => {
+                                Some(path.clone())
+                            }
+                            _ => None,
+                        };
+                        let missing = status
+                            == cure_core::scanners::services::ImageStatus::Missing;
+                        let signature = match &exe {
+                            Some(path) => cure_core::signature::check_signature(path),
+                            None => cure_core::signature::SignatureStatus::Unknown,
+                        };
+                        let hash = if risk::service_needs_hash(
+                            &record.image_path,
+                            exe.as_deref(),
+                        ) {
+                            exe.as_deref()
+                                .and_then(cure_core::hash_intel::check_hash)
+                        } else {
+                            None
+                        };
+                        risk::score_service(&record, missing, signature, hash.as_deref())
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .await;
+            match batch {
+                Ok(part) => {
+                    done += part.len();
+                    scored.extend(part);
+                }
+                Err(e) => return Err(format!("service scan failed: {e}")),
+            }
+        }
+    }
 
     emit_stage(&app, "item-scan", "Inspecting each persistence entry");
 
@@ -390,21 +316,23 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         tokio::time::sleep(std::time::Duration::from_millis(per_item_ms)).await;
 
         match s.risk {
-            RiskLevel::HighRisk => match s.entry.source {
-                PersistenceSource::RegistryRun => suspicious_for_review.push(s.clone()),
-                _ => {
-                    emit_stage(&app, "cleaning", format!("Auto-cleaning {}", s.entry.name));
-                    match quarantine::quarantine_file(&data_dir, &s.entry) {
-                        Ok(_) => high_risk_cleaned.push(s.clone()),
-                        Err(err) => {
-                            let mut flagged = s.clone();
-                            flagged.reasons.push(format!("auto-clean failed: {err}"));
-                            suspicious_for_review.push(flagged);
-                        }
+            // Only file-backed findings are ever auto-relocated. Registry,
+            // services, WMI, IFEO, AppInit, and COM findings always land in
+            // review with manual, backed-up guidance — never auto-remediated.
+            RiskLevel::HighRisk if s.entry.source.is_file_backed() => {
+                emit_stage(&app, "cleaning", format!("Auto-cleaning {}", s.entry.name));
+                match quarantine::quarantine_file(&data_dir, &s.entry) {
+                    Ok(_) => high_risk_cleaned.push(s.clone()),
+                    Err(err) => {
+                        let mut flagged = s.clone();
+                        flagged.reasons.push(format!("auto-clean failed: {err}"));
+                        suspicious_for_review.push(flagged);
                     }
                 }
-            },
-            RiskLevel::Suspicious => suspicious_for_review.push(s.clone()),
+            }
+            RiskLevel::HighRisk | RiskLevel::Suspicious => {
+                suspicious_for_review.push(s.clone())
+            }
             RiskLevel::Safe => safe += 1,
         }
     }
@@ -412,7 +340,7 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     // ── live process scan ──────────────────────────────────────────────
 
     emit_stage(&app, "process-scan", "Enumerating running processes");
-    let processes = enumerate_running_processes();
+    let processes = process_scan::enumerate_processes();
     let mut process_findings: Vec<ProcessFinding> = Vec::new();
 
     if !processes.is_empty() {
@@ -551,17 +479,42 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
 }
 
 fn find_current_entry(id: &str) -> Option<PersistenceEntry> {
-    scanners::collect_all(&startup_root(), &tasks_root())
+    if let Some(entry) = scanners::collect_all(&startup_root(), &tasks_root())
         .into_iter()
+        .find(|entry| entry.id == id)
+    {
+        return Some(entry);
+    }
+    scanners::collect_services()
+        .into_iter()
+        .map(|record| record.entry)
         .find(|entry| entry.id == id)
 }
 
 #[tauri::command]
-fn quarantine_entry(id: String, name: String, command: String) -> Result<String, String> {
+fn quarantine_entry(id: String, _name: String, _command: String) -> Result<String, String> {
     let data_dir = resolve_data_dir();
-    let entry = find_current_entry(&id).unwrap_or_else(|| {
-        PersistenceEntry::new(PersistenceSource::StartupFolder, &name, &command, &command)
-    });
+    // Strict: only entries present in a fresh scan may be quarantined. Never
+    // construct an entry from frontend-supplied paths — the webview must not
+    // be able to turn this command into a move-any-file primitive.
+    let Some(entry) = find_current_entry(&id) else {
+        return Err(
+            "entry is no longer present in the latest scan (already quarantined or removed?) — rescan to refresh"
+                .to_string(),
+        );
+    };
+    if entry.source == PersistenceSource::RegistryRun {
+        return Err(format!(
+            "registry autoruns are detected and scored but never auto-disabled — remove manually: {} / value \"{}\" (back up the key first)",
+            entry.location, entry.name
+        ));
+    }
+    if !entry.source.is_file_backed() {
+        return Err(format!(
+            "{} findings are detected and scored but never auto-disabled — investigate first, back up {}, then remove manually",
+            entry.source, entry.location
+        ));
+    }
     let record = quarantine::quarantine_file(&data_dir, &entry).map_err(|e| e.to_string())?;
     Ok(format!(
         "moved {} -> {}",
@@ -577,12 +530,243 @@ fn undo_entry(id: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+struct QuarantineRecordDto {
+    id: String,
+    name: String,
+    source: String,
+    original_path: String,
+    quarantine_path: String,
+    archived_at: String,
+}
+
+/// Everything currently in quarantine (newest last). Powers the Quarantine
+/// view; undo actions go through `undo_entry` one record at a time.
+#[tauri::command]
+fn list_quarantine() -> Result<Vec<QuarantineRecordDto>, String> {    Ok(quarantine::list_records(&resolve_data_dir())
+        .into_iter()
+        .map(|r| QuarantineRecordDto {
+            id: r.id,
+            name: r.name,
+            source: r.source,
+            original_path: r.original_path.to_string_lossy().into_owned(),
+            quarantine_path: r.quarantine_path.to_string_lossy().into_owned(),
+            archived_at: r.archived_at.to_rfc3339(),
+        })
+        .collect())
+}
+
+/// Forensic details for one finding (shortcut resolution, task metadata,
+/// publisher/signature) — strictly read-only enrichment for display.
+/// The id must come from a fresh scan; unknown ids are rejected, so the
+/// webview cannot turn this into an arbitrary-path inspection oracle.
+#[tauri::command]
+fn entry_details(id: String) -> Result<cure_core::entry_details::EntryDetails, String> {
+    let Some(entry) = find_current_entry(&id) else {
+        return Err(
+            "entry is no longer present in the latest scan — rescan to refresh".to_string(),
+        );
+    };
+    Ok(cure_core::entry_details::for_entry(&entry))
+}
+
+/// Reveal a finding's file in Explorer (selects it, opens nothing).
+/// Strict id-based lookup like `entry_details`; registry/service/WMI and
+/// other non-file locations are refused. Direct argv to explorer — no
+/// shell parsing, so spaces and metacharacters in paths are inert.
+#[tauri::command]
+fn reveal_location(id: String) -> Result<String, String> {
+    let Some(entry) = find_current_entry(&id) else {
+        return Err(
+            "entry is no longer present in the latest scan — rescan to refresh".to_string(),
+        );
+    };
+    let target = if Path::new(&entry.location).is_file() {
+        entry.location.clone()
+    } else {
+        match cure_core::signature::resolve_executable_path(&entry.command) {
+            Some(path) => path.to_string_lossy().into_owned(),
+            None => {
+                return Err(format!(
+                    "nothing file-backed to reveal for {} ({})",
+                    entry.name, entry.location
+                ))
+            }
+        }
+    };
+    std::process::Command::new("explorer")
+        .arg("/select,")
+        .arg(&target)
+        .spawn()
+        .map_err(|e| format!("cannot open explorer: {e}"))?;
+    Ok(target)
+}
+
+/// Explicit security-report export (JSON/TXT, optional redaction).
+/// Runs fresh scans itself so coverage states are honest; remediates
+/// nothing. Returns the written file path for the footer message.
+#[tauri::command]
+async fn export_report(format: String, redact: bool) -> Result<String, String> {
+    use cure_core::report::{CoverageRow, ReportOptions, ScanInput};
+
+    let format = format.to_ascii_lowercase();
+    if format != "json" && format != "txt" {
+        return Err("unknown format: use json or txt".to_string());
+    }
+    let data_dir = resolve_data_dir();
+    std::fs::create_dir_all(&data_dir).map_err(|e| format!("cannot create data dir: {e}"))?;
+
+    let mut entries: Vec<PersistenceEntry> = Vec::new();
+    #[cfg(windows)]
+    entries.extend(scanners::registry::scan().unwrap_or_default());
+    entries.extend(scanners::startup::scan(&startup_root()));
+    entries.extend(scanners::scheduled_tasks::scan(&tasks_root()));
+    let service_records = scanners::collect_services();
+    entries.extend(service_records.iter().map(|r| r.entry.clone()));
+    #[cfg(windows)]
+    {
+        entries.extend(scanners::wmi::scan());
+        entries.extend(scanners::ifeo::scan());
+        entries.extend(scanners::appinit::scan());
+        entries.extend(scanners::com::scan());
+    }
+
+    let mut scored: Vec<ScoredEntry> = entries
+        .iter()
+        .filter(|e| e.source != PersistenceSource::WindowsService)
+        .map(|e| {
+            let exe_path = cure_core::signature::resolve_executable_path(&e.command);
+            risk::score_entry(e, exe_path.as_deref())
+        })
+        .collect();
+    for record in &service_records {
+        let status = cure_core::scanners::services::image_status(&record.image_path);
+        let exe = match &status {
+            cure_core::scanners::services::ImageStatus::Found(path) => Some(path.clone()),
+            _ => None,
+        };
+        let missing = status == cure_core::scanners::services::ImageStatus::Missing;
+        let signature = match &exe {
+            Some(path) => cure_core::signature::check_signature(path),
+            None => cure_core::signature::SignatureStatus::Unknown,
+        };
+        let hash = if risk::service_needs_hash(&record.image_path, exe.as_deref()) {
+            exe.as_deref().and_then(cure_core::hash_intel::check_hash)
+        } else {
+            None
+        };
+        scored.push(risk::score_service(record, missing, signature, hash.as_deref()));
+    }
+
+    let processes = process_scan::enumerate_processes();
+    let mut scored_procs = Vec::new();
+    for info in &processes {
+        let sig = cure_core::signature::check_signature(std::path::Path::new(&info.exe_path));
+        let hash = cure_core::hash_intel::check_hash(std::path::Path::new(&info.exe_path));
+        scored_procs.push((info.clone(), process_scan::score_process(info, &sig, hash.as_deref())));
+    }
+
+    let folders: Vec<(PathBuf, Vec<cure_core::ransom_detect::DirEntry>)> =
+        user_folder_candidates()
+            .into_iter()
+            .map(|f| (f.clone(), read_dir_entries(&f)))
+            .collect();
+    let ransom = cure_core::ransom_detect::scan_folders(&folders);
+
+    let count = |source: PersistenceSource| {
+        entries.iter().filter(|e| e.source == source).count()
+    };
+    let mut coverage = vec![
+        CoverageRow::checked("Startup folder", format!("{} entries", count(PersistenceSource::StartupFolder))),
+        CoverageRow::checked("Scheduled tasks", format!("{} entries", count(PersistenceSource::ScheduledTask))),
+        CoverageRow::checked("Services (auto-start)", format!("{} services", service_records.len())),
+        CoverageRow::checked("WMI subscriptions", format!("{} entries", count(PersistenceSource::WmiSubscription))),
+        CoverageRow::checked("IFEO debuggers", format!("{} entries", count(PersistenceSource::IfeoDebugger))),
+        CoverageRow::checked("AppInit DLLs", format!("{} entries", count(PersistenceSource::AppInitDlls))),
+        CoverageRow::checked("COM hijacks (HKCU)", format!("{} entries", count(PersistenceSource::ComHijack))),
+    ];
+    #[cfg(windows)]
+    {
+        coverage.push(CoverageRow::checked("Registry autoruns", format!("{} entries", count(PersistenceSource::RegistryRun))));
+        coverage.push(CoverageRow::checked("Running processes", format!("{} enumerated", processes.len())));
+    }
+    #[cfg(not(windows))]
+    {
+        coverage.push(CoverageRow::unavailable("Registry autoruns", "Windows-only source".to_string()));
+        coverage.push(CoverageRow::unavailable("Running processes", "Windows-only source".to_string()));
+    }
+    if folders.is_empty() {
+        coverage.push(CoverageRow::not_checked("Ransom indicators", "no user profile folders found".to_string()));
+    } else {
+        coverage.push(CoverageRow::checked("Ransom indicators", format!("{} folders, {} findings", folders.len(), ransom.len())));
+    }
+    coverage.push(CoverageRow::not_checked("Canary guard", "session feature — see the Canary Guard view".to_string()));
+    {
+        use cure_core::hash_intel::ThreatIntelProvider;
+        coverage.push(CoverageRow::checked("Threat intel", cure_core::hash_intel::fixture_provider().provider_label().to_string()));
+    }
+
+    let report = cure_core::report::assemble(
+        ScanInput { persistence: scored, processes: scored_procs, ransom, canary_note: "session feature".to_string() },
+        coverage,
+        &ReportOptions { redact },
+    );
+    let body = if format == "json" {
+        cure_core::report::render_json(&report)
+    } else {
+        cure_core::report::render_txt(&report)
+    };
+    let filename = format!("cure-report-{}.{}", cure_core::report::utc_stamp(), format);
+    let out_path = data_dir.join(&filename);
+    std::fs::write(&out_path, body).map_err(|e| format!("cannot write report: {e}"))?;
+    Ok(out_path.to_string_lossy().into_owned())
+}
+
+/// Confirm-before-kill hardening: a PID can be recycled between the scan
+/// and the user's confirmation click. Refuse to kill when the PID no longer
+/// belongs to the process the user actually approved.
+#[cfg(windows)]
+fn pid_still_matches(
+    pid: u32,
+    approved_name: &str,
+    live: &std::collections::HashMap<u32, String>,
+) -> Result<(), String> {
+    match live.get(&pid) {
+        Some(current) if current.eq_ignore_ascii_case(approved_name) => Ok(()),
+        Some(current) => Err(format!(
+            "pid {pid} no longer belongs to {approved_name} (now {current}) — refusing to kill"
+        )),
+        None => Err(format!("{approved_name} (pid {pid}) already exited")),
+    }
+}
+
+#[cfg(not(windows))]
+fn pid_still_matches(
+    _pid: u32,
+    _approved_name: &str,
+    _live: &std::collections::HashMap<u32, String>,
+) -> Result<(), String> {
+    // No process enumeration on this platform; the kill attempt below
+    // produces the platform error, as before.
+    Ok(())
+}
+
 #[tauri::command]
 fn kill_high_risk_processes(processes: Vec<(String, u32)>) -> Result<KillReport, String> {
     let mut killed = Vec::new();
     let mut failed = Vec::new();
 
+    // Snapshot once so every decision below uses the same process table.
+    let live: std::collections::HashMap<u32, String> = process_scan::enumerate_processes()
+        .into_iter()
+        .map(|p| (p.pid, p.name))
+        .collect();
+
     for (name, pid) in processes {
+        if let Err(reason) = pid_still_matches(pid, &name, &live) {
+            failed.push(reason);
+            continue;
+        }
         match kill_process_by_pid(pid) {
             Ok(()) => {
                 killed.push(ProcessFinding {
@@ -621,11 +805,55 @@ fn view_log() -> Result<String, String> {
     if !path.exists() {
         return Err("No scan log yet — run a scan first".to_string());
     }
-    std::process::Command::new("cmd")
-        .args(["/C", "start", "", &path.display().to_string()])
-        .spawn()
-        .map_err(|e| format!("cannot open log viewer: {e}"))?;
+    open_with_default_handler(&path)?;
     Ok(path.to_string_lossy().into_owned())
+}
+
+/// Open a file with its registered handler via ShellExecuteW("open").
+///
+/// Deliberately NOT `cmd /C start ...`: cmd.exe re-parses its command line,
+/// so a data dir containing shell metacharacters (`&`, `^`, …) would become
+/// command injection. The path here is passed as structured data, never
+/// through a shell — spaces and metacharacters are inert.
+#[cfg(windows)]
+fn open_with_default_handler(path: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    use windows::core::{w, PCWSTR};
+
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    // ShellExecuteW returns a value > 32 on success.
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            w!("open"),
+            PCWSTR(wide.as_ptr()),
+            None,
+            None,
+            SW_SHOWNORMAL,
+        )
+    };
+    if (result.0 as usize) > 32 {
+        Ok(())
+    } else {
+        Err(format!(
+            "cannot open log viewer (ShellExecute failed for {})",
+            path.display()
+        ))
+    }
+}
+
+#[cfg(not(windows))]
+fn open_with_default_handler(path: &Path) -> Result<(), String> {
+    Err(format!(
+        "cannot open log viewer on this platform ({})",
+        path.display()
+    ))
 }
 
 #[tauri::command]
@@ -773,6 +1001,10 @@ fn main() {
             kill_high_risk_processes,
             quarantine_entry,
             undo_entry,
+            list_quarantine,
+            entry_details,
+            reveal_location,
+            export_report,
             open_quarantine_folder,
             view_log,
             exit_app,
@@ -793,6 +1025,7 @@ fn main() {
                 });
             }
             maybe_start_e2e_driver(app.handle().clone());
+            maybe_start_exit_driver(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -1049,10 +1282,24 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
     return false;
   };
   const emit = (payload) => window.__TAURI__.event.emit("e2e-done", JSON.stringify(payload));
+  const footMsg = () => document.getElementById("footbar-msg");
+  // Click a footer button and capture the transient footer feedback text.
+  // Proves the button is wired to the REAL backend (success AND error paths
+  // both surface through this element).
+  const clickFoot = async (btnId) => {
+    const before = footMsg().textContent;
+    document.getElementById(btnId).click();
+    if (!await waitFor(() => footMsg().textContent !== before && footMsg().classList.contains("show"))) {
+      throw new Error("footer feedback never appeared for " + btnId);
+    }
+    return footMsg().textContent;
+  };
   try {
     if (!await waitFor(() => document.getElementById("start-rescue-btn") !== null)) {
       throw new Error("start-rescue button never appeared");
     }
+    // Footer error path: no scan has run yet, so there is no baseline/log.
+    const preScanLogMsg = await clickFoot("btn-view-log");
     await wait(300);
     document.getElementById("start-rescue-btn").click();
     if (!await waitFor(() => document.getElementById("results-view") !== null)) {
@@ -1061,6 +1308,10 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
     if (!await waitFor(() => !document.getElementById("results-view").classList.contains("hidden"))) {
       throw new Error("security results never appeared");
     }
+    // Footer success paths: a scan just completed, so the quarantine folder
+    // and baseline log both exist on disk for the real backend to open.
+    const quarantineMsg = await clickFoot("btn-quarantine-folder");
+    const logMsg = await clickFoot("btn-view-log");
     await wait(600);
     document.getElementById("open-cleanup").click();
     if (!await waitFor(() =>
@@ -1083,14 +1334,75 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
     if (!await waitFor(() => document.getElementById("cleanup-status").textContent.startsWith("Freed"), 60000)) {
       throw new Error("cleanup status never showed Freed");
     }
+    // Snapshot now: leaving the cleanup view (quarantine check below) resets
+    // the transient result line by design.
+    const finalCleanupStatus = document.getElementById("cleanup-status").textContent;
+    await wait(300);
+    // Quarantine view vs the REAL backend: the sandbox startup root is seeded
+    // with a HighRisk .bat, which run_auto_scan must have auto-quarantined.
+    // Listing it and undoing it through the UI proves list_quarantine,
+    // quarantine (auto path), and undo_entry end to end.
+    document.getElementById("nav-quarantine").click();
+    if (!await waitFor(() =>
+      !document.getElementById("view-quarantine").classList.contains("hidden"))) {
+      throw new Error("quarantine view never appeared");
+    }
+    if (!await waitFor(() =>
+      document.querySelectorAll("#q-list .q-row").length >= 1, 30000)) {
+      throw new Error("quarantine list never showed the auto-quarantined seed");
+    }
+    document.querySelector("#q-list .q-undo").click();
+    if (!await waitFor(() =>
+      document.querySelectorAll("#q-list .q-row").length === 0, 30000)) {
+      throw new Error("undo never cleared the quarantine list");
+    }
+    await wait(300);
+    // Views smoke test: every nav target must render (proves the V2 views
+    // work against real backend data, not just the mock harness).
+    const smokeViews = [
+      ["nav-overview", "view-overview"],
+      ["nav-audit", "view-audit"],
+      ["nav-processes", "view-processes"],
+      ["nav-eventlog", "view-eventlog"],
+      ["nav-canary", "view-canary"],
+    ];
+    for (const [nav, view] of smokeViews) {
+      document.getElementById(nav).click();
+      if (!await waitFor(() =>
+        !document.getElementById(view).classList.contains("hidden"))) {
+        throw new Error(view + " never appeared");
+      }
+      await wait(200);
+    }
+    const posture = document.getElementById("ov-posture").textContent;
+    const auditCards = document.querySelectorAll("#audit-list .audit-card").length;
+    if (!posture) throw new Error("overview posture empty");
+    if (auditCards < 1) throw new Error("audit view empty despite auto-quarantined seed");
+    // Canary guard against the REAL backend: enable, expect ACTIVE. (Decoys
+    // land in the sandboxed profile; the TRIGGERED path via real filesystem
+    // events stays a manual/VM test — see TESTING.md §5.)
+    document.getElementById("can-toggle").click();
+    if (!await waitFor(() =>
+      document.getElementById("can-state").textContent === "ACTIVE", 15000)) {
+      throw new Error("canary guard never became ACTIVE");
+    }
+    document.getElementById("nav-results").click();
+    if (!await waitFor(() =>
+      !document.getElementById("results-view").classList.contains("hidden"))) {
+      throw new Error("results view never re-appeared");
+    }
     await wait(300);
     emit({
       ok: true,
-      status: document.getElementById("cleanup-status").textContent,
+      status: finalCleanupStatus,
       pill: document.getElementById("cleanup-status-text").textContent,
       downloadsTicked: boxes.length > 0,
       tossSeen: window.__cureTossSeen === true,
       failures: Array.from(document.querySelectorAll("#cleanup-failures li")).map((li) => li.textContent),
+      footer: { preScanLogMsg, quarantineMsg, logMsg },
+      quarantineVerified: true,
+      viewsVerified: { posture, auditCards },
+      canaryActive: true,
     });
   } catch (err) {
     emit({ ok: false, error: String(err) });
@@ -1112,6 +1424,35 @@ fn maybe_start_e2e_driver(handle: AppHandle) {
         std::thread::sleep(std::time::Duration::from_millis(1500));
         if let Some(window) = handle.get_webview_window("main") {
             let _ = window.eval(E2E_RUNNER_JS);
+        }
+    });
+}
+
+// Exit-button driver (test-only, inert unless CURE_E2E_EXIT is set).
+// Clicks the real Exit footer button after load; the outer harness asserts
+// the process actually terminates. Kept separate from the cleanup driver so
+// each run has exactly one terminal action.
+const E2E_EXIT_RUNNER_JS: &str = r##"(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const waitFor = async (f, t = 30000) => {
+    for (let i = 0; i < t / 100; i++) { if (f()) return true; await wait(100); }
+    return false;
+  };
+  if (!await waitFor(() => document.getElementById("btn-exit") !== null)) {
+    return;
+  }
+  await wait(500);
+  document.getElementById("btn-exit").click();
+})();"##;
+
+fn maybe_start_exit_driver(handle: AppHandle) {
+    if std::env::var("CURE_E2E_EXIT").is_err() {
+        return;
+    }
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        if let Some(window) = handle.get_webview_window("main") {
+            let _ = window.eval(E2E_EXIT_RUNNER_JS);
         }
     });
 }
@@ -1160,7 +1501,7 @@ fn start_canary_guard(state: State<'_, CanaryState>, app: AppHandle) -> Result<S
     let dirs = user_folder_candidates();
     for dir in &dirs {
         if dir.is_dir() {
-            plant_decoys(dir);
+            cure_dirwatch::plant_decoys(dir);
         }
     }
 
@@ -1199,23 +1540,12 @@ fn canary_status(state: State<'_, CanaryState>) -> Result<serde_json::Value, Str
     Ok(serde_json::json!({ "active": active, "alert_count": count }))
 }
 
-fn plant_decoys(dir: &Path) {
-    let names = decoy_names(6);
-    for name in &names {
-        let path = dir.join(name);
-        if !path.exists() {
-            let content: Vec<u8> = (0..512).map(|i| (i * 73 + 11) as u8).collect();
-            let _ = std::fs::write(&path, &content);
-        }
-    }
-}
+// Directory watching lives in cure_dirwatch (shared with cure-watch, same
+// engine, same Win32 acquisition loop); the GUI only adapts alerts into
+// Tauri events here. The GUI keeps its own user_folder_candidates() because
+// its ransom-scan path needs pre-filtered existing dirs — a different
+// contract from the shared helper.
 
-fn to_wide(s: &str) -> Vec<u16> {
-    use std::os::windows::ffi::OsStrExt;
-    std::ffi::OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
-}
-
-#[cfg(windows)]
 fn spawn_dir_watcher(
     dir: PathBuf,
     app: AppHandle,
@@ -1223,200 +1553,41 @@ fn spawn_dir_watcher(
     _alert_count: Arc<AtomicUsize>,
 ) {
     std::thread::spawn(move || {
-        use windows::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
-        use windows::core::PCWSTR;
-        use windows::Win32::Storage::FileSystem::{
-            CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_LIST_DIRECTORY, OPEN_EXISTING,
-            FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_SHARE_DELETE,
-            ReadDirectoryChangesW,
-            FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE,
-            FILE_NOTIFY_INFORMATION, FILE_ACTION_ADDED, FILE_ACTION_MODIFIED, FILE_ACTION_REMOVED,
-            FILE_ACTION_RENAMED_OLD_NAME, FILE_ACTION_RENAMED_NEW_NAME,
-        };
-        use windows::Win32::System::IO::{OVERLAPPED, GetOverlappedResult};
-        use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
-        use windows::Win32::Foundation::BOOL;
-
-        let dir_wide = to_wide(&dir.to_string_lossy());
-
-        let h_dir = unsafe {
-            CreateFileW(
-                PCWSTR(dir_wide.as_ptr()),
-                FILE_LIST_DIRECTORY.0,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                None,
-                OPEN_EXISTING,
-                FILE_FLAG_BACKUP_SEMANTICS,
-                None,
-            )
-        };
-        let h_dir = match h_dir {
-            Ok(h) if h != INVALID_HANDLE_VALUE => h,
-            _ => return,
-        };
-
-        let h_event = unsafe { CreateEventW(None, BOOL::from(false), BOOL::from(false), None) };
-        let h_event = match h_event {
-            Ok(h) => h,
-            Err(_) => {
-                let _ = unsafe { CloseHandle(h_dir) };
-                return;
-            }
-        };
-
-        let mut engine = CanaryEngine::new(CanaryConfig::default());
-        let mut buffer = [0u8; 4096];
-
-        while !stop.load(Ordering::Relaxed) {
-            let mut bytes_returned = 0u32;
-            let mut overlapped = OVERLAPPED { hEvent: h_event, ..OVERLAPPED::default() };
-
-            let ok = unsafe {
-                ReadDirectoryChangesW(
-                    h_dir,
-                    buffer.as_mut_ptr() as *mut core::ffi::c_void,
-                    buffer.len() as u32,
-                    BOOL::from(true),
-                    FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_SIZE,
-                    Some(&mut bytes_returned),
-                    Some(&mut overlapped),
-                    None,
-                )
+        cure_dirwatch::run_dir_guard(&dir, &stop, |alert| {
+            let event = match &alert {
+                CanaryAlert::CanaryTamper { folder, file, action, at_secs } => {
+                    CanaryAlertEvent {
+                        kind: "canary-tamper".into(),
+                        folder: folder.clone(),
+                        file: file.clone(),
+                        action: (*action).into(),
+                        at_secs: *at_secs,
+                        severity: alert.severity(),
+                    }
+                }
+                CanaryAlert::BurstEncryption { folder, distinct_files, window_secs, at_secs } => {
+                    CanaryAlertEvent {
+                        kind: "burst-encryption".into(),
+                        folder: folder.clone(),
+                        file: format!("{distinct_files} files in {window_secs}s"),
+                        action: "burst".into(),
+                        at_secs: *at_secs,
+                        severity: alert.severity(),
+                    }
+                }
+                CanaryAlert::ExtensionRewrite { folder, extension, renamed_count, at_secs } => {
+                    CanaryAlertEvent {
+                        kind: "extension-rewrite".into(),
+                        folder: folder.clone(),
+                        file: format!(".{extension}"),
+                        action: format!("{renamed_count} files renamed"),
+                        at_secs: *at_secs,
+                        severity: alert.severity(),
+                    }
+                }
             };
-
-            if ok.is_err() {
-                break;
-            }
-
-            let wait_result = unsafe { WaitForSingleObject(h_event, 2000) };
-            if wait_result.0 != 0 {
-                continue;
-            }
-
-            unsafe {
-                let _ = GetOverlappedResult(h_dir, &overlapped, &mut bytes_returned, BOOL::from(false));
-            }
-
-            if bytes_returned == 0 {
-                continue;
-            }
-
-            let now_secs = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-
-            let mut offset: usize = 0;
-            let folder_str = dir.to_string_lossy().to_string();
-            let buf_end = bytes_returned as usize;
-
-            while offset + 12 <= buf_end {
-                let info = unsafe {
-                    &*(buffer.as_ptr().add(offset) as *const FILE_NOTIFY_INFORMATION)
-                };
-                let name_len = info.FileNameLength as usize;
-                // FileName starts at byte 12 (after NextEntryOffset + Action + FileNameLength)
-                let name_byte_offset = offset + 12;
-                if name_byte_offset + name_len > buf_end {
-                    break;
-                }
-                let name_bytes = unsafe {
-                    std::slice::from_raw_parts(
-                        buffer.as_ptr().add(name_byte_offset),
-                        name_len,
-                    )
-                };
-                let name = String::from_utf16_lossy(
-                    name_bytes
-                        .as_chunks::<2>()
-                        .0
-                        .iter()
-                        .map(|c| u16::from_le_bytes(*c))
-                        .collect::<Vec<_>>()
-                        .as_slice(),
-                );
-
-                let kind = if info.Action == FILE_ACTION_ADDED {
-                    FileEventKind::Added
-                } else if info.Action == FILE_ACTION_REMOVED {
-                    FileEventKind::Removed
-                } else if info.Action == FILE_ACTION_MODIFIED {
-                    FileEventKind::Modified
-                } else if info.Action == FILE_ACTION_RENAMED_OLD_NAME {
-                    FileEventKind::RenamedOldName
-                } else if info.Action == FILE_ACTION_RENAMED_NEW_NAME {
-                    FileEventKind::RenamedNewName
-                } else {
-                    FileEventKind::Modified
-                };
-
-                let ev = FileEvent {
-                    at_secs: now_secs,
-                    folder: folder_str.clone(),
-                    name,
-                    kind,
-                };
-
-                let alerts = engine.observe(ev);
-                for alert in alerts {
-                    let event = match &alert {
-                        CanaryAlert::CanaryTamper { folder, file, action, at_secs } => {
-                            CanaryAlertEvent {
-                                kind: "canary-tamper".into(),
-                                folder: folder.clone(),
-                                file: file.clone(),
-                                action: (*action).into(),
-                                at_secs: *at_secs,
-                                severity: alert.severity(),
-                            }
-                        }
-                        CanaryAlert::BurstEncryption { folder, distinct_files, window_secs, at_secs } => {
-                            CanaryAlertEvent {
-                                kind: "burst-encryption".into(),
-                                folder: folder.clone(),
-                                file: format!("{distinct_files} files in {window_secs}s"),
-                                action: "burst".into(),
-                                at_secs: *at_secs,
-                                severity: alert.severity(),
-                            }
-                        }
-                        CanaryAlert::ExtensionRewrite { folder, extension, renamed_count, at_secs } => {
-                            CanaryAlertEvent {
-                                kind: "extension-rewrite".into(),
-                                folder: folder.clone(),
-                                file: format!(".{extension}"),
-                                action: format!("{renamed_count} files renamed"),
-                                at_secs: *at_secs,
-                                severity: alert.severity(),
-                            }
-                        }
-                    };
-                    let _ = app.emit("canary-alert", &event);
-                }
-
-                if info.NextEntryOffset == 0 {
-                    break;
-                }
-                offset += info.NextEntryOffset as usize;
-            }
-        }
-
-        let _ = unsafe { CloseHandle(h_event) };
-        let _ = unsafe { CloseHandle(h_dir) };
-    });
-}
-
-#[cfg(not(windows))]
-fn spawn_dir_watcher(
-    _dir: PathBuf,
-    _app: AppHandle,
-    stop: Arc<AtomicBool>,
-    _alert_count: Arc<AtomicUsize>,
-) {
-    std::thread::spawn(move || {
-        while !stop.load(Ordering::Relaxed) {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-        }
+            let _ = app.emit("canary-alert", &event);
+        });
     });
 }
 
@@ -1425,7 +1596,7 @@ fn spawn_tripwire_poller(app: AppHandle, stop: Arc<AtomicBool>, _alert_count: Ar
         while !stop.load(Ordering::Relaxed) {
             #[cfg(windows)]
             {
-                let processes = enumerate_running_processes();
+                let processes = process_scan::enumerate_processes();
                 for p in &processes {
                     let name = std::path::Path::new(&p.exe_path)
                         .file_name()
@@ -1482,13 +1653,12 @@ mod overlay_fixture_tests {
         // 4. Check that pick_overlays flags the fake-overlay but not notepad
         let scored: Vec<(WindowDesc, SignatureStatus)> = candidates
             .iter()
-            .map(|(_, desc, sig)| (desc.clone(), sig.clone()))
+            .map(|(_, desc, sig)| (desc.clone(), *sig))
             .collect();
         let picks = overlay::pick_overlays(&scored);
 
         let overlay_name = bin.file_stem().unwrap().to_string_lossy().to_string();
         let mut found_overlay = false;
-        let mut found_notepad = false;
         for &idx in &picks {
             let (_, desc, _) = &candidates[idx];
             if desc.process_name().to_ascii_lowercase().contains(&overlay_name.to_ascii_lowercase()) {
@@ -1514,8 +1684,11 @@ mod overlay_fixture_tests {
         std::thread::sleep(std::time::Duration::from_millis(600));
         assert!(!is_window_alive(*hwnd_raw), "fake-overlay process still alive after close_overlay");
 
-        // 6. Kill notepad (cleanup)
+        // 6. Kill notepad (cleanup) and reap both children so the test
+        // leaves no zombies behind.
         let _ = notepad_proc.kill();
+        let _ = notepad_proc.wait();
+        let _ = overlay_proc.try_wait();
     }
 
     fn is_window_alive(hwnd_raw: isize) -> bool {

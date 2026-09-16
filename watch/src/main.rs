@@ -9,12 +9,13 @@ mod logger;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod trigger;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+mod self_update;
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod canary;
 
 use consent::{ConsentDecision, CONSENT_FILE_NAME};
 
 const POLL_INTERVAL_MS: u64 = 1500;
-const WATCHER_EXE_NAME: &str = "cure-watch.exe";
 const GUI_EXE_NAME: &str = "cure-gui.exe";
 
 fn main() {
@@ -94,8 +95,13 @@ fn prompt_enable() -> bool {
   \u{2022} It watches for newly inserted USB drives.\n\
   \u{2022} When a drive carrying a valid C.U.R.E trigger file is detected, it \
 auto-launches a one-click rescue scan from that drive.\n\
+  \u{2022} It also runs the experimental canary guard: it plants small decoy \
+files (~cure-canary-*) in Desktop/Documents/Downloads, watches those folders \
+for mass-encryption behaviour, and polls running processes for known \
+shadow-copy-wiping tools. Alerts go to the watcher log; nothing is \
+quarantined or killed automatically.\n\
   \u{2022} Nothing is scanned, launched or changed until such a trigger drive \
-is inserted.\n\n\
+is inserted (except the decoy files above, once enabled).\n\n\
 Enable background watching? (Yes = enable and start on login; No = decline, \
 nothing gets installed)";
 
@@ -158,15 +164,10 @@ fn start_watching() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(target_os = "windows")]
-fn startup_dir() -> Option<std::path::PathBuf> {
-    std::env::var_os("APPDATA").map(|appdata| {
-        std::path::PathBuf::from(appdata).join(r"Microsoft\Windows\Start Menu\Programs\Startup")
-    })
-}
-
-#[cfg(target_os = "windows")]
 fn self_install() -> Result<(), Box<dyn std::error::Error>> {
-    let Some(startup) = startup_dir() else {
+    use self_update::InstallDecision;
+
+    let Some(startup) = self_update::startup_dir() else {
         println!("APPDATA not set; skipping self-install (portable mode)");
         logger::log(
             "install",
@@ -175,24 +176,58 @@ fn self_install() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     };
     std::fs::create_dir_all(&startup)?;
-    let dest = startup.join(WATCHER_EXE_NAME);
-    if dest.exists() {
-        logger::log(
-            "install",
-            &format!("already installed at {}", dest.display()),
-        );
-        return Ok(());
-    }
+    let dest = startup.join(self_update::WATCHER_EXE_NAME);
     let exe = std::env::current_exe()?;
-    if exe.canonicalize()? == dest {
+    if self_update::is_running_from(&exe, &dest) {
+        // Already running from the installed copy — nothing to install.
         return Ok(());
     }
-    std::fs::copy(&exe, &dest)?;
-    println!("installed watcher to {}", dest.display());
-    logger::log(
-        "install",
-        &format!("installed watcher to {}", dest.display()),
-    );
+    // Compare bytes so a stale copy from an older release gets refreshed,
+    // while an identical copy is never needlessly rewritten.
+    let current = std::fs::read(&exe)?;
+    let installed = std::fs::read(&dest).ok();
+    match self_update::decide(installed.as_deref(), &current) {
+        InstallDecision::FreshInstall => {
+            std::fs::copy(&exe, &dest)?;
+            println!("installed watcher to {}", dest.display());
+            logger::log(
+                "install",
+                &format!("installed watcher to {}", dest.display()),
+            );
+        }
+        InstallDecision::UpToDate => {
+            logger::log(
+                "install",
+                &format!(
+                    "installed copy already up to date at {}",
+                    dest.display()
+                ),
+            );
+        }
+        InstallDecision::UpdateAvailable => {
+            match self_update::replace(&dest, &exe) {
+                Ok(()) => {
+                    println!("updated installed watcher at {}", dest.display());
+                    logger::log(
+                        "install",
+                        &format!("updated stale watcher at {}", dest.display()),
+                    );
+                }
+                Err(err) => {
+                    // Never destructive: the old copy stays in place and this
+                    // process keeps watching with its own (newer) code.
+                    // Typical cause: another watcher instance running from it.
+                    logger::log(
+                        "install",
+                        &format!(
+                            "deferred update of {} ({err}); old copy left intact",
+                            dest.display()
+                        ),
+                    );
+                }
+            }
+        }
+    }
     Ok(())
 }
 

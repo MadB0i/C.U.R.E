@@ -66,6 +66,7 @@ mod tests {
     fn scored(entry: PersistenceEntry, score: i32) -> ScoredEntry {
         ScoredEntry {
             risk: crate::risk::risk_level(score),
+            attack: crate::risk::attack_info_for(&entry.source),
             entry,
             score,
             reasons: vec![],

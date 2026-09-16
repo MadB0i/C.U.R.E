@@ -533,4 +533,73 @@ mod tests {
         assert!(!cure_core_boring_ext("lockbit"));
         assert!(crate::ransom_detect::is_boring_extension("JPEG"));
     }
+
+    // ---- Phase V2.1 false-positive / lifecycle review ----
+
+    #[test]
+    fn legit_save_storm_on_one_file_stays_quiet() {
+        // An editor auto-saving the same document 50× in a minute is
+        // normal. Burst counts DISTINCT files, so this must not alert.
+        let mut e = eng();
+        let evs: Vec<FileEvent> = (0..50)
+            .map(|i| ev(i, r"C:\Docs", "thesis.docx", FileEventKind::Modified))
+            .collect();
+        assert!(feed(&mut e, evs).is_empty());
+    }
+
+    #[test]
+    fn legit_build_storm_does_fire_burst_documented_fp() {
+        // 20 DISTINCT fresh binaries in 20 s trips the burst heuristic even
+        // though a compiler did it. This is a KNOWN false-positive tradeoff:
+        // bulk-encryption looks identical at the filesystem layer. The
+        // cooldown (120 s) bounds repeat alerts; decoy tamper remains the
+        // primary signal. Locked in so any threshold change is deliberate.
+        let mut e = eng();
+        let evs: Vec<FileEvent> = (0..20)
+            .map(|i| ev(i, r"C:\Docs", &format!("obj{i}.bin"), FileEventKind::Added))
+            .collect();
+        assert_eq!(feed(&mut e, evs).len(), 1);
+    }
+
+    #[test]
+    fn mass_rename_across_extensions_stays_quiet() {
+        // Organizing photos (renamed onto DIFFERENT extensions) must not
+        // trip the rewrite detector: it needs ≥5 renames onto the SAME
+        // uncommon extension. Kept to 3 renames (6 distinct names) so the
+        // burst detector (≥8 distinct files) legitimately stays out of it —
+        // larger rename storms DO alert via burst (same documented tradeoff
+        // as build output).
+        let mut e = eng();
+        let exts = ["jpg", "png", "mp4"];
+        let evs: Vec<FileEvent> = (0..3)
+            .flat_map(|i| {
+                let mut v = Vec::new();
+                v.push(ev(i as u64, r"C:\Pics", &format!("old{i}.tmp"), FileEventKind::RenamedOldName));
+                v.push(ev(
+                    i as u64,
+                    r"C:\Pics",
+                    &format!("new{i}.{}", exts[i % exts.len()]),
+                    FileEventKind::RenamedNewName,
+                ));
+                v
+            })
+            .collect();
+        assert!(feed(&mut e, evs).is_empty());
+    }
+
+    #[test]
+    fn restart_starts_with_clean_state() {
+        // The engine is intentionally in-memory: a watcher restart forgets
+        // old events AND old cooldowns. A fresh engine seeing one leftover
+        // event must not alert; only new activity re-arms it.
+        let mut e1 = eng();
+        let storm: Vec<FileEvent> = (0..8)
+            .map(|i| ev(i, r"C:\Docs", &format!("f{i}.txt"), FileEventKind::Modified))
+            .collect();
+        assert_eq!(feed(&mut e1, storm).len(), 1);
+        // "Restart": brand-new engine, one stale event replayed.
+        let mut e2 = eng();
+        let stale = vec![ev(1000, r"C:\Docs", "f0.txt", FileEventKind::Modified)];
+        assert!(feed(&mut e2, stale).is_empty());
+    }
 }

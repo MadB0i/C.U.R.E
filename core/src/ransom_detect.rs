@@ -80,6 +80,35 @@ pub struct DirEntry {
     pub age_days: u64,
 }
 
+/// Read one directory level into [`DirEntry`]s (names + mtime ages).
+/// Unreadable directories yield an empty vec — callers treat that as
+/// "not checked", never as "clean".
+pub fn read_dir_entries(folder: &Path) -> Vec<DirEntry> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    std::fs::read_dir(folder)
+        .ok()
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .map(|e| {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    let age_days = e
+                        .metadata()
+                        .ok()
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                        .map(|d| now.saturating_sub(d.as_secs()) / 86_400)
+                        .unwrap_or(0);
+                    DirEntry { name, age_days }
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// A suspected ransom note found on disk.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RansomNote {

@@ -10,6 +10,8 @@ path = "src/main.rs"
 
 [dependencies]
 cure_core = { path = "../core" }
+cure_dirwatch = { path = "../winwatch" }
+serde_json = "1"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

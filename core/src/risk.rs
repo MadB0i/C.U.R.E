@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::model::{PersistenceEntry, RiskLevel, ScoredEntry};
+use crate::model::{AttackInfo, PersistenceEntry, PersistenceSource, RiskLevel, ScoredEntry};
 use crate::signature::SignatureStatus;
 
 const SIGNED_DISCOUNT: i32 = 40;
@@ -29,8 +29,7 @@ pub fn extract_program_path(command: &str) -> &str {
     trimmed.split_whitespace().next().unwrap_or(trimmed)
 }
 
-pub fn looks_randomized(name: &str) -> bool {
-    let stem = name.split('.').next().unwrap_or(name);
+pub fn looks_randomized(name: &str) -> bool {    let stem = name.split('.').next().unwrap_or(name);
     let compact: Vec<char> = stem.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
     let len = compact.len();
     if len < 6 {
@@ -52,8 +51,19 @@ pub fn looks_randomized(name: &str) -> bool {
     false
 }
 
-pub fn risk_level(score: i32) -> RiskLevel {
-    if score >= 40 {
+/// True for a bare `{XXXXXXXX-...}` class ID with nothing else — the shape
+/// of a COM TreatAs target. Such strings are identifiers, not programs.
+fn is_bare_guid(text: &str) -> bool {
+    let t = text.trim();
+    let inner = t.strip_prefix('{').and_then(|s| s.strip_suffix('}')).unwrap_or(t);
+    inner.len() == 36
+        && inner.chars().filter(|c| *c == '-').count() == 4
+        && inner
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() || c == '-')
+}
+
+pub fn risk_level(score: i32) -> RiskLevel {    if score >= 40 {
         RiskLevel::HighRisk
     } else if score >= 15 {
         RiskLevel::Suspicious
@@ -111,9 +121,17 @@ pub fn score_with_signals(
         reasons.push("-20 command path is a trusted install location (Program Files/System32)".to_string());
     }
 
-    if looks_randomized(&entry.name) {
+    if looks_randomized(&entry.name) && entry.source != PersistenceSource::ComHijack {
+        // COM finding names are CLSID GUIDs by construction — every one of
+        // them "looks random", so the heuristic must not fire there.
         score += 25;
         reasons.push("+25 entry name looks randomly generated".to_string());
+    }
+
+    // COM TreatAs redirections point at another class GUID, not a path:
+    // evidence only, never scored (a bare GUID is not a program).
+    if entry.source == PersistenceSource::ComHijack && is_bare_guid(&entry.command) {
+        reasons.push("COM class redirection target (TreatAs)".to_string());
     }
 
     let sneaky_powershell = command_norm.contains("powershell")
@@ -157,6 +175,7 @@ pub fn score_with_signals(
         score: score.max(0),
         risk: RiskLevel::Safe,
         reasons,
+        attack: attack_info_for(&entry.source),
     };
     scored.risk = risk_level(scored.score);
 
@@ -173,6 +192,116 @@ pub fn score_with_signals(
 
 fn normalize(text: &str) -> String {
     text.trim().to_ascii_lowercase().replace('\\', "/")
+}
+
+// ---------------------------------------------------------------------------
+// Service scoring (Detection Engine v2, same weights as persistence).
+//
+// Heuristic signals reuse the generic vocabulary so GUI chips keep working;
+// service-specific evidence (start type, account, state, missing image) is
+// appended AFTER scored signals so chips show verdicts first.
+// Thresholds are identical: HighRisk ≥ 40, Suspicious ≥ 15.
+// ---------------------------------------------------------------------------
+
+/// True when a service image deserves the full IOC hash lookup: it resolved
+/// to a real file OUTSIDE the trusted install locations. Trusted-location
+/// binaries skip hashing (perf: hashing every system service binary per
+/// scan is pure cost; the signature verdict still applies).
+pub fn service_needs_hash(image_path: &str, exe: Option<&std::path::Path>) -> bool {
+    if exe.is_none() {
+        return false;
+    }
+    let norm = normalize(image_path);
+    !TRUSTED_TOKENS.iter().any(|t| norm.contains(t))
+}
+
+pub fn score_service(
+    record: &crate::scanners::services::ServiceRecord,
+    image_missing: bool,
+    signature: SignatureStatus,
+    hash_match: Option<&str>,
+) -> ScoredEntry {
+    let mut score: i32 = 0;
+    let mut reasons: Vec<String> = Vec::new();
+
+    let image_norm = normalize(&record.image_path);
+    let drop_zone = DROP_ZONE_TOKENS.iter().any(|t| image_norm.contains(t));
+    let trusted = TRUSTED_TOKENS.iter().any(|t| image_norm.contains(t));
+
+    if image_missing {
+        score += 30;
+        reasons.push(
+            "+30 service image is missing from disk (hollowed, removed, or typo-squat path)"
+                .to_string(),
+        );
+    }
+    if drop_zone {
+        score += 30;
+        reasons.push("+30 service image sits in a temp/downloads/public drop zone".to_string());
+    }
+    if trusted {
+        score -= 20;
+        reasons.push("-20 service image is a trusted install location (Program Files/System32)".to_string());
+    }
+
+    let sneaky_powershell = image_norm.contains("powershell")
+        && SNEAKY_POWERSHELL_TOKENS.iter().any(|t| image_norm.contains(t));
+    if sneaky_powershell {
+        score += 25;
+        reasons.push("+25 service command line hides PowerShell (encoded or hidden window)".to_string());
+    }
+
+    match signature {
+        SignatureStatus::ValidSigned => {
+            reasons.push(format!("-{SIGNED_DISCOUNT} Valid Signature"));
+            score -= SIGNED_DISCOUNT;
+        }
+        SignatureStatus::Invalid => {
+            reasons.push(format!("+{INVALID_SIGNATURE_PENALTY} Invalid Signature"));
+            score += INVALID_SIGNATURE_PENALTY;
+        }
+        SignatureStatus::Unsigned if score > 0 => {
+            reasons.push(format!("+{UNSIGNED_WITH_WARNINGS_PENALTY} Unsigned Binary"));
+            score += UNSIGNED_WITH_WARNINGS_PENALTY;
+        }
+        SignatureStatus::Unsigned | SignatureStatus::Unknown => {}
+    }
+
+    // Evidence last (chips show the first rows): start type, account, state.
+    reasons.push(format!("service starts {}", record.start_type.label()));
+    if !record.account.is_empty() {
+        reasons.push(format!("runs as {}", record.account));
+    }
+    if !record.state.is_empty() {
+        reasons.push(format!("state at scan: {}", record.state));
+    }
+
+    let mut scored = ScoredEntry {
+        entry: record.entry.clone(),
+        score: score.max(0),
+        risk: RiskLevel::Safe,
+        reasons,
+        attack: attack_info_for(&record.entry.source),
+    };
+    scored.risk = risk_level(scored.score);
+
+    if hash_match.is_some() {
+        scored.reasons.push("Known Malware Hash".to_string());
+        scored.risk = RiskLevel::HighRisk;
+    }
+    scored
+}
+
+/// ATT&CK reference for a finding's source — the single source of truth
+/// (frontend maps are fallback-only for stale payloads).
+pub fn attack_info_for(source: &PersistenceSource) -> AttackInfo {
+    match crate::attack::technique_for(source) {
+        Some(t) => AttackInfo {
+            id: t.id.to_string(),
+            name: t.name.to_string(),
+        },
+        None => AttackInfo::none(),
+    }
 }
 
 #[cfg(test)]
@@ -456,5 +585,113 @@ mod tests {
         assert_eq!(risk_level(15), RiskLevel::Suspicious);
         assert_eq!(risk_level(39), RiskLevel::Suspicious);
         assert_eq!(risk_level(40), RiskLevel::HighRisk);
+    }
+
+    // ---- service scoring (synthetic fixtures, injected signals) ----
+
+    #[test]
+    fn safe_service_stays_safe() {
+        let record = crate::fixtures::safe_service_record();
+        let scored = score_service(&record, false, SignatureStatus::ValidSigned, None);
+        assert_eq!(scored.risk, RiskLevel::Safe);
+        assert_eq!(scored.attack.id, "T1543.003");
+        assert!(scored.reasons.iter().any(|r| r.contains("Valid Signature")));
+        // Evidence rows exist but carry no score.
+        assert!(scored.reasons.iter().any(|r| r.contains("Automatic")));
+        assert!(scored.reasons.iter().any(|r| r.contains("LocalSystem")));
+    }
+
+    #[test]
+    fn dropzone_service_without_signature_is_suspicious() {
+        let mut record = crate::fixtures::review_service_record();
+        record.image_path = r"C:\Users\CURE-SYNTH\AppData\Local\Temp\CURE-SYNTH-agent.exe --service".to_string();
+        let scored = score_service(&record, false, SignatureStatus::Unknown, None);
+        assert_eq!(scored.risk, RiskLevel::Suspicious);
+        assert!(scored.score >= 15 && scored.score < 40);
+    }
+
+    #[test]
+    fn missing_service_image_is_strong_evidence() {
+        let record = crate::fixtures::high_missing_service_record();
+        let scored = score_service(&record, true, SignatureStatus::Unknown, None);
+        assert!(scored.score >= 30);
+        assert!(scored.reasons.iter().any(|r| r.contains("missing from disk")));
+    }
+
+    #[test]
+    fn invalid_signature_forces_high_risk_service() {
+        // Non-trusted image: +40 invalid with no trusted discount.
+        let mut record = crate::fixtures::review_service_record();
+        record.image_path = r"C:\cure-synth\svc\CURE-SYNTH-agent.exe --service".to_string();
+        let scored = score_service(&record, false, SignatureStatus::Invalid, None);
+        assert_eq!(scored.risk, RiskLevel::HighRisk);
+    }
+
+    #[test]
+    fn known_hash_forces_high_risk_service() {
+        let record = crate::fixtures::safe_service_record();
+        let scored = score_service(&record, false, SignatureStatus::ValidSigned, Some("synthetic fixture"));
+        assert_eq!(scored.risk, RiskLevel::HighRisk);
+        assert!(scored.reasons.iter().any(|r| r.contains("Known Malware Hash")));
+    }
+
+    #[test]
+    fn hash_lookup_bounded_to_untrusted_images() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("svc.exe");
+        std::fs::write(&exe, b"MZ").unwrap();
+        assert!(!service_needs_hash(r"C:\Windows\System32\svc.exe", Some(&exe)));
+        assert!(service_needs_hash(r"C:\cure-synth\Temp\svc.exe", Some(&exe)));
+        assert!(!service_needs_hash(r"C:\cure-synth\Temp\svc.exe", None));
+    }
+
+    #[test]
+    fn com_guid_names_do_not_earn_random_points() {
+        let entry = PersistenceEntry::new(
+            PersistenceSource::ComHijack,
+            "{0003000A-0000-0000-C000-000000000046} InprocServer32",
+            r"C:\Windows\System32\ole32.dll",
+            r"HKCU\Software\Classes\CLSID\{0003000A-0000-0000-C000-000000000046}\InprocServer32",
+        );
+        let scored = score_with_signals(&entry, SignatureStatus::Unknown, None);
+        assert!(
+            !scored.reasons.iter().any(|r| r.contains("randomly generated")),
+            "CLSID names must not earn random-name points: {scored:?}"
+        );
+    }
+
+    #[test]
+    fn treat_as_targets_are_evidence_not_programs() {
+        assert!(is_bare_guid("{D3E34B21-9D75-101A-8C3D-00AA001A1652}"));
+        assert!(!is_bare_guid(r"C:\Windows\System32\ole32.dll"));
+        assert!(!is_bare_guid(""));
+        let entry = PersistenceEntry::new(
+            PersistenceSource::ComHijack,
+            "{0003000A-0000-0000-C000-000000000046} TreatAs",
+            "{D3E34B21-9D75-101A-8C3D-00AA001A1652}",
+            r"HKCU\Software\Classes\CLSID\{0003000A-0000-0000-C000-000000000046}\TreatAs",
+        );
+        let scored = score_with_signals(&entry, SignatureStatus::Unknown, None);
+        assert_eq!(scored.risk, RiskLevel::Safe);
+        assert!(scored.reasons.iter().any(|r| r.contains("TreatAs")));
+    }
+
+    #[test]
+    fn attack_info_covers_every_source() {
+        use crate::model::PersistenceSource::*;
+        for source in [
+            RegistryRun,
+            StartupFolder,
+            ScheduledTask,
+            WindowsService,
+            WmiSubscription,
+            IfeoDebugger,
+            AppInitDlls,
+            ComHijack,
+        ] {
+            let info = attack_info_for(&source);
+            assert!(!info.id.is_empty(), "missing ATT&CK id for {source:?}");
+            assert!(!info.name.is_empty(), "missing ATT&CK name for {source:?}");
+        }
     }
 }

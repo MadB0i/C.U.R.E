@@ -172,6 +172,142 @@ pub fn pick_suspicious_processes(
         .collect()
 }
 
+// ── live enumeration (Windows OS glue; read-only snapshots) ─────────────
+// Moved here from the GUI crate so the CLI report shares the exact same
+// enumeration. Pure scoring stays above; everything below only DESCRIBES
+// running processes.
+
+/// Snapshot all running processes with resolved exe paths and visible-
+/// window marking. Read-only; never touches the processes themselves.
+/// Non-Windows builds return an empty vec.
+#[cfg(windows)]
+pub fn enumerate_processes() -> Vec<ProcessInfo> {
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    let mut results = Vec::new();
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    let Ok(snapshot) = snapshot else { return results };
+
+    let mut entry = PROCESSENTRY32W {
+        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+        ..unsafe { std::mem::zeroed() }
+    };
+
+    if unsafe { Process32FirstW(snapshot, &mut entry) }.is_err() {
+        let _ = unsafe { windows::Win32::Foundation::CloseHandle(snapshot) };
+        return results;
+    }
+
+    loop {
+        let pid = entry.th32ProcessID;
+        let exe_wide: Vec<u16> = entry
+            .szExeFile
+            .iter()
+            .take_while(|&&c| c != 0)
+            .copied()
+            .collect();
+        let name = String::from_utf16_lossy(&exe_wide);
+
+        // Resolve full exe path for scoring
+        let mut exe_path = String::new();
+        unsafe {
+            if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+                let mut buf = [0u16; 1024];
+                let mut size = buf.len() as u32;
+                if QueryFullProcessImageNameW(
+                    handle,
+                    PROCESS_NAME_WIN32,
+                    windows::core::PWSTR(buf.as_mut_ptr()),
+                    &mut size,
+                )
+                .is_ok()
+                {
+                    exe_path = String::from_utf16_lossy(&buf[..size as usize]).to_string();
+                }
+                let _ = windows::Win32::Foundation::CloseHandle(handle);
+            }
+        }
+
+        let lowered = exe_path.to_ascii_lowercase();
+        let from_user_profile =
+            lowered.contains("appdata") || lowered.contains("users");
+
+        results.push(ProcessInfo {
+            name,
+            pid,
+            exe_path,
+            has_visible_window: false,
+            from_user_profile,
+        });
+
+        if unsafe { Process32NextW(snapshot, &mut entry) }.is_err() {
+            break;
+        }
+    }
+
+    let _ = unsafe { windows::Win32::Foundation::CloseHandle(snapshot) };
+
+    // Mark processes that own a visible window.
+    mark_visible_processes(&mut results);
+
+    results
+}
+
+#[cfg(not(windows))]
+pub fn enumerate_processes() -> Vec<ProcessInfo> {
+    Vec::new()
+}
+
+/// Cross-reference a process list against visible top-level windows.
+/// Windows-only; no-op elsewhere.
+#[cfg(windows)]
+pub fn mark_visible_processes(processes: &mut [ProcessInfo]) {
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindowThreadProcessId, IsWindowVisible,
+    };
+
+    let mut visible_pids: std::collections::HashSet<u32> = std::collections::HashSet::new();
+
+    unsafe extern "system" fn collect_visible(
+        hwnd: HWND,
+        lparam: LPARAM,
+    ) -> windows::Win32::Foundation::BOOL {
+        unsafe {
+            if IsWindowVisible(hwnd).as_bool() {
+                let set = &mut *(lparam.0 as *mut std::collections::HashSet<u32>);
+                let mut pid = 0u32;
+                GetWindowThreadProcessId(hwnd, Some(&mut pid));
+                if pid != 0 {
+                    set.insert(pid);
+                }
+            }
+        }
+        true.into()
+    }
+
+    let set_ptr = &mut visible_pids as *mut _ as isize;
+    unsafe {
+        let _ = EnumWindows(Some(collect_visible), LPARAM(set_ptr));
+    }
+
+    for p in processes.iter_mut() {
+        if visible_pids.contains(&p.pid) {
+            p.has_visible_window = true;
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub fn mark_visible_processes(_processes: &mut [ProcessInfo]) {}
+
 // ── tests ─────────────────────────────────────────────────────────────
 
 #[cfg(test)]
