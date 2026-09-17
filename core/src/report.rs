@@ -12,7 +12,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::hash_intel::ThreatIntelProvider;
-use crate::model::{RiskLevel, ScoredEntry};use crate::process_scan::{ProcessInfo, ProcessScore};
+use crate::model::{RiskLevel, ScoredEntry};
+use crate::process_scan::{ProcessInfo, ProcessScore};
 use crate::ransom_detect::RansomFinding;
 
 pub const CURE_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -25,16 +26,25 @@ pub fn utc_stamp() -> String {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CoverageState {
     Checked,
+    /// Enumerated with skips (e.g. unreadable task files).
+    Partial {
+        skipped: usize,
+    },
     NotChecked,
     Unavailable,
+    CheckFailed,
+    AccessDenied,
 }
 
 impl CoverageState {
     pub fn label(&self) -> &'static str {
         match self {
             Self::Checked => "checked",
+            Self::Partial { .. } => "partial",
             Self::NotChecked => "not checked",
             Self::Unavailable => "unavailable",
+            Self::CheckFailed => "check failed",
+            Self::AccessDenied => "access denied",
         }
     }
 }
@@ -48,13 +58,55 @@ pub struct CoverageRow {
 
 impl CoverageRow {
     pub fn checked(area: impl Into<String>, detail: impl Into<String>) -> Self {
-        Self { area: area.into(), state: CoverageState::Checked, detail: detail.into() }
+        Self {
+            area: area.into(),
+            state: CoverageState::Checked,
+            detail: detail.into(),
+        }
     }
     pub fn not_checked(area: impl Into<String>, reason: impl Into<String>) -> Self {
-        Self { area: area.into(), state: CoverageState::NotChecked, detail: reason.into() }
+        Self {
+            area: area.into(),
+            state: CoverageState::NotChecked,
+            detail: reason.into(),
+        }
     }
     pub fn unavailable(area: impl Into<String>, reason: impl Into<String>) -> Self {
-        Self { area: area.into(), state: CoverageState::Unavailable, detail: reason.into() }
+        Self {
+            area: area.into(),
+            state: CoverageState::Unavailable,
+            detail: reason.into(),
+        }
+    }
+}
+
+/// Coverage row from a scanner access state. Non-OK states surface the
+/// scanner's own reason so a failed check never renders as a clean zero.
+/// Shared by the CLI report, GUI export, and scan summary.
+pub fn source_state_row(
+    area: &str,
+    status: &crate::elevation::SourceStatus,
+    ok_detail: String,
+) -> CoverageRow {
+    use crate::elevation::SourceStatus;
+    let state = match status {
+        SourceStatus::Available => CoverageState::Checked,
+        SourceStatus::Partial { skipped, .. } => CoverageState::Partial { skipped: *skipped },
+        SourceStatus::Unavailable { .. } => CoverageState::Unavailable,
+        SourceStatus::CheckFailed { .. } => CoverageState::CheckFailed,
+        SourceStatus::AccessDenied { .. } => CoverageState::AccessDenied,
+    };
+    let detail = match status {
+        SourceStatus::Available => ok_detail,
+        SourceStatus::Partial { reason, .. } => format!("{ok_detail} ({reason})"),
+        SourceStatus::Unavailable { reason }
+        | SourceStatus::CheckFailed { reason }
+        | SourceStatus::AccessDenied { reason } => reason.clone(),
+    };
+    CoverageRow {
+        area: area.to_string(),
+        state,
+        detail,
     }
 }
 
@@ -91,6 +143,110 @@ pub struct Report {
     pub safe_processes: usize,
     pub intel_provider: String,
     pub redacted: bool,
+    /// Present only in incident exports (`cure incident` / incident view).
+    pub incident: Option<IncidentReport>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IncidentCorrelationRow {
+    pub pid: u32,
+    pub process: String,
+    pub finding: String,
+    pub source: String,
+    pub level: String,
+    pub evidence: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IncidentTimelineRow {
+    pub t_ms: u64,
+    pub wall_time: String,
+    pub kind: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IncidentReport {
+    pub investigation_id: String,
+    pub started_at: String,
+    pub duration_secs: u64,
+    pub elevated: bool,
+    pub verdict: String,
+    pub verdict_explanation: String,
+    pub process_observation: String,
+    pub window_observation: String,
+    pub process_count: usize,
+    pub window_count: usize,
+    pub transient_count: usize,
+    pub correlations: Vec<IncidentCorrelationRow>,
+    pub timeline: Vec<IncidentTimelineRow>,
+}
+
+/// Build the exportable incident section from an observation result,
+/// applying redaction to paths, titles, and command lines when asked.
+/// Redaction is about machine identity — correlation structure stays.
+pub fn incident_section(
+    result: &crate::incident::ObservationResult,
+    redact: bool,
+) -> IncidentReport {
+    incident_section_with_identity(
+        result,
+        redact,
+        home_dir().as_deref(),
+        &std::env::var("USERNAME").unwrap_or_default(),
+    )
+}
+
+/// Same as [`incident_section`] with an explicit identity (tests use a
+/// synthetic one; production passes the process environment).
+pub fn incident_section_with_identity(
+    result: &crate::incident::ObservationResult,
+    redact: bool,
+    home: Option<&std::path::Path>,
+    username: &str,
+) -> IncidentReport {
+    let redact_it = |s: &str| {
+        if redact {
+            redact_text(s, home, username)
+        } else {
+            s.to_string()
+        }
+    };
+    IncidentReport {
+        investigation_id: result.investigation_id.clone(),
+        started_at: result.started_at.clone(),
+        duration_secs: result.duration_secs,
+        elevated: result.elevated,
+        verdict: result.verdict.label().to_string(),
+        verdict_explanation: result.verdict.explanation().to_string(),
+        process_observation: format!("{:?}", result.process_observation),
+        window_observation: format!("{:?}", result.window_observation),
+        process_count: result.processes.len(),
+        window_count: result.windows.len(),
+        transient_count: result.windows.iter().filter(|w| w.is_transient()).count(),
+        correlations: result
+            .correlations
+            .iter()
+            .map(|c| IncidentCorrelationRow {
+                pid: c.process_pid,
+                process: redact_it(&c.process_name),
+                finding: redact_it(&c.finding_name),
+                source: c.finding_source.clone(),
+                level: c.level.label().to_string(),
+                evidence: c.evidence.iter().map(|e| redact_it(e)).collect(),
+            })
+            .collect(),
+        timeline: result
+            .timeline
+            .iter()
+            .map(|e| IncidentTimelineRow {
+                t_ms: e.t_ms,
+                wall_time: e.wall_time.clone(),
+                kind: format!("{:?}", e.kind),
+                text: redact_it(&e.text),
+            })
+            .collect(),
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -121,11 +277,27 @@ pub fn recommended_action_persistence(scored: &ScoredEntry) -> String {
 }
 
 pub fn assemble(input: ScanInput, coverage: Vec<CoverageRow>, opts: &ReportOptions) -> Report {
-    let home = home_dir();
-    let username = std::env::var("USERNAME").unwrap_or_default();
+    assemble_with_identity(
+        input,
+        coverage,
+        opts,
+        home_dir().as_deref(),
+        &std::env::var("USERNAME").unwrap_or_default(),
+    )
+}
+
+/// Same as [`assemble`] with an explicit identity (tests use a synthetic
+/// one; production passes the process environment).
+pub fn assemble_with_identity(
+    input: ScanInput,
+    coverage: Vec<CoverageRow>,
+    opts: &ReportOptions,
+    home: Option<&std::path::Path>,
+    username: &str,
+) -> Report {
     let redact = |s: &str| {
         if opts.redact {
-            redact_text(s, home.as_deref(), &username)
+            redact_text(s, home, username)
         } else {
             s.to_string()
         }
@@ -237,8 +409,11 @@ pub fn assemble(input: ScanInput, coverage: Vec<CoverageRow>, opts: &ReportOptio
         findings,
         safe_persistence,
         safe_processes,
-        intel_provider: crate::hash_intel::fixture_provider().provider_label().to_string(),
+        intel_provider: crate::hash_intel::fixture_provider()
+            .provider_label()
+            .to_string(),
         redacted: opts.redact,
+        incident: None,
     }
 }
 
@@ -293,8 +468,8 @@ pub fn windows_version() -> String {
     #[cfg(windows)]
     {
         let key_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
-        if let Ok(key) = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE)
-            .open_subkey(key_path)
+        if let Ok(key) =
+            winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE).open_subkey(key_path)
         {
             let product: String = key.get_value("ProductName").unwrap_or_default();
             let display: String = key.get_value("DisplayVersion").unwrap_or_default();
@@ -333,17 +508,26 @@ pub fn render_txt(report: &Report) -> String {
     out.push_str(&format!("platform  : {}\n", report.windows_version));
     out.push_str(&format!(
         "redacted  : {}\n",
-        if report.redacted { "yes (paths/user)" } else { "no" }
+        if report.redacted {
+            "yes (paths/user)"
+        } else {
+            "no"
+        }
     ));
     out.push_str(&format!("intel     : {}\n", report.intel_provider));
     out.push_str("\nCOVERAGE\n");
     for row in &report.coverage {
-        out.push_str(&format!(
-            "  [{}] {} — {}\n",
+        let mut line = format!(
+            "  [{}] {} — {}",
             row.state.label().to_uppercase(),
             row.area,
             row.detail
-        ));
+        );
+        if let CoverageState::Partial { skipped } = row.state {
+            line.push_str(&format!(" ({skipped} skipped)"));
+        }
+        out.push_str(&line);
+        out.push('\n');
     }
     out.push_str(&format!(
         "\nFINDINGS ({}, {} safe persistence + {} safe processes not listed)\n",
@@ -356,7 +540,13 @@ pub fn render_txt(report: &Report) -> String {
         out.push_str("  (Areas marked not checked / unavailable above were NOT assessed.)\n");
     }
     for (i, f) in report.findings.iter().enumerate() {
-        out.push_str(&format!("\n{}. [{}] {} ({})\n", i + 1, f.risk, f.name, f.kind));
+        out.push_str(&format!(
+            "\n{}. [{}] {} ({})\n",
+            i + 1,
+            f.risk,
+            f.name,
+            f.kind
+        ));
         out.push_str(&format!("   source   : {}\n", f.source));
         if !f.command.is_empty() {
             out.push_str(&format!("   command  : {}\n", f.command));
@@ -366,7 +556,10 @@ pub fn render_txt(report: &Report) -> String {
         }
         out.push_str(&format!("   score    : {}\n", f.score));
         if !f.attack_id.is_empty() {
-            out.push_str(&format!("   att&ck   : {} ({})\n", f.attack_id, f.attack_name));
+            out.push_str(&format!(
+                "   att&ck   : {} ({})\n",
+                f.attack_id, f.attack_name
+            ));
         }
         out.push_str(&format!("   signature: {}", f.signature));
         if let Some(publisher) = &f.publisher {
@@ -384,7 +577,49 @@ pub fn render_txt(report: &Report) -> String {
     out.push_str("\nLIMITATIONS\n");
     out.push_str("  Threat intel is demo fixture data, not a live feed.\n");
     out.push_str("  Canary Guard is an experimental tripwire, not ransomware protection.\n");
-    out.push_str("  Registry, services, WMI, IFEO, AppInit, and COM findings are never auto-remediated.\n");
+    out.push_str(
+        "  Registry, services, WMI, IFEO, AppInit, and COM findings are never auto-remediated.\n",
+    );
+    if let Some(incident) = &report.incident {
+        out.push_str("\nINCIDENT INVESTIGATION\n");
+        out.push_str(&format!("  id         : {}\n", incident.investigation_id));
+        out.push_str(&format!("  started    : {}\n", incident.started_at));
+        out.push_str(&format!("  observed   : {} s\n", incident.duration_secs));
+        out.push_str(&format!(
+            "  elevated   : {}\n",
+            if incident.elevated { "yes" } else { "no" }
+        ));
+        out.push_str(&format!("  verdict    : {}\n", incident.verdict));
+        out.push_str(&format!(
+            "  why        : {}\n",
+            incident.verdict_explanation
+        ));
+        out.push_str(&format!(
+            "  processes  : {} observed ({})\n",
+            incident.process_count, incident.process_observation
+        ));
+        out.push_str(&format!(
+            "  windows    : {} observed, {} transient ({})\n",
+            incident.window_count, incident.transient_count, incident.window_observation
+        ));
+        out.push_str("\n  CORRELATIONS\n");
+        if incident.correlations.is_empty() {
+            out.push_str("    none — no observed process relates to a startup finding.\n");
+        }
+        for c in &incident.correlations {
+            out.push_str(&format!(
+                "    [{}] {} (pid {}) ↔ {} ({})\n",
+                c.level, c.process, c.pid, c.finding, c.source
+            ));
+            for e in &c.evidence {
+                out.push_str(&format!("      · {e}\n"));
+            }
+        }
+        out.push_str("\n  TIMELINE\n");
+        for e in &incident.timeline {
+            out.push_str(&format!("    {} {}\n", e.wall_time, e.text));
+        }
+    }
     out
 }
 
@@ -408,6 +643,60 @@ mod tests {
         assert_eq!(redacted, r"C:\Windows\System32\svchost.exe");
     }
 
+    /// Grep-style regression: a redacted export saturated with fake
+    /// identity in EVERY finding field must leak nothing (case-insensitive)
+    /// in either format, while staying forensic (paths present, masked).
+    /// Uses the real assemble path with a synthetic identity — the same
+    /// wiring production uses with the process environment.
+    #[test]
+    fn redacted_export_leaks_no_identity_in_any_format() {
+        use crate::model::{PersistenceEntry, PersistenceSource};
+        let user = "CURE-SYNTH-USER";
+        let home = std::path::Path::new(r"C:\Users\CURE-SYNTH-USER");
+        let entry = PersistenceEntry::new(
+            PersistenceSource::StartupFolder,
+            format!("{user}-updater.lnk"),
+            format!(
+                r"{}\AppData\Local\Foo\updater.exe --user={}",
+                home.display(),
+                user
+            ),
+            format!(r"{}\AppData\Local\Foo\updater.exe", home.display()),
+        );
+        let scored = crate::risk::score_with_signals(
+            &entry,
+            crate::signature::SignatureStatus::Unsigned,
+            None,
+        );
+        let input = ScanInput {
+            persistence: vec![scored],
+            processes: vec![],
+            ransom: vec![],
+            canary_note: String::new(),
+        };
+        let report = assemble_with_identity(
+            input,
+            vec![CoverageRow::checked("Startup folder", "1 entry")],
+            &ReportOptions { redact: true },
+            Some(home),
+            user,
+        );
+        assert!(report.redacted);
+        for (label, body) in [("txt", render_txt(&report)), ("json", render_json(&report))] {
+            // Baseline sanity: the masked marker must be present, or the
+            // test proves nothing.
+            assert!(body.contains("%USERPROFILE%"), "{label} lost the path");
+            assert!(
+                !body
+                    .to_ascii_lowercase()
+                    .contains(&user.to_ascii_lowercase()),
+                "{label} export leaks identity"
+            );
+            // Reasons carry evidence text — also covered.
+            assert!(!body.contains("CURE-SYNTH-USER"));
+        }
+    }
+
     #[test]
     fn empty_report_renders_without_clean_claim() {
         let report = Report {
@@ -424,6 +713,7 @@ mod tests {
             safe_processes: 100,
             intel_provider: "DEMO".to_string(),
             redacted: false,
+            incident: None,
         };
         let txt = render_txt(&report);
         assert!(txt.contains("[CHECKED] Startup"));
@@ -446,9 +736,7 @@ mod tests {
             score: 0,
             risk: RiskLevel::Safe,
             reasons: vec![],
-            attack: crate::risk::attack_info_for(
-                &crate::model::PersistenceSource::StartupFolder,
-            ),
+            attack: crate::risk::attack_info_for(&crate::model::PersistenceSource::StartupFolder),
         };
         let input = ScanInput {
             persistence: vec![safe],

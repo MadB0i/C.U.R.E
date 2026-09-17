@@ -110,7 +110,9 @@ impl ThreatIntel {
     /// Check if a SHA-256 hash is a known IOC.
     pub fn check_sha256(&self, hash: &str) -> Option<&IocEntry> {
         let h = hash.to_lowercase();
-        self.entries.get(&h).filter(|e| e.ioc_type == IocType::Sha256)
+        self.entries
+            .get(&h)
+            .filter(|e| e.ioc_type == IocType::Sha256)
     }
 
     /// Check if an IP address is a known IOC.
@@ -122,7 +124,9 @@ impl ThreatIntel {
     /// Check if a domain is a known IOC.
     pub fn check_domain(&self, domain: &str) -> Option<&IocEntry> {
         let k = domain.to_lowercase();
-        self.entries.get(&k).filter(|e| e.ioc_type == IocType::Domain)
+        self.entries
+            .get(&k)
+            .filter(|e| e.ioc_type == IocType::Domain)
     }
 
     /// Check if a URL is a known IOC.
@@ -135,8 +139,7 @@ impl ThreatIntel {
     pub fn to_json(&self) -> Result<String, String> {
         let mut entries: Vec<&IocEntry> = self.entries.values().collect();
         entries.sort_by(|a, b| a.ioc.cmp(&b.ioc));
-        serde_json::to_string_pretty(&entries)
-            .map_err(|e| format!("failed to serialize IOCs: {e}"))
+        serde_json::to_string_pretty(&entries).map_err(|e| format!("failed to serialize IOCs: {e}"))
     }
 }
 
@@ -206,10 +209,7 @@ mod tests {
         let ti = ThreatIntel::from_json(&sample_json()).unwrap();
         let hash = "aabbccdd".repeat(8);
         assert!(ti.check_sha256(&hash).is_some());
-        assert_eq!(
-            ti.check_sha256(&hash).unwrap().description,
-            "demo hash"
-        );
+        assert_eq!(ti.check_sha256(&hash).unwrap().description, "demo hash");
     }
 
     #[test]
@@ -222,7 +222,9 @@ mod tests {
     #[test]
     fn check_sha256_miss() {
         let ti = ThreatIntel::from_json(&sample_json()).unwrap();
-        assert!(ti.check_sha256("0000000000000000000000000000000000000000000000000000000000000000").is_none());
+        assert!(ti
+            .check_sha256("0000000000000000000000000000000000000000000000000000000000000000")
+            .is_none());
     }
 
     #[test]

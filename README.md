@@ -4,7 +4,7 @@
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-edition%202021-e43716?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![Windows](https://img.shields.io/badge/OS-Windows%2010%2F11-0078d6?logo=windows&logoColor=white)](#)
-[![Tests](https://img.shields.io/badge/tests-226%20passing-2ea44f)](#)
+[![Tests](https://img.shields.io/badge/tests-268%20passing-2ea44f)](#)
 [![Tauri](https://img.shields.io/badge/UI-Tauri%20v2-24c8db?logo=tauri&logoColor=white)](https://tauri.app/)
 
 A portable, install-free Windows security toolkit that finds the most common
@@ -42,7 +42,7 @@ Requires only Windows 10/11 with WebView2 (preinstalled on modern systems).
 ### 2. Or build it
 ```bat
 cargo build --release        :: cure.exe + cure-watch.exe
-cargo test  --workspace      :: 225 tests, engine + watcher + dirwatch (+1 GUI fixture test)
+cargo test  --workspace      :: 267 tests, engine + watcher + dirwatch (+1 GUI fixture test)
 
 cd gui\src-tauri
 cargo build                  :: cure-gui.exe
@@ -68,6 +68,7 @@ inserted — zero-click.
 | **Ransomware Canary Guard** | Writes bait files in watched dirs; any edit/encrypt of a canary triggers an alert + tripwire |
 | **Process sweep** | Finds suspicious running processes (unsigned, drop-zone paths), lets you kill high-risk ones |
 | **Threat intel** | SHA-256 / IP / domain IOC matching + lookup against MITRE ATT&CK technique mapping (local fixture provider, clearly labeled demo data — no live feed, no network lookups) |
+| **Incident investigation** | Post-login observation (15–120 s): process/window activity correlated with startup findings (DIRECT/STRONG/PARTIAL/WEAK/NONE), timeline, transient-window panel, JSON/TXT export — observation only, no persistence installed |
 | **Report export** | Explicit JSON/TXT security report (`cure report`, Overview buttons): coverage states, findings with evidence/ATT&CK/signature/actions, optional redaction |
 | **Disk Cleanup** | Separate flow: temp files, browser caches, Recycle Bin, Windows.old, old installers (~GBs of reclaimable space) — explicit confirm only |
 | **0-click USB watch** | `cure-watch` polls for a trigger stick and brings the GUI to front automatically |
@@ -98,7 +99,7 @@ cure/
 |---|---|
 | Engine | Rust — WinReg, `windows` crate (WinTrust/Authenticode), walkdir, sha2 |
 | Desktop UI | Tauri v2 (WebView2), vanilla JS + Canvas |
-| Quality | 226 tests, `cargo clippy -- -D warnings`, CI on GitHub Actions, Playwright UI harness |
+| Quality | 268 tests, `cargo clippy -- -D warnings`, CI on GitHub Actions, Playwright UI harness |
 
 ## CLI usage
 
@@ -108,6 +109,7 @@ cure.exe diff --data-dir E:\cure-data          :: what changed since last scan
 cure.exe quarantine <id> --data-dir E:\cure-data
 cure.exe undo <id>       --data-dir E:\cure-data
 cure.exe report [--format json|txt] [--redact] --data-dir E:\cure-data
+cure.exe incident [--duration 15|30|60|120] [--format json|txt] --data-dir E:\cure-data
 
 cure.exe cleanup scan
 cure.exe cleanup run [--include-downloads] [--dism]

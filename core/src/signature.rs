@@ -143,8 +143,8 @@ mod imp {
     };
     use windows::Win32::Security::WinTrust::{
         WinVerifyTrust, DRIVER_ACTION_VERIFY, WINTRUST_ACTION_GENERIC_VERIFY_V2,
-        WINTRUST_CATALOG_INFO, WINTRUST_DATA, WINTRUST_DATA_0, WINTRUST_FILE_INFO,
-        WINTRUST_DATA_UNION_CHOICE, WTD_CHOICE_CATALOG, WTD_CHOICE_FILE, WTD_REVOKE_NONE,
+        WINTRUST_CATALOG_INFO, WINTRUST_DATA, WINTRUST_DATA_0, WINTRUST_DATA_UNION_CHOICE,
+        WINTRUST_FILE_INFO, WTD_CHOICE_CATALOG, WTD_CHOICE_FILE, WTD_REVOKE_NONE,
         WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE,
     };
 
@@ -284,9 +284,7 @@ mod imp {
             && !blob_bytes(&info.Subject).is_empty()
     }
 
-    fn name_of(
-        ctx: *const windows::Win32::Security::Cryptography::CERT_CONTEXT,
-    ) -> Option<String> {
+    fn name_of(ctx: *const windows::Win32::Security::Cryptography::CERT_CONTEXT) -> Option<String> {
         use windows::Win32::Security::Cryptography::{
             CertGetNameStringW, CERT_NAME_SIMPLE_DISPLAY_TYPE,
         };
@@ -395,8 +393,7 @@ mod imp {
             let catalog_path = wide_truncated(&info.wszCatalogFile);
 
             let mut catalog_info = WINTRUST_CATALOG_INFO {
-                cbStruct: u32::try_from(std::mem::size_of::<WINTRUST_CATALOG_INFO>())
-                    .unwrap_or(0),
+                cbStruct: u32::try_from(std::mem::size_of::<WINTRUST_CATALOG_INFO>()).unwrap_or(0),
                 dwCatalogVersion: 0,
                 pcwszCatalogFilePath: PCWSTR(catalog_path.as_ptr()),
                 pcwszMemberTag: PCWSTR(member_tag.as_ptr()),
@@ -511,11 +508,10 @@ mod imp {
         }
         match hr {
             // environmental problems: no verdict rather than "bad"
-            code
-                if code == CRYPT_E_FILE_ERROR
-                    || code == TRUST_E_PROVIDER_UNKNOWN
-                    || code == TRUST_E_ACTION_UNKNOWN
-                    || code == TRUST_E_SUBJECT_FORM_UNKNOWN =>
+            code if code == CRYPT_E_FILE_ERROR
+                || code == TRUST_E_PROVIDER_UNKNOWN
+                || code == TRUST_E_ACTION_UNKNOWN
+                || code == TRUST_E_SUBJECT_FORM_UNKNOWN =>
             {
                 SignatureStatus::Unknown
             }
@@ -537,7 +533,10 @@ mod tests {
         std::fs::write(&exe, b"MZ").unwrap();
 
         let cmd = format!(r#""{}" --flag value"#, exe.display());
-        assert_eq!(resolve_executable_path(&cmd).as_deref(), Some(exe.as_path()));
+        assert_eq!(
+            resolve_executable_path(&cmd).as_deref(),
+            Some(exe.as_path())
+        );
     }
 
     #[test]
@@ -547,7 +546,10 @@ mod tests {
         std::fs::write(&exe, b"MZ").unwrap();
 
         let cmd = format!("{} -silent", exe.display());
-        assert_eq!(resolve_executable_path(&cmd).as_deref(), Some(exe.as_path()));
+        assert_eq!(
+            resolve_executable_path(&cmd).as_deref(),
+            Some(exe.as_path())
+        );
     }
 
     #[test]
@@ -588,18 +590,17 @@ mod tests {
             return false;
         };
         let u16_at = |f: &mut std::fs::File, off: u64| -> Option<u16> {
-                f.seek(SeekFrom::Start(off)).ok()?;
-                let mut b = [0u8; 2];
-                f.read_exact(&mut b).ok()?;
-                Some(u16::from_le_bytes(b))
-            };
-        let u32_at =
-            |f: &mut std::fs::File, off: u64| -> Option<u32> {
-                f.seek(SeekFrom::Start(off)).ok()?;
-                let mut b = [0u8; 4];
-                f.read_exact(&mut b).ok()?;
-                Some(u32::from_le_bytes(b))
-            };
+            f.seek(SeekFrom::Start(off)).ok()?;
+            let mut b = [0u8; 2];
+            f.read_exact(&mut b).ok()?;
+            Some(u16::from_le_bytes(b))
+        };
+        let u32_at = |f: &mut std::fs::File, off: u64| -> Option<u32> {
+            f.seek(SeekFrom::Start(off)).ok()?;
+            let mut b = [0u8; 4];
+            f.read_exact(&mut b).ok()?;
+            Some(u32::from_le_bytes(b))
+        };
 
         let pe_off = match u32_at(&mut f, 0x3C) {
             Some(v) => v as u64,
@@ -689,6 +690,17 @@ mod tests {
         assert_eq!(check_signature(&ghost), SignatureStatus::Unknown);
     }
 
+    #[test]
+    fn directories_and_empty_paths_are_unknown() {
+        // WinTrust cannot verify a directory (or nothing) — Unknown, never
+        // a risk signal in either direction.
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(check_signature(dir.path()), SignatureStatus::Unknown);
+        let detail = signature_detail(dir.path());
+        assert_eq!(detail.status, SignatureStatus::Unknown);
+        assert_eq!(detail.publisher, None);
+    }
+
     #[cfg(windows)]
     #[test]
     fn microsoft_binary_reports_microsoft_publisher() {
@@ -698,7 +710,9 @@ mod tests {
         }
         let detail = signature_detail(&notepad);
         assert_eq!(detail.status, SignatureStatus::ValidSigned);
-        let publisher = detail.publisher.expect("signed MS binary must name a publisher");
+        let publisher = detail
+            .publisher
+            .expect("signed MS binary must name a publisher");
         assert!(
             publisher.to_ascii_lowercase().contains("microsoft"),
             "unexpected publisher: {publisher}"

@@ -56,7 +56,11 @@ mod tests {
     #[test]
     fn lists_files_as_startup_entries() {
         let dir = tempdir().unwrap();
-        fs::write(dir.path().join("legit-update.bat"), "@echo off\r\nrem ok\r\n").unwrap();
+        fs::write(
+            dir.path().join("legit-update.bat"),
+            "@echo off\r\nrem ok\r\n",
+        )
+        .unwrap();
         fs::write(dir.path().join("a7x9k2p9.cmd"), "start evil.exe").unwrap();
         fs::create_dir(dir.path().join("subfolder")).unwrap();
         fs::write(dir.path().join("subfolder").join("nested.txt"), "skip me").unwrap();

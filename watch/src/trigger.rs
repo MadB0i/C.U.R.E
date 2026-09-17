@@ -31,7 +31,11 @@ mod tests {
     #[test]
     fn tolerates_trailing_whitespace() {
         let dir = tempdir().unwrap();
-        for content in ["CURE-TRIGGER-V1\n", "CURE-TRIGGER-V1\r\n", "CURE-TRIGGER-V1   "] {
+        for content in [
+            "CURE-TRIGGER-V1\n",
+            "CURE-TRIGGER-V1\r\n",
+            "CURE-TRIGGER-V1   ",
+        ] {
             fs::write(dir.path().join(TRIGGER_FILE_NAME), content).unwrap();
             assert!(has_valid_trigger(dir.path()), "rejected: {content:?}");
         }

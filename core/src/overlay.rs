@@ -85,23 +85,35 @@ mod tests {
     #[test]
     fn classic_ransom_overlay_matches() {
         // topmost + borderless + unsigned: the textbook case
-        assert!(is_suspicious_overlay(&base_desc(), &SignatureStatus::Unsigned));
+        assert!(is_suspicious_overlay(
+            &base_desc(),
+            &SignatureStatus::Unsigned
+        ));
     }
 
     #[test]
     fn invalid_signature_also_matches() {
-        assert!(is_suspicious_overlay(&base_desc(), &SignatureStatus::Invalid));
+        assert!(is_suspicious_overlay(
+            &base_desc(),
+            &SignatureStatus::Invalid
+        ));
     }
 
     #[test]
     fn unverifiable_signature_counts_as_not_valid() {
-        assert!(is_suspicious_overlay(&base_desc(), &SignatureStatus::Unknown));
+        assert!(is_suspicious_overlay(
+            &base_desc(),
+            &SignatureStatus::Unknown
+        ));
     }
 
     #[test]
     fn validly_signed_overlay_is_left_alone() {
         // e.g. a legitimate kiosk/lock tool that happens to be topmost+borderless
-        assert!(!is_suspicious_overlay(&base_desc(), &SignatureStatus::ValidSigned));
+        assert!(!is_suspicious_overlay(
+            &base_desc(),
+            &SignatureStatus::ValidSigned
+        ));
     }
 
     #[test]
@@ -146,11 +158,11 @@ mod tests {
         game.is_borderless = false;
 
         let list = vec![
-            (base_desc(), SignatureStatus::Unsigned),            // 0: close
-            (taskbar, SignatureStatus::Unsigned),                // 1: system, skip
-            (game, SignatureStatus::Unsigned),                   // 2: decorated, skip
-            (base_desc(), SignatureStatus::ValidSigned),         // 3: signed, skip
-            (base_desc(), SignatureStatus::Invalid),             // 4: close
+            (base_desc(), SignatureStatus::Unsigned),    // 0: close
+            (taskbar, SignatureStatus::Unsigned),        // 1: system, skip
+            (game, SignatureStatus::Unsigned),           // 2: decorated, skip
+            (base_desc(), SignatureStatus::ValidSigned), // 3: signed, skip
+            (base_desc(), SignatureStatus::Invalid),     // 4: close
         ];
         assert_eq!(pick_overlays(&list), vec![0, 4]);
     }

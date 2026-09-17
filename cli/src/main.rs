@@ -32,7 +32,12 @@ struct Cli {
     )]
     data_dir: Option<PathBuf>,
 
-    #[arg(long, global = true, value_name = "DIR", help = "Override the Startup folder root")]
+    #[arg(
+        long,
+        global = true,
+        value_name = "DIR",
+        help = "Override the Startup folder root"
+    )]
     startup_root: Option<PathBuf>,
 
     #[arg(
@@ -51,14 +56,35 @@ struct Cli {
 enum Command {
     Scan,
     Diff,
-    Quarantine { id: String },
-    Undo { id: String },
+    Quarantine {
+        id: String,
+    },
+    Undo {
+        id: String,
+    },
     /// Write a JSON/TXT security report (explicit export; nothing is remediated).
     Report {
         #[arg(long, default_value = "txt", help = "json or txt")]
         format: String,
-        #[arg(long, help = "redact home directory and username from paths")]
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set, help = "redact home directory and username (default: on)")]
         redact: bool,
+        #[arg(long, help = "include full unredacted paths (explicit opt-in)")]
+        full_paths: bool,
+    },
+    /// Observe process/window activity, correlate with startup findings.
+    Incident {
+        #[arg(
+            long,
+            default_value_t = 30,
+            help = "observation seconds: 15, 30, 60, or 120"
+        )]
+        duration: u64,
+        #[arg(long, default_value = "txt", help = "json or txt")]
+        format: String,
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set, help = "redact home directory and username (default: on)")]
+        redact: bool,
+        #[arg(long, help = "include full unredacted paths (explicit opt-in)")]
+        full_paths: bool,
     },
     Cleanup {
         #[command(subcommand)]
@@ -73,11 +99,22 @@ enum CleanupAction {
     Scan,
     /// Delete scanned candidates after showing a breakdown you confirm.
     Run {
-        #[arg(long, help = "also offer old .exe/.msi files in Downloads (extra explicit confirmation)")]
+        #[arg(
+            long,
+            help = "also offer old .exe/.msi files in Downloads (extra explicit confirmation)"
+        )]
         include_downloads: bool,
-        #[arg(long, value_name = "DAYS", default_value_t = 30, help = "Downloads installers older than this many days")]
+        #[arg(
+            long,
+            value_name = "DAYS",
+            default_value_t = 30,
+            help = "Downloads installers older than this many days"
+        )]
         downloads_age_days: u32,
-        #[arg(long, help = "run DISM component-store cleanup afterwards (elevated shell required)")]
+        #[arg(
+            long,
+            help = "run DISM component-store cleanup afterwards (elevated shell required)"
+        )]
         dism: bool,
     },
 }
@@ -125,7 +162,17 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
         Command::Diff => cmd_diff(&paths),
         Command::Quarantine { id } => cmd_quarantine(&paths, id),
         Command::Undo { id } => cmd_undo(&paths, id),
-        Command::Report { format, redact } => cmd_report(&paths, format, *redact),
+        Command::Report {
+            format,
+            redact,
+            full_paths,
+        } => cmd_report(&paths, format, *redact && !*full_paths),
+        Command::Incident {
+            duration,
+            format,
+            redact,
+            full_paths,
+        } => cmd_incident(&paths, *duration, format, *redact && !*full_paths),
         Command::Cleanup { action } => match action {
             CleanupAction::Scan => cmd_cleanup_scan(),
             CleanupAction::Run {
@@ -137,11 +184,101 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn collect(paths: &ResolvedPaths) -> (Vec<PersistenceEntry>, Vec<ServiceRecord>) {
-    let mut entries = scanners::collect_all(&paths.startup_root, &paths.tasks_root);
-    let services = scanners::collect_services();
+/// Collection with access accounting. The failure-prone scanners run
+/// through their `*_report` variants once, so skipped locations are
+/// counted instead of silently dropped.
+struct CollectOutput {
+    entries: Vec<PersistenceEntry>,
+    services: Vec<ServiceRecord>,
+    tasks_skipped: usize,
+    reg_skipped: usize,
+    svc_skipped: usize,
+    source_states: Vec<cure_core::report::CoverageRow>,
+}
+
+fn collect(paths: &ResolvedPaths) -> CollectOutput {
+    use cure_core::report::source_state_row;
+    let mut entries = scanners::startup::scan(&paths.startup_root);
+    let mut source_states = Vec::new();
+    let task_report = scanners::scheduled_tasks::scan_report(&paths.tasks_root);
+    let tasks_skipped = task_report.skipped;
+    source_states.push(source_state_row(
+        "Scheduled tasks",
+        &task_report.status(),
+        format!("{} files", task_report.files_seen),
+    ));
+    entries.extend(task_report.entries);
+    #[cfg(windows)]
+    let (reg_entries, reg_skipped, reg_row) = {
+        let rep = scanners::registry::scan_report();
+        let row = source_state_row(
+            "Registry autoruns",
+            &rep.status(),
+            format!("{} values", rep.values_read),
+        );
+        (rep.entries, rep.skipped_keys, row)
+    };
+    #[cfg(not(windows))]
+    let (reg_entries, reg_skipped, reg_row) = (
+        Vec::new(),
+        0,
+        cure_core::report::CoverageRow::unavailable("Registry autoruns", "Windows-only source"),
+    );
+    entries.extend(reg_entries);
+    source_states.push(reg_row);
+    let svc_report = scanners::services::scan_report();
+    let svc_skipped = svc_report.skipped_config;
+    source_states.push(source_state_row(
+        "Services (auto-start)",
+        &svc_report.status,
+        format!("{} services", svc_report.records.len()),
+    ));
+    let services = svc_report.records;
     entries.extend(services.iter().map(|r| r.entry.clone()));
-    (entries, services)
+    #[cfg(windows)]
+    {
+        let wmi_report = scanners::wmi::scan_report();
+        source_states.push(source_state_row(
+            "WMI subscriptions",
+            &wmi_report.status,
+            format!("{} entries", wmi_report.entries.len()),
+        ));
+        entries.extend(wmi_report.entries);
+        entries.extend(scanners::ifeo::scan());
+        entries.extend(scanners::appinit::scan());
+        entries.extend(scanners::com::scan());
+    }
+    #[cfg(not(windows))]
+    source_states.push(cure_core::report::CoverageRow::unavailable(
+        "WMI subscriptions",
+        "Windows-only source",
+    ));
+    CollectOutput {
+        entries,
+        services,
+        tasks_skipped,
+        reg_skipped,
+        svc_skipped,
+        source_states,
+    }
+}
+
+fn skipped_note(output: &CollectOutput) -> Option<String> {
+    let mut parts = Vec::new();
+    if output.tasks_skipped > 0 {
+        parts.push(format!("{} task files", output.tasks_skipped));
+    }
+    if output.reg_skipped > 0 {
+        parts.push(format!("{} registry keys", output.reg_skipped));
+    }
+    if output.svc_skipped > 0 {
+        parts.push(format!("{} service configs", output.svc_skipped));
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(", "))
+    }
 }
 
 use cure_core::scanners::services::{ImageStatus, ServiceRecord};
@@ -243,14 +380,23 @@ fn print_report(scored: &[ScoredEntry], data_dir: &Path) {
             println!("             why: {reason}");
         }
         if quarantine::is_quarantined(data_dir, &s.entry.id) {
-            println!("             status: ALREADY IN QUARANTINE (cure undo {})", s.entry.id);
+            println!(
+                "             status: ALREADY IN QUARANTINE (cure undo {})",
+                s.entry.id
+            );
         }
     }
 }
 
 fn summarize(scored: &[ScoredEntry]) -> (usize, usize, usize) {
-    let high = scored.iter().filter(|s| s.risk == RiskLevel::HighRisk).count();
-    let susp = scored.iter().filter(|s| s.risk == RiskLevel::Suspicious).count();
+    let high = scored
+        .iter()
+        .filter(|s| s.risk == RiskLevel::HighRisk)
+        .count();
+    let susp = scored
+        .iter()
+        .filter(|s| s.risk == RiskLevel::Suspicious)
+        .count();
     let safe = scored.len() - high - susp;
     (high, susp, safe)
 }
@@ -268,10 +414,10 @@ fn cmd_scan(paths: &ResolvedPaths) -> Result<(), Box<dyn Error>> {
     println!();
 
     let t_collect = Instant::now();
-    let (entries, services) = collect(paths);
+    let collected = collect(paths);
     let collect_ms = t_collect.elapsed().as_millis();
     let t_score = Instant::now();
-    let scored = score_all(&entries, &services);
+    let scored = score_all(&collected.entries, &collected.services);
     let score_ms = t_score.elapsed().as_millis();
     if scored.is_empty() {
         println!("no persistence entries found in the scanned locations.");
@@ -287,10 +433,13 @@ fn cmd_scan(paths: &ResolvedPaths) -> Result<(), Box<dyn Error>> {
         scored.len(),
         if scored.len() == 1 { "y" } else { "ies" }
     );
+    if let Some(skipped) = skipped_note(&collected) {
+        println!("skipped: {skipped} (inaccessible — elevate to compare)");
+    }
     println!("timing: collect {collect_ms} ms, score {score_ms} ms");
 
     let baseline_path = paths.data_dir.join("baseline.json");
-    baseline::save(&baseline_path, &entries)?;
+    baseline::save(&baseline_path, &collected.entries)?;
     println!("baseline saved: {}", baseline_path.display());
     println!("next: `cure diff`, then `cure quarantine <id>` / `cure undo <id>`");
     Ok(())
@@ -301,14 +450,17 @@ fn cmd_diff(paths: &ResolvedPaths) -> Result<(), Box<dyn Error>> {
     let baseline = match baseline::load(&baseline_path) {
         Ok(baseline) => baseline,
         Err(err) if err.kind() == io::ErrorKind::NotFound => {
-            println!("no baseline at {} - run `cure scan` first.", baseline_path.display());
+            println!(
+                "no baseline at {} - run `cure scan` first.",
+                baseline_path.display()
+            );
             return Ok(());
         }
         Err(err) => return Err(err.into()),
     };
 
-    let (entries, services) = collect(paths);
-    let scored = score_all(&entries, &services);
+    let collected = collect(paths);
+    let scored = score_all(&collected.entries, &collected.services);
     let new_entries = baseline::diff(&scored, &baseline);
 
     if new_entries.is_empty() {
@@ -336,18 +488,17 @@ fn cmd_diff(paths: &ResolvedPaths) -> Result<(), Box<dyn Error>> {
 }
 
 fn cmd_quarantine(paths: &ResolvedPaths, id: &str) -> Result<(), Box<dyn Error>> {
-    let (entries, services) = collect(paths);
-    let scored = score_all(&entries, &services);
+    let collected = collect(paths);
+    let scored = score_all(&collected.entries, &collected.services);
 
     let Some(found) = scored.iter().find(|s| s.entry.id == id) else {
         if quarantine::is_quarantined(&paths.data_dir, id) {
             println!("id {id} is already in quarantine (restore with `cure undo {id}`).");
             return Ok(());
         }
-        return Err(format!(
-            "unknown id {id}: run `cure scan` and pick an id from the report"
-        )
-        .into());
+        return Err(
+            format!("unknown id {id}: run `cure scan` and pick an id from the report").into(),
+        );
     };
 
     // Only file-backed findings are relocated; everything else is manual
@@ -367,7 +518,10 @@ fn cmd_quarantine(paths: &ResolvedPaths, id: &str) -> Result<(), Box<dyn Error>>
         PersistenceSource::ScheduledTask => {
             let record = quarantine::quarantine_entry(&paths.data_dir, &found.entry)?;
             println!("moved task definition: {}", record.original_path.display());
-            println!("to                   : {}", record.quarantine_path.display());
+            println!(
+                "to                   : {}",
+                record.quarantine_path.display()
+            );
             println!("note: an already-running instance keeps running until reboot;");
             println!("      the task disappears from Task Scheduler after refresh.");
             println!("restore anytime with: cure undo {}", record.id);
@@ -380,22 +534,43 @@ fn cmd_quarantine(paths: &ResolvedPaths, id: &str) -> Result<(), Box<dyn Error>>
 /// Manual, reversible remediation guidance for findings C.U.R.E will never
 /// touch automatically. Every path starts with a backup step.
 fn print_manual_guidance(found: &ScoredEntry) {
-    println!("{} findings are detected and scored but NEVER auto-disabled.", found.entry.source);
+    println!(
+        "{} findings are detected and scored but NEVER auto-disabled.",
+        found.entry.source
+    );
     println!("investigate first, back up, then remove manually:");
     match found.entry.source {
         PersistenceSource::RegistryRun => {
             println!("  key   : {}", found.entry.location);
             println!("  value : {}", found.entry.name);
-            println!("  1. backup: reg export \"{}\" backup.reg", found.entry.location);
-            println!("  2. remove: reg delete \"{}\" /v \"{}\" /f", found.entry.location, found.entry.name);
+            println!(
+                "  1. backup: reg export \"{}\" backup.reg",
+                found.entry.location
+            );
+            println!(
+                "  2. remove: reg delete \"{}\" /v \"{}\" /f",
+                found.entry.location, found.entry.name
+            );
         }
         PersistenceSource::WindowsService => {
-            println!("  service : {} ({})", found.entry.name, found.entry.location);
+            println!(
+                "  service : {} ({})",
+                found.entry.name, found.entry.location
+            );
             println!("  image   : {}", found.entry.command);
             println!("  1. inspect: sc.exe qc \"{}\"", found.entry.name);
-            println!("  2. backup : reg export \"{}\" backup-{}.reg", found.entry.location, found.entry.name);
-            println!("  3. disable (reversible): sc.exe config \"{}\" start= demand", found.entry.name);
-            println!("  4. delete only if malicious AND backed up: sc.exe delete \"{}\"", found.entry.name);
+            println!(
+                "  2. backup : reg export \"{}\" backup-{}.reg",
+                found.entry.location, found.entry.name
+            );
+            println!(
+                "  3. disable (reversible): sc.exe config \"{}\" start= demand",
+                found.entry.name
+            );
+            println!(
+                "  4. delete only if malicious AND backed up: sc.exe delete \"{}\"",
+                found.entry.name
+            );
         }
         PersistenceSource::WmiSubscription => {
             println!("  object  : {}", found.entry.location);
@@ -404,20 +579,32 @@ fn print_manual_guidance(found: &ScoredEntry) {
             println!("  2. backup : Get-CimInstance -Namespace root/subscription -Query \"SELECT * FROM __EventFilter WHERE Name='{}'\" > backup.txt", found.entry.name);
             println!("  3. remove (filter, consumer, binding): Remove-CimInstance (same query) — only after backup");
         }
-        PersistenceSource::IfeoDebugger | PersistenceSource::AppInitDlls | PersistenceSource::ComHijack => {
+        PersistenceSource::IfeoDebugger
+        | PersistenceSource::AppInitDlls
+        | PersistenceSource::ComHijack => {
             println!("  key     : {}", found.entry.location);
             println!("  value   : {}", found.entry.command);
-            println!("  1. backup: reg export \"{}\" backup.reg", found.entry.location);
+            println!(
+                "  1. backup: reg export \"{}\" backup.reg",
+                found.entry.location
+            );
             println!("  2. remove the value in regedit (or reg delete) only after backup");
         }
         PersistenceSource::StartupFolder | PersistenceSource::ScheduledTask => {
-            println!("  unexpected file-backed source reached manual guidance; use `cure quarantine {}`", found.entry.id);
+            println!(
+                "  unexpected file-backed source reached manual guidance; use `cure quarantine {}`",
+                found.entry.id
+            );
         }
     }
 }
 
 fn cmd_undo(paths: &ResolvedPaths, id: &str) -> Result<(), Box<dyn Error>> {
-    match quarantine::undo(&paths.data_dir, id) {
+    // Scoped restore: the file may only go back under the scanned
+    // startup/task roots — a planted records.json must not redirect an
+    // elevated undo into a system location.
+    let roots = vec![paths.startup_root.clone(), paths.tasks_root.clone()];
+    match quarantine::undo_scoped(&paths.data_dir, id, Some(&roots)) {
         Ok(record) => {
             println!("restored: {}", record.quarantine_path.display());
             println!("      to: {}", record.original_path.display());
@@ -452,20 +639,29 @@ fn count_source(entries: &[PersistenceEntry], source: PersistenceSource) -> usiz
     entries.iter().filter(|e| e.source == source).count()
 }
 
-fn cmd_report(paths: &ResolvedPaths, format: &str, redact: bool) -> Result<(), Box<dyn Error>> {
-    use cure_core::hash_intel::ThreatIntelProvider;
-    use cure_core::report::{CoverageRow, ReportOptions, ScanInput};
+use cure_core::process_scan::{ProcessInfo, ProcessScore};
+use cure_core::ransom_detect::RansomFinding;
 
-    let format = format.to_ascii_lowercase();
-    if format != "json" && format != "txt" {
-        return Err(format!("unknown format {format}: use json or txt").into());
-    }
-    println!("C.U.R.E security report — collecting evidence (nothing is remediated)…");
+/// Fresh evidence snapshot shared by `report` and `incident`.
+/// Read-only throughout: scans score, snapshots describe, nothing executes.
+struct EvidenceBundle {
+    entries: Vec<PersistenceEntry>,
+    services: Vec<ServiceRecord>,
+    scored: Vec<ScoredEntry>,
+    processes: Vec<(ProcessInfo, ProcessScore)>,
+    ransom: Vec<RansomFinding>,
+    profile_folders: Vec<PathBuf>,
+    /// Access states for the failure-prone scanners (tasks/services/WMI/
+    /// registry), so coverage rows stay truthful. Single-key scanners
+    /// (startup/IFEO/AppInit/COM) report counts; see AUDIT.md for the
+    /// per-scanner privilege analysis.
+    source_states: Vec<cure_core::report::CoverageRow>,
+}
 
-    let (entries, services) = collect(paths);
-    let scored = score_all(&entries, &services);
+fn collect_evidence(paths: &ResolvedPaths) -> EvidenceBundle {
+    let collected = collect(paths);
+    let scored = score_all(&collected.entries, &collected.services);
 
-    // Processes (Windows only; read-only snapshot + scoring).
     let mut processes = Vec::new();
     #[cfg(windows)]
     {
@@ -477,62 +673,88 @@ fn cmd_report(paths: &ResolvedPaths, format: &str, redact: bool) -> Result<(), B
         }
     }
 
-    // Ransom indicators over the user profile (read-only directory reads).
-    let mut ransom = Vec::new();
-    let folders: Vec<(PathBuf, Vec<cure_core::ransom_detect::DirEntry>)> =
-        user_profile_folders()
-            .into_iter()
-            .map(|f| (f.clone(), cure_core::ransom_detect::read_dir_entries(&f)))
-            .collect();
-    if !folders.is_empty() {
-        ransom = cure_core::ransom_detect::scan_folders(&folders);
+    let profile_folders = user_profile_folders();
+    let folder_entries: Vec<(PathBuf, Vec<cure_core::ransom_detect::DirEntry>)> = profile_folders
+        .clone()
+        .into_iter()
+        .map(|f| (f.clone(), cure_core::ransom_detect::read_dir_entries(&f)))
+        .collect();
+    let ransom = if folder_entries.is_empty() {
+        Vec::new()
+    } else {
+        cure_core::ransom_detect::scan_folders(&folder_entries)
+    };
+
+    EvidenceBundle {
+        entries: collected.entries,
+        services: collected.services,
+        scored,
+        processes,
+        ransom,
+        profile_folders,
+        source_states: collected.source_states,
     }
+}
+
+fn cmd_report(paths: &ResolvedPaths, format: &str, redact: bool) -> Result<(), Box<dyn Error>> {
+    use cure_core::hash_intel::ThreatIntelProvider;
+    use cure_core::report::{CoverageRow, ReportOptions, ScanInput};
+
+    let format = format.to_ascii_lowercase();
+    if format != "json" && format != "txt" {
+        return Err(format!("unknown format {format}: use json or txt").into());
+    }
+    println!("C.U.R.E security report — collecting evidence (nothing is remediated)…");
+
+    let bundle = collect_evidence(paths);
+    let EvidenceBundle {
+        entries,
+        services: _,
+        scored,
+        processes,
+        ransom,
+        profile_folders: folders,
+        mut source_states,
+    } = bundle;
 
     let on_windows = cfg!(windows);
-    let mut coverage = vec![
-        CoverageRow::checked(
-            "Startup folder",
-            format!("{} entries", count_source(&entries, PersistenceSource::StartupFolder)),
+    // State rows (registry/tasks/services/WMI) come from the evidence
+    // bundle; the single-key scanners report counts below.
+    let mut coverage = std::mem::take(&mut source_states);
+    coverage.push(CoverageRow::checked(
+        "Startup folder",
+        format!(
+            "{} entries",
+            count_source(&entries, PersistenceSource::StartupFolder)
         ),
-        CoverageRow::checked(
-            "Scheduled tasks",
-            format!("{} entries", count_source(&entries, PersistenceSource::ScheduledTask)),
+    ));
+    coverage.push(CoverageRow::checked(
+        "IFEO debuggers",
+        format!(
+            "{} entries",
+            count_source(&entries, PersistenceSource::IfeoDebugger)
         ),
-        CoverageRow::checked(
-            "Services (auto-start)",
-            format!("{} services", services.len()),
+    ));
+    coverage.push(CoverageRow::checked(
+        "AppInit DLLs",
+        format!(
+            "{} entries",
+            count_source(&entries, PersistenceSource::AppInitDlls)
         ),
-        CoverageRow::checked(
-            "WMI subscriptions",
-            format!("{} entries", count_source(&entries, PersistenceSource::WmiSubscription)),
+    ));
+    coverage.push(CoverageRow::checked(
+        "COM hijacks (HKCU)",
+        format!(
+            "{} entries",
+            count_source(&entries, PersistenceSource::ComHijack)
         ),
-        CoverageRow::checked(
-            "IFEO debuggers",
-            format!("{} entries", count_source(&entries, PersistenceSource::IfeoDebugger)),
-        ),
-        CoverageRow::checked(
-            "AppInit DLLs",
-            format!("{} entries", count_source(&entries, PersistenceSource::AppInitDlls)),
-        ),
-        CoverageRow::checked(
-            "COM hijacks (HKCU)",
-            format!("{} entries", count_source(&entries, PersistenceSource::ComHijack)),
-        ),
-    ];
+    ));
     if on_windows {
-        coverage.push(CoverageRow::checked(
-            "Registry autoruns",
-            format!("{} entries", count_source(&entries, PersistenceSource::RegistryRun)),
-        ));
         coverage.push(CoverageRow::checked(
             "Running processes",
             format!("{} enumerated", processes.len()),
         ));
     } else {
-        coverage.push(CoverageRow::unavailable(
-            "Registry autoruns",
-            "Windows-only source",
-        ));
         coverage.push(CoverageRow::unavailable(
             "Running processes",
             "Windows-only source",
@@ -587,6 +809,191 @@ fn cmd_report(paths: &ResolvedPaths, format: &str, redact: bool) -> Result<(), B
 }
 
 // ---------------------------------------------------------------------------
+// post-login incident investigation (observation only)
+// ---------------------------------------------------------------------------
+
+fn cmd_incident(
+    paths: &ResolvedPaths,
+    duration_secs: u64,
+    format: &str,
+    redact: bool,
+) -> Result<(), Box<dyn Error>> {
+    use cure_core::incident;
+    use cure_core::report::{CoverageRow, ReportOptions, ScanInput};
+
+    let duration_secs = incident::validate_duration(duration_secs).map_err(|e| e.to_string())?;
+    let format = format.to_ascii_lowercase();
+    if format != "json" && format != "txt" {
+        return Err(format!("unknown format {format}: use json or txt").into());
+    }
+
+    println!("C.U.R.E post-login incident investigation");
+    println!("observation installs nothing and modifies nothing;");
+    println!("it watches process/window activity for {duration_secs} s, then correlates.");
+    println!("for true post-login capture, run this within a minute of logging in.");
+    println!();
+
+    println!("collecting current persistence findings (nothing is remediated)…");
+    let bundle = collect_evidence(paths);
+    let EvidenceBundle {
+        entries,
+        services,
+        scored,
+        mut source_states,
+        ..
+    } = bundle;
+    let mut findings: Vec<incident::StartupRef> =
+        entries.iter().map(incident::StartupRef::from).collect();
+    // Attach hosting PIDs so shared service images (svchost) correlate by
+    // pid equality instead of matching every instance with every service.
+    for record in &services {
+        if let Some(pid) = record.pid {
+            if let Some(f) = findings.iter_mut().find(|f| f.id == record.entry.id) {
+                f.aux_pid = Some(pid);
+            }
+        }
+    }
+    println!("{} startup findings loaded.", findings.len());
+
+    println!("observing for {duration_secs} s — leave the machine alone (popups welcome)…");
+    let started_at = std::time::SystemTime::now();
+    let live = incident::observe_blocking(
+        std::time::Duration::from_secs(duration_secs),
+        |polls, procs, wins| {
+            if polls % 10 == 1 {
+                println!("  …{polls} polls, {procs} processes, {wins} windows tracked");
+            }
+        },
+    );
+    println!(
+        "observed {} processes, {} windows{}.",
+        live.processes.len(),
+        live.windows.len(),
+        if live.truncated {
+            " (tracking caps hit — oldest dropped)"
+        } else {
+            ""
+        }
+    );
+
+    let mut correlations = incident::correlate(&findings, &live.processes);
+    let mut need_cmdline: Vec<(u32, String)> = correlations
+        .iter()
+        .filter(|c| {
+            c.level == incident::CorrelationLevel::Direct
+                || c.level == incident::CorrelationLevel::Strong
+        })
+        .map(|c| (c.process_pid, c.process_name.clone()))
+        .collect();
+    need_cmdline.sort_unstable();
+    need_cmdline.dedup();
+    let mut processes = live.processes;
+    if !need_cmdline.is_empty() {
+        println!(
+            "reading command lines for {} correlated processes…",
+            need_cmdline.len()
+        );
+        for (pid, cmd) in incident::fetch_command_lines(&need_cmdline) {
+            if let Some(p) = processes.iter_mut().find(|p| p.pid == pid) {
+                p.command_line = Some(cmd);
+            }
+        }
+        correlations = incident::correlate(&findings, &processes);
+    }
+
+    let timeline = incident::build_timeline(
+        started_at,
+        duration_secs,
+        &processes,
+        &live.windows,
+        &correlations,
+    );
+    let verdict = incident::decide_verdict(&correlations, &live.windows, &live.process_observation);
+
+    println!();
+    println!("TIMELINE");
+    for event in &timeline {
+        println!("  {} {}", event.wall_time, event.text);
+    }
+    println!();
+    if correlations.is_empty() {
+        println!("no process relates to a startup finding.");
+    } else {
+        println!("CORRELATIONS");
+        for c in &correlations {
+            println!(
+                "  [{}] {} (pid {}) ↔ {} ({})",
+                c.level.label(),
+                c.process_name,
+                c.process_pid,
+                c.finding_name,
+                c.finding_source
+            );
+            for e in &c.evidence {
+                println!("    · {e}");
+            }
+        }
+    }
+    println!();
+    println!("verdict: {}", verdict.label());
+    println!("{}", verdict.explanation());
+    println!("Correlation does not by itself establish malicious intent.");
+
+    let result = incident::ObservationResult {
+        investigation_id: incident::new_investigation_id(),
+        started_at: incident::rfc3339(started_at),
+        duration_secs,
+        elevated: cure_core::elevation::is_elevated(),
+        process_observation: live.process_observation,
+        window_observation: live.window_observation,
+        processes,
+        windows: live.windows,
+        correlations,
+        timeline,
+        verdict,
+        truncated: live.truncated,
+    };
+    let mut report = cure_core::report::assemble(
+        ScanInput {
+            persistence: scored,
+            processes: Vec::new(),
+            ransom: Vec::new(),
+            canary_note: "not assessed in this incident run".to_string(),
+        },
+        {
+            let mut coverage = std::mem::take(&mut source_states);
+            coverage.push(CoverageRow::checked(
+                "Incident observation",
+                format!(
+                    "{} processes, {} windows in {duration_secs} s",
+                    result.processes.len(),
+                    result.windows.len()
+                ),
+            ));
+            coverage.push(CoverageRow::not_checked(
+                "Canary guard",
+                "session feature — enable in the GUI or watcher".to_string(),
+            ));
+            coverage
+        },
+        &ReportOptions { redact },
+    );
+    report.incident = Some(cure_core::report::incident_section(&result, redact));
+    let body = if format == "json" {
+        cure_core::report::render_json(&report)
+    } else {
+        cure_core::report::render_txt(&report)
+    };
+    let stamp = cure_core::report::utc_stamp();
+    let filename = format!("cure-incident-{stamp}.{format}");
+    let out_path = paths.data_dir.join(&filename);
+    fs::write(&out_path, body)?;
+    println!();
+    println!("incident report written: {}", out_path.display());
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // disk cleanup
 // ---------------------------------------------------------------------------
 
@@ -627,7 +1034,11 @@ fn cmd_cleanup_scan() -> Result<(), Box<dyn Error>> {
         "{:<24} {:>4} item{} | {:>9}",
         "TOTAL reclaimable",
         candidates.len() + downloads.len(),
-        if candidates.len() + downloads.len() == 1 { "" } else { "s" },
+        if candidates.len() + downloads.len() == 1 {
+            ""
+        } else {
+            "s"
+        },
         disk_cleanup::format_size(total)
     );
     println!();
@@ -657,7 +1068,11 @@ fn file_age_days(path: &Path) -> u64 {
     age.as_secs() / 86_400
 }
 
-fn cmd_cleanup_run(include_downloads: bool, downloads_age_days: u32, dism: bool) -> Result<(), Box<dyn Error>> {
+fn cmd_cleanup_run(
+    include_downloads: bool,
+    downloads_age_days: u32,
+    dism: bool,
+) -> Result<(), Box<dyn Error>> {
     let mut candidates = disk_cleanup::scan_all();
 
     println!("C.U.R.E disk cleanup - deletion plan");
@@ -695,7 +1110,11 @@ fn cmd_cleanup_run(include_downloads: bool, downloads_age_days: u32, dism: bool)
                     "  {:>9}  {:>4}d old  {}",
                     disk_cleanup::format_size(candidate.size_bytes),
                     file_age_days(&candidate.path),
-                    candidate.path.file_name().unwrap_or_default().to_string_lossy(),
+                    candidate
+                        .path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy(),
                 );
             }
             if !confirm("\nAlso delete these installers? They may still be needed.") {
@@ -734,7 +1153,11 @@ fn cmd_cleanup_run(include_downloads: bool, downloads_age_days: u32, dism: bool)
         println!("running DISM component-store cleanup (can take several minutes)…");
         match disk_cleanup::run_dism_cleanup() {
             Ok(output) => {
-                let tail: String = output.lines().filter(|l| !l.trim().is_empty()).collect::<Vec<_>>().join("\n");
+                let tail: String = output
+                    .lines()
+                    .filter(|l| !l.trim().is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n");
                 println!("{}", truncate_tail(&tail, 400));
             }
             Err(err) => {
@@ -749,6 +1172,9 @@ fn truncate_tail(text: &str, max_chars: usize) -> String {
     if text.chars().count() <= max_chars {
         return text.to_string();
     }
-    let cut: String = text.chars().skip(text.chars().count() - max_chars).collect();
+    let cut: String = text
+        .chars()
+        .skip(text.chars().count() - max_chars)
+        .collect();
     format!("…{cut}")
 }

@@ -183,7 +183,9 @@ mod tests {
         let fixture_hex = sha256_hex(b"CURE-TEST-MALWARE-SIGNATURE-DO-NOT-USE");
         assert!(provider.lookup_hash(&fixture_hex).is_some());
         // Case-insensitive hex.
-        assert!(provider.lookup_hash(&fixture_hex.to_ascii_uppercase()).is_some());
+        assert!(provider
+            .lookup_hash(&fixture_hex.to_ascii_uppercase())
+            .is_some());
         assert_eq!(
             provider.lookup_hash(&sha256_hex(b"something entirely benign")),
             None

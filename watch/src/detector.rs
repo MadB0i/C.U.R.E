@@ -32,7 +32,10 @@ mod tests {
     fn first_poll_reports_everything() {
         let previous = HashSet::new();
         let current = set(&["F:\\", "C:\\", "Z:\\"]);
-        assert_eq!(newly_arrived(&previous, &current), vec!["C:\\", "F:\\", "Z:\\"]);
+        assert_eq!(
+            newly_arrived(&previous, &current),
+            vec!["C:\\", "F:\\", "Z:\\"]
+        );
     }
 
     #[test]

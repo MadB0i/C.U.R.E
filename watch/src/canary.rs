@@ -19,13 +19,28 @@ fn alert_tag(alert: &CanaryAlert) -> &'static str {
 
 fn alert_detail(alert: &CanaryAlert) -> String {
     match alert {
-        CanaryAlert::CanaryTamper { folder, file, action, .. } => {
+        CanaryAlert::CanaryTamper {
+            folder,
+            file,
+            action,
+            ..
+        } => {
             format!("{folder}\\{file}: {action}")
         }
-        CanaryAlert::BurstEncryption { folder, distinct_files, window_secs, .. } => {
+        CanaryAlert::BurstEncryption {
+            folder,
+            distinct_files,
+            window_secs,
+            ..
+        } => {
             format!("{folder}: {distinct_files} files in {window_secs}s")
         }
-        CanaryAlert::ExtensionRewrite { folder, extension, renamed_count, .. } => {
+        CanaryAlert::ExtensionRewrite {
+            folder,
+            extension,
+            renamed_count,
+            ..
+        } => {
             format!("{folder}: {renamed_count} files -> .{extension}")
         }
     }
@@ -33,11 +48,11 @@ fn alert_detail(alert: &CanaryAlert) -> String {
 
 #[cfg(windows)]
 fn enumerate_process_names() -> Vec<String> {
-    use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
-        PROCESSENTRY32W,
-    };
     use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
 
     let mut names = Vec::new();
     let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
@@ -84,10 +99,7 @@ fn spawn_tripwire_poller(stop: Arc<AtomicBool>) {
             let names = enumerate_process_names();
             for name in &names {
                 if let Some(reason) = canary::shadow_wipe_reason(name, "") {
-                    crate::logger::log(
-                        "canary",
-                        &format!("[SHADOW-WIPE] {name}: {reason}"),
-                    );
+                    crate::logger::log("canary", &format!("[SHADOW-WIPE] {name}: {reason}"));
                 }
             }
             std::thread::sleep(std::time::Duration::from_secs(5));
@@ -104,10 +116,7 @@ pub fn start() -> Arc<AtomicBool> {
     let dirs = cure_dirwatch::user_folder_candidates();
     for dir in &dirs {
         if dir.is_dir() {
-            crate::logger::log(
-                "canary",
-                &format!("planting decoys in {}", dir.display()),
-            );
+            crate::logger::log("canary", &format!("planting decoys in {}", dir.display()));
             cure_dirwatch::plant_decoys(dir);
         }
     }

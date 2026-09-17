@@ -1,4 +1,6 @@
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+mod canary;
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod consent;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod detector;
@@ -7,11 +9,9 @@ mod drives;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod logger;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-mod trigger;
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod self_update;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-mod canary;
+mod trigger;
 
 use consent::{ConsentDecision, CONSENT_FILE_NAME};
 
@@ -198,10 +198,7 @@ fn self_install() -> Result<(), Box<dyn std::error::Error>> {
         InstallDecision::UpToDate => {
             logger::log(
                 "install",
-                &format!(
-                    "installed copy already up to date at {}",
-                    dest.display()
-                ),
+                &format!("installed copy already up to date at {}", dest.display()),
             );
         }
         InstallDecision::UpdateAvailable => {

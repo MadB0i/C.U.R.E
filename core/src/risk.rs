@@ -29,7 +29,8 @@ pub fn extract_program_path(command: &str) -> &str {
     trimmed.split_whitespace().next().unwrap_or(trimmed)
 }
 
-pub fn looks_randomized(name: &str) -> bool {    let stem = name.split('.').next().unwrap_or(name);
+pub fn looks_randomized(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name);
     let compact: Vec<char> = stem.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
     let len = compact.len();
     if len < 6 {
@@ -55,15 +56,17 @@ pub fn looks_randomized(name: &str) -> bool {    let stem = name.split('.').next
 /// of a COM TreatAs target. Such strings are identifiers, not programs.
 fn is_bare_guid(text: &str) -> bool {
     let t = text.trim();
-    let inner = t.strip_prefix('{').and_then(|s| s.strip_suffix('}')).unwrap_or(t);
+    let inner = t
+        .strip_prefix('{')
+        .and_then(|s| s.strip_suffix('}'))
+        .unwrap_or(t);
     inner.len() == 36
         && inner.chars().filter(|c| *c == '-').count() == 4
-        && inner
-            .chars()
-            .all(|c| c.is_ascii_hexdigit() || c == '-')
+        && inner.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
 }
 
-pub fn risk_level(score: i32) -> RiskLevel {    if score >= 40 {
+pub fn risk_level(score: i32) -> RiskLevel {
+    if score >= 40 {
         RiskLevel::HighRisk
     } else if score >= 15 {
         RiskLevel::Suspicious
@@ -118,7 +121,9 @@ pub fn score_with_signals(
     }
     if trusted {
         score -= 20;
-        reasons.push("-20 command path is a trusted install location (Program Files/System32)".to_string());
+        reasons.push(
+            "-20 command path is a trusted install location (Program Files/System32)".to_string(),
+        );
     }
 
     if looks_randomized(&entry.name) && entry.source != PersistenceSource::ComHijack {
@@ -135,7 +140,9 @@ pub fn score_with_signals(
     }
 
     let sneaky_powershell = command_norm.contains("powershell")
-        && SNEAKY_POWERSHELL_TOKENS.iter().any(|t| command_norm.contains(t));
+        && SNEAKY_POWERSHELL_TOKENS
+            .iter()
+            .any(|t| command_norm.contains(t));
     if sneaky_powershell {
         score += 25;
         reasons.push("+25 PowerShell invoked with encoded command or hidden window".to_string());
@@ -162,9 +169,7 @@ pub fn score_with_signals(
             score += INVALID_SIGNATURE_PENALTY;
         }
         SignatureStatus::Unsigned if score > 0 => {
-            reasons.push(format!(
-                "+{UNSIGNED_WITH_WARNINGS_PENALTY} Unsigned Binary"
-            ));
+            reasons.push(format!("+{UNSIGNED_WITH_WARNINGS_PENALTY} Unsigned Binary"));
             score += UNSIGNED_WITH_WARNINGS_PENALTY;
         }
         SignatureStatus::Unsigned | SignatureStatus::Unknown => {}
@@ -241,14 +246,20 @@ pub fn score_service(
     }
     if trusted {
         score -= 20;
-        reasons.push("-20 service image is a trusted install location (Program Files/System32)".to_string());
+        reasons.push(
+            "-20 service image is a trusted install location (Program Files/System32)".to_string(),
+        );
     }
 
     let sneaky_powershell = image_norm.contains("powershell")
-        && SNEAKY_POWERSHELL_TOKENS.iter().any(|t| image_norm.contains(t));
+        && SNEAKY_POWERSHELL_TOKENS
+            .iter()
+            .any(|t| image_norm.contains(t));
     if sneaky_powershell {
         score += 25;
-        reasons.push("+25 service command line hides PowerShell (encoded or hidden window)".to_string());
+        reasons.push(
+            "+25 service command line hides PowerShell (encoded or hidden window)".to_string(),
+        );
     }
 
     match signature {
@@ -330,7 +341,10 @@ mod tests {
     #[test]
     fn system32_task_is_safe() {
         let scored = score_with_signals(
-            &entry("DiskCleanup", r"C:\Windows\System32\cleanmgr.exe /autoclean"),
+            &entry(
+                "DiskCleanup",
+                r"C:\Windows\System32\cleanmgr.exe /autoclean",
+            ),
             SignatureStatus::Unknown,
             None,
         );
@@ -348,7 +362,10 @@ mod tests {
         assert_eq!(scored.risk, RiskLevel::HighRisk);
         assert!(scored.score >= 40);
         assert!(scored.reasons.iter().any(|r| r.starts_with("+30")));
-        assert!(scored.reasons.iter().any(|r| r.starts_with("+25 entry name")));
+        assert!(scored
+            .reasons
+            .iter()
+            .any(|r| r.starts_with("+25 entry name")));
         assert!(scored.reasons.iter().any(|r| r.starts_with("+10")));
     }
 
@@ -482,7 +499,10 @@ mod tests {
     #[test]
     fn known_bad_hash_overrides_everything_including_valid_signature() {
         let scored = score_with_signals(
-            &entry("DiskCleanup", r"C:\Windows\System32\cleanmgr.exe /autoclean"),
+            &entry(
+                "DiskCleanup",
+                r"C:\Windows\System32\cleanmgr.exe /autoclean",
+            ),
             SignatureStatus::ValidSigned,
             Some("CURE test fixture #1 (placeholder string hash)"),
         );
@@ -528,9 +548,7 @@ mod tests {
     #[test]
     fn live_pipeline_flags_tampered_copy_as_high_risk() {
         let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
-        let source = Path::new(&system_root)
-            .join("System32")
-            .join("chkdsk.exe");
+        let source = Path::new(&system_root).join("System32").join("chkdsk.exe");
         if !source.is_file() {
             return;
         }
@@ -547,8 +565,10 @@ mod tests {
         // systems the verdict is Invalid (+40); on catalog-only systems it
         // degrades to Unsigned (+10 alongside the other warning signs).
         assert_eq!(scored.risk, RiskLevel::HighRisk);
-        assert!(scored.reasons.iter().any(|r| r.starts_with("+40")
-            || r.starts_with("+10 Unsigned Binary")));
+        assert!(scored
+            .reasons
+            .iter()
+            .any(|r| r.starts_with("+40") || r.starts_with("+10 Unsigned Binary")));
         assert!(!scored
             .reasons
             .iter()
@@ -563,7 +583,10 @@ mod tests {
             extract_program_path(r#""C:\Program Files\A\b.exe" --flag"#),
             r"C:\Program Files\A\b.exe"
         );
-        assert_eq!(extract_program_path("C:\\tools\\x.exe -go"), r"C:\tools\x.exe");
+        assert_eq!(
+            extract_program_path("C:\\tools\\x.exe -go"),
+            r"C:\tools\x.exe"
+        );
         assert_eq!(extract_program_path("justname"), "justname");
         assert_eq!(extract_program_path("   "), "");
     }
@@ -604,7 +627,8 @@ mod tests {
     #[test]
     fn dropzone_service_without_signature_is_suspicious() {
         let mut record = crate::fixtures::review_service_record();
-        record.image_path = r"C:\Users\CURE-SYNTH\AppData\Local\Temp\CURE-SYNTH-agent.exe --service".to_string();
+        record.image_path =
+            r"C:\Users\CURE-SYNTH\AppData\Local\Temp\CURE-SYNTH-agent.exe --service".to_string();
         let scored = score_service(&record, false, SignatureStatus::Unknown, None);
         assert_eq!(scored.risk, RiskLevel::Suspicious);
         assert!(scored.score >= 15 && scored.score < 40);
@@ -615,7 +639,10 @@ mod tests {
         let record = crate::fixtures::high_missing_service_record();
         let scored = score_service(&record, true, SignatureStatus::Unknown, None);
         assert!(scored.score >= 30);
-        assert!(scored.reasons.iter().any(|r| r.contains("missing from disk")));
+        assert!(scored
+            .reasons
+            .iter()
+            .any(|r| r.contains("missing from disk")));
     }
 
     #[test]
@@ -630,9 +657,17 @@ mod tests {
     #[test]
     fn known_hash_forces_high_risk_service() {
         let record = crate::fixtures::safe_service_record();
-        let scored = score_service(&record, false, SignatureStatus::ValidSigned, Some("synthetic fixture"));
+        let scored = score_service(
+            &record,
+            false,
+            SignatureStatus::ValidSigned,
+            Some("synthetic fixture"),
+        );
         assert_eq!(scored.risk, RiskLevel::HighRisk);
-        assert!(scored.reasons.iter().any(|r| r.contains("Known Malware Hash")));
+        assert!(scored
+            .reasons
+            .iter()
+            .any(|r| r.contains("Known Malware Hash")));
     }
 
     #[test]
@@ -640,8 +675,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let exe = dir.path().join("svc.exe");
         std::fs::write(&exe, b"MZ").unwrap();
-        assert!(!service_needs_hash(r"C:\Windows\System32\svc.exe", Some(&exe)));
-        assert!(service_needs_hash(r"C:\cure-synth\Temp\svc.exe", Some(&exe)));
+        assert!(!service_needs_hash(
+            r"C:\Windows\System32\svc.exe",
+            Some(&exe)
+        ));
+        assert!(service_needs_hash(
+            r"C:\cure-synth\Temp\svc.exe",
+            Some(&exe)
+        ));
         assert!(!service_needs_hash(r"C:\cure-synth\Temp\svc.exe", None));
     }
 
@@ -655,7 +696,10 @@ mod tests {
         );
         let scored = score_with_signals(&entry, SignatureStatus::Unknown, None);
         assert!(
-            !scored.reasons.iter().any(|r| r.contains("randomly generated")),
+            !scored
+                .reasons
+                .iter()
+                .any(|r| r.contains("randomly generated")),
             "CLSID names must not earn random-name points: {scored:?}"
         );
     }

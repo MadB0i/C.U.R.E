@@ -33,22 +33,15 @@ pub const RANSOM_NOTE_STEMS: &[&str] = &[
 ];
 
 /// Filename extensions commonly paired with ransom notes.
-pub const NOTE_EXTENSIONS: &[&str] = &[
-    "txt", "html", "htm", "md", "json", "png", "jpg", "bmp",
-];
+pub const NOTE_EXTENSIONS: &[&str] = &["txt", "html", "htm", "md", "json", "png", "jpg", "bmp"];
 
 /// Extensions that are too common to signal mass encryption (every OS has
 /// thousands of `.txt`, `.docx`, `.exe`, etc.).
 const BORING_EXTENSIONS: &[&str] = &[
-    "exe", "dll", "sys", "msi", "msu", "msp",
-    "txt", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-    "pdf", "html", "htm", "xml", "json", "csv",
-    "jpg", "jpeg", "png", "gif", "bmp", "ico", "svg", "webp",
-    "mp3", "mp4", "avi", "mkv", "mov", "wav", "flac",
-    "zip", "rar", "7z", "tar", "gz",
-    "bat", "cmd", "ps1", "vbs", "js", "wsh",
-    "ini", "cfg", "conf", "log",
-    "lnk", "url",
+    "exe", "dll", "sys", "msi", "msu", "msp", "txt", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+    "pdf", "html", "htm", "xml", "json", "csv", "jpg", "jpeg", "png", "gif", "bmp", "ico", "svg",
+    "webp", "mp3", "mp4", "avi", "mkv", "mov", "wav", "flac", "zip", "rar", "7z", "tar", "gz",
+    "bat", "cmd", "ps1", "vbs", "js", "wsh", "ini", "cfg", "conf", "log", "lnk", "url",
 ];
 
 /// Minimum number of files with the same extension in a single directory
@@ -316,9 +309,7 @@ pub fn detect_bulk_extension(folder: PathBuf, entries: &[DirEntry]) -> Vec<BulkE
 /// Convenience: run both note detection and bulk-extension detection on
 /// a set of folder entries.  Returns all findings sorted by severity
 /// (notes first, then bulk clusters by count descending).
-pub fn scan_folders(
-    folders: &[(PathBuf, Vec<DirEntry>)],
-) -> Vec<RansomFinding> {
+pub fn scan_folders(folders: &[(PathBuf, Vec<DirEntry>)]) -> Vec<RansomFinding> {
     let mut findings: Vec<RansomFinding> = Vec::new();
 
     for (folder, entries) in folders {
@@ -326,8 +317,7 @@ pub fn scan_folders(
         findings.extend(notes.into_iter().map(RansomFinding::Note));
 
         let clusters = detect_bulk_extension(folder.clone(), entries);
-        findings
-            .extend(clusters.into_iter().map(RansomFinding::BulkEncryption));
+        findings.extend(clusters.into_iter().map(RansomFinding::BulkEncryption));
     }
 
     // Notes first, then clusters by file count descending
@@ -336,10 +326,9 @@ pub fn scan_folders(
         match (a, b) {
             (RansomFinding::Note(_), RansomFinding::BulkEncryption(_)) => Ordering::Less,
             (RansomFinding::BulkEncryption(_), RansomFinding::Note(_)) => Ordering::Greater,
-            (
-                RansomFinding::BulkEncryption(a),
-                RansomFinding::BulkEncryption(b),
-            ) => b.file_count.cmp(&a.file_count),
+            (RansomFinding::BulkEncryption(a), RansomFinding::BulkEncryption(b)) => {
+                b.file_count.cmp(&a.file_count)
+            }
             _ => Ordering::Equal,
         }
     });
@@ -380,9 +369,18 @@ mod tests {
     #[test]
     fn scan_for_notes_finds_matches() {
         let entries = vec![
-            DirEntry { name: "photo.jpg".into(), age_days: 5 },
-            DirEntry { name: "DECRYPT-NOW.txt".into(), age_days: 1 },
-            DirEntry { name: "budget.xlsx".into(), age_days: 30 },
+            DirEntry {
+                name: "photo.jpg".into(),
+                age_days: 5,
+            },
+            DirEntry {
+                name: "DECRYPT-NOW.txt".into(),
+                age_days: 1,
+            },
+            DirEntry {
+                name: "budget.xlsx".into(),
+                age_days: 30,
+            },
         ];
         let notes = scan_for_notes(Path::new(r"C:\Users\Bob\Desktop"), &entries);
         assert_eq!(notes.len(), 1);
@@ -448,11 +446,15 @@ mod tests {
 
     #[test]
     fn scan_folders_combines_notes_and_clusters() {
-        let entries = vec![
-            DirEntry { name: "README.txt".into(), age_days: 1 },
-        ];
+        let entries = vec![DirEntry {
+            name: "README.txt".into(),
+            age_days: 1,
+        }];
         let mut bulk: Vec<DirEntry> = (0..20)
-            .map(|i| DirEntry { name: format!("data_{i}.enc"), age_days: 3 })
+            .map(|i| DirEntry {
+                name: format!("data_{i}.enc"),
+                age_days: 3,
+            })
             .collect();
         let mut all = entries.clone();
         all.append(&mut bulk);
@@ -469,7 +471,11 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let note_path = dir.join("DECRYPT_MY_FILES.txt");
-        std::fs::write(&note_path, "Your files are encrypted by LockBit 3.0. Pay 0.5 BTC.").unwrap();
+        std::fs::write(
+            &note_path,
+            "Your files are encrypted by LockBit 3.0. Pay 0.5 BTC.",
+        )
+        .unwrap();
         let snippet = load_note_content(&note_path, 128);
         assert!(snippet.contains("LockBit"));
         assert!(snippet.contains("0.5 BTC"));
@@ -482,8 +488,8 @@ mod tests {
     /// paths fire against actual filesystem reads, not hand-built fixtures.
     #[test]
     fn real_fs_ransom_scan_finds_note_and_bulk_cluster() {
-        use std::time::{Duration, SystemTime};
         use std::fs::FileTimes;
+        use std::time::{Duration, SystemTime};
 
         let dir = std::env::temp_dir().join("cure_ransom_realfs_test");
         let _ = std::fs::remove_dir_all(&dir);
@@ -526,8 +532,12 @@ mod tests {
                 let age = SystemTime::now()
                     .duration_since(modified)
                     .unwrap_or(Duration::ZERO)
-                    .as_secs() / 86400;
-                Some(DirEntry { name, age_days: age })
+                    .as_secs()
+                    / 86400;
+                Some(DirEntry {
+                    name,
+                    age_days: age,
+                })
             })
             .collect();
 

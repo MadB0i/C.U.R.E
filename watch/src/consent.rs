@@ -53,9 +53,7 @@ pub fn marker_body(enabled: bool) -> String {
 
 #[cfg(target_os = "windows")]
 pub fn marker_path() -> Option<PathBuf> {
-    std::env::var_os("APPDATA").map(|appdata| {
-        PathBuf::from(appdata).join(CONSENT_FILE_NAME)
-    })
+    std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join(CONSENT_FILE_NAME))
 }
 
 #[cfg(test)]
@@ -86,8 +84,14 @@ mod tests {
     #[test]
     fn garbled_or_empty_marker_reasks() {
         assert_eq!(decide_consent(Some("")), ConsentDecision::AskNow);
-        assert_eq!(decide_consent(Some("not json at all")), ConsentDecision::AskNow);
-        assert_eq!(decide_consent(Some("{\"status\":\"maybe\"}")), ConsentDecision::AskNow);
+        assert_eq!(
+            decide_consent(Some("not json at all")),
+            ConsentDecision::AskNow
+        );
+        assert_eq!(
+            decide_consent(Some("{\"status\":\"maybe\"}")),
+            ConsentDecision::AskNow
+        );
     }
 
     #[test]

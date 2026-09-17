@@ -66,8 +66,7 @@ fn looks_randomized(name: &str) -> bool {
     }
     let digits = stem.chars().filter(|c| c.is_ascii_digit()).count();
     let vowels = stem.chars().filter(|c| "aeiou".contains(*c)).count();
-    (digits as f64 / len as f64) > 0.4
-        || (len >= 10 && (vowels as f64 / len as f64) < 0.15)
+    (digits as f64 / len as f64) > 0.4 || (len >= 10 && (vowels as f64 / len as f64) < 0.15)
 }
 
 fn in_drop_zone(path: &str) -> bool {
@@ -94,15 +93,22 @@ pub fn score_process(
     // location heuristic
     if in_drop_zone(&info.exe_path) {
         score += UNSIGNED_FROM_DROP_ZONE;
-        reasons.push(format!("+{UNSIGNED_FROM_DROP_ZONE} running from drop-zone location"));
+        reasons.push(format!(
+            "+{UNSIGNED_FROM_DROP_ZONE} running from drop-zone location"
+        ));
     }
     if in_trusted(&info.exe_path) {
         score += UNSIGNED_FROM_TRUSTED;
-        reasons.push(format!("{}{UNSIGNED_FROM_TRUSTED} running from trusted location", UNSIGNED_FROM_TRUSTED));
+        reasons.push(format!(
+            "{}{UNSIGNED_FROM_TRUSTED} running from trusted location",
+            UNSIGNED_FROM_TRUSTED
+        ));
     }
     if info.from_user_profile {
         score += RUNNING_FROM_PROFILE;
-        reasons.push(format!("+{RUNNING_FROM_PROFILE} running from user profile directory"));
+        reasons.push(format!(
+            "+{RUNNING_FROM_PROFILE} running from user profile directory"
+        ));
     }
 
     // no visible window → higher suspicion (headless background process)
@@ -130,7 +136,9 @@ pub fn score_process(
         SignatureStatus::Unsigned => {
             if score > 0 {
                 score += UNSIGNED_WITH_POSITIVE_SCORE;
-                reasons.push(format!("+{UNSIGNED_WITH_POSITIVE_SCORE} unsigned (elevated by other signals)"));
+                reasons.push(format!(
+                    "+{UNSIGNED_WITH_POSITIVE_SCORE} unsigned (elevated by other signals)"
+                ));
             }
         }
         SignatureStatus::Unknown => {}
@@ -145,7 +153,11 @@ pub fn score_process(
 
     let score = score.max(0);
     let risk = risk_level(score);
-    ProcessScore { score, risk, reasons }
+    ProcessScore {
+        score,
+        risk,
+        reasons,
+    }
 }
 
 /// Score thresholds → risk level.  Mirrors `risk::risk_level`.
@@ -161,9 +173,7 @@ pub fn risk_level(score: i32) -> RiskLevel {
 
 /// Indices of processes that should be offered for termination.
 /// Pure filter — no OS calls.
-pub fn pick_suspicious_processes(
-    scored: &[(ProcessInfo, ProcessScore)],
-) -> Vec<usize> {
+pub fn pick_suspicious_processes(scored: &[(ProcessInfo, ProcessScore)]) -> Vec<usize> {
     scored
         .iter()
         .enumerate()
@@ -193,7 +203,9 @@ pub fn enumerate_processes() -> Vec<ProcessInfo> {
 
     let mut results = Vec::new();
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
-    let Ok(snapshot) = snapshot else { return results };
+    let Ok(snapshot) = snapshot else {
+        return results;
+    };
 
     let mut entry = PROCESSENTRY32W {
         dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
@@ -236,8 +248,7 @@ pub fn enumerate_processes() -> Vec<ProcessInfo> {
         }
 
         let lowered = exe_path.to_ascii_lowercase();
-        let from_user_profile =
-            lowered.contains("appdata") || lowered.contains("users");
+        let from_user_profile = lowered.contains("appdata") || lowered.contains("users");
 
         results.push(ProcessInfo {
             name,
@@ -372,11 +383,29 @@ mod tests {
 
     #[test]
     fn pick_suspicious_returns_only_high_risk() {
-        let safe = ProcessInfo { name: "ok.exe".into(), pid: 1, exe_path: r"C:\ok.exe".into(), has_visible_window: true, from_user_profile: false };
-        let bad  = ProcessInfo { name: "bad.exe".into(), pid: 2, exe_path: r"C:\Downloads\bad.exe".into(), has_visible_window: false, from_user_profile: true };
+        let safe = ProcessInfo {
+            name: "ok.exe".into(),
+            pid: 1,
+            exe_path: r"C:\ok.exe".into(),
+            has_visible_window: true,
+            from_user_profile: false,
+        };
+        let bad = ProcessInfo {
+            name: "bad.exe".into(),
+            pid: 2,
+            exe_path: r"C:\Downloads\bad.exe".into(),
+            has_visible_window: false,
+            from_user_profile: true,
+        };
         let scored = vec![
-            (safe.clone(), score_process(&safe, &SignatureStatus::ValidSigned, None)),
-            (bad.clone(),  score_process(&bad,  &SignatureStatus::Unsigned, None)),
+            (
+                safe.clone(),
+                score_process(&safe, &SignatureStatus::ValidSigned, None),
+            ),
+            (
+                bad.clone(),
+                score_process(&bad, &SignatureStatus::Unsigned, None),
+            ),
         ];
         let picks = pick_suspicious_processes(&scored);
         assert_eq!(picks, vec![1]);

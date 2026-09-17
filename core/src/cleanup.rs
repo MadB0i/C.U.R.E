@@ -458,10 +458,7 @@ pub fn run_dism_cleanup() -> Result<String, String> {
     if output.status.success() {
         Ok(text)
     } else {
-        Err(format!(
-            "dism.exe exited with {}:\n{}",
-            output.status, text
-        ))
+        Err(format!("dism.exe exited with {}:\n{}", output.status, text))
     }
 }
 
@@ -523,7 +520,10 @@ mod tests {
         let la = TempDir::new().unwrap();
         let chrome_ud = la.path().join("Google").join("Chrome").join("User Data");
         let edge_ud = la.path().join("Microsoft").join("Edge").join("User Data");
-        write_file(&chrome_ud.join("Default").join("Cache").join("f_000001"), 500);
+        write_file(
+            &chrome_ud.join("Default").join("Cache").join("f_000001"),
+            500,
+        );
         write_file(
             &chrome_ud
                 .join("Profile 2")
@@ -536,7 +536,10 @@ mod tests {
         // user-data decoys that must never match:
         write_file(&chrome_ud.join("Default").join("Cookies"), 99);
         write_file(
-            &chrome_ud.join("Default").join("Local Storage").join("leveldb"),
+            &chrome_ud
+                .join("Default")
+                .join("Local Storage")
+                .join("leveldb"),
             99,
         );
         write_file(&chrome_ud.join("Cache").join("not-a-profile"), 99);
@@ -545,7 +548,9 @@ mod tests {
         found.sort_by(|a, b| a.path.cmp(&b.path));
         assert_eq!(found.len(), 3, "got: {found:?}");
         assert_eq!(total(&found), 1500);
-        assert!(found.iter().all(|c| c.category == CleanupCategory::BrowserCache));
+        assert!(found
+            .iter()
+            .all(|c| c.category == CleanupCategory::BrowserCache));
         assert!(found.iter().all(|c| c.path.file_name().unwrap() == "Cache"));
     }
 
@@ -570,7 +575,9 @@ mod tests {
         let found = scan_recycle_bin_in(&root.path().join("$Recycle.Bin"));
         assert_eq!(found.len(), 3, "got: {found:?}");
         assert_eq!(total(&found), 4096 + 512 + 16);
-        assert!(found.iter().all(|c| c.category == CleanupCategory::RecycleBin));
+        assert!(found
+            .iter()
+            .all(|c| c.category == CleanupCategory::RecycleBin));
     }
 
     #[test]
@@ -615,21 +622,22 @@ mod tests {
         let found = scan_old_downloads_in(dl.path(), 30, later);
         assert_eq!(found.len(), 3, "exe/msi only: {found:?}");
         assert_eq!(total(&found), 7000);
-        assert!(found.iter().all(|c| c.category == CleanupCategory::DownloadsInstaller));
+        assert!(found
+            .iter()
+            .all(|c| c.category == CleanupCategory::DownloadsInstaller));
 
         // A window longer than the simulated elapsed time keeps everything out.
         let none_yet = scan_old_downloads_in(dl.path(), 90, later);
-        assert!(none_yet.is_empty(), "31 days < 90 days, so nothing qualifies");
+        assert!(
+            none_yet.is_empty(),
+            "31 days < 90 days, so nothing qualifies"
+        );
     }
 
     #[test]
     fn downloads_scan_tolerates_missing_folder() {
         let tmp = TempDir::new().unwrap();
-        let found = scan_old_downloads_in(
-            &tmp.path().join("Downloads"),
-            30,
-            SystemTime::now(),
-        );
+        let found = scan_old_downloads_in(&tmp.path().join("Downloads"), 30, SystemTime::now());
         assert!(found.is_empty());
     }
 
@@ -774,12 +782,104 @@ mod tests {
     }
 
     #[test]
+    fn scans_are_read_only() {
+        // Snapshot a fixture tree, run every scanner over it, and prove
+        // byte-for-byte that scanning modifies nothing (scan is dry).
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path().join("disk");
+        std::fs::create_dir_all(root.join("nested")).unwrap();
+        write_file(&root.join("a.tmp"), 100);
+        write_file(&root.join("nested").join("b.log"), 200);
+        write_file(&root.join("setup.exe"), 300);
+        let mut before: Vec<(std::path::PathBuf, u64)> = walkdir::WalkDir::new(&root)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .map(|e| {
+                let len = e.metadata().map(|m| m.len()).unwrap_or(0);
+                (e.path().to_path_buf(), len)
+            })
+            .collect();
+        let _ = scan_temp_files_in(std::slice::from_ref(&root));
+        let _ = scan_browser_cache_in(tmp.path());
+        let _ = scan_recycle_bin_in(&root);
+        let _ = scan_windows_old_at(&root);
+        let _ = scan_old_downloads_in(&root, 30, SystemTime::now());
+        let _ = summarize(&[]);
+        let mut after: Vec<(std::path::PathBuf, u64)> = walkdir::WalkDir::new(&root)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .map(|e| {
+                let len = e.metadata().map(|m| m.len()).unwrap_or(0);
+                (e.path().to_path_buf(), len)
+            })
+            .collect();
+        before.sort();
+        after.sort();
+        assert_eq!(after, before, "scanning must not modify the tree");
+    }
+
+    #[test]
+    fn delete_captures_vanished_paths_per_item() {
+        // File deleted between scan and delete (TOCTOU): one failure row,
+        // batch continues, counts stay truthful.
+        let tmp = TempDir::new().unwrap();
+        let gone = tmp.path().join("already-gone.tmp");
+        write_file(&gone, 50);
+        std::fs::remove_file(&gone).unwrap();
+        let kept = tmp.path().join("kept.tmp");
+        write_file(&kept, 70);
+        let result = delete_candidates(&[
+            CleanupCandidate {
+                path: gone.clone(),
+                size_bytes: 50,
+                category: CleanupCategory::Temp,
+            },
+            CleanupCandidate {
+                path: kept.clone(),
+                size_bytes: 70,
+                category: CleanupCategory::Temp,
+            },
+        ]);
+        assert_eq!(result.attempted, 2);
+        assert_eq!(result.deleted, 1);
+        assert_eq!(result.failed, 1);
+        assert_eq!(result.bytes_freed, 70);
+        assert_eq!(result.failures.len(), 1);
+        assert_eq!(result.failures[0].path, gone);
+        assert!(!kept.exists());
+    }
+
+    #[test]
+    fn downloads_age_boundary_is_strictly_older_than() {
+        use std::time::Duration;
+        // Deterministic without setting mtimes: anchor synthetic "now"
+        // values to the file's real mtime (31 vs 29 days later).
+        let tmp = TempDir::new().unwrap();
+        let installer = tmp.path().join("boundary-setup.exe");
+        write_file(&installer, 10);
+        let mtime = std::fs::metadata(&installer).unwrap().modified().unwrap();
+        let old_enough = mtime + Duration::from_secs(31 * 86_400 + 5);
+        let too_soon = mtime + Duration::from_secs(29 * 86_400);
+        let found_old = scan_old_downloads_in(tmp.path(), 30, old_enough);
+        assert_eq!(found_old.len(), 1, "31-day-old installer must match");
+        assert_eq!(found_old[0].path, installer);
+        let found_new = scan_old_downloads_in(tmp.path(), 30, too_soon);
+        assert!(
+            found_new.is_empty(),
+            "29-day-old installer must never match"
+        );
+    }
+
+    #[test]
     fn category_keys_are_stable() {
         assert_eq!(CleanupCategory::Temp.key(), "temp");
         assert_eq!(CleanupCategory::BrowserCache.key(), "browser_cache");
         assert_eq!(CleanupCategory::RecycleBin.key(), "recycle_bin");
         assert_eq!(CleanupCategory::WindowsOld.key(), "windows_old");
-        assert_eq!(CleanupCategory::DownloadsInstaller.key(), "downloads_installer");
+        assert_eq!(
+            CleanupCategory::DownloadsInstaller.key(),
+            "downloads_installer"
+        );
         assert_eq!(CleanupCategory::ALL.len(), 5);
     }
 }

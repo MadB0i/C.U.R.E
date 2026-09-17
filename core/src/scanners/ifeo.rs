@@ -73,7 +73,9 @@ mod tests {
         for e in scan() {
             assert_eq!(e.source, PersistenceSource::IfeoDebugger);
             assert!(!e.command.trim().is_empty());
-            assert!(e.location.starts_with(r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\"));
+            assert!(e.location.starts_with(
+                r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\"
+            ));
         }
     }
 }

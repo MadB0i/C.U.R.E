@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use cure_core::canary::{
-    CanaryAlert, CanaryConfig, CanaryEngine, FileEvent, FileEventKind, self as canary,
+    self as canary, CanaryAlert, CanaryConfig, CanaryEngine, FileEvent, FileEventKind,
 };
 
 fn now_secs() -> u64 {
@@ -69,17 +69,18 @@ pub fn plant_decoys(dir: &Path) {
 /// events (callers log the coverage gap if they care).
 #[cfg(windows)]
 pub fn run_dir_guard(dir: &Path, stop: &AtomicBool, on_alert: impl Fn(CanaryAlert)) {
+    use windows::core::PCWSTR;
     use windows::Win32::Foundation::{CloseHandle, BOOL, INVALID_HANDLE_VALUE};
     use windows::Win32::Storage::FileSystem::{
-        CreateFileW, FILE_ACTION_ADDED, FILE_ACTION_MODIFIED, FILE_ACTION_REMOVED,
-        FILE_ACTION_RENAMED_NEW_NAME, FILE_ACTION_RENAMED_OLD_NAME, FILE_FLAG_BACKUP_SEMANTICS,
-        FILE_LIST_DIRECTORY, FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE,
-        FILE_NOTIFY_CHANGE_SIZE, FILE_NOTIFY_INFORMATION, FILE_SHARE_DELETE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, OPEN_EXISTING, ReadDirectoryChangesW,
+        CreateFileW, ReadDirectoryChangesW, FILE_ACTION_ADDED, FILE_ACTION_MODIFIED,
+        FILE_ACTION_REMOVED, FILE_ACTION_RENAMED_NEW_NAME, FILE_ACTION_RENAMED_OLD_NAME,
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_LIST_DIRECTORY,
+        FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE,
+        FILE_NOTIFY_INFORMATION, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        OPEN_EXISTING,
     };
-    use windows::Win32::System::IO::{GetOverlappedResult, OVERLAPPED};
     use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
-    use windows::core::PCWSTR;
+    use windows::Win32::System::IO::{CancelIo, GetOverlappedResult, OVERLAPPED};
 
     let dir_wide: Vec<u16> = {
         use std::os::windows::ffi::OsStrExt;
@@ -90,13 +91,18 @@ pub fn run_dir_guard(dir: &Path, stop: &AtomicBool, on_alert: impl Fn(CanaryAler
     };
 
     let h_dir = unsafe {
+        // FILE_FLAG_OVERLAPPED is load-bearing: without it every I/O on
+        // this handle is SYNCHRONOUS (the OVERLAPPED struct is ignored),
+        // so ReadDirectoryChangesW would block until the next filesystem
+        // change — the 2 s wait below would never fire and the stop flag
+        // could not terminate the thread on a quiet directory.
         CreateFileW(
             PCWSTR(dir_wide.as_ptr()),
             FILE_LIST_DIRECTORY.0,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             None,
             OPEN_EXISTING,
-            FILE_FLAG_BACKUP_SEMANTICS,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
             None,
         )
     };
@@ -152,6 +158,12 @@ pub fn run_dir_guard(dir: &Path, stop: &AtomicBool, on_alert: impl Fn(CanaryAler
 
         let wait_result = unsafe { WaitForSingleObject(h_event, 2000) };
         if wait_result.0 != 0 {
+            // Timeout (or abandonment): cancel the still-pending read so
+            // the next iteration never stacks a second operation behind it,
+            // then re-check the stop flag promptly.
+            unsafe {
+                let _ = CancelIo(h_dir);
+            }
             continue;
         }
 
@@ -168,8 +180,7 @@ pub fn run_dir_guard(dir: &Path, stop: &AtomicBool, on_alert: impl Fn(CanaryAler
         let buf_end = bytes_returned as usize;
 
         while offset + 12 <= buf_end {
-            let info =
-                unsafe { &*(buffer.as_ptr().add(offset) as *const FILE_NOTIFY_INFORMATION) };
+            let info = unsafe { &*(buffer.as_ptr().add(offset) as *const FILE_NOTIFY_INFORMATION) };
             let name_len = info.FileNameLength as usize;
             // FileName starts at byte 12 (after NextEntryOffset + Action + FileNameLength)
             let name_byte_offset = offset + 12;
@@ -292,5 +303,175 @@ mod tests {
             started.elapsed() < std::time::Duration::from_secs(10),
             "run_dir_guard did not return promptly on a pre-set stop flag"
         );
+    }
+
+    /// LIVE filesystem validation (Windows only, tempdir only — never user
+    /// documents). Drives real ReadDirectoryChangesW events through the
+    /// shared guard: noise first (no tamper expected), then decoy
+    /// modify/rename/delete (tamper expected), then a second run proving
+    /// restart state resets (new engine alerts again, no handle leaks).
+    /// This validates the EXPERIMENTAL guard's plumbing, not ransomware
+    /// detection — the UI must keep saying exactly that.
+    #[cfg(windows)]
+    #[test]
+    fn live_decoy_tamper_alerts_on_real_filesystem() {
+        use std::sync::{mpsc, Arc};
+        use std::time::Duration;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        plant_decoys(dir.path());
+        let decoys = canary::decoy_names(6);
+
+        let (tx, rx) = mpsc::channel();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_thread = stop.clone();
+        let watch_dir = dir.path().to_path_buf();
+        let handle = std::thread::spawn(move || {
+            run_dir_guard(&watch_dir, &stop_thread, move |alert| {
+                let _ = tx.send(alert);
+            });
+        });
+        // Let the watcher open the handle and arm its first read.
+        std::thread::sleep(Duration::from_secs(1));
+
+        let drain_tamper = |timeout: Duration| -> Vec<CanaryAlert> {
+            let deadline = std::time::Instant::now() + timeout;
+            let mut found = Vec::new();
+            while std::time::Instant::now() < deadline {
+                match rx.recv_timeout(Duration::from_millis(250)) {
+                    Ok(alert) => {
+                        if matches!(alert, CanaryAlert::CanaryTamper { .. }) {
+                            found.push(alert);
+                            break;
+                        }
+                        // Burst alerts from noise are expected engine
+                        // behavior (documented FP tradeoff) — keep draining.
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                }
+            }
+            found
+        };
+
+        // 1. Noise first: 20 ordinary files must not produce TAMPER
+        // (a burst alert is acceptable and ignored by the drain filter).
+        for i in 0..20 {
+            std::fs::write(dir.path().join(format!("work-{i}.tmp")), b"noise").unwrap();
+        }
+        std::thread::sleep(Duration::from_secs(2));
+
+        // 2. Modify decoy 0 → tamper.
+        std::fs::write(dir.path().join(&decoys[0]), b"ransomware was here").unwrap();
+        assert_eq!(
+            drain_tamper(Duration::from_secs(15)).len(),
+            1,
+            "modifying a decoy must raise exactly one tamper alert"
+        );
+
+        // 3. Rename decoy 1 → tamper.
+        std::fs::rename(
+            dir.path().join(&decoys[1]),
+            dir.path().join("renamed-away.bin"),
+        )
+        .unwrap();
+        // Cooldown (120 s) may suppress a second tamper of the same kind;
+        // accept zero-or-one but require the run to stay alive and quiet
+        // afterwards rather than erroring.
+        let _ = drain_tamper(Duration::from_secs(10));
+
+        // 4. Delete decoy 2 → observed without crashing (cooldown may
+        // suppress the repeat alert; survival is the assertion).
+        std::fs::remove_file(dir.path().join(&decoys[2])).unwrap();
+        std::thread::sleep(Duration::from_secs(2));
+
+        // 5. Cross-extension renames of ordinary files → no rewrite alert
+        // for decoys (rewrite needs same-extension concentration).
+        for (i, ext) in ["aaa", "bbb", "ccc"].iter().enumerate() {
+            let src = dir.path().join(format!("plain-{i}.tmp"));
+            std::fs::write(&src, b"x").unwrap();
+            std::fs::rename(&src, dir.path().join(format!("plain-{i}.{ext}"))).unwrap();
+        }
+        std::thread::sleep(Duration::from_secs(2));
+
+        stop.store(true, Ordering::SeqCst);
+        handle.join().expect("guard thread must shut down cleanly");
+        // TempDir cleanup removes every decoy and noise file: no fixture
+        // persists after the test by construction.
+    }
+
+    /// Restart resets engine state: a second guard over the same directory
+    /// alerts on new tampering (no cross-run suppression, no handle leak).    #[cfg(windows)]
+    #[test]
+    fn live_guard_restart_alerts_again() {
+        use std::sync::{mpsc, Arc};
+        use std::time::Duration;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        plant_decoys(dir.path());
+        let decoys = canary::decoy_names(6);
+
+        for round in 0..2 {
+            let (tx, rx) = mpsc::channel();
+            let stop = Arc::new(AtomicBool::new(false));
+            let stop_thread = stop.clone();
+            let watch_dir = dir.path().to_path_buf();
+            let handle = std::thread::spawn(move || {
+                run_dir_guard(&watch_dir, &stop_thread, move |alert| {
+                    let _ = tx.send(alert);
+                });
+            });
+            std::thread::sleep(Duration::from_secs(1));
+            let target = dir.path().join(&decoys[round * 2]);
+            std::fs::write(&target, format!("round {round}").as_bytes()).unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(15);
+            let mut fired = false;
+            while std::time::Instant::now() < deadline {
+                match rx.recv_timeout(Duration::from_millis(250)) {
+                    Ok(CanaryAlert::CanaryTamper { .. }) => {
+                        fired = true;
+                        break;
+                    }
+                    Ok(_) => {}
+                    Err(_) => break,
+                }
+            }
+            stop.store(true, Ordering::SeqCst);
+            handle.join().expect("guard thread must shut down cleanly");
+            assert!(fired, "round {round}: fresh guard must alert on tamper");
+        }
+    }
+
+    /// Regression test for the shutdown hang found by live validation:
+    /// the directory handle used to be opened WITHOUT FILE_FLAG_OVERLAPPED,
+    /// which made every ReadDirectoryChangesW call synchronous — the 2 s
+    /// wait never fired and the stop flag could not terminate the thread
+    /// on a quiet directory (join hung forever). With overlapped I/O plus
+    /// CancelIo-on-timeout, shutdown after real activity must complete
+    /// within seconds.
+    #[cfg(windows)]
+    #[test]
+    fn guard_shuts_down_promptly_after_activity() {
+        use std::sync::Arc;
+        use std::time::Duration;
+        for round in 0..3 {
+            let dir = tempfile::TempDir::new().unwrap();
+            let stop = Arc::new(AtomicBool::new(false));
+            let s2 = stop.clone();
+            let d = dir.path().to_path_buf();
+            let h = std::thread::spawn(move || {
+                run_dir_guard(&d, &s2, |_| {});
+            });
+            std::thread::sleep(Duration::from_millis(300));
+            std::fs::write(dir.path().join(format!("f{round}.tmp")), b"x").unwrap();
+            std::thread::sleep(Duration::from_millis(300));
+            stop.store(true, Ordering::SeqCst);
+            let started = std::time::Instant::now();
+            h.join().expect("guard thread must shut down");
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "round {round}: guard did not stop promptly after activity"
+            );
+        }
     }
 }

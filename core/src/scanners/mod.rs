@@ -1,9 +1,9 @@
 pub mod appinit;
 pub mod com;
 pub mod ifeo;
-pub mod scheduled_tasks;
 #[cfg(windows)]
 pub mod registry;
+pub mod scheduled_tasks;
 pub mod services;
 pub mod startup;
 #[cfg(windows)]

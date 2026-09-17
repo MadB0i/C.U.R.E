@@ -44,6 +44,10 @@ pub struct ServiceRecord {
     pub account: String,
     /// Raw `BinaryPathName` as configured (may include args/env vars).
     pub image_path: String,
+    /// Hosting process id at scan time, when the SCM reports one.
+    /// Lets incident correlation require pid equality for shared images
+    /// (svchost) instead of matching every instance with every service.
+    pub pid: Option<u32>,
 }
 
 pub fn service_key_path(name: &str) -> String {
@@ -100,18 +104,13 @@ fn imp_expand(text: &str) -> String {
     use windows::Win32::System::Environment::ExpandEnvironmentStringsW;
     let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
     unsafe {
-        let needed = ExpandEnvironmentStringsW(
-            windows::core::PCWSTR(wide.as_ptr()),
-            None,
-        );
+        let needed = ExpandEnvironmentStringsW(windows::core::PCWSTR(wide.as_ptr()), None);
         if needed == 0 || needed > 32 * 1024 {
             return text.to_string();
         }
         let mut buf = vec![0u16; needed as usize];
-        let written = ExpandEnvironmentStringsW(
-            windows::core::PCWSTR(wide.as_ptr()),
-            Some(&mut buf),
-        );
+        let written =
+            ExpandEnvironmentStringsW(windows::core::PCWSTR(wide.as_ptr()), Some(&mut buf));
         if written == 0 || written as usize > buf.len() {
             return text.to_string();
         }
@@ -121,7 +120,55 @@ fn imp_expand(text: &str) -> String {
 
 #[cfg(windows)]
 pub fn scan() -> Vec<ServiceRecord> {
-    imp::scan()
+    scan_report().records
+}
+
+/// Scan result with access accounting. An SCM open failure (locked-down
+/// box) is CHECK FAILED / ACCESS DENIED — never an empty "clean".
+pub struct ServiceScanReport {
+    pub records: Vec<ServiceRecord>,
+    /// Services whose configuration could not be read (query failures).
+    /// Manual/Disabled services are excluded by design and NOT counted.
+    pub skipped_config: usize,
+    pub status: crate::elevation::SourceStatus,
+}
+
+#[cfg(windows)]
+pub fn scan_report() -> ServiceScanReport {
+    use crate::elevation::SourceStatus;
+    match imp::scan_inner() {
+        Ok((records, skipped_config)) => {
+            let status = if skipped_config == 0 {
+                SourceStatus::Available
+            } else {
+                SourceStatus::Partial {
+                    skipped: skipped_config,
+                    reason: "some service configurations unreadable".to_string(),
+                }
+            };
+            ServiceScanReport {
+                records,
+                skipped_config,
+                status,
+            }
+        }
+        Err(code) => ServiceScanReport {
+            records: Vec::new(),
+            skipped_config: 0,
+            status: crate::elevation::classify_win_error(code, "service control manager"),
+        },
+    }
+}
+
+#[cfg(not(windows))]
+pub fn scan_report() -> ServiceScanReport {
+    ServiceScanReport {
+        records: Vec::new(),
+        skipped_config: 0,
+        status: crate::elevation::SourceStatus::Unavailable {
+            reason: "Windows-only source".to_string(),
+        },
+    }
 }
 
 #[cfg(not(windows))]
@@ -173,12 +220,14 @@ mod imp {
         }
     }
 
-    pub(super) fn scan() -> Vec<ServiceRecord> {
+    pub(super) fn scan_inner() -> Result<(Vec<ServiceRecord>, usize), i32> {
         let mut out = Vec::new();
+        let mut skipped_config = 0usize;
         unsafe {
             let scm: SC_HANDLE = match OpenSCManagerW(None, None, SC_MANAGER_ENUMERATE_SERVICE) {
                 Ok(h) => h,
-                Err(_) => return out, // locked-down box: no service data, not an error
+                // Locked-down box: no service data — report WHY, not empty.
+                Err(e) => return Err(e.code().0),
             };
 
             // Two-call buffer pattern for the enumeration.
@@ -198,7 +247,7 @@ mod imp {
             );
             if needed == 0 {
                 let _ = CloseServiceHandle(scm);
-                return out;
+                return Ok((out, skipped_config));
             }
             let mut buf = vec![0u8; needed as usize];
             let ok = EnumServicesStatusExW(
@@ -212,9 +261,9 @@ mod imp {
                 Some(&mut resume),
                 None,
             );
-            if ok.is_err() {
+            if let Err(e) = ok {
                 let _ = CloseServiceHandle(scm);
-                return out;
+                return Err(e.code().0);
             }
             let statuses: &[ENUM_SERVICE_STATUS_PROCESSW] = std::slice::from_raw_parts(
                 buf.as_ptr() as *const ENUM_SERVICE_STATUS_PROCESSW,
@@ -222,49 +271,56 @@ mod imp {
             );
 
             for st in statuses {
-                if let Some(rec) = describe_service(scm, st) {
-                    out.push(rec);
+                match describe_service(scm, st) {
+                    Ok(Some(rec)) => out.push(rec),
+                    Err(()) => skipped_config += 1,
+                    Ok(None) => {}
                 }
             }
             let _ = CloseServiceHandle(scm);
         }
         out.sort_by(|a, b| a.entry.name.cmp(&b.entry.name));
-        out
+        Ok((out, skipped_config))
     }
 
-    /// Open one service for config query; returns None for anything that is
-    /// not auto-start (Manual/Disabled cannot cause startup popups) or that
-    /// cannot be queried with read-only rights.
+    /// Open one service for config query.
+    /// - `Ok(Some)` = auto-start record (in scope).
+    /// - `Ok(None)` = Manual/Disabled/empty — out of scope by design,
+    ///   NOT a failure and NOT counted as skipped.
+    /// - `Err(())` = query failed with read-only rights — counted as
+    ///   skipped so the coverage row stays truthful.
     unsafe fn describe_service(
         scm: SC_HANDLE,
         st: &ENUM_SERVICE_STATUS_PROCESSW,
-    ) -> Option<ServiceRecord> {
+    ) -> Result<Option<ServiceRecord>, ()> {
         use windows::Win32::System::Services::{
             SERVICE_AUTO_START, SERVICE_BOOT_START, SERVICE_SYSTEM_START,
         };
 
         let name = wide_str(st.lpServiceName.0 as *const u16);
         if name.is_empty() {
-            return None;
+            return Ok(None);
         }
         let display = wide_str(st.lpDisplayName.0 as *const u16);
         let state = service_state(st.ServiceStatusProcess.dwCurrentState.0).to_string();
         let wname = wide(&name);
-        let svc = OpenServiceW(scm, PCWSTR(wname.as_ptr()), SERVICE_QUERY_CONFIG).ok()?;
+        let Ok(svc) = OpenServiceW(scm, PCWSTR(wname.as_ptr()), SERVICE_QUERY_CONFIG) else {
+            return Err(());
+        };
 
         // Two-call QueryServiceConfig.
         let mut needed = 0u32;
         let _ = QueryServiceConfigW(svc, None, 0, &mut needed);
         if needed == 0 {
             let _ = CloseServiceHandle(svc);
-            return None;
+            return Err(());
         }
         let mut cfg_buf = vec![0u8; needed as usize];
         #[allow(clippy::cast_ptr_alignment)]
         let cfg = &mut *(cfg_buf.as_mut_ptr() as *mut QUERY_SERVICE_CONFIGW);
         if QueryServiceConfigW(svc, Some(cfg), needed, &mut needed).is_err() {
             let _ = CloseServiceHandle(svc);
-            return None;
+            return Err(());
         }
         let start_raw = cfg.dwStartType;
         let image_path = wide_str(cfg.lpBinaryPathName.0 as *const u16);
@@ -299,10 +355,10 @@ mod imp {
             SERVICE_SYSTEM_START => ServiceStart::System,
             // Demand-start, disabled, and anything unrecognized cannot cause
             // startup popups — out of scope by design.
-            _ => return None,
+            _ => return Ok(None),
         };
         if image_path.trim().is_empty() {
-            return None;
+            return Ok(None);
         }
 
         let entry = PersistenceEntry::new(
@@ -311,14 +367,23 @@ mod imp {
             &image_path,
             service_key_path(&name),
         );
-        Some(ServiceRecord {
+        Ok(Some(ServiceRecord {
             entry,
-            display_name: if display.is_empty() { name.clone() } else { display },
+            display_name: if display.is_empty() {
+                name.clone()
+            } else {
+                display
+            },
             start_type,
             state,
             account,
             image_path,
-        })
+            pid: if st.ServiceStatusProcess.dwProcessId != 0 {
+                Some(st.ServiceStatusProcess.dwProcessId)
+            } else {
+                None
+            },
+        }))
     }
 }
 

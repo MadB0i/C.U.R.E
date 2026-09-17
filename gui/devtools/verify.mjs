@@ -140,6 +140,27 @@ async function runFlow(browser, label, reducedMotion) {
   const btn = page.locator("#review-cards button.quarantine-btn").first();
   if ((await btn.count()) > 0 && (await btn.isVisible())) {
     await btn.click();
+    // V3: destructive actions share an explicit confirm dialog — the
+    // quarantine invoke must NOT fire before Confirm.
+    await page.waitForSelector("#confirm-overlay:not(.hidden)", { timeout: 4000 });
+    const dlgTitle = (await page.textContent("#confirm-title")) ?? "";
+    if (!/quarantine/i.test(dlgTitle)) {
+      errors.push(`[${label}] confirm dialog missing for quarantine (title: "${dlgTitle.trim()}")`);
+    }
+    await page.click("#confirm-cancel");
+    await page.waitForSelector("#confirm-overlay", { state: "hidden", timeout: 4000 });
+    const labelCancel = (await btn.textContent()) ?? "";
+    if (/quarantined/i.test(labelCancel)) {
+      errors.push(`[${label}] quarantine executed without confirmation (text: "${labelCancel.trim()}")`);
+    }
+    await btn.click();
+    await page.waitForSelector("#confirm-overlay:not(.hidden)", { timeout: 4000 });
+    // Escape must also cancel without side effects.
+    await page.keyboard.press("Escape");
+    await page.waitForSelector("#confirm-overlay", { state: "hidden", timeout: 4000 });
+    await btn.click();
+    await page.waitForSelector("#confirm-overlay:not(.hidden)", { timeout: 4000 });
+    await page.click("#confirm-ok");
     await page.waitForTimeout(900);
     const label2 = (await btn.textContent()) ?? "";
     if (!/quarantined/i.test(label2)) {

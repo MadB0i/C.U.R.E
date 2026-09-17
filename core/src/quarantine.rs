@@ -30,9 +30,8 @@ fn records_path(data_dir: &Path) -> PathBuf {
 
 fn load_records(data_dir: &Path) -> io::Result<Records> {
     match fs::read_to_string(records_path(data_dir)) {
-        Ok(raw) => {
-            serde_json::from_str(&raw).map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
-        }
+        Ok(raw) => serde_json::from_str(&raw)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err)),
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(Records::new()),
         Err(err) => Err(err),
     }
@@ -68,9 +67,7 @@ fn move_file(source: &Path, destination: &Path) -> io::Result<()> {
     let original_len = fs::metadata(source)?.len();
     if copied_len != original_len {
         let _ = fs::remove_file(destination);
-        return Err(io::Error::other(
-            "copy verification failed during move",
-        ));
+        return Err(io::Error::other("copy verification failed during move"));
     }
     fs::remove_file(source)
 }
@@ -109,6 +106,23 @@ pub fn quarantine_file(data_dir: &Path, entry: &PersistenceEntry) -> io::Result<
 }
 
 pub fn undo(data_dir: &Path, id: &str) -> io::Result<QuarantineRecord> {
+    undo_scoped(data_dir, id, None)
+}
+
+/// Restore a quarantined file, optionally constraining WHERE it may go.
+///
+/// `allowed_roots` (when `Some`) must contain the record's original path
+/// (prefix match after normalization), otherwise restoration is refused.
+/// Rationale: `records.json` lives next to the quarantine on portable
+/// media; a planted records file pointing `original_path` at a system
+/// location must not turn an elevated `undo` into an arbitrary file plant.
+/// CLI/GUI pass their scan roots (startup/tasks); bare `undo` keeps the
+/// historical behavior for tests and power users.
+pub fn undo_scoped(
+    data_dir: &Path,
+    id: &str,
+    allowed_roots: Option<&[PathBuf]>,
+) -> io::Result<QuarantineRecord> {
     let mut records = load_records(data_dir)?;
     let Some(record) = records.remove(id) else {
         return Err(io::Error::new(
@@ -116,6 +130,16 @@ pub fn undo(data_dir: &Path, id: &str) -> io::Result<QuarantineRecord> {
             format!("no quarantine record for id {id}"),
         ));
     };
+    if let Some(roots) = allowed_roots {
+        if !under_any_root(&record.original_path, roots) {
+            records.insert(record.id.clone(), record);
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "refusing to restore outside the scanned startup/task roots \
+                 (re-run with matching --startup-root/--tasks-root if the roots moved)",
+            ));
+        }
+    }
     match restore(&record) {
         Ok(()) => {
             save_records(data_dir, &records)?;
@@ -128,17 +152,37 @@ pub fn undo(data_dir: &Path, id: &str) -> io::Result<QuarantineRecord> {
     }
 }
 
+fn normalize_rooted(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase()
+}
+
+fn under_any_root(path: &Path, roots: &[PathBuf]) -> bool {
+    let target = normalize_rooted(path);
+    roots.iter().any(|root| {
+        let base = normalize_rooted(root).trim_end_matches('/').to_string() + "/";
+        target.starts_with(&base)
+    })
+}
+
 fn restore(record: &QuarantineRecord) -> io::Result<()> {
     if !record.quarantine_path.is_file() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
-            format!("quarantined file is gone: {}", record.quarantine_path.display()),
+            format!(
+                "quarantined file is gone: {}",
+                record.quarantine_path.display()
+            ),
         ));
     }
     if record.original_path.exists() {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
-            format!("original path is occupied: {}", record.original_path.display()),
+            format!(
+                "original path is occupied: {}",
+                record.original_path.display()
+            ),
         ));
     }
     if let Some(parent) = record.original_path.parent() {
@@ -165,7 +209,12 @@ mod tests {
         fs::write(&file, payload()).unwrap();
         let path_text = file.to_string_lossy().into_owned();
         (
-            PersistenceEntry::new(PersistenceSource::StartupFolder, name, &path_text, &path_text),
+            PersistenceEntry::new(
+                PersistenceSource::StartupFolder,
+                name,
+                &path_text,
+                &path_text,
+            ),
             file,
         )
     }
@@ -258,5 +307,72 @@ mod tests {
         assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
         assert!(record.quarantine_path.is_file());
         assert!(is_quarantined(data.path(), &entry.id));
+    }
+
+    #[test]
+    fn scoped_undo_allows_restore_under_roots() {
+        let user_land = tempdir().unwrap();
+        let data = tempdir().unwrap();
+        let (entry, original) = setup_entry(user_land.path(), "ok.bin");
+
+        quarantine_entry(data.path(), &entry).unwrap();
+        let restored = undo_scoped(
+            data.path(),
+            &entry.id,
+            Some(&[user_land.path().to_path_buf()]),
+        )
+        .unwrap();
+
+        assert_eq!(restored.id, entry.id);
+        assert!(original.is_file());
+        assert!(!is_quarantined(data.path(), &entry.id));
+    }
+
+    #[test]
+    fn scoped_undo_refuses_planted_destination_outside_roots() {
+        // Threat model: a records.json planted on portable media pointing
+        // original_path at a system location must not turn an elevated undo
+        // into an arbitrary file plant.
+        let user_land = tempdir().unwrap();
+        let other_root = tempdir().unwrap();
+        let data = tempdir().unwrap();
+        let (entry, _original) = setup_entry(user_land.path(), "evil.bin");
+
+        let record = quarantine_entry(data.path(), &entry).unwrap();
+        assert!(record.original_path.starts_with(user_land.path()));
+
+        let err = undo_scoped(
+            data.path(),
+            &entry.id,
+            Some(&[other_root.path().to_path_buf()]),
+        )
+        .unwrap_err();
+
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+        // Record preserved, file stays quarantined — nothing moved.
+        assert!(is_quarantined(data.path(), &entry.id));
+        assert!(record.quarantine_path.is_file());
+    }
+
+    #[test]
+    fn scoped_undo_rejects_sibling_prefix_trick() {
+        // C:\foo must not authorize C:\foobar\… (prefix + separator check).
+        let roots = [PathBuf::from(r"C:\foo")];
+        assert!(under_any_root(Path::new(r"C:\foo\bar.exe"), &roots));
+        assert!(under_any_root(Path::new(r"C:\FOO\bar.exe"), &roots));
+        assert!(!under_any_root(Path::new(r"C:\foobar\bar.exe"), &roots));
+        assert!(!under_any_root(Path::new(r"D:\foo\bar.exe"), &roots));
+    }
+
+    #[test]
+    fn unscoped_undo_keeps_historical_behavior() {
+        let user_land = tempdir().unwrap();
+        let data = tempdir().unwrap();
+        let (entry, original) = setup_entry(user_land.path(), "legacy.bin");
+
+        quarantine_entry(data.path(), &entry).unwrap();
+        undo(data.path(), &entry.id).unwrap();
+
+        assert!(original.is_file());
     }
 }

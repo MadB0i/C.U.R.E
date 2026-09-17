@@ -1,4 +1,4 @@
-﻿//! Real-time ransomware canary detection engine.
+//! Real-time ransomware canary detection engine.
 //!
 //! Pure state machine — no filesystem access, no OS calls, no clock reads.
 //! The caller feeds [`FileEvent`]s (from `ReadDirectoryChangesW` or any
@@ -355,9 +355,16 @@ mod tests {
     use super::*;
 
     fn ev(at: u64, folder: &str, name: &str, kind: FileEventKind) -> FileEvent {
-        FileEvent { at_secs: at, folder: folder.to_string(), name: name.to_string(), kind }
+        FileEvent {
+            at_secs: at,
+            folder: folder.to_string(),
+            name: name.to_string(),
+            kind,
+        }
     }
-    fn eng() -> CanaryEngine { CanaryEngine::new(CanaryConfig::default()) }
+    fn eng() -> CanaryEngine {
+        CanaryEngine::new(CanaryConfig::default())
+    }
     fn feed(e: &mut CanaryEngine, evs: Vec<FileEvent>) -> Vec<CanaryAlert> {
         evs.into_iter().flat_map(|x| e.observe(x)).collect()
     }
@@ -375,13 +382,19 @@ mod tests {
         assert_eq!(names.len(), DECOY_TEMPLATES.len() + 2);
         assert_eq!(names[0], DECOY_TEMPLATES[0]);
         assert!(names[DECOY_TEMPLATES.len()].starts_with("~cure-canary-"));
-        for n in &names { assert!(is_canary_decoy(n)); }
+        for n in &names {
+            assert!(is_canary_decoy(n));
+        }
     }
 
     #[test]
     fn tamper_fires_on_modify_rename_and_delete() {
-        for kind in [FileEventKind::Modified, FileEventKind::Removed,
-                     FileEventKind::RenamedNewName, FileEventKind::RenamedOldName] {
+        for kind in [
+            FileEventKind::Modified,
+            FileEventKind::Removed,
+            FileEventKind::RenamedNewName,
+            FileEventKind::RenamedOldName,
+        ] {
             let mut e = eng();
             let a = e.observe(ev(100, r"C:\Docs", DECOY_TEMPLATES[0], kind));
             assert_eq!(a.len(), 1, "expected tamper for {kind:?}");
@@ -392,63 +405,124 @@ mod tests {
     #[test]
     fn decoy_creation_does_not_fire() {
         let mut e = eng();
-        assert!(e.observe(ev(100, r"C:\Docs", DECOY_TEMPLATES[0], FileEventKind::Added)).is_empty());
+        assert!(e
+            .observe(ev(
+                100,
+                r"C:\Docs",
+                DECOY_TEMPLATES[0],
+                FileEventKind::Added
+            ))
+            .is_empty());
     }
 
     #[test]
     fn tamper_respects_cooldown() {
         let mut e = eng();
-        assert_eq!(e.observe(ev(100, r"C:\Docs", DECOY_TEMPLATES[0], FileEventKind::Modified)).len(), 1);
-        assert!(e.observe(ev(150, r"C:\Docs", DECOY_TEMPLATES[1], FileEventKind::Modified)).is_empty());
-        assert_eq!(e.observe(ev(221, r"C:\Docs", DECOY_TEMPLATES[2], FileEventKind::Modified)).len(), 1);
+        assert_eq!(
+            e.observe(ev(
+                100,
+                r"C:\Docs",
+                DECOY_TEMPLATES[0],
+                FileEventKind::Modified
+            ))
+            .len(),
+            1
+        );
+        assert!(e
+            .observe(ev(
+                150,
+                r"C:\Docs",
+                DECOY_TEMPLATES[1],
+                FileEventKind::Modified
+            ))
+            .is_empty());
+        assert_eq!(
+            e.observe(ev(
+                221,
+                r"C:\Docs",
+                DECOY_TEMPLATES[2],
+                FileEventKind::Modified
+            ))
+            .len(),
+            1
+        );
     }
 
     #[test]
     fn single_file_change_never_alerts() {
         let mut e = eng();
-        assert!(feed(&mut e, vec![ev(10, r"C:\Docs", "thesis.docx", FileEventKind::Modified)]).is_empty());
+        assert!(feed(
+            &mut e,
+            vec![ev(10, r"C:\Docs", "thesis.docx", FileEventKind::Modified)]
+        )
+        .is_empty());
     }
 
     #[test]
     fn burst_below_threshold_is_quiet() {
         let mut e = eng();
-        let evs: Vec<FileEvent> = (0..7).map(|i| ev(i, r"C:\Docs", &format!("f{i}.txt"), FileEventKind::Modified)).collect();
+        let evs: Vec<FileEvent> = (0..7)
+            .map(|i| ev(i, r"C:\Docs", &format!("f{i}.txt"), FileEventKind::Modified))
+            .collect();
         assert!(feed(&mut e, evs).is_empty());
     }
 
     #[test]
     fn burst_at_threshold_fires_once() {
         let mut e = eng();
-        let mut evs: Vec<FileEvent> = (0..8).map(|i| ev(i, r"C:\Docs", &format!("f{i}.txt"), FileEventKind::Modified)).collect();
+        let mut evs: Vec<FileEvent> = (0..8)
+            .map(|i| ev(i, r"C:\Docs", &format!("f{i}.txt"), FileEventKind::Modified))
+            .collect();
         evs.push(ev(9, r"C:\Docs", "extra.bin", FileEventKind::Modified));
         let a = feed(&mut e, evs);
         assert_eq!(a.len(), 1);
-        if let CanaryAlert::BurstEncryption { distinct_files, .. } = &a[0] { assert_eq!(*distinct_files, 8); } else { panic!("wrong"); }
+        if let CanaryAlert::BurstEncryption { distinct_files, .. } = &a[0] {
+            assert_eq!(*distinct_files, 8);
+        } else {
+            panic!("wrong");
+        }
     }
 
     #[test]
     fn burst_counts_distinct_files_not_repeats() {
         let mut e = eng();
-        let evs: Vec<FileEvent> = (0..12).map(|i| ev(i % 3, r"C:\Docs", "same.log", FileEventKind::Modified)).collect();
+        let evs: Vec<FileEvent> = (0..12)
+            .map(|i| ev(i % 3, r"C:\Docs", "same.log", FileEventKind::Modified))
+            .collect();
         assert!(feed(&mut e, evs).is_empty());
     }
 
     #[test]
     fn burst_respects_sliding_window() {
         let mut e = eng();
-        let mut evs: Vec<FileEvent> = (0..7).map(|i| ev(i, r"C:\Docs", &format!("f{i}.txt"), FileEventKind::Modified)).collect();
+        let mut evs: Vec<FileEvent> = (0..7)
+            .map(|i| ev(i, r"C:\Docs", &format!("f{i}.txt"), FileEventKind::Modified))
+            .collect();
         evs.push(ev(500, r"C:\Docs", "late.txt", FileEventKind::Modified));
         assert!(feed(&mut e, evs).is_empty());
-        let late: Vec<FileEvent> = (600..608).map(|t| ev(t, r"C:\Docs", &format!("g{}", t-600), FileEventKind::Modified)).collect();
+        let late: Vec<FileEvent> = (600..608)
+            .map(|t| {
+                ev(
+                    t,
+                    r"C:\Docs",
+                    &format!("g{}", t - 600),
+                    FileEventKind::Modified,
+                )
+            })
+            .collect();
         assert_eq!(feed(&mut e, late).len(), 1);
     }
 
     #[test]
     fn bursts_are_per_folder() {
         let mut e = eng();
-        let a: Vec<FileEvent> = (0..8).map(|i| ev(i, r"C:\A", &format!("f{i}.txt"), FileEventKind::Modified)).collect();
+        let a: Vec<FileEvent> = (0..8)
+            .map(|i| ev(i, r"C:\A", &format!("f{i}.txt"), FileEventKind::Modified))
+            .collect();
         assert_eq!(feed(&mut e, a).len(), 1);
-        let b: Vec<FileEvent> = (0..8).map(|i| ev(i, r"C:\B", &format!("f{i}.txt"), FileEventKind::Modified)).collect();
+        let b: Vec<FileEvent> = (0..8)
+            .map(|i| ev(i, r"C:\B", &format!("f{i}.txt"), FileEventKind::Modified))
+            .collect();
         assert_eq!(feed(&mut e, b).len(), 1);
     }
 
@@ -456,7 +530,16 @@ mod tests {
     fn burst_cooldown_suppresses_then_recovers() {
         let mut e = eng();
         let mk = |off: u64, pfx: &str| -> Vec<FileEvent> {
-            (0..8).map(|i| ev(off+i, r"C:\Docs", &format!("{pfx}{i}.txt"), FileEventKind::Modified)).collect()
+            (0..8)
+                .map(|i| {
+                    ev(
+                        off + i,
+                        r"C:\Docs",
+                        &format!("{pfx}{i}.txt"),
+                        FileEventKind::Modified,
+                    )
+                })
+                .collect()
         };
         assert_eq!(feed(&mut e, mk(0, "a")).len(), 1);
         assert!(feed(&mut e, mk(20, "b")).is_empty());
@@ -466,46 +549,127 @@ mod tests {
     #[test]
     fn rewrite_below_threshold_is_quiet() {
         let mut e = eng();
-        let evs: Vec<FileEvent> = (0..4).map(|i| ev(i, r"C:\Docs", &format!("f{i}.locked"), FileEventKind::RenamedNewName)).collect();
+        let evs: Vec<FileEvent> = (0..4)
+            .map(|i| {
+                ev(
+                    i,
+                    r"C:\Docs",
+                    &format!("f{i}.locked"),
+                    FileEventKind::RenamedNewName,
+                )
+            })
+            .collect();
         assert!(feed(&mut e, evs).is_empty());
     }
 
     #[test]
     fn rewrite_onto_boring_extension_never_fires() {
         let mut e = eng();
-        let evs: Vec<FileEvent> = (0..4).map(|i| ev(i, r"C:\Docs", &format!("f{i}.txt"), FileEventKind::RenamedNewName)).collect();
+        let evs: Vec<FileEvent> = (0..4)
+            .map(|i| {
+                ev(
+                    i,
+                    r"C:\Docs",
+                    &format!("f{i}.txt"),
+                    FileEventKind::RenamedNewName,
+                )
+            })
+            .collect();
         assert!(feed(&mut e, evs).is_empty());
     }
 
     #[test]
     fn rewrite_reports_dominant_uncommon_extension() {
         let mut e = eng();
-        let mut evs: Vec<FileEvent> = (0..5).map(|i| ev(i, r"C:\Docs", &format!("f{i}.lockbit"), FileEventKind::RenamedNewName)).collect();
-        evs.push(ev(5, r"C:\Docs", "decoy.weird", FileEventKind::RenamedNewName));
+        let mut evs: Vec<FileEvent> = (0..5)
+            .map(|i| {
+                ev(
+                    i,
+                    r"C:\Docs",
+                    &format!("f{i}.lockbit"),
+                    FileEventKind::RenamedNewName,
+                )
+            })
+            .collect();
+        evs.push(ev(
+            5,
+            r"C:\Docs",
+            "decoy.weird",
+            FileEventKind::RenamedNewName,
+        ));
         let a = feed(&mut e, evs);
         assert_eq!(a.len(), 1);
-        if let CanaryAlert::ExtensionRewrite { extension, renamed_count, .. } = &a[0] {
+        if let CanaryAlert::ExtensionRewrite {
+            extension,
+            renamed_count,
+            ..
+        } = &a[0]
+        {
             assert_eq!(extension, "lockbit");
             assert_eq!(*renamed_count, 5);
-        } else { panic!("wrong"); }
+        } else {
+            panic!("wrong");
+        }
     }
 
     #[test]
     fn rewrite_and_burst_cool_down_independently() {
         let mut e = eng();
-        let mut evs: Vec<FileEvent> = (0..5).map(|i| ev(i, r"C:\Work", &format!("f{i}.crypt"), FileEventKind::RenamedNewName)).collect();
-        evs.extend((0..8).map(|i| ev(i, r"C:\Work", &format!("m{i}.txt"), FileEventKind::Modified)));
+        let mut evs: Vec<FileEvent> = (0..5)
+            .map(|i| {
+                ev(
+                    i,
+                    r"C:\Work",
+                    &format!("f{i}.crypt"),
+                    FileEventKind::RenamedNewName,
+                )
+            })
+            .collect();
+        evs.extend(
+            (0..8).map(|i| ev(i, r"C:\Work", &format!("m{i}.txt"), FileEventKind::Modified)),
+        );
         assert_eq!(feed(&mut e, evs).len(), 2);
     }
 
     #[test]
     fn tiny_ring_buffer_drops_old_events() {
-        let mut e = CanaryEngine::new(CanaryConfig { burst_min_files: 3, burst_window_secs: 30, rewrite_min_renames: 3, alert_cooldown_secs: 120, max_tracked_events: 4 });
-        let old: Vec<FileEvent> = (0..50).map(|i| ev(i * 100, r"C:\X", &format!("old{i}.tmp"), FileEventKind::Modified)).collect();
+        let mut e = CanaryEngine::new(CanaryConfig {
+            burst_min_files: 3,
+            burst_window_secs: 30,
+            rewrite_min_renames: 3,
+            alert_cooldown_secs: 120,
+            max_tracked_events: 4,
+        });
+        let old: Vec<FileEvent> = (0..50)
+            .map(|i| {
+                ev(
+                    i * 100,
+                    r"C:\X",
+                    &format!("old{i}.tmp"),
+                    FileEventKind::Modified,
+                )
+            })
+            .collect();
         assert!(feed(&mut e, old).is_empty());
-        let nc: Vec<FileEvent> = (0..2).map(|i| ev(10000+i, r"C:\X", &format!("n{i}.bin"), FileEventKind::Modified)).collect();
+        let nc: Vec<FileEvent> = (0..2)
+            .map(|i| {
+                ev(
+                    10000 + i,
+                    r"C:\X",
+                    &format!("n{i}.bin"),
+                    FileEventKind::Modified,
+                )
+            })
+            .collect();
         assert!(feed(&mut e, nc).is_empty());
-        assert_eq!(feed(&mut e, vec![ev(10002, r"C:\X", "z.bin", FileEventKind::Modified)]).len(), 1);
+        assert_eq!(
+            feed(
+                &mut e,
+                vec![ev(10002, r"C:\X", "z.bin", FileEventKind::Modified)]
+            )
+            .len(),
+            1
+        );
     }
 
     #[test]
@@ -574,7 +738,12 @@ mod tests {
         let evs: Vec<FileEvent> = (0..3)
             .flat_map(|i| {
                 let mut v = Vec::new();
-                v.push(ev(i as u64, r"C:\Pics", &format!("old{i}.tmp"), FileEventKind::RenamedOldName));
+                v.push(ev(
+                    i as u64,
+                    r"C:\Pics",
+                    &format!("old{i}.tmp"),
+                    FileEventKind::RenamedOldName,
+                ));
                 v.push(ev(
                     i as u64,
                     r"C:\Pics",

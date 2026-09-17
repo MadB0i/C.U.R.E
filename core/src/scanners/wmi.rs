@@ -27,7 +27,43 @@ pub fn filter_location(name: &str) -> String {
 
 #[cfg(windows)]
 pub fn scan() -> Vec<PersistenceEntry> {
-    imp::scan().unwrap_or_default()
+    scan_report().entries
+}
+
+/// Scan result with access accounting. A COM/WMI failure is CHECK FAILED
+/// (or ACCESS DENIED on 0x80070005) — an empty vec from a failed query
+/// must never read as "clean".
+pub struct WmiScanReport {
+    pub entries: Vec<PersistenceEntry>,
+    pub status: crate::elevation::SourceStatus,
+}
+
+#[cfg(windows)]
+pub fn scan_report() -> WmiScanReport {
+    use crate::elevation::SourceStatus;
+    match imp::scan() {
+        Ok(entries) => WmiScanReport {
+            entries,
+            status: SourceStatus::Available,
+        },
+        Err(e) => WmiScanReport {
+            entries: Vec::new(),
+            status: crate::elevation::classify_win_error(
+                e.code().0,
+                "WMI event subscription query",
+            ),
+        },
+    }
+}
+
+#[cfg(not(windows))]
+pub fn scan_report() -> WmiScanReport {
+    WmiScanReport {
+        entries: Vec::new(),
+        status: crate::elevation::SourceStatus::Unavailable {
+            reason: "Windows-only source".to_string(),
+        },
+    }
 }
 
 #[cfg(not(windows))]
@@ -35,13 +71,18 @@ pub fn scan() -> Vec<PersistenceEntry> {
     Vec::new()
 }
 
+// MOF property helper shared with the incident observer (command-line
+// fetch reuses the same bounded parser as subscription parsing).
+#[cfg(windows)]
+pub(crate) use imp::mof_prop;
+
 #[cfg(windows)]
 mod imp {
     use windows::core::{BSTR, PCWSTR};
     use windows::Win32::System::Com::{
-        CoCreateInstance, CoInitializeEx, CoSetProxyBlanket, CoUninitialize,
-        CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, EOLE_AUTHENTICATION_CAPABILITIES,
-        RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE,
+        CoCreateInstance, CoInitializeEx, CoSetProxyBlanket, CoUninitialize, CLSCTX_INPROC_SERVER,
+        COINIT_MULTITHREADED, EOLE_AUTHENTICATION_CAPABILITIES, RPC_C_AUTHN_LEVEL_CALL,
+        RPC_C_IMP_LEVEL_IMPERSONATE,
     };
     use windows::Win32::System::Rpc::{RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE};
     use windows::Win32::System::Wmi::{
@@ -132,9 +173,7 @@ mod imp {
             let class = mof_class(&mof);
             let payload = mof_prop(&mof, "CommandLineTemplate")
                 .or_else(|| mof_prop(&mof, "ExecutablePath"))
-                .or_else(|| {
-                    mof_prop(&mof, "ScriptText").map(|s| truncate(&s, 300))
-                })
+                .or_else(|| mof_prop(&mof, "ScriptText").map(|s| truncate(&s, 300)))
                 .or_else(|| mof_prop(&mof, "LogName").map(|l| format!("event log: {l}")))
                 .unwrap_or_default();
             let label = mof_prop(&mof, "Name").unwrap_or_else(|| class.clone());
@@ -154,7 +193,10 @@ mod imp {
         }
 
         // Bindings tie filters to consumers.
-        for mof in exec_texts(&server, "SELECT Filter, Consumer FROM __FilterToConsumerBinding")? {
+        for mof in exec_texts(
+            &server,
+            "SELECT Filter, Consumer FROM __FilterToConsumerBinding",
+        )? {
             let filter = mof_prop(&mof, "Filter").unwrap_or_default();
             let consumer = mof_prop(&mof, "Consumer").unwrap_or_default();
             if filter.is_empty() && consumer.is_empty() {
@@ -232,7 +274,9 @@ mod imp {
 
     /// Extract `Prop = "value";` from MOF text with MOF unescaping
     /// (`\"` → `"`, `\\` → `\`). Bounded, allocation-light, never executes.
-    pub(super) fn mof_prop(mof: &str, prop: &str) -> Option<String> {
+    /// Crate-visible for the incident observer (event TargetInstance parsing
+    /// uses its own tiny parser; command-line fetch reuses this).
+    pub(crate) fn mof_prop(mof: &str, prop: &str) -> Option<String> {
         let key = format!("{prop} = \"");
         let start = mof.find(&key)? + key.len();
         let rest = &mof[start..];

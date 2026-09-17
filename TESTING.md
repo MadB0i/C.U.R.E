@@ -189,7 +189,7 @@ bulk-encryption patterns. Never describe it as full ransomware protection.
 The GUI ships a self-driving test mode compiled in (`E2E_RUNNER_JS` in
 `gui/src-tauri/src/main.rs`, inert unless env-gated). It drives the REAL
 webview through: Start Rescue (incl. real overlay dismissal) → results →
-footer buttons → cleanup scan → tick first download → arm + confirm →
+footer buttons → cleanup scan → tick first download → confirm dialog →
 expect `Freed …` status → write JSON → exit(0). A second mode
 (`CURE_E2E_EXIT`) clicks the real Exit button so the harness can assert
 the process terminates.
@@ -270,6 +270,83 @@ Shortcut/task forensics: any `.lnk` finding prints its resolved target
 shows target/arguments/workdir, full task actions/author/run-level/
 triggers, signature state, and publisher on expand, plus an
 `Open location` button (Explorer select, strict id-based).
+
+## 6c. Post-login incident investigation
+
+```bat
+:: Headless 30-second observation (read-only; installs/modifies nothing)
+cure.exe incident --duration 30 --data-dir E:\cure-data
+```
+
+What it does: loads current persistence findings, watches process starts/
+exits (WMI creation events + 500 ms snapshot diff) and window open/close
+(titles + classes only — no screenshots, no keystrokes, no contents) for
+the window, correlates by deterministic levels (DIRECT path match, STRONG
+command/timing, PARTIAL name-only, WEAK proximity, NONE), prints the
+timeline + correlations + verdict, and writes
+`cure-incident-<stamp>.txt` with the full section.
+
+Verdicts: CAUSE IDENTIFIED (DIRECT + transient window, same process) ·
+STRONG CORRELATION · REVIEW REQUIRED · NO DIRECT EVIDENCE · INSUFFICIENT
+OBSERVATION (failed/unavailable observation — never a clean claim).
+**Correlation does not by itself establish malicious intent.**
+
+GUI path: Scan Center → Incident view → pick 15/30/60/120 s → Start.
+Progress shows poll/process/window counts (real numbers, no decoration);
+timeline, correlations with evidence, transient-window panel, and TXT/JSON
+export follow automatically. `CURE_E2E_CLEANUP` also drives a 15 s live
+observation and asserts a usable result.
+
+Reboot note: there is deliberately NO reboot-and-capture flow — that would
+require installing persistence, which C.U.R.E. will not do silently or
+otherwise. For true post-login capture, run `cure-gui.exe` (portable) or
+`cure.exe incident` manually within a minute of logging in.
+
+Privileges: observation works unelevated (verified: WMI creation events
+deliver as standard user on Win10/11). Command lines are fetched only for
+correlated processes (bounded); exports may contain third-party
+command-line arguments — handle exported files accordingly.
+
+## 6d. V2.3 validation procedures (all isolated, nothing persists)
+
+Skipped-access honesty: run `cure.exe scan` unelevated and confirm a
+`skipped: N task files (inaccessible — elevate to compare)` line when
+system tasks deny reads (VERIFIED: 1 on the dev box). Re-run elevated to
+compare — counts, not verdicts, are the assertion.
+
+Scoped undo: quarantine any startup finding, then
+`cure.exe undo <id> --tasks-root <other> --startup-root <other>` (or the
+GUI equivalent with moved roots) must refuse with PermissionDenied and
+leave the record intact; normal undo still restores. Unit tests cover
+allow/deny/sibling-prefix (`C:\foo` must not authorize `C:\foobar`).
+
+Watcher live-fire without touching the real machine: point `%APPDATA%`
+at a temp dir, pre-seed `cure-watch-consent.json` (`{"status":"enabled"}`,
+skips the modal), run `cure-watch.exe`, confirm the Startup copy + log
+lines land under the temp dir only, `subst` a folder with a valid
+trigger plus any survivable `.exe` renamed to `cure-gui.exe`, and confirm
+`[drive]` → `[trigger] VALID` → `[launch]` plus a spawned process; then
+kill everything, unsubst, delete the temp dir, and confirm the real
+Startup folder is untouched (VERIFIED 2026-09-16; note: a copied
+notepad.exe self-terminates outside System32 — use a cmd copy payload).
+
+Short-lived processes: `cargo test -p cure_core live_short_lived` spawns
+a uniquely-named cmd copy (~4 s) plus the fake-overlay fixture (~1.2 s,
+requires `cargo build` in `testing/fake-overlay` first) inside a 4 s
+observation and asserts exact-path observation, title metadata, and
+transient classification (VERIFIED). Instant `cmd /C exit` is
+opportunistic only — sub-500 ms detection is not guaranteed (use
+`timeout.exe` never headless: it needs stdin; `ping` dwell is used).
+
+Canary real-FS: `cargo test -p cure_dirwatch live_` runs the shared guard
+against tempdirs only — decoy modify/rename/delete raise tamper, 20-file
+noise stays tamper-free, restart re-alerts, shutdown is prompt (VERIFIED).
+The suite never touches real documents; the UI/CLI keep the
+EXPERIMENTAL label (asserted in docs, not code).
+
+Self-update failures: `cargo test -p cure_watch self_update` covers
+locked-target (old bytes intact, no tmp residue), stale-tmp overwrite,
+same-file short-circuit, and byte-compare decisions (VERIFIED).
 
 `gui/devtools/*.mjs` drive `gui/dist/index.dev.html` + `mock-tauri.js`
 (canned backend) for pixel/DOM assertions: `verify.mjs`, `chipcheck.mjs`,

@@ -1288,6 +1288,23 @@
       : n + " findings need a decision";
   }
 
+  // Evidence-based scope caption: what was actually checked, what was
+  // skipped, and when. Never states more than the backend established.
+  function scopeLine(summary) {
+    const states = (summary && summary.source_states) || [];
+    let skipped = 0;
+    for (const row of states) {
+      const st = row.state;
+      if (st && typeof st === "object" && "Partial" in st && st.Partial) {
+        skipped += st.Partial.skipped || 0;
+      }
+    }
+    let s = summary.total + " entries checked";
+    s += skipped > 0 ? ", " + skipped + " skipped" : ", nothing needs attention";
+    if (lastScanAt) s += " · " + lastScanAt.toLocaleTimeString();
+    return s;
+  }
+
   function reasonChipLabel(reason) {
     const lower = reason.toLowerCase();
     if (lower.includes("drop zone")) return ["Suspicious path", "red"];
@@ -1399,6 +1416,19 @@
       btn.className = "quarantine-btn";
       btn.textContent = "Quarantine";
       btn.addEventListener("click", async () => {
+        const ok = await requestConfirm({
+          kicker: "Confirm quarantine",
+          title: "Move this item to quarantine?",
+          facts: [
+            ["Item", entry.entry.name],
+            ["Location", entry.entry.location || "Not collected"],
+            ["Action", "Move this file to C.U.R.E. quarantine."],
+            ["Reversible", "Yes — it can be restored from Quarantine."],
+          ],
+          note: "This action changes the filesystem. The item will be listed under Quarantine with Undo.",
+          okLabel: "Quarantine item",
+        });
+        if (!ok) return;
         btn.disabled = true;
         try {
           await invoke("quarantine_entry", {
@@ -1461,9 +1491,8 @@
         summary.total + " entries checked, " + cleanedCount +
         " cleaned, nothing left to review";
     } else {
-      headline.textContent = "System is clean";
-      subline.textContent =
-        summary.total + " entries checked, nothing needs attention";
+      headline.textContent = "No findings detected in this scan";
+      subline.textContent = scopeLine(summary);
     }
 
     countUp(document.getElementById("stat-cleaned"), cleanedCount);
@@ -1496,8 +1525,7 @@
       const procFindings = summary.process_findings || [];
       sweepState.findings = procFindings;
       sweepState.checked.clear();
-      sweepState.armed = false;
-      clearTimeout(sweepState.armTimer);
+      updateKillButton();
       const procCards = document.getElementById("process-cards");
       if (procCards) {
         procCards.innerHTML = "";
@@ -1512,7 +1540,9 @@
           box.addEventListener("change", function() {
             if (box.checked) sweepState.checked.add(p.pid);
             else sweepState.checked.delete(p.pid);
-            disarmKillButton();
+            updateKillButton();
+            const killStatusEl = document.getElementById("kill-procs-status");
+            if (killStatusEl) { killStatusEl.textContent = ""; killStatusEl.classList.add("hidden"); }
             card.classList.toggle("proc-selected", box.checked);
           });
           const main = document.createElement("div");
@@ -1593,7 +1623,7 @@
     }
 
     if (trouble === 0) {
-      setPill("clean", "Scan complete — all clear");
+      setPill("clean", "Scan complete — no findings");
     } else {
       const hasHighRiskInReview = summary.suspicious_for_review.some(
         (s) => s.risk === "HighRisk"
@@ -1607,7 +1637,7 @@
     // Rakshak's status line under the scan-map header
     const rkStatus = document.getElementById("rakshak-status");
     if (rkStatus) {
-      rkStatus.innerHTML = '<span class="rk-name">Rakshak</span> secured ' +
+      rkStatus.innerHTML = '<span class="rk-name">Rakshak</span> checked ' +
         summary.total + " node" + (summary.total === 1 ? "" : "s");
     }
 
@@ -1664,6 +1694,7 @@
     "cleanup-view": "Disk Cleanup",
     "view-eventlog": "Event Log",
     "view-canary": "Canary Guard",
+    "view-incident": "Incident Investigation",
   };
 
   function setNav(viewId) {
@@ -1823,6 +1854,68 @@
     return s || fallback;
   }
 
+  // ---- shared destructive-action confirm dialog ----
+  // requestConfirm({kicker,title,facts:[[label,value]...],note,okLabel})
+  // resolves true only on explicit Confirm. Escape, backdrop click, and
+  // Cancel resolve false. Focus starts on Cancel, stays inside while open,
+  // and returns to the invoking control afterwards.
+  let confirmOpen = false;
+  function requestConfirm(opts) {
+    if (confirmOpen) return Promise.resolve(false);
+    const overlay = document.getElementById("confirm-overlay");
+    const kicker = document.getElementById("confirm-kicker");
+    const title = document.getElementById("confirm-title");
+    const facts = document.getElementById("confirm-facts");
+    const note = document.getElementById("confirm-note");
+    const cancelBtn = document.getElementById("confirm-cancel");
+    const okBtn = document.getElementById("confirm-ok");
+    if (!overlay || !cancelBtn || !okBtn) return Promise.resolve(false);
+    const invoker = document.activeElement;
+    kicker.textContent = opts.kicker || "Confirm action";
+    title.textContent = opts.title || "Are you sure?";
+    facts.innerHTML = "";
+    for (const [label, value] of opts.facts || []) {
+      const dt = document.createElement("dt");
+      dt.textContent = label;
+      const dd = document.createElement("dd");
+      dd.textContent = value;
+      facts.append(dt, dd);
+    }
+    note.textContent = opts.note || "";
+    note.classList.toggle("hidden", !opts.note);
+    okBtn.textContent = opts.okLabel || "Confirm";
+    confirmOpen = true;
+    overlay.classList.remove("hidden");
+    return new Promise((resolve) => {
+      const done = (value) => {
+        confirmOpen = false;
+        overlay.classList.add("hidden");
+        overlay.removeEventListener("mousedown", onBackdrop);
+        document.removeEventListener("keydown", onKey, true);
+        if (invoker && invoker.focus) invoker.focus();
+        resolve(value);
+      };
+      const onBackdrop = (ev) => {
+        if (ev.target === overlay) done(false);
+      };
+      const onKey = (ev) => {
+        if (ev.key === "Escape") {
+          ev.stopPropagation();
+          done(false);
+        } else if (ev.key === "Tab") {
+          // Minimal two-button trap: keep Tab cycling inside the dialog.
+          ev.preventDefault();
+          (document.activeElement === cancelBtn ? okBtn : cancelBtn).focus();
+        }
+      };
+      overlay.addEventListener("mousedown", onBackdrop);
+      document.addEventListener("keydown", onKey, true);
+      cancelBtn.onclick = () => done(false);
+      okBtn.onclick = () => done(true);
+      cancelBtn.focus();
+    });
+  }
+
   document
     .getElementById("btn-quarantine-folder")
     .addEventListener("click", async () => {
@@ -1919,10 +2012,36 @@
   const canaryDetail = document.getElementById("canary-alert-detail");
   const canaryDismissBtn = document.getElementById("canary-dismiss-btn");
 
+  // Canary alert dialog: modal while visible. Escape dismisses, focus
+  // moves to Dismiss on open and returns to the invoker on close, and
+  // Tab is kept on the dialog's single action while open.
+  let canaryInvoker = null;
+  function canaryKeyTrap(ev) {
+    if (ev.key === "Escape") {
+      ev.stopPropagation();
+      hideCanaryAlert();
+    } else if (ev.key === "Tab") {
+      ev.preventDefault();
+      if (canaryDismissBtn) canaryDismissBtn.focus();
+    }
+  }
+  function showCanaryAlert() {
+    if (!canaryOverlay || !canaryOverlay.classList.contains("hidden")) return;
+    canaryInvoker = document.activeElement;
+    canaryOverlay.classList.remove("hidden");
+    document.addEventListener("keydown", canaryKeyTrap, true);
+    if (canaryDismissBtn) canaryDismissBtn.focus();
+  }
+  function hideCanaryAlert() {
+    if (!canaryOverlay) return;
+    canaryOverlay.classList.add("hidden");
+    document.removeEventListener("keydown", canaryKeyTrap, true);
+    if (canaryInvoker && canaryInvoker.focus) canaryInvoker.focus();
+    canaryInvoker = null;
+  }
+
   if (canaryDismissBtn) {
-    canaryDismissBtn.addEventListener("click", () => {
-      if (canaryOverlay) canaryOverlay.classList.add("hidden");
-    });
+    canaryDismissBtn.addEventListener("click", hideCanaryAlert);
   }
 
   TAU.event.listen("canary-alert", (ev) => {
@@ -1944,7 +2063,7 @@
     if (canaryDetail) {
       canaryDetail.textContent = text;
     }
-    if (canaryOverlay) canaryOverlay.classList.remove("hidden");
+    showCanaryAlert();
   });
 
   // ---- disk cleanup (separate flow / own view) ----------------------------
@@ -1981,8 +2100,6 @@
     summary: null,
     selectedCats: new Set(),
     checkedDownloads: new Set(),
-    armed: false,
-    armTimer: null,
     running: false,
     open: false,
     savedPill: null,
@@ -1991,28 +2108,15 @@
   const sweepState = {
     findings: [],
     checked: new Set(),
-    armed: false,
-    armTimer: null,
     running: false,
   };
-
-  function disarmKillButton() {
-    sweepState.armed = false;
-    clearTimeout(sweepState.armTimer);
-    const statusEl = document.getElementById("kill-procs-status");
-    if (statusEl) { statusEl.textContent = ""; statusEl.classList.add("hidden"); }
-    updateKillButton();
-  }
 
   function updateKillButton() {
     const btn = document.getElementById("kill-procs-btn");
     if (!btn) return;
     const enabled = sweepState.checked.size > 0 && !sweepState.running;
     btn.disabled = !enabled;
-    btn.classList.toggle("arm-danger", sweepState.armed);
-    btn.textContent = sweepState.armed
-      ? "Click again to kill " + sweepState.checked.size + " process(es)"
-      : "Kill selected (" + sweepState.checked.size + ")";
+    btn.textContent = "Kill selected (" + sweepState.checked.size + ")";
   }
 
   function setCleanupPill(state, text) {
@@ -2218,9 +2322,9 @@
 
   // ---- cleanup state / rendering -------------------------------------------
 
-  function disarmCleanupButton() {
-    cleanupState.armed = false;
-    clearTimeout(cleanupState.armTimer);
+  // Clear a stale cleanup result when the selection changes or the
+  // view closes. Destructive confirmation now goes through requestConfirm.
+  function resetCleanupResult() {
     cleanupEls.status.textContent = "";
     cleanupEls.status.classList.add("hidden");
     updateCleanupButton();
@@ -2249,21 +2353,16 @@
     const anyDl = cleanupState.checkedDownloads.size > 0;
     const enabled = (anyCat || anyDl) && !cleanupState.running;
     cleanupEls.btn.disabled = !enabled;
-    cleanupEls.btn.classList.toggle("arm-danger", cleanupState.armed);
     if (!cleanupState.running) {
       cleanupEls.btn.classList.remove("btn-active");
     }
-    cleanupEls.btn.textContent = cleanupState.armed
-      ? "Really free " + fmtBytes(cleanupSelectionBytes()) + "?"
-      : "Clean up";
+    cleanupEls.btn.textContent = "Clean up";
   }
 
   function renderCleanup(summary, keepResult = false) {
     cleanupState.summary = summary;
     cleanupState.selectedCats = new Set();
     cleanupState.checkedDownloads = new Set();
-    cleanupState.armed = false;
-    clearTimeout(cleanupState.armTimer);
     cleanupState.running = false;
 
     cleanupEls.loading.classList.add("hidden");
@@ -2317,7 +2416,7 @@
         card.classList.toggle("on", nowOn);
         card.classList.toggle("off", !nowOn);
         card.title = nowOn ? "Click to skip this category" : "Currently skipped — click to include";
-        disarmCleanupButton();
+        resetCleanupResult();
       });
       cleanupEls.grid.appendChild(card);
     }
@@ -2336,7 +2435,7 @@
       box.addEventListener("change", () => {
         if (box.checked) cleanupState.checkedDownloads.add(dl.path);
         else cleanupState.checkedDownloads.delete(dl.path);
-        disarmCleanupButton();
+        resetCleanupResult();
       });
       const name = document.createElement("span");
       name.className = "dl-name";
@@ -2402,7 +2501,7 @@
   function closeCleanup(backTo) {
     if (!cleanupState.open) return;
     cleanupState.open = false;
-    disarmCleanupButton();
+    resetCleanupResult();
     resetToss();
     cleanupEls.stage.classList.add("hidden");
     if (cleanupState.savedPill) {
@@ -2420,18 +2519,28 @@
 
   cleanupEls.btn.addEventListener("click", async () => {
     if (cleanupState.running || cleanupEls.btn.disabled) return;
-    if (!cleanupState.armed) {
-      cleanupState.armed = true;
-      updateCleanupButton();
-      clearTimeout(cleanupState.armTimer);
-      cleanupState.armTimer = setTimeout(disarmCleanupButton, 4000);
-      return;
+    const selBytes = cleanupSelectionBytes();
+    const selCats = (cleanupState.summary.categories || [])
+      .filter((c) => c.item_count > 0 && cleanupState.selectedCats.has(c.key))
+      .map((c) => c.label || c.key);
+    if (cleanupState.checkedDownloads.size > 0) {
+      selCats.push(cleanupState.checkedDownloads.size + " selected download(s)");
     }
+    const ok = await requestConfirm({
+      kicker: "Confirm disk cleanup",
+      title: "Permanently delete selected files?",
+      facts: [
+        ["Selection", selCats.join(", ") || "Nothing selected"],
+        ["Amount", fmtBytes(selBytes)],
+        ["Action", "Permanently delete the selected files to free disk space."],
+        ["Reversible", "No — deleted files are not recoverable."],
+      ],
+      note: "Only the selected categories and checked downloads are deleted. Quarantined items are never touched.",
+      okLabel: "Delete " + fmtBytes(selBytes),
+    });
+    if (!ok) return;
     cleanupState.running = true;
-    clearTimeout(cleanupState.armTimer);
-    cleanupState.armed = false;
     cleanupEls.btn.disabled = true;
-    cleanupEls.btn.classList.remove("arm-danger");
     cleanupEls.btn.classList.add("btn-active");
     cleanupEls.btn.textContent = "Cleaning…";
     const expected = cleanupSelectionBytes();
@@ -2481,25 +2590,28 @@
   if (killBtn) {
     killBtn.addEventListener("click", async function() {
       if (sweepState.running || killBtn.disabled) return;
-      if (!sweepState.armed) {
-        sweepState.armed = true;
-        updateKillButton();
-        clearTimeout(sweepState.armTimer);
-        sweepState.armTimer = setTimeout(disarmKillButton, 4000);
-        return;
-      }
-      sweepState.running = true;
-      clearTimeout(sweepState.armTimer);
-      sweepState.armed = false;
-      killBtn.disabled = true;
-      killBtn.classList.remove("arm-danger");
-      killBtn.classList.add("btn-active");
-      killBtn.textContent = "Killing…";
-      if (killStatus) { killStatus.textContent = ""; killStatus.classList.add("hidden"); }
       var targets = [];
       sweepState.findings.forEach(function(f) {
         if (sweepState.checked.has(f.pid)) targets.push([f.name, f.pid]);
       });
+      if (targets.length === 0) return;
+      const ok = await requestConfirm({
+        kicker: "Confirm process termination",
+        title: "Terminate " + targets.length + " selected process(es)?",
+        facts: [
+          ["Targets", targets.map(function(t) { return t[0] + " (pid " + t[1] + ")"; }).join(", ")],
+          ["Action", "Terminate the selected processes immediately."],
+          ["Reversible", "No — termination cannot be undone, but nothing is deleted."],
+        ],
+        note: "PIDs are re-validated before termination. Re-run a scan afterwards to verify.",
+        okLabel: "Terminate " + targets.length + " process(es)",
+      });
+      if (!ok) return;
+      sweepState.running = true;
+      killBtn.disabled = true;
+      killBtn.classList.add("btn-active");
+      killBtn.textContent = "Killing…";
+      if (killStatus) { killStatus.textContent = ""; killStatus.classList.add("hidden"); }
       try {
         var report = await invoke("kill_high_risk_processes", { processes: targets });
         var killed = report.killed || [];
@@ -2675,9 +2787,10 @@
       subline.textContent = t.findings + " finding(s) recorded" +
         (t.cleaned ? ", " + t.cleaned + " auto-quarantined" : "") + " — nothing was deleted.";
     } else {
-      posture.textContent = "Protected";
+      posture.textContent = "No findings";
       posture.classList.add("is-ok"); posture.classList.remove("is-bad", "is-warn");
-      subline.textContent = summary.total + " checks completed — no persistence, process, or ransom findings.";
+      subline.textContent = summary.total + " checks completed — no persistence, process, or ransom findings" +
+        (lastScanAt ? " · last scan " + lastScanAt.toLocaleString() : "");
     }
     setMetric("ov-last-scan", lastScanAt ? lastScanAt.toLocaleString() : "—", null);
     setMetric("ov-checks", String(summary.total), null);
@@ -2701,23 +2814,73 @@
     };
     const cov = document.getElementById("ov-coverage");
     cov.innerHTML = "";
-    cov.append(
-      srcRow("RegistryRun", "Registry autoruns (Run / RunOnce)"),
-      srcRow("StartupFolder", "Startup folder"),
-      srcRow("ScheduledTask", "Scheduled tasks"),
-      srcRow("WindowsService", "Auto-start services"),
-      srcRow("WmiSubscription", "WMI event subscriptions"),
-      srcRow("IfeoDebugger", "IFEO debuggers"),
-      srcRow("AppInitDlls", "AppInit DLLs"),
-      srcRow("ComHijack", "COM hijacks (HKCU)"),
-      covRow("Running processes", t.proc ? t.proc + " flagged" : "checked — none flagged", t.proc ? "warn" : "ok"),
-      covRow("Ransom indicators", t.ransom ? t.ransom + " found" : "none found", t.ransom ? "bad" : "ok"),
-      covRow(
-        "Canary guard",
-        canaryTriggered ? "TRIGGERED — see Canary Guard" : canaryActive ? "active — watching decoys" : "off",
-        canaryTriggered ? "bad" : canaryActive ? "ok" : "idle"
-      )
-    );
+    // Prefer backend access states when present: a failed/skipped check
+    // renders its state — never a bare "checked — nothing flagged" zero.
+    const states = summary.source_states || [];
+    const stateByArea = {};
+    for (const row of states) stateByArea[row.area] = row;
+    const stateLevel = (st) => {
+      if (st === "Available") return "ok";
+      if (st === "Unavailable") return "idle";
+      if (st && typeof st === "object") {
+        if ("Partial" in st) return "warn";
+        if ("CheckFailed" in st || "AccessDenied" in st) return "bad";
+      }
+      return "idle";
+    };
+    const stateDetail = (row) => {
+      let detail = row.detail || "";
+      if (row.state && typeof row.state === "object" && "Partial" in row.state) {
+        detail += " — " + row.state.Partial.skipped + " skipped";
+      }
+      return detail;
+    };
+    const stateCovRow = (area, fallbackLabel) => {
+      const row = stateByArea[area];
+      if (!row) return covRow(area, fallbackLabel, "idle");
+      return covRow(area, stateDetail(row), stateLevel(row.state));
+    };
+    if (states.length) {
+      cov.append(
+        stateCovRow("Registry autoruns", "no data"),
+        srcRow("StartupFolder", "Startup folder"),
+        stateCovRow("Scheduled tasks", "no data"),
+        stateCovRow("Services (auto-start)", "no data"),
+        stateCovRow("WMI subscriptions", "no data"),
+        srcRow("IfeoDebugger", "IFEO debuggers"),
+        srcRow("AppInitDlls", "AppInit DLLs"),
+        srcRow("ComHijack", "COM hijacks (HKCU)"),
+        covRow("Running processes", t.proc ? t.proc + " flagged" : "checked — none flagged", t.proc ? "warn" : "ok"),
+        covRow("Ransom indicators", t.ransom ? t.ransom + " found" : "none found", t.ransom ? "bad" : "ok"),
+        covRow(
+          "Canary guard",
+          canaryTriggered ? "TRIGGERED — see Canary Guard" : canaryActive ? "active — watching decoys" : "off",
+          canaryTriggered ? "bad" : canaryActive ? "ok" : "idle"
+        )
+      );
+    } else {
+      cov.append(
+        srcRow("RegistryRun", "Registry autoruns (Run / RunOnce)"),
+        srcRow("StartupFolder", "Startup folder"),
+        srcRow("ScheduledTask", "Scheduled tasks"),
+        srcRow("WindowsService", "Auto-start services"),
+        srcRow("WmiSubscription", "WMI event subscriptions"),
+        srcRow("IfeoDebugger", "IFEO debuggers"),
+        srcRow("AppInitDlls", "AppInit DLLs"),
+        srcRow("ComHijack", "COM hijacks (HKCU)"),
+        covRow("Running processes", t.proc ? t.proc + " flagged" : "checked — none flagged", t.proc ? "warn" : "ok"),
+        covRow("Ransom indicators", t.ransom ? t.ransom + " found" : "none found", t.ransom ? "bad" : "ok"),
+        covRow(
+          "Canary guard",
+          canaryTriggered ? "TRIGGERED — see Canary Guard" : canaryActive ? "active — watching decoys" : "off",
+          canaryTriggered ? "bad" : canaryActive ? "ok" : "idle"
+        )
+      );
+    }
+    const ovSub = document.getElementById("ov-subline");
+    if (ovSub && typeof summary.elevated === "boolean") {
+      ovSub.textContent += summary.elevated ? " · elevated scan" : " · standard-user scan";
+    }
   }
 
   // ---- startup audit view ----
@@ -2857,6 +3020,19 @@
       btn.className = "quarantine-btn";
       btn.textContent = "Quarantine";
       btn.addEventListener("click", async () => {
+        const ok = await requestConfirm({
+          kicker: "Confirm quarantine",
+          title: "Move this item to quarantine?",
+          facts: [
+            ["Item", scored.entry.name],
+            ["Location", scored.entry.location || "Not collected"],
+            ["Action", "Move this file to C.U.R.E. quarantine."],
+            ["Reversible", "Yes — it can be restored from Quarantine."],
+          ],
+          note: "This action changes the filesystem. The item will be listed under Quarantine with Undo.",
+          okLabel: "Quarantine item",
+        });
+        if (!ok) return;
         btn.disabled = true;
         try {
           await invoke("quarantine_entry", { id: scored.entry.id, name: scored.entry.name, command: scored.entry.command });
@@ -3025,18 +3201,20 @@
     kill.title = "Terminate this process (asks for confirmation)";
     kill.addEventListener("click", async () => {
       if (kill.disabled) return;
-      if (!kill.classList.contains("arm-danger")) {
-        kill.classList.add("arm-danger");
-        kill.textContent = "Confirm kill?";
-        clearTimeout(kill._armTimer);
-        kill._armTimer = setTimeout(() => {
-          kill.classList.remove("arm-danger");
-          kill.textContent = "Kill";
-        }, 4000);
-        return;
-      }
-      clearTimeout(kill._armTimer);
-      kill.classList.remove("arm-danger");
+      const ok = await requestConfirm({
+        kicker: "Confirm process termination",
+        title: "Terminate this process now?",
+        facts: [
+          ["Process", p.name],
+          ["PID", String(p.pid)],
+          ["Path", p.exe_path || "Not collected"],
+          ["Action", "Terminate the process immediately."],
+          ["Reversible", "No — termination cannot be undone, but nothing is deleted."],
+        ],
+        note: "The PID is re-validated before termination. Re-run a scan afterwards to verify.",
+        okLabel: "Terminate process",
+      });
+      if (!ok) return;
       kill.disabled = true;
       kill.textContent = "Killing…";
       try {
@@ -3135,6 +3313,204 @@
     if (sub && records.length) sub.textContent = records.length + " item(s) in quarantine — nothing is ever deleted by quarantine. Restore any item with Undo.";
   }
 
+  // ══════════════ incident investigation view ══════
+
+  let incidentDuration = 30;
+  let lastIncident = null;
+
+  const VERDICT_CLASS = {
+    CauseIdentified: "sev-bad",
+    StrongCorrelation: "sev-bad",
+    ReviewRequired: "sev-warn",
+    NoDirectEvidence: "sev-safe",
+    InsufficientObservation: "sev-warn",
+  };
+
+  const VERDICT_TEXT = {
+    CauseIdentified: "CAUSE IDENTIFIED",
+    StrongCorrelation: "STRONG CORRELATION",
+    ReviewRequired: "REVIEW REQUIRED",
+    NoDirectEvidence: "NO DIRECT EVIDENCE",
+    InsufficientObservation: "INSUFFICIENT OBSERVATION",
+  };
+
+  const VERDICT_WHY = {
+    CauseIdentified: "A startup entry's exact executable launched with a transient window on the same process.",
+    StrongCorrelation: "A startup entry matches an observed launch. Consistent — not proof of intent.",
+    ReviewRequired: "Only weak or partial relationships found — investigate manually.",
+    NoDirectEvidence: "Observation completed; nothing links activity to startup persistence.",
+    InsufficientObservation: "Observation failed or produced no usable data — not a clean bill of health.",
+  };
+
+  const LEVEL_CLASS = { Direct: "sev-bad", Strong: "sev-warn", Partial: "", Weak: "", None: "" };
+
+  function setIncidentStatus(text, isError) {
+    const el = document.getElementById("inc-status");
+    if (el) {
+      el.textContent = text;
+      el.classList.toggle("hidden", !text);
+    }
+    if (text) logEvent(isError ? "info" : "action", "incident: " + text);
+  }
+
+  function renderIncident(result) {
+    lastIncident = result;
+    const badge = document.getElementById("inc-verdict");
+    if (badge) {
+      badge.textContent = VERDICT_TEXT[result.verdict] || result.verdict;
+      badge.className = "severity-badge " + (VERDICT_CLASS[result.verdict] || "");
+    }
+    const why = document.getElementById("inc-verdict-why");
+    if (why) why.textContent = VERDICT_WHY[result.verdict] || "";
+    for (const id of ["inc-results", "inc-timeline-panel", "inc-review-panel", "inc-export-panel"]) {
+      const el = document.getElementById(id);
+      if (el) el.classList.remove("hidden");
+    }
+    const tl = document.getElementById("incident-timeline");
+    if (tl) {
+      tl.innerHTML = "";
+      for (const e of result.timeline || []) {
+        const li = document.createElement("li");
+        const time = document.createElement("span");
+        time.className = "ev-time";
+        time.textContent = e.wall_time || "";
+        const tag = document.createElement("b");
+        tag.textContent = "[" + String(e.kind || "event") + "]";
+        const body = document.createElement("span");
+        body.textContent = e.text || "";
+        li.append(time, tag, body);
+        tl.appendChild(li);
+      }
+    }
+    const corr = document.getElementById("inc-correlations");
+    if (corr) {
+      corr.innerHTML = "";
+      for (const c of result.correlations || []) {
+        const li = document.createElement("li");
+        li.className = "review-card";
+        const main = document.createElement("div");
+        main.className = "rc-main";
+        const topRow = document.createElement("div");
+        topRow.className = "rc-top";
+        const name = document.createElement("span");
+        name.className = "rc-name";
+        name.textContent = (c.process_name || "?") + " (pid " + c.process_pid + ")";
+        const badgeEl = document.createElement("span");
+        badgeEl.className = "severity-badge " + (LEVEL_CLASS[c.level] || "");
+        badgeEl.textContent = c.level;
+        topRow.append(name, badgeEl);
+        main.appendChild(topRow);
+        const chips = document.createElement("div");
+        chips.className = "chips";
+        const fchip = document.createElement("span");
+        fchip.className = "chip src";
+        fchip.textContent = (c.finding_name || "no finding") + (c.finding_source ? " · " + c.finding_source : "");
+        fchip.title = c.finding_id || "";
+        chips.appendChild(fchip);
+        main.appendChild(chips);
+        if (c.evidence && c.evidence.length) {
+          const ul = document.createElement("ul");
+          ul.className = "evidence-list";
+          for (const ev of c.evidence) {
+            const item = document.createElement("li");
+            item.textContent = ev;
+            ul.appendChild(item);
+          }
+          main.appendChild(ul);
+        }
+        li.appendChild(main);
+        corr.appendChild(li);
+      }
+      if (!(result.correlations || []).length) {
+        const li = document.createElement("li");
+        li.className = "review-card";
+        li.textContent = "No observed process relates to a startup finding.";
+        corr.appendChild(li);
+      }
+    }
+    const wins = document.getElementById("inc-windows");
+    const winsEmpty = document.getElementById("inc-windows-empty");
+    if (wins) {
+      wins.innerHTML = "";
+      const transient = (result.windows || []).filter((w) => w.closed && (w.last_seen_ms - w.first_seen_ms) < 5000);
+      for (const w of transient) {
+        const li = document.createElement("li");
+        li.className = "review-card";
+        const main = document.createElement("div");
+        main.className = "rc-main";
+        const topRow = document.createElement("div");
+        topRow.className = "rc-top";
+        const name = document.createElement("span");
+        name.className = "rc-name";
+        name.textContent = "“" + (w.title || "(no title)") + "”";
+        name.title = "class " + (w.class_name || "?");
+        const life = document.createElement("span");
+        life.className = "score-chip low";
+        const ms = w.last_seen_ms - w.first_seen_ms;
+        life.textContent = (ms / 1000).toFixed(2) + "s";
+        life.title = "Visible lifetime (poll granularity ±0.5 s)";
+        topRow.append(name, life);
+        main.appendChild(topRow);
+        const chips = document.createElement("div");
+        chips.className = "chips";
+        const pidChip = document.createElement("span");
+        pidChip.className = "chip";
+        pidChip.textContent = "pid " + w.pid;
+        chips.appendChild(pidChip);
+        const corr0 = (result.correlations || []).find((c) => c.process_pid === w.pid && c.level !== "None");
+        const corrChip = document.createElement("span");
+        corrChip.className = "chip" + (corr0 ? " amber" : "");
+        corrChip.textContent = corr0 ? (corr0.level + ": " + corr0.finding_name) : "no startup correlation";
+        chips.appendChild(corrChip);
+        const sigChip = document.createElement("span");
+        sigChip.className = "chip";
+        sigChip.textContent = "metadata only — no capture";
+        chips.appendChild(sigChip);
+        main.appendChild(chips);
+        const copy = document.createElement("button");
+        copy.className = "copy-btn";
+        copy.textContent = "Copy evidence";
+        copy.addEventListener("click", () => {
+          copyEvidence(
+            "[CURE transient window] " + (w.title || "(no title)") + " | pid " + w.pid +
+            " | class " + (w.class_name || "?") + " | lifetime " + ms + " ms" +
+            (corr0 ? " | " + corr0.level + ": " + corr0.finding_name : " | no startup correlation"),
+            copy
+          );
+        });
+        li.append(main, copy);
+        wins.appendChild(li);
+      }
+      if (winsEmpty) winsEmpty.classList.toggle("hidden", transient.length > 0);
+    }
+  }
+
+  async function exportIncident(format) {
+    if (!lastIncident) {
+      footFeedback("Run an investigation first", true);
+      return;
+    }
+    const redactBox = document.getElementById("exp-redact");
+    const redact = redactBox ? !!redactBox.checked : true;
+    footFeedback("Exporting incident " + format.toUpperCase() + "…", false);
+    try {
+      const path = await invoke("export_incident_report", { result: lastIncident, format, redact });
+      footFeedback("Incident report saved: " + path, false);
+      logEvent("action", "exported incident " + format.toUpperCase() + " to " + path);
+    } catch (err) {
+      footFeedback(cleanErrText(err, "Incident export failed"), true);
+    }
+  }
+
+  listen("incident-progress", (event) => {
+    const p = event.payload || {};
+    const el = document.getElementById("inc-progress");
+    if (el) {
+      el.classList.remove("hidden");
+      el.textContent = "Observing… " + (p.polls || 0) + " polls · " + (p.processes || 0) + " processes · " + (p.windows || 0) + " windows";
+    }
+  });
+
   (async () => {
     scanView.classList.add("hidden");
     landingView.classList.remove("hidden");
@@ -3196,13 +3572,46 @@
       eventLog.length = 0;
       renderEventLog();
     });
-    document.querySelectorAll(".filter-btn").forEach((btn) => {
+    document.querySelectorAll("#view-processes .filter-btn[data-f]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        document.querySelectorAll(".filter-btn").forEach((b) => b.classList.remove("on"));
+        document.querySelectorAll("#view-processes .filter-btn[data-f]").forEach((b) => b.classList.remove("on"));
         btn.classList.add("on");
         procFilter = btn.getAttribute("data-f") || "all";
         paintProcessRows();
       });
     });
+    document.querySelectorAll("#view-incident .filter-btn[data-dur]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#view-incident .filter-btn[data-dur]").forEach((b) => b.classList.remove("on"));
+        btn.classList.add("on");
+        incidentDuration = Number(btn.getAttribute("data-dur")) || 30;
+      });
+    });
+    const incStart = document.getElementById("btn-incident-start");
+    if (incStart) incStart.addEventListener("click", async () => {
+      if (incStart.disabled) return;
+      incStart.disabled = true;
+      setIncidentStatus("Observing startup activity for " + incidentDuration + " s — popups welcome, machine otherwise idle.", false);
+      const prog = document.getElementById("inc-progress");
+      if (prog) {
+        prog.classList.remove("hidden");
+        prog.textContent = "Observing…";
+      }
+      try {
+        const result = await invoke("start_incident_observation", { durationSecs: incidentDuration });
+        renderIncident(result);
+        const counts = "observed " + (result.processes || []).length + " processes, " + (result.windows || []).length + " windows, " + (result.correlations || []).length + " correlations.";
+        setIncidentStatus("Investigation " + (result.investigation_id || "") + " complete: " + ((result.verdict || "")).replace(/([A-Z])/g, " $1").trim() + ". " + counts, false);
+      } catch (err) {
+        setIncidentStatus(cleanErrText(err, "Investigation failed"), true);
+      } finally {
+        incStart.disabled = false;
+        if (prog) prog.classList.add("hidden");
+      }
+    });
+    const expIncTxt = document.getElementById("exp-inc-txt");
+    if (expIncTxt) expIncTxt.addEventListener("click", () => exportIncident("txt"));
+    const expIncJson = document.getElementById("exp-inc-json");
+    if (expIncJson) expIncJson.addEventListener("click", () => exportIncident("json"));
   })();
 })();

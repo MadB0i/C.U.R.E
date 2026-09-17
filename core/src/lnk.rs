@@ -25,8 +25,7 @@ pub struct LnkInfo {
 
 const MAX_LNK_BYTES: usize = 1024 * 1024;
 const SHELL_LINK_CLSID: [u8; 16] = [
-    0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x46,
+    0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46,
 ];
 
 const HAS_NAME: u32 = 0x0000_0004;
@@ -262,7 +261,11 @@ mod tests {
     #[test]
     fn fixture_round_trips_target_args_workdir() {
         let target = r"C:\Program Files\CURE-SYNTH-Vendor\updater.exe";
-        let bytes = fixtures::minimal_lnk_unicode(target, "/checknow", r"C:\Program Files\CURE-SYNTH-Vendor");
+        let bytes = fixtures::minimal_lnk_unicode(
+            target,
+            "/checknow",
+            r"C:\Program Files\CURE-SYNTH-Vendor",
+        );
         let info = parse(&bytes).expect("fixture must parse");
         assert_eq!(info.target.as_deref(), Some(target));
         assert_eq!(info.arguments.as_deref(), Some("/checknow"));
@@ -284,7 +287,11 @@ mod tests {
     #[test]
     fn malformed_inputs_are_none() {
         for (label, bytes) in fixtures::malformed_lnks() {
-            assert_eq!(parse(&bytes), None, "malformed fixture must not parse: {label}");
+            assert_eq!(
+                parse(&bytes),
+                None,
+                "malformed fixture must not parse: {label}"
+            );
         }
     }
 

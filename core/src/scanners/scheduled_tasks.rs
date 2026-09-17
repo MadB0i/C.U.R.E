@@ -39,18 +39,63 @@ pub fn default_tasks_root() -> PathBuf {
     PathBuf::from(r"C:\Windows\System32\Tasks")
 }
 
-pub fn scan(root: &Path) -> Vec<PersistenceEntry> {
-    let mut entries = Vec::new();
-    if !root.is_dir() {
-        return entries;
+/// Scan result with access accounting. System task files unreadable
+/// without elevation are COUNTED as skipped — never silently omitted.
+pub struct TaskScanReport {
+    pub entries: Vec<PersistenceEntry>,
+    pub files_seen: usize,
+    pub skipped: usize,
+}
+
+impl TaskScanReport {
+    pub fn status(&self) -> crate::elevation::SourceStatus {
+        use crate::elevation::SourceStatus;
+        if self.skipped == 0 {
+            SourceStatus::Available
+        } else if self.files_seen > self.skipped {
+            SourceStatus::Partial {
+                skipped: self.skipped,
+                reason: "some task files unreadable (elevation may help)".to_string(),
+            }
+        } else {
+            SourceStatus::AccessDenied {
+                reason: "task directory unreadable (elevation may help)".to_string(),
+            }
+        }
     }
-    for file in WalkDir::new(root)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_file())
-    {
-        let path = file.path();
+}
+
+pub fn scan_report(root: &Path) -> TaskScanReport {
+    let mut report = TaskScanReport {
+        entries: Vec::new(),
+        files_seen: 0,
+        skipped: 0,
+    };
+    if !root.is_dir() {
+        return report;
+    }
+    for entry in WalkDir::new(root).into_iter() {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => {
+                report.skipped += 1;
+                continue;
+            }
+        };
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        report.files_seen += 1;
+        let path = entry.path();
         let xml = read_text_lossy(path);
+        if xml.is_empty() {
+            // Unreadable or over the size cap — counted as skipped only if
+            // the file could not be read at all.
+            if std::fs::metadata(path).is_err() {
+                report.skipped += 1;
+            }
+            continue;
+        }
         let Some(command) = extract_command(&xml) else {
             continue;
         };
@@ -60,15 +105,19 @@ pub fn scan(root: &Path) -> Vec<PersistenceEntry> {
             .map(|c| c.as_os_str().to_string_lossy().into_owned())
             .collect::<Vec<_>>()
             .join("\\");
-        entries.push(PersistenceEntry::new(
+        report.entries.push(PersistenceEntry::new(
             PersistenceSource::ScheduledTask,
             name,
             command,
             path.to_string_lossy().into_owned(),
         ));
     }
-    entries.sort_by(|a, b| a.name.cmp(&b.name));
-    entries
+    report.entries.sort_by(|a, b| a.name.cmp(&b.name));
+    report
+}
+
+pub fn scan(root: &Path) -> Vec<PersistenceEntry> {
+    scan_report(root).entries
 }
 
 /// First action's command (compat path for entry scoring/display).
@@ -268,8 +317,7 @@ fn assign_text(
         "hidden" => {
             let t = text.trim();
             if !t.is_empty() {
-                out.hidden =
-                    !matches!(t.to_ascii_lowercase().as_str(), "false" | "0" | "no");
+                out.hidden = !matches!(t.to_ascii_lowercase().as_str(), "false" | "0" | "no");
             }
         }
         _ => {}
@@ -340,11 +388,7 @@ mod tests {
         assert_eq!(e.name, r"Microsoft\Windows\Evil\Persist.xml");
         assert_eq!(
             e.id,
-            make_id(
-                &PersistenceSource::ScheduledTask,
-                &e.name,
-                &e.command
-            )
+            make_id(&PersistenceSource::ScheduledTask, &e.name, &e.command)
         );
     }
 
@@ -361,7 +405,11 @@ mod tests {
             r"<Task><Actions><Exec><Command>C:\Windows\System32\cmd.exe</Command></Exec></Actions></Task>",
         )
         .unwrap();
-        fs::write(dir.path().join("empty-actions.xml"), "<Task><Actions /></Task>").unwrap();
+        fs::write(
+            dir.path().join("empty-actions.xml"),
+            "<Task><Actions /></Task>",
+        )
+        .unwrap();
 
         let entries = scan(dir.path());
 

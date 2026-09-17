@@ -69,7 +69,12 @@ pub fn for_entry(entry: &PersistenceEntry) -> EntryDetails {
         }
         _ => None,
     };
-    EntryDetails { signature, publisher, shortcut, task }
+    EntryDetails {
+        signature,
+        publisher,
+        shortcut,
+        task,
+    }
 }
 
 fn is_shortcut_name(name: &str) -> bool {
@@ -85,12 +90,22 @@ fn read_task_file(path: &Path) -> String {
     }
     // Same BOM handling as the task scanner (UTF-16 task files are normal).
     match bytes.as_slice() {
-        [0xFF, 0xFE, rest @ ..] => {
-            String::from_utf16_lossy(&rest.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect::<Vec<_>>())
-        }
-        [0xFE, 0xFF, rest @ ..] => {
-            String::from_utf16_lossy(&rest.as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes(*c)).collect::<Vec<_>>())
-        }
+        [0xFF, 0xFE, rest @ ..] => String::from_utf16_lossy(
+            &rest
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes(*c))
+                .collect::<Vec<_>>(),
+        ),
+        [0xFE, 0xFF, rest @ ..] => String::from_utf16_lossy(
+            &rest
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_be_bytes(*c))
+                .collect::<Vec<_>>(),
+        ),
         [0xEF, 0xBB, 0xBF, rest @ ..] => String::from_utf8_lossy(rest).into_owned(),
         _ => String::from_utf8_lossy(&bytes).into_owned(),
     }
@@ -98,9 +113,10 @@ fn read_task_file(path: &Path) -> String {
 
 impl ShortcutDetails {
     pub fn for_info(info: &LnkInfo) -> Self {
-        let expanded_target = info.target.as_deref().map(|t| {
-            crate::scanners::services::expand_env_vars(t)
-        });
+        let expanded_target = info
+            .target
+            .as_deref()
+            .map(crate::scanners::services::expand_env_vars);
         let target_exists = expanded_target
             .as_deref()
             .map(|t| Path::new(t).is_file())
@@ -148,7 +164,10 @@ mod tests {
         );
         let details = for_entry(&entry);
         let shortcut = details.shortcut.expect("shortcut details");
-        assert_eq!(shortcut.expanded_target.as_deref(), Some(target_text.as_str()));
+        assert_eq!(
+            shortcut.expanded_target.as_deref(),
+            Some(target_text.as_str())
+        );
         assert!(shortcut.target_exists);
         // The entry command is the .lnk path itself: signature reflects the
         // shortcut file (unsigned fixture), publisher stays empty.

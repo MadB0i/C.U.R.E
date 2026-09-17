@@ -75,9 +75,7 @@ pub const TECHNIQUE_COM_HIJACK: AttackTechnique = AttackTechnique {
 /// Typed entry point — prefer this over the string form so new
 /// [`PersistenceSource`](crate::model::PersistenceSource) variants are a
 /// compile error here until mapped.
-pub fn technique_for(
-    source: &crate::model::PersistenceSource,
-) -> Option<&'static AttackTechnique> {
+pub fn technique_for(source: &crate::model::PersistenceSource) -> Option<&'static AttackTechnique> {
     use crate::model::PersistenceSource::*;
     Some(match source {
         StartupFolder => &TECHNIQUE_STARTUP_FOLDER,
@@ -112,16 +110,12 @@ pub fn technique_for_source(source: &str) -> Option<&'static AttackTechnique> {
 
 /// Returns the technique ID string for a scanner source, or an empty string.
 pub fn technique_id_for(source: &str) -> &'static str {
-    technique_for_source(source)
-        .map(|t| t.id)
-        .unwrap_or("")
+    technique_for_source(source).map(|t| t.id).unwrap_or("")
 }
 
 /// Returns the technique name for a scanner source, or an empty string.
 pub fn technique_name_for(source: &str) -> &'static str {
-    technique_for_source(source)
-        .map(|t| t.name)
-        .unwrap_or("")
+    technique_for_source(source).map(|t| t.name).unwrap_or("")
 }
 
 #[cfg(test)]

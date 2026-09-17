@@ -29,6 +29,10 @@ struct ScanSummary {
     safe: usize,
     process_findings: Vec<ProcessFinding>,
     ransom_findings: Vec<RansomFinding>,
+    /// Per-source access states so the UI never renders "0 entries" as a
+    /// clean bill of health when enumeration actually failed or skipped.
+    source_states: Vec<cure_core::report::CoverageRow>,
+    elevated: bool,
 }
 
 #[derive(Serialize)]
@@ -192,29 +196,53 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     emit_stage(&app, "registry", "Reading Run / RunOnce autoruns");
     #[allow(unused_mut)]
     let mut entries: Vec<PersistenceEntry> = Vec::new();
+    // Access states ride alongside the entries so coverage UI can render
+    // CHECK FAILED / PARTIAL / skipped counts instead of a bare zero.
+    // (area, state label, human detail).
+    let mut source_states: Vec<cure_core::report::CoverageRow> = Vec::new();
     #[cfg(windows)]
-    entries.extend(scanners::registry::scan().unwrap_or_default());
+    {
+        let reg = scanners::registry::scan_report();
+        source_states.push(registry_state_row(&reg));
+        entries.extend(reg.entries);
+    }
+    #[cfg(not(windows))]
+    source_states.push(cure_core::report::CoverageRow::unavailable(
+        "Registry autoruns",
+        "Windows-only source",
+    ));
 
     emit_stage(&app, "startup", "Walking the per-user Startup folder");
     entries.extend(scanners::startup::scan(&startup_root()));
 
     emit_stage(&app, "tasks", "Parsing scheduled task definitions");
-    entries.extend(scanners::scheduled_tasks::scan(&tasks_root()));
+    let task_report = scanners::scheduled_tasks::scan_report(&tasks_root());
+    source_states.push(tasks_state_row(&task_report));
+    entries.extend(task_report.entries);
 
     emit_stage(&app, "services", "Enumerating auto-start services");
-    let service_records = scanners::collect_services();
+    let service_report = scanners::services::scan_report();
+    source_states.push(services_state_row(&service_report));
+    let service_records = service_report.records;
     entries.extend(service_records.iter().map(|r| r.entry.clone()));
 
     #[cfg(windows)]
     {
         emit_stage(&app, "wmi", "Querying WMI event subscriptions");
-        entries.extend(scanners::wmi::scan());
+        let wmi_report = scanners::wmi::scan_report();
+        source_states.push(wmi_state_row(&wmi_report));
+        entries.extend(wmi_report.entries);
         emit_stage(&app, "ifeo", "Checking IFEO debuggers and AppInit DLLs");
         entries.extend(scanners::ifeo::scan());
         entries.extend(scanners::appinit::scan());
         emit_stage(&app, "com", "Walking per-user COM registrations");
         entries.extend(scanners::com::scan());
     }
+    #[cfg(not(windows))]
+    source_states.push(cure_core::report::CoverageRow::unavailable(
+        "WMI subscriptions",
+        "Windows-only source",
+    ));
 
     let count = entries.len();
     emit_stage(
@@ -475,11 +503,56 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         safe,
         process_findings,
         ransom_findings,
+        source_states,
+        elevated: cure_core::elevation::is_elevated(),
     })
 }
 
-fn find_current_entry(id: &str) -> Option<PersistenceEntry> {
-    if let Some(entry) = scanners::collect_all(&startup_root(), &tasks_root())
+/// Coverage row for the scan summary. Non-OK states surface the scanner's
+/// own reason so a failed check never renders as a clean zero.
+/// Thin wrappers over `cure_core::report::source_state_row` (shared with
+/// the CLI report so both surfaces stay consistent).
+fn state_row(
+    area: &str,
+    status: &cure_core::elevation::SourceStatus,
+    ok_detail: String,
+) -> cure_core::report::CoverageRow {
+    cure_core::report::source_state_row(area, status, ok_detail)
+}
+
+fn registry_state_row(reg: &scanners::registry::RegistryScanReport) -> cure_core::report::CoverageRow {
+    state_row(
+        "Registry autoruns",
+        &reg.status(),
+        format!("{} values", reg.values_read),
+    )
+}
+
+fn tasks_state_row(task_report: &scanners::scheduled_tasks::TaskScanReport) -> cure_core::report::CoverageRow {
+    state_row(
+        "Scheduled tasks",
+        &task_report.status(),
+        format!("{} files", task_report.files_seen),
+    )
+}
+
+fn services_state_row(service_report: &scanners::services::ServiceScanReport) -> cure_core::report::CoverageRow {
+    state_row(
+        "Services (auto-start)",
+        &service_report.status,
+        format!("{} services", service_report.records.len()),
+    )
+}
+
+fn wmi_state_row(wmi_report: &scanners::wmi::WmiScanReport) -> cure_core::report::CoverageRow {
+    state_row(
+        "WMI subscriptions",
+        &wmi_report.status,
+        format!("{} entries", wmi_report.entries.len()),
+    )
+}
+
+fn find_current_entry(id: &str) -> Option<PersistenceEntry> {    if let Some(entry) = scanners::collect_all(&startup_root(), &tasks_root())
         .into_iter()
         .find(|entry| entry.id == id)
     {
@@ -525,7 +598,9 @@ fn quarantine_entry(id: String, _name: String, _command: String) -> Result<Strin
 
 #[tauri::command]
 fn undo_entry(id: String) -> Result<(), String> {
-    quarantine::undo(&resolve_data_dir(), &id)
+    // Scoped restore (see cli cmd_undo): only under the scanned roots.
+    let roots = vec![startup_root(), tasks_root()];
+    quarantine::undo_scoped(&resolve_data_dir(), &id, Some(&roots))
         .map(|_| ())
         .map_err(|e| e.to_string())
 }
@@ -617,19 +692,34 @@ async fn export_report(format: String, redact: bool) -> Result<String, String> {
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("cannot create data dir: {e}"))?;
 
     let mut entries: Vec<PersistenceEntry> = Vec::new();
+    let mut coverage: Vec<CoverageRow> = Vec::new();
     #[cfg(windows)]
-    entries.extend(scanners::registry::scan().unwrap_or_default());
+    {
+        let reg = scanners::registry::scan_report();
+        coverage.push(registry_state_row(&reg));
+        entries.extend(reg.entries);
+    }
+    #[cfg(not(windows))]
+    coverage.push(CoverageRow::unavailable("Registry autoruns", "Windows-only source"));
     entries.extend(scanners::startup::scan(&startup_root()));
-    entries.extend(scanners::scheduled_tasks::scan(&tasks_root()));
-    let service_records = scanners::collect_services();
+    let task_report = scanners::scheduled_tasks::scan_report(&tasks_root());
+    coverage.push(tasks_state_row(&task_report));
+    entries.extend(task_report.entries);
+    let service_report = scanners::services::scan_report();
+    coverage.push(services_state_row(&service_report));
+    let service_records = service_report.records;
     entries.extend(service_records.iter().map(|r| r.entry.clone()));
     #[cfg(windows)]
     {
-        entries.extend(scanners::wmi::scan());
+        let wmi_report = scanners::wmi::scan_report();
+        coverage.push(wmi_state_row(&wmi_report));
+        entries.extend(wmi_report.entries);
         entries.extend(scanners::ifeo::scan());
         entries.extend(scanners::appinit::scan());
         entries.extend(scanners::com::scan());
     }
+    #[cfg(not(windows))]
+    coverage.push(CoverageRow::unavailable("WMI subscriptions", "Windows-only source"));
 
     let mut scored: Vec<ScoredEntry> = entries
         .iter()
@@ -676,15 +766,12 @@ async fn export_report(format: String, redact: bool) -> Result<String, String> {
     let count = |source: PersistenceSource| {
         entries.iter().filter(|e| e.source == source).count()
     };
-    let mut coverage = vec![
-        CoverageRow::checked("Startup folder", format!("{} entries", count(PersistenceSource::StartupFolder))),
-        CoverageRow::checked("Scheduled tasks", format!("{} entries", count(PersistenceSource::ScheduledTask))),
-        CoverageRow::checked("Services (auto-start)", format!("{} services", service_records.len())),
-        CoverageRow::checked("WMI subscriptions", format!("{} entries", count(PersistenceSource::WmiSubscription))),
-        CoverageRow::checked("IFEO debuggers", format!("{} entries", count(PersistenceSource::IfeoDebugger))),
-        CoverageRow::checked("AppInit DLLs", format!("{} entries", count(PersistenceSource::AppInitDlls))),
-        CoverageRow::checked("COM hijacks (HKCU)", format!("{} entries", count(PersistenceSource::ComHijack))),
-    ];
+    // State rows (registry/tasks/services/WMI) are already in `coverage`
+    // from the collection block above; append the static rows here.
+    coverage.push(CoverageRow::checked("Startup folder", format!("{} entries", count(PersistenceSource::StartupFolder))));
+    coverage.push(CoverageRow::checked("IFEO debuggers", format!("{} entries", count(PersistenceSource::IfeoDebugger))));
+    coverage.push(CoverageRow::checked("AppInit DLLs", format!("{} entries", count(PersistenceSource::AppInitDlls))));
+    coverage.push(CoverageRow::checked("COM hijacks (HKCU)", format!("{} entries", count(PersistenceSource::ComHijack))));
     #[cfg(windows)]
     {
         coverage.push(CoverageRow::checked("Registry autoruns", format!("{} entries", count(PersistenceSource::RegistryRun))));
@@ -717,6 +804,212 @@ async fn export_report(format: String, redact: bool) -> Result<String, String> {
         cure_core::report::render_txt(&report)
     };
     let filename = format!("cure-report-{}.{}", cure_core::report::utc_stamp(), format);
+    let out_path = data_dir.join(&filename);
+    std::fs::write(&out_path, body).map_err(|e| format!("cannot write report: {e}"))?;
+    Ok(out_path.to_string_lossy().into_owned())
+}
+
+// ---------------------------------------------------------------------------
+// Post-login incident investigation (observation only — see core::incident)
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Clone)]
+struct IncidentProgressEvent {
+    stage: String,
+    polls: usize,
+    processes: usize,
+    windows: usize,
+}
+
+/// Run a post-login incident observation: collect current persistence
+/// findings, observe process/window activity for the validated duration,
+/// correlate, and return the verdict. Observation installs nothing and
+/// modifies nothing; durations are restricted to 15/30/60/120 seconds.
+#[tauri::command]
+async fn start_incident_observation(
+    app: AppHandle,
+    duration_secs: u64,
+) -> Result<cure_core::incident::ObservationResult, String> {
+    use cure_core::incident;
+
+    let duration_secs = incident::validate_duration(duration_secs)?;
+    let elevated = cure_core::elevation::is_elevated();
+
+    // Fresh findings for correlation (scoring unnecessary — correlation
+    // works on command/location/name).
+    let mut findings: Vec<incident::StartupRef> = scanners::collect_all(&startup_root(), &tasks_root())
+        .iter()
+        .map(incident::StartupRef::from)
+        .collect();
+    for record in scanners::collect_services().iter() {
+        let mut finding = incident::StartupRef::from(&record.entry);
+        finding.aux_pid = record.pid;
+        findings.push(finding);
+    }
+
+    let started_at = std::time::SystemTime::now();
+    let started_rfc = cure_core::incident::rfc3339(started_at);
+    let investigation_id = incident::new_investigation_id();
+
+    let duration = std::time::Duration::from_secs(duration_secs);
+    let progress_app = app.clone();
+    let live = tokio::task::spawn_blocking(move || {
+        incident::observe_blocking(duration, |polls, procs, wins| {
+            let _ = progress_app.emit(
+                "incident-progress",
+                IncidentProgressEvent {
+                    stage: "incident-observing".to_string(),
+                    polls,
+                    processes: procs,
+                    windows: wins,
+                },
+            );
+        })
+    })
+    .await
+    .map_err(|e| format!("observation failed: {e}"))?;
+
+    // First pass without command lines, then fetch them for correlated
+    // processes only (bounded) and re-correlate — command lines can only
+    // upgrade PARTIAL matches to STRONG, never invent DIRECT ones.
+    // (pid, observed name) pairs: the fetch attaches a command line only
+    // when the live name still matches (PID-reuse guard).
+    let mut correlations = incident::correlate(&findings, &live.processes);
+    let mut need_cmdline: Vec<(u32, String)> = correlations
+        .iter()
+        .filter(|c| {
+            c.level == incident::CorrelationLevel::Direct
+                || c.level == incident::CorrelationLevel::Strong
+        })
+        .map(|c| (c.process_pid, c.process_name.clone()))
+        .collect();
+    need_cmdline.sort_unstable();
+    need_cmdline.dedup();
+    if !need_cmdline.is_empty() {
+        let cmdlines = incident::fetch_command_lines(&need_cmdline);
+        let mut processes = live.processes;
+        for p in processes.iter_mut() {
+            if let Some(cmd) = cmdlines.get(&p.pid) {
+                p.command_line = Some(cmd.clone());
+            }
+        }
+        correlations = incident::correlate(&findings, &processes);
+        let timeline = incident::build_timeline(
+            started_at,
+            duration_secs,
+            &processes,
+            &live.windows,
+            &correlations,
+        );
+        let verdict = incident::decide_verdict(&correlations, &live.windows, &live.process_observation);
+        return Ok(cure_core::incident::ObservationResult {
+            investigation_id,
+            started_at: started_rfc,
+            duration_secs,
+            elevated,
+            process_observation: live.process_observation,
+            window_observation: live.window_observation,
+            processes,
+            windows: live.windows,
+            correlations,
+            timeline,
+            verdict,
+            truncated: live.truncated,
+        });
+    }
+
+    let timeline = incident::build_timeline(
+        started_at,
+        duration_secs,
+        &live.processes,
+        &live.windows,
+        &correlations,
+    );
+    let verdict = incident::decide_verdict(&correlations, &live.windows, &live.process_observation);
+    Ok(cure_core::incident::ObservationResult {
+        investigation_id,
+        started_at: started_rfc,
+        duration_secs,
+        elevated,
+        process_observation: live.process_observation,
+        window_observation: live.window_observation,
+        processes: live.processes,
+        windows: live.windows,
+        correlations,
+        timeline,
+        verdict,
+        truncated: live.truncated,
+    })
+}
+
+/// Export an observation result as JSON/TXT incident report (explicit;
+/// remediates nothing). The result is passed back in — the backend keeps
+/// no observation state between commands.
+#[tauri::command]
+async fn export_incident_report(
+    result: cure_core::incident::ObservationResult,
+    format: String,
+    redact: bool,
+) -> Result<String, String> {
+    use cure_core::report::{CoverageRow, ReportOptions};
+
+    let format = format.to_ascii_lowercase();
+    if format != "json" && format != "txt" {
+        return Err("unknown format: use json or txt".to_string());
+    }
+    let data_dir = resolve_data_dir();
+    std::fs::create_dir_all(&data_dir).map_err(|e| format!("cannot create data dir: {e}"))?;
+
+    // Fresh persistence scoring so the export's findings stand on their own.
+    let mut entries: Vec<PersistenceEntry> = Vec::new();
+    #[cfg(windows)]
+    entries.extend(scanners::registry::scan().unwrap_or_default());
+    entries.extend(scanners::startup::scan(&startup_root()));
+    entries.extend(scanners::scheduled_tasks::scan(&tasks_root()));
+    let service_records = scanners::collect_services();
+    entries.extend(service_records.iter().map(|r| r.entry.clone()));
+    #[cfg(windows)]
+    {
+        entries.extend(scanners::wmi::scan());
+        entries.extend(scanners::ifeo::scan());
+        entries.extend(scanners::appinit::scan());
+        entries.extend(scanners::com::scan());
+    }
+    let count = |source: PersistenceSource| entries.iter().filter(|e| e.source == source).count();
+    let scored: Vec<ScoredEntry> = entries
+        .iter()
+        .filter(|e| e.source != PersistenceSource::WindowsService)
+        .map(|e| {
+            let exe_path = cure_core::signature::resolve_executable_path(&e.command);
+            risk::score_entry(e, exe_path.as_deref())
+        })
+        .collect();
+
+    let coverage = vec![
+        CoverageRow::checked("Startup folder", format!("{} entries", count(PersistenceSource::StartupFolder))),
+        CoverageRow::checked("Scheduled tasks", format!("{} entries", count(PersistenceSource::ScheduledTask))),
+        CoverageRow::checked("Services (auto-start)", format!("{} services", service_records.len())),
+        CoverageRow::checked("Incident observation", format!("{} processes, {} windows in {} s", result.processes.len(), result.windows.len(), result.duration_secs)),
+    ];
+    let empty: Vec<(cure_core::process_scan::ProcessInfo, cure_core::process_scan::ProcessScore)> = Vec::new();
+    let no_ransom: Vec<cure_core::ransom_detect::RansomFinding> = Vec::new();
+    let mut report = cure_core::report::assemble(
+        cure_core::report::ScanInput {
+            persistence: scored,
+            processes: empty,
+            ransom: no_ransom,
+            canary_note: String::new(),
+        },
+        coverage,
+        &ReportOptions { redact },
+    );
+    report.incident = Some(cure_core::report::incident_section(&result, redact));
+    let body = if format == "json" {
+        cure_core::report::render_json(&report)
+    } else {
+        cure_core::report::render_txt(&report)
+    };
+    let filename = format!("cure-incident-{}.{}", cure_core::report::utc_stamp(), format);
     let out_path = data_dir.join(&filename);
     std::fs::write(&out_path, body).map_err(|e| format!("cannot write report: {e}"))?;
     Ok(out_path.to_string_lossy().into_owned())
@@ -1005,6 +1298,8 @@ fn main() {
             entry_details,
             reveal_location,
             export_report,
+            start_incident_observation,
+            export_incident_report,
             open_quarantine_folder,
             view_log,
             exit_app,
@@ -1329,8 +1624,11 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
     if (boxes.length) boxes[0].click();
     const btn = document.getElementById("cleanup-btn");
     btn.click();
-    await wait(150);
-    btn.click();
+    // V3: destructive actions share an explicit confirm dialog.
+    if (!await waitFor(() => !document.getElementById("confirm-overlay").classList.contains("hidden"))) {
+      throw new Error("cleanup confirm dialog never appeared");
+    }
+    document.getElementById("confirm-ok").click();
     if (!await waitFor(() => document.getElementById("cleanup-status").textContent.startsWith("Freed"), 60000)) {
       throw new Error("cleanup status never showed Freed");
     }
@@ -1386,6 +1684,22 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
       document.getElementById("can-state").textContent === "ACTIVE", 15000)) {
       throw new Error("canary guard never became ACTIVE");
     }
+    // Incident observation vs the REAL backend: 15 s window, then assert a
+    // usable result (verdict + timeline + observed processes).
+    const incident = await window.__TAURI__.core.invoke("start_incident_observation", { durationSecs: 15 });
+    if (!incident || !incident.verdict || !Array.isArray(incident.timeline) || incident.timeline.length < 2) {
+      throw new Error("incident observation returned no usable result");
+    }
+    if (!Array.isArray(incident.processes) || incident.processes.length < 1) {
+      throw new Error("incident observed no processes");
+    }
+    const incidentSummary = {
+      verdict: incident.verdict,
+      timeline: incident.timeline.length,
+      processes: incident.processes.length,
+      windows: Array.isArray(incident.windows) ? incident.windows.length : 0,
+      correlations: Array.isArray(incident.correlations) ? incident.correlations.length : 0,
+    };
     document.getElementById("nav-results").click();
     if (!await waitFor(() =>
       !document.getElementById("results-view").classList.contains("hidden"))) {
@@ -1403,6 +1717,7 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
       quarantineVerified: true,
       viewsVerified: { posture, auditCards },
       canaryActive: true,
+      incidentVerified: incidentSummary,
     });
   } catch (err) {
     emit({ ok: false, error: String(err) });

@@ -90,7 +90,8 @@ const browser = await chromium.launch();
   await page.check('#cleanup-dl-list input[data-path*="setup_toolkit"]');
   const btn = page.locator("#cleanup-btn");
   await btn.click();
-  await btn.click();
+  await page.waitForSelector("#confirm-overlay:not(.hidden)", { timeout: 4000 });
+  await page.click("#confirm-ok");
   await page.waitForFunction(() => window.__cureTossSeen === true, null, { timeout: 5000 });
   const tossWasActive = await page.evaluate(
     () => window.__cureTossActive === true
@@ -143,7 +144,8 @@ const browser = await chromium.launch();
   await page.waitForSelector("#cleanup-body:not(.hidden)", { timeout: 15000 });
   const btn = page.locator("#cleanup-btn");
   await btn.click();
-  await btn.click();
+  await page.waitForSelector("#confirm-overlay:not(.hidden)", { timeout: 4000 });
+  await page.click("#confirm-ok");
   await page.waitForFunction(
     () => document.getElementById("cleanup-status").textContent.length > 0,
     null,
@@ -180,7 +182,8 @@ const browser = await chromium.launch();
   await page.waitForSelector("#cleanup-body:not(.hidden)", { timeout: 15000 });
   const btn = page.locator("#cleanup-btn");
   await btn.click();
-  await btn.click();
+  await page.waitForSelector("#confirm-overlay:not(.hidden)", { timeout: 4000 });
+  await page.click("#confirm-ok");
   await page.waitForFunction(
     () => document.getElementById("cleanup-status").textContent.startsWith("Freed"),
     null,
@@ -223,3 +226,4 @@ const browser = await chromium.launch();
 await browser.close();
 console.log(failures === 0 ? "ALL CHECKS PASSED" : failures + " CHECK(S) FAILED");
 process.exit(failures === 0 ? 0 : 1);
+

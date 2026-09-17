@@ -2,10 +2,12 @@ pub mod attack;
 pub mod baseline;
 pub mod canary;
 pub mod cleanup;
+pub mod elevation;
 pub mod entry_details;
 #[cfg(test)]
 pub mod fixtures;
 pub mod hash_intel;
+pub mod incident;
 pub mod lnk;
 pub mod model;
 pub mod overlay;

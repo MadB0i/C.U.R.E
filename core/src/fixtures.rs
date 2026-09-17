@@ -141,6 +141,7 @@ fn service_record(
         state: state.to_string(),
         account: account.to_string(),
         image_path: image.to_string(),
+        pid: None,
     }
 }
 
@@ -173,7 +174,7 @@ pub fn normal_task_xml() -> String {
     </Exec>
   </Actions>
 </Task>"#
-    .to_string()
+        .to_string()
 }
 
 /// REVIEW task XML: two Exec actions, highest run level, hidden PowerShell.
@@ -257,8 +258,8 @@ pub fn minimal_lnk_unicode(target: &str, args: &str, workdir: &str) -> Vec<u8> {
     b.extend_from_slice(&0u16.to_le_bytes()); // hotkey
     b.extend_from_slice(&[0u8; 10]); // reserved
     b.extend_from_slice(&0u16.to_le_bytes()); // target id list size = 0
-    // No LinkInfo at all (HasLinkInfo unset) — not even a size field.
-    // StringData: NAME, WORKING_DIR, ARGUMENTS (each: u16 char-count incl NUL + UTF-16)
+                                              // No LinkInfo at all (HasLinkInfo unset) — not even a size field.
+                                              // StringData: NAME, WORKING_DIR, ARGUMENTS (each: u16 char-count incl NUL + UTF-16)
     for s in ["CURE-SYNTH-Updater", workdir, args] {
         let chars: Vec<u16> = s.encode_utf16().chain(std::iter::once(0)).collect();
         b.extend_from_slice(&(chars.len() as u16).to_le_bytes());

@@ -39,6 +39,10 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg>
           <span>Scan Results</span>
         </button>
+        <button class="nav-item" id="nav-incident" data-view="view-incident" aria-current="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>
+          <span>Incident</span>
+        </button>
         <button class="nav-item" id="nav-audit" data-view="view-audit" aria-current="false" disabled>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/></svg>
           <span>Startup Audit</span>
@@ -184,7 +188,7 @@
             </svg>
           </div>
           <div class="headline-wrap">
-            <div id="headline" class="headline reveal" style="--d:90ms">System is clean</div>
+            <div id="headline" class="headline reveal" style="--d:90ms">No findings detected in this scan</div>
             <div id="subline" class="subline reveal" style="--d:140ms"></div>
           </div>
           <span class="flex-spacer"></span>
@@ -202,7 +206,7 @@
           <div id="review-cards" class="entry-cards"></div>
           <div id="review-clear" class="all-clear hidden">
             <svg viewBox="0 0 16 16" class="clear-check"><path d="M2 8.5l4 4L14 4"/></svg>
-            <span>All clear — nothing needs your attention.</span>
+            <span>No findings — nothing needs your attention.</span>
           </div>
         </div>
 
@@ -256,22 +260,6 @@
             </button>
           </div>
           <div class="canary-guard-sub" id="canary-guard-sub">Plant canary decoys and watch Desktop, Documents, Downloads for ransomware activity.</div>
-        </div>
-
-        <div id="canary-alert-overlay" class="canary-alert-overlay hidden">
-          <div class="canary-alert-box">
-            <svg class="canary-alert-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 2L4 6v5c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4z" fill="currentColor" opacity="0.15"/>
-              <path d="M12 2L4 6v5c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4z" fill="none" stroke="currentColor" stroke-width="1.6"/>
-              <line x1="12" y1="8" x2="12" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              <circle cx="12" cy="16" r="1.2" fill="currentColor"/>
-            </svg>
-            <div class="canary-alert-title">RANSOMWARE ACTIVITY DETECTED</div>
-            <div class="canary-alert-detail" id="canary-alert-detail"></div>
-            <div class="canary-alert-actions">
-              <button id="canary-dismiss-btn" class="btn">Dismiss</button>
-            </div>
-          </div>
         </div>
 
         </div>
@@ -469,6 +457,7 @@
             </div>
             <div class="table-wrap">
               <table class="data-table" id="proc-table">
+                <caption class="sr-only">Running processes observed during this scan</caption>
                 <thead><tr><th scope="col">Process</th><th scope="col">PID</th><th scope="col">Path</th><th scope="col">Score</th><th scope="col">Risk</th><th scope="col">Reasons</th><th scope="col"><span class="sr-only">Action</span></th></tr></thead>
                 <tbody id="proc-rows"></tbody>
               </table>
@@ -529,6 +518,62 @@
           </div>
         </div>
       </section>
+      <section id="view-incident" class="view hidden" aria-label="Post-login incident investigation">
+        <div class="results-stack">
+          <div class="results-head">
+            <div class="headline-wrap">
+              <div class="headline">Post-Login Investigation</div>
+              <div class="subline">Correlate startup persistence with observed process and window activity.</div>
+            </div>
+          </div>
+          <div class="panel" id="inc-prepare">
+            <h3>STEP 1 — PREPARE</h3>
+            <div class="incident-prepare">
+              <p class="dim">C.U.R.E. will observe startup activity for a limited period. Observation installs nothing and modifies nothing — no Startup, registry, service, or task changes. For true post-login capture, start the observation within a minute of logging in; a reboot flow is intentionally not offered.</p>
+              <div class="proc-filters" role="group" aria-label="Observation duration">
+                <button class="filter-btn" data-dur="15">15 sec</button>
+                <button class="filter-btn on" data-dur="30">30 sec</button>
+                <button class="filter-btn" data-dur="60">60 sec</button>
+                <button class="filter-btn" data-dur="120">120 sec</button>
+              </div>
+              <div class="incident-actions">
+                <button id="btn-incident-start" class="btn">Start login investigation</button>
+                <span id="inc-status" class="kill-status" role="status"></span>
+              </div>
+              <div id="inc-progress" class="cleanup-note dim hidden"></div>
+            </div>
+          </div>
+          <div class="panel hidden" id="inc-results">
+            <h3>STEP 2–3 — OBSERVE &amp; CORRELATE (AUTOMATIC)</h3>
+            <div class="canary-status-row">
+              <span class="severity-badge" id="inc-verdict">—</span>
+              <span class="dim" id="inc-verdict-why" style="font-size:12px"></span>
+            </div>
+            <p class="experimental-note">Correlation does not by itself establish malicious intent. Levels: DIRECT (matched path + process) · STRONG (matched command/path + timing) · PARTIAL (matched name only) · WEAK (temporal/structural proximity only) · NONE (no observed relationship).</p>
+          </div>
+          <div class="panel hidden" id="inc-timeline-panel">
+            <h3>STEP 4 — INCIDENT TIMELINE</h3>
+            <ul id="incident-timeline" class="log"></ul>
+          </div>
+          <div class="panel hidden" id="inc-review-panel">
+            <h3>STEP 5 — REVIEW</h3>
+            <h3 class="sub-h3">CORRELATIONS</h3>
+            <ul id="inc-correlations" class="entry-cards"></ul>
+            <h3 class="sub-h3">TRANSIENT WINDOW ACTIVITY</h3>
+            <ul id="inc-windows" class="entry-cards"></ul>
+            <div id="inc-windows-empty" class="empty-state hidden">No transient windows observed.</div>
+          </div>
+          <div class="panel hidden" id="inc-export-panel">
+            <h3>STEP 6 — EXPORT REPORT</h3>
+            <div class="report-row">
+              <span class="report-copy dim">JSON/TXT incident report: investigation id, elevation, coverage, timeline, window events, correlations, findings.</span>
+              <span class="flex-spacer"></span>
+              <button id="exp-inc-txt" class="btn">Export TXT</button>
+              <button id="exp-inc-json" class="btn">Export JSON</button>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
 
     <footer class="footbar">
@@ -538,6 +583,36 @@
       <button class="ghost-btn" id="btn-view-log">View full log</button>
       <button class="ghost-btn" id="btn-exit">Exit</button>
     </footer>
+    </div>
+  </div>
+
+  <div id="canary-alert-overlay" class="canary-alert-overlay hidden">
+    <div class="canary-alert-box" role="alertdialog" aria-modal="true" aria-labelledby="canary-alert-title" aria-describedby="canary-alert-detail">
+      <svg class="canary-alert-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 2L4 6v5c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4z" fill="currentColor" opacity="0.15"/>
+        <path d="M12 2L4 6v5c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4z" fill="none" stroke="currentColor" stroke-width="1.6"/>
+        <line x1="12" y1="8" x2="12" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="12" cy="16" r="1.2" fill="currentColor"/>
+      </svg>
+      <div class="canary-alert-title" id="canary-alert-title">RANSOMWARE ACTIVITY DETECTED</div>
+      <div class="canary-alert-detail" id="canary-alert-detail"></div>
+      <p class="canary-alert-exp"><strong>Experimental.</strong> Canary Guard is a decoy tripwire, not guaranteed protection — verify with a rescue scan.</p>
+      <div class="canary-alert-actions">
+        <button id="canary-dismiss-btn" class="btn">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="confirm-overlay" class="modal-overlay hidden">
+    <div class="modal-box" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-facts">
+      <div class="modal-kicker" id="confirm-kicker">Confirm action</div>
+      <div class="modal-title" id="confirm-title">Are you sure?</div>
+      <dl class="modal-facts" id="confirm-facts"></dl>
+      <p class="modal-note hidden" id="confirm-note"></p>
+      <div class="modal-actions">
+        <button id="confirm-cancel" class="btn">Cancel</button>
+        <button id="confirm-ok" class="btn btn-danger">Confirm</button>
+      </div>
     </div>
   </div>
 

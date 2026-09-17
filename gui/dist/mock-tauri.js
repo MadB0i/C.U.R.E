@@ -25,7 +25,7 @@
   // harnesses can preset them via addInitScript before this file loads):
   //   __CURE_MOCK_ITEM_COUNT   number of fake entries scanned per run
   //   __CURE_MOCK_FOOTER_ERRORS  when true, footer commands reject (error paths)
-  //   __CURE_MOCK_ALL_SAFE     when true, every fake entry scores Safe (ALL CLEAR)
+  //   __CURE_MOCK_ALL_SAFE     when true, every fake entry scores Safe (no findings)
   if (window.__CURE_MOCK_ITEM_COUNT === undefined) window.__CURE_MOCK_ITEM_COUNT = 8;
   if (window.__CURE_MOCK_FOOTER_ERRORS === undefined) window.__CURE_MOCK_FOOTER_ERRORS = false;
   if (window.__CURE_MOCK_ALL_SAFE === undefined) window.__CURE_MOCK_ALL_SAFE = false;
@@ -389,6 +389,13 @@
       high_risk_cleaned: cleaned.map(toScored),
       suspicious_for_review: review.map(toScored),
       safe,
+      source_states: [
+        { area: "Registry autoruns", state: "Available", detail: "3 values" },
+        { area: "Scheduled tasks", state: "Available", detail: "8 files" },
+        { area: "Services (auto-start)", state: "Available", detail: "0 services" },
+        { area: "WMI subscriptions", state: "Available", detail: "0 entries" },
+      ],
+      elevated: false,
     };
 
     if (window.__CURE_MOCK_SWEEP) {
@@ -467,6 +474,39 @@
             return delay(200).then(() => "C:\\cure-mock\\revealed");
           case "export_report":
             return delay(300).then(() => "C:\\cure-mock\\data\\cure-report-mock.txt");
+          case "start_incident_observation": {
+            const dur = Number((args && (args.duration_secs !== undefined ? args.duration_secs : args.durationSecs)) || 30);
+            return delay(400).then(() => ({
+              investigation_id: "INC-MOCK-1",
+              started_at: new Date().toISOString(),
+              duration_secs: dur,
+              elevated: false,
+              process_observation: "Available",
+              window_observation: "Available",
+              processes: [
+                { pid: 8412, ppid: 1234, name: "updater-mock.exe", exe_path: "C:\\Users\\bob\\AppData\\Local\\Mock\\updater-mock.exe", command_line: "\"C:\\Users\\bob\\AppData\\Local\\Mock\\updater-mock.exe\" --silent", first_seen_ms: 2421, last_seen_ms: 3200, exited: true, via_events: false, pre_existing: false },
+              ],
+              windows: [
+                { pid: 8412, title: "Mock Update Error", class_name: "MockDialog", first_seen_ms: 2500, last_seen_ms: 3242, closed: true, pre_existing: false },
+              ],
+              correlations: [
+                { process_pid: 8412, process_name: "updater-mock.exe", finding_id: "mock-item-0", finding_name: "AcmeTray0.bat", finding_source: "StartupFolder", level: "Direct", evidence: ["startup entry references this exact executable path", "observed launch at pid 8412"] },
+              ],
+              timeline: [
+                { t_ms: 0, wall_time: "18:42:01.000", kind: "ObservationStarted", text: "Login observation started" },
+                { t_ms: 2421, wall_time: "18:42:03.421", kind: "ProcessCreated", text: "Process created: updater-mock.exe (pid 8412)" },
+                { t_ms: 2421, wall_time: "18:42:03.421", kind: "CorrelationNoted", text: "DIRECT correlation: updater-mock.exe ↔ AcmeTray0.bat (StartupFolder)" },
+                { t_ms: 2500, wall_time: "18:42:03.500", kind: "WindowOpened", text: "Window opened: \"Mock Update Error\" (pid 8412, MockDialog)" },
+                { t_ms: 3200, wall_time: "18:42:04.200", kind: "ProcessExited", text: "Process exited: updater-mock.exe (pid 8412)" },
+                { t_ms: 3242, wall_time: "18:42:04.242", kind: "WindowClosed", text: "Window closed: \"Mock Update Error\" after 742 ms" },
+                { t_ms: dur * 1000, wall_time: "18:42:31.000", kind: "ObservationEnded", text: "Observation window ended" },
+              ],
+              verdict: "CauseIdentified",
+              truncated: false,
+            }));
+          }
+          case "export_incident_report":
+            return delay(300).then(() => "C:\\cure-mock\\data\\cure-incident-mock.txt");
           case "open_quarantine_folder":
             return delay(350).then(() => {
               if (window.__CURE_MOCK_FOOTER_ERRORS) {

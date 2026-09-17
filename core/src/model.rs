@@ -156,8 +156,16 @@ mod tests {
 
     #[test]
     fn id_is_stable_and_hex() {
-        let a = make_id(&PersistenceSource::StartupFolder, "update.bat", "C:\\Temp\\update.bat");
-        let b = make_id(&PersistenceSource::StartupFolder, "update.bat", "C:\\Temp\\update.bat");
+        let a = make_id(
+            &PersistenceSource::StartupFolder,
+            "update.bat",
+            "C:\\Temp\\update.bat",
+        );
+        let b = make_id(
+            &PersistenceSource::StartupFolder,
+            "update.bat",
+            "C:\\Temp\\update.bat",
+        );
         assert_eq!(a, b);
         assert_eq!(a.len(), 16);
         assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
@@ -181,7 +189,11 @@ mod tests {
         );
         assert_eq!(
             entry.id,
-            make_id(&PersistenceSource::RegistryRun, "Sidecar", "C:\\sidecar.exe")
+            make_id(
+                &PersistenceSource::RegistryRun,
+                "Sidecar",
+                "C:\\sidecar.exe"
+            )
         );
     }
 }
