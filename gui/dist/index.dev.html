@@ -69,7 +69,7 @@
         </button>
         <button class="nav-item" id="nav-canary" data-view="view-canary" aria-current="false" aria-label="Canary Guard">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L4 6v5c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4z"/><circle cx="12" cy="11" r="3"/></svg>
-          <span>Canary Guard</span>
+          <span>Canary Guard</span><span class="nav-badge" aria-hidden="true">Experimental</span>
         </button>
       </nav>
       <div class="side-foot">
@@ -78,8 +78,9 @@
     </aside>
     <div class="shell">
     <header class="topbar">
-      <div class="view-title" id="view-title">Scan Center</div>
+      <nav class="crumbs" aria-label="Breadcrumb"><span class="crumb-home">Home</span><span class="crumb-sep" aria-hidden="true">›</span><div class="view-title" id="view-title">Scan Center</div></nav>
       <div class="session-meta" id="session-meta">STANDBY — NO ACTIVE SESSION</div>
+      <span class="topbar-clock" id="topbar-clock" title="Local system time"></span>
       <div id="status-pill" class="pill scanning">
         <span class="pill-dot"></span>
         <svg class="pill-icon" viewBox="0 0 16 16"><path d="M2 8.5l4 4L14 4"/></svg>
@@ -206,6 +207,12 @@
           <button id="rescan-btn" class="btn reveal" style="--d:420ms">Scan again</button>
         </div>
 
+        <div class="hero-banner reveal" style="--d:60ms">
+          <span class="hero-tile" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></svg></span>
+          <span class="hero-copy"><span class="hero-title">Scan Results</span><span class="hero-desc">Every finding carries its evidence — severity, source, target and hash intel where available. Review each item, then quarantine only with explicit confirmation.</span></span>
+          <span class="hero-tag">EVIDENCE<br/>FIRST</span>
+        </div>
+        <div id="action-receipt" class="action-receipt hidden" role="status"><span class="receipt-dot" aria-hidden="true"></span><span id="action-receipt-text"></span><button id="action-receipt-x" class="ghost-btn receipt-x" aria-label="Dismiss this message">Dismiss</button></div>
         <div class="stats" id="stats-row">
           <div class="stat card tint-teal reveal" style="--d:170ms"><span id="stat-cleaned">0</span><label>QUARANTINED</label></div>
           <div class="stat card tint-amber reveal" style="--d:170ms"><span id="stat-review">0</span><label>NEEDS REVIEW</label></div>
@@ -324,6 +331,18 @@
                 <div class="headline-wrap">
                   <div class="headline reveal" style="--d:60ms">Disk Cleanup</div>
                   <div id="cleanup-subline" class="subline reveal" style="--d:110ms"></div>
+          <div class="hero-banner reveal" style="--d:130ms">
+            <span class="hero-tile" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1 2-2H8a2 2 0 0 1-2-2L5 6"/></svg></span>
+            <span class="hero-copy"><span class="hero-title">Disk Cleanup</span><span class="hero-desc">Remove temporary files, browser caches and other junk that may hide traces or consume space. Review candidates before proceeding — deletion is permanent.</span></span>
+            <span class="hero-tag">CLEANER SYSTEM<br/>SAFER ENVIRONMENT</span>
+          </div>
+          <ol class="steps" id="cleanup-steps" aria-label="Cleanup progress">
+            <li class="step current" data-step="1"><span class="step-n">1</span><span class="step-copy"><span class="step-t">Candidates</span><span class="step-d">Scan for removable items</span></span></li>
+            <li class="step-arrow" aria-hidden="true">→</li>
+            <li class="step" data-step="2"><span class="step-n">2</span><span class="step-copy"><span class="step-t">Confirmation</span><span class="step-d">Review and approve</span></span></li>
+            <li class="step-arrow" aria-hidden="true">→</li>
+            <li class="step" data-step="3"><span class="step-n">3</span><span class="step-copy"><span class="step-t">Cleanup</span><span class="step-d">Remove selected items</span></span></li>
+          </ol>
                 </div>
                 <span class="flex-spacer"></span>
                 <button id="cleanup-back" class="btn reveal" style="--d:200ms">Back to results</button>
@@ -363,6 +382,8 @@
                 </div>
                 <div id="cleanup-loading" class="cleanup-note dim hidden">measuring reclaimable space…</div>
                 <div id="cleanup-body" class="hidden">
+                  <div class="cleanup-cols">
+                  <div class="cleanup-maincol">
                   <div id="cleanup-total" class="cleanup-total"></div>
                   <div id="cleanup-grid" class="cleanup-grid"></div>
                   <div id="cleanup-downloads" class="hidden">
@@ -370,6 +391,19 @@
                     <ul id="cleanup-dl-list" class="dl-list"></ul>
                   </div>
 
+                  </div>
+                  <aside class="panel cleanup-summary" aria-label="Cleanup summary">
+                    <h3>Cleanup Summary</h3>
+                    <dl class="sum-rows">
+                      <div><dt>Total items</dt><dd id="cs-total-items">—</dd></div>
+                      <div><dt>Total size</dt><dd id="cs-total-size">—</dd></div>
+                      <div><dt>Selected</dt><dd id="cs-selected">—</dd></div>
+                      <div><dt>Status</dt><dd><span id="cs-status" class="status-pill-mini">Idle</span></dd></div>
+                    </dl>
+                    <div class="sum-check"><h4>What gets cleaned</h4><ul><li>Temporary files and system caches</li><li>Browser caches — only if selected</li><li>Recycle Bin contents — only if selected</li><li>Old installers you tick — never automatic</li></ul></div>
+                    <p class="important-box"><strong>Important</strong><span>This operation cannot be undone. Make sure you have reviewed the selected items before proceeding.</span></p>
+                  </aside>
+                  </div>
                   <div class="cleanup-actions">
                     <div id="toss-stage" class="toss-stage hidden" aria-hidden="true">
                       <svg viewBox="0 0 150 56" width="150" height="56">
@@ -508,6 +542,11 @@
             <div class="headline-wrap">
               <div class="headline">Quarantine</div>
               <div id="q-subline" class="subline">Moved files live here — nothing is ever deleted by quarantine. Restore any item with Undo.</div>
+          <div class="hero-banner">
+            <span class="hero-tile" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2L4 6v5c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4z"/><path d="M9 12l2 2 4-4"/></svg></span>
+            <span class="hero-copy"><span class="hero-title">Quarantine Vault</span><span class="hero-desc">Moved files wait here — nothing is ever deleted by quarantine. Each record keeps its original path, timestamp and one-click scoped Undo.</span></span>
+            <span class="hero-tag">FULLY<br/>REVERSIBLE</span>
+          </div>
             </div>
             <span class="flex-spacer"></span>
             <button id="q-refresh" class="btn">Refresh</button>
@@ -561,6 +600,11 @@
             <div class="headline-wrap">
               <div class="headline">Post-Login Investigation</div>
               <div class="subline">Correlate startup persistence with observed process and window activity.</div>
+          <div class="hero-banner">
+            <span class="hero-tile" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></span>
+            <span class="hero-copy"><span class="hero-title">Incident Investigation</span><span class="hero-desc">Observe real process and window activity after login, then correlate it against startup findings. Observation only — nothing is installed or changed.</span></span>
+            <span class="hero-tag">OBSERVE<br/>ONLY</span>
+          </div>
             </div>
           </div>
           <div class="panel" id="inc-prepare">
@@ -681,7 +725,7 @@
 
     <footer class="footbar">
       <span class="rakshak-credit"><span class="rk-name">Rakshak</span> — your system's guardian</span>
-      <div id="footbar-msg" role="status"></div>
+      <div id="footbar-msg" role="status">Ready</div>
       <button class="ghost-btn" id="btn-quarantine-folder">Open quarantine folder</button>
       <button class="ghost-btn" id="btn-view-log">View full log</button>
       <button class="ghost-btn" id="btn-exit">Exit</button>

@@ -72,6 +72,30 @@
     el.textContent = "LAST SCAN " + when + " · " + summary.total + " CHECKED · " + review + " TO REVIEW";
   }
 
+  // Topbar clock — real local system time, refreshed every 15 s.
+  function tickClock() {
+    const el = document.getElementById("topbar-clock");
+    if (!el) return;
+    el.textContent = new Date().toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+  tickClock();
+  setInterval(tickClock, 15000);
+
+  // Placed action receipt: quarantine/undo outcomes get a stable, inline
+  // home in the results view (instead of only a floating toast).
+  function showReceipt(title, detail, isError) {
+    const box = document.getElementById("action-receipt");
+    const txt = document.getElementById("action-receipt-text");
+    if (!box || !txt) return;
+    txt.textContent = title + " — " + detail + " · " + new Date().toLocaleTimeString();
+    box.classList.toggle("error", !!isError);
+    box.classList.remove("hidden");
+  }
+  function hideReceipt() {
+    const box = document.getElementById("action-receipt");
+    if (box) box.classList.add("hidden");
+  }
+
   let typeChain = Promise.resolve();
   function appendLog(stage, message) {
     const li = document.createElement("li");
@@ -1454,10 +1478,12 @@
           btn.classList.add("row-done");
           sessionQuarantined += 1;
           refreshQuarantinedTile();
+          showReceipt("Quarantined: " + entry.entry.name, "moved to quarantine · Undo in the Quarantine view", false);
           logEvent("action", "quarantined: " + entry.entry.name);
         } catch (err) {
           btn.disabled = false;
           setPill("error", String(err));
+          showReceipt("Quarantine failed", cleanErrText(err, "Quarantine failed"), true);
         }
       });
       card.appendChild(btn);
@@ -1815,6 +1841,7 @@
     setNav("scan-view");
     logList.innerHTML = "";
     itemFeedCount = 0;
+    hideReceipt();
     if (feedCountEl) feedCountEl.textContent = "0 ITEMS";
     const elapsedEl = document.getElementById("scan-elapsed");
     if (elapsedEl) elapsedEl.textContent = "elapsed 0.0s";
@@ -1883,6 +1910,7 @@
   });
 
   document.getElementById("rescan-btn").addEventListener("click", runScan);
+  document.getElementById("action-receipt-x").addEventListener("click", hideReceipt);
 
   const footMsg = document.getElementById("footbar-msg");
   let footTimer = null;
@@ -2374,6 +2402,10 @@
   function resetCleanupResult() {
     cleanupEls.status.textContent = "";
     cleanupEls.status.classList.add("hidden");
+    if (cleanupPhase === "done-ok" || cleanupPhase === "done-fail") {
+      cleanupPhase = "ready";
+      setCleanupStep(1);
+    }
     updateCleanupButton();
   }
 
@@ -2404,6 +2436,52 @@
       cleanupEls.btn.classList.remove("btn-active");
     }
     cleanupEls.btn.textContent = "Clean up";
+    renderCleanupSummary();
+  }
+
+  let cleanupPhase = "idle"; // idle | ready | running | done-ok | done-fail
+
+  // 3-step pipeline strip (Candidates → Confirmation → Cleanup).
+  function setCleanupStep(n, allDone) {
+    document.querySelectorAll("#cleanup-steps .step").forEach((li) => {
+      const k = Number(li.dataset.step);
+      li.classList.toggle("done", allDone ? true : k < n);
+      li.classList.toggle("current", !allDone && k === n);
+    });
+  }
+
+  // Live summary panel — counts come straight from the scan summary and
+  // the current selection. Never invented.
+  function renderCleanupSummary() {
+    const probe = document.getElementById("cs-total-items");
+    if (!probe) return;
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const s = cleanupState.summary;
+    if (!s) {
+      set("cs-total-items", "—"); set("cs-total-size", "—"); set("cs-selected", "—");
+      const st0 = document.getElementById("cs-status");
+      if (st0) { st0.textContent = "Idle"; st0.classList.remove("on", "bad"); }
+      return;
+    }
+    const totalN = s.categories.reduce((n, c) => n + c.item_count, 0) + s.downloads.length;
+    let selN = 0, selB = 0;
+    for (const c of s.categories) {
+      if (c.item_count > 0 && cleanupState.selectedCats.has(c.key)) { selN += c.item_count; selB += c.total_bytes; }
+    }
+    selN += cleanupState.checkedDownloads.size;
+    for (const dl of s.downloads) {
+      if (cleanupState.checkedDownloads.has(dl.path)) selB += dl.size_bytes;
+    }
+    set("cs-total-items", String(totalN));
+    set("cs-total-size", fmtBytes(s.total_bytes));
+    set("cs-selected", selN + " items · " + fmtBytes(selB));
+    const labels = { idle: "Idle", ready: "Ready", running: "Cleaning…", "done-ok": "Complete", "done-fail": "Attention" };
+    const st = document.getElementById("cs-status");
+    if (st) {
+      st.textContent = labels[cleanupPhase] || "—";
+      st.classList.toggle("on", cleanupPhase !== "idle");
+      st.classList.toggle("bad", cleanupPhase === "done-fail");
+    }
   }
 
   function renderCleanup(summary, keepResult = false) {
@@ -2411,6 +2489,10 @@
     cleanupState.selectedCats = new Set();
     cleanupState.checkedDownloads = new Set();
     cleanupState.running = false;
+    if (!keepResult) {
+      cleanupPhase = "ready";
+      setCleanupStep(1);
+    }
 
     cleanupEls.loading.classList.add("hidden");
     cleanupEls.body.classList.remove("hidden");
@@ -2530,6 +2612,8 @@
 
   function showCleanupIdle() {
     resetToss();
+    cleanupPhase = "idle";
+    setCleanupStep(1);
     cleanupEls.stage.classList.add("hidden");
     cleanupEls.body.classList.add("hidden");
     cleanupEls.loading.classList.add("hidden");
@@ -2577,6 +2661,7 @@
     if (cleanupState.checkedDownloads.size > 0) {
       selCats.push(cleanupState.checkedDownloads.size + " selected download(s)");
     }
+    setCleanupStep(2);
     const ok = await requestConfirm({
       kicker: "Confirm disk cleanup",
       title: "Permanently delete selected files?",
@@ -2589,7 +2674,10 @@
       note: "Only the selected categories and checked downloads are deleted. Quarantined items are never touched.",
       okLabel: "Delete " + fmtBytes(selBytes),
     });
-    if (!ok) return;
+    if (!ok) { setCleanupStep(1); return; }
+    cleanupPhase = "running";
+    setCleanupStep(3);
+    renderCleanupSummary();
     cleanupState.running = true;
     cleanupEls.btn.disabled = true;
     cleanupEls.btn.classList.add("btn-active");
@@ -2602,6 +2690,8 @@
         downloadPaths: Array.from(cleanupState.checkedDownloads),
       });
       stopToss(result.bytes_freed);
+      cleanupPhase = result.failed ? "done-fail" : "done-ok";
+      setCleanupStep(3, true);
       setCleanupPill(
         result.failed ? "warn" : "clean",
         "Freed " + fmtBytes(result.bytes_freed) +
@@ -2624,6 +2714,8 @@
       }
     } catch (err) {
       stopToss(0);
+      cleanupPhase = "done-fail";
+      setCleanupStep(3, true);
       setCleanupPill("error", "Disk cleanup failed");
       cleanupEls.status.textContent =
         "cleanup failed: " + cleanErrText(err, String(err));
@@ -3121,6 +3213,7 @@
           undo.classList.add("row-done");
           sessionQuarantined = Math.max(0, sessionQuarantined - 1);
           refreshQuarantinedTile();
+          showReceipt("Restored: " + scored.entry.name, "returned to " + (scored.entry.location || "its original location"), false);
           logEvent("action", "restored from quarantine: " + scored.entry.name);
         } catch (err) {
           undo.disabled = false;
@@ -3158,10 +3251,12 @@
           btn.classList.add("row-done");
           sessionQuarantined += 1;
           refreshQuarantinedTile();
+          showReceipt("Quarantined: " + scored.entry.name, "moved to quarantine · Undo in the Quarantine view", false);
           logEvent("action", "quarantined: " + scored.entry.name);
         } catch (err) {
           btn.disabled = false;
           footFeedback(cleanErrText(err, "Quarantine failed"), true);
+          showReceipt("Quarantine failed", cleanErrText(err, "Quarantine failed"), true);
         }
       });
       actions.append(btn);
@@ -3428,6 +3523,7 @@
           logEvent("action", "restored from quarantine: " + r.name);
           sessionQuarantined = Math.max(0, sessionQuarantined - 1);
           refreshQuarantinedTile();
+          showReceipt("Restored: " + r.name, "returned to " + (r.original_path || "its original location"), false);
           await refreshQuarantine();
         } catch (err) {
           undo.disabled = false;
