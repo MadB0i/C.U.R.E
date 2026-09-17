@@ -34,10 +34,6 @@
   const canarySessionAlerts = [];
   let canaryTriggered = false;
 
-  function escAttr(s) {
-    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  }
-
   function logEvent(kind, text) {
     eventLog.push({ at: new Date(), kind: kind || "info", text: String(text) });
     if (eventLog.length > 300) eventLog.splice(0, eventLog.length - 300);
