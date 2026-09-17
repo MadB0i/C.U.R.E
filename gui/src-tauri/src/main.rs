@@ -92,14 +92,22 @@ fn surface_above_overlays(handle: &AppHandle) {
 }
 
 fn resolve_data_dir() -> PathBuf {
-    arg_value("--data-dir")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            std::env::current_exe()
-                .ok()
-                .and_then(|exe| exe.parent().map(Path::to_path_buf))
-                .unwrap_or_else(|| PathBuf::from("."))
-        })
+    // Explicit override first (portable/USB workflows, tests). Otherwise an
+    // app-owned directory — NEVER the folder holding the executable, which
+    // may be the user's Desktop (baseline.json / quarantine/ must never
+    // appear there unexpectedly).
+    if let Some(dir) = arg_value("--data-dir") {
+        let dir = PathBuf::from(dir);
+        let _ = std::fs::create_dir_all(&dir);
+        return dir;
+    }
+    let owned = std::env::var("LOCALAPPDATA")
+        .map(|local| PathBuf::from(local).join("CURE"))
+        .unwrap_or_else(|_| std::env::temp_dir().join("CURE"));
+    // Best-effort: every writer below expects the directory to exist
+    // (baseline save, quarantine records, exports, overlay log).
+    let _ = std::fs::create_dir_all(&owned);
+    owned
 }
 
 fn startup_root() -> PathBuf {
@@ -325,7 +333,7 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     let per_item_ms = (SCAN_TARGET_TOTAL_MS / std::cmp::max(count, 1) as u64)
         .clamp(SCAN_MIN_PER_ITEM_MS, SCAN_MAX_PER_ITEM_MS);
 
-    let mut high_risk_cleaned = Vec::new();
+    let high_risk_cleaned = Vec::new();
     let mut suspicious_for_review = Vec::new();
     let mut safe = 0usize;
 
@@ -343,21 +351,14 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         );
         tokio::time::sleep(std::time::Duration::from_millis(per_item_ms)).await;
 
+        // NO automatic remediation here: even HighRisk findings only land in
+        // the review queue. Relocation happens exclusively through the
+        // explicit per-item confirmation path (`quarantine_entry`), which
+        // re-validates the entry against a fresh scan, refuses non-file
+        // sources, moves the file, and records a scoped undo.
+        // `high_risk_cleaned` therefore stays empty; the field is kept so
+        // the ScanSummary shape (and its consumers) remains stable.
         match s.risk {
-            // Only file-backed findings are ever auto-relocated. Registry,
-            // services, WMI, IFEO, AppInit, and COM findings always land in
-            // review with manual, backed-up guidance — never auto-remediated.
-            RiskLevel::HighRisk if s.entry.source.is_file_backed() => {
-                emit_stage(&app, "cleaning", format!("Auto-cleaning {}", s.entry.name));
-                match quarantine::quarantine_file(&data_dir, &s.entry) {
-                    Ok(_) => high_risk_cleaned.push(s.clone()),
-                    Err(err) => {
-                        let mut flagged = s.clone();
-                        flagged.reasons.push(format!("auto-clean failed: {err}"));
-                        suspicious_for_review.push(flagged);
-                    }
-                }
-            }
             RiskLevel::HighRisk | RiskLevel::Suspicious => {
                 suspicious_for_review.push(s.clone())
             }
@@ -2011,5 +2012,33 @@ mod overlay_fixture_tests {
         use windows::Win32::UI::WindowsAndMessaging::IsWindow;
         let hwnd = HWND(hwnd_raw as *mut core::ffi::c_void);
         unsafe { IsWindow(hwnd).as_bool() }
+    }
+}
+
+#[cfg(test)]
+#[cfg(windows)]
+mod data_dir_tests {
+    use super::*;
+
+    #[test]
+    fn default_data_dir_is_app_owned_never_exe_adjacent() {
+        // Under `cargo test` no --data-dir flag is present, so this asserts
+        // the production default. If this test ever runs with --data-dir in
+        // argv it proves nothing — fail loudly instead of passing vacuously.
+        assert!(
+            std::env::args().all(|a| a != "--data-dir"),
+            "test must run without --data-dir to assert the default"
+        );
+        let dir = resolve_data_dir();
+        let local =
+            std::env::var("LOCALAPPDATA").expect("LOCALAPPDATA must be set on Windows");
+        assert_eq!(dir, PathBuf::from(local).join("CURE"));
+        // Must never resolve next to the executable (which may sit on the
+        // user's Desktop) nor to the bare current directory.
+        let exe_parent = std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().map(Path::to_path_buf));
+        assert_ne!(Some(dir.clone()), exe_parent);
+        assert_ne!(dir, PathBuf::from("."));
     }
 }

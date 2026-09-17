@@ -51,7 +51,10 @@ async function runFlow(browser, label, reducedMotion) {
   }
 
   if (!reducedMotion) {
-    await page.waitForFunction(() => window.__cureMascotCount > 0, null, { timeout: 20000 });
+    // Mid-scan liveness: the radar visit loop is running (per-item node
+    // visits). The old mascot counter only fired on the removed auto-clean
+    // stage, so it can no longer be used as a progress signal.
+    await page.waitForFunction(() => window.__cureVisitActive === true, null, { timeout: 20000 });
     await page.waitForTimeout(420);
     const feedLines = await page.locator("#log li.item-line").count();
     if (feedLines < 1) {
@@ -269,7 +272,7 @@ try {
   await pageLg.waitForSelector("#app:not(.hidden)", { state: "attached", timeout: 10000 });
   await pageLg.waitForSelector("#start-rescue-btn", { timeout: 15000 });
   await pageLg.click("#start-rescue-btn");
-  await pageLg.waitForFunction(() => window.__cureMascotCount > 0, null, { timeout: 20000 });
+  await pageLg.waitForFunction(() => window.__cureVisitActive === true, null, { timeout: 20000 });
   await pageLg.waitForTimeout(420);
   await shot(pageLg, "07-midscan-1400x900.png");
   await pageLg.waitForSelector("#results-view:not(.hidden)", { timeout: 20000 });
@@ -286,7 +289,7 @@ try {
   if (smallMs > 12000) errors.push(`small-count scan too slow: ${smallMs}ms`);
   if (largeMs > 15000) errors.push(`large-count scan too slow: ${largeMs}ms`);
   // NOTE: the small->large delta is dominated by mock-only overhead the real
-  // backend does not have: ~3s of fixed stage delays plus per-cleaning beats.
+  // backend does not have: ~3s of fixed stage delays plus per-item pacing.
   // The real backend quarantines synchronously between emits, so its cost is
   // ~= N * per_item_ms (e.g. 150 items @ 33ms = ~5s, matching target_total).
   if (largeMs - smallMs > 8000) {

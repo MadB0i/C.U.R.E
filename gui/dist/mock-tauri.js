@@ -348,7 +348,6 @@
     // clamped to 15..250ms so tiny scans don't crawl and huge ones don't stall
     const perItem = Math.min(250, Math.max(15, Math.round(5000 / n)));
 
-    const cleaned = [];
     const review = [];
     let safe = 0;
     for (const item of items) {
@@ -361,18 +360,10 @@
         score: item.score,
       });
       await delay(perItem);
-      if (item.risk === "HighRisk") {
-        if (item.source === "registry-run") {
-          review.push(item); // registry values are never auto-cleaned
-        } else {
-          emit("scan-progress", {
-            stage: "cleaning",
-            message: "Auto-cleaning " + item.name + " (score " + item.score + ")",
-          });
-          await delay(40); // backend quarantines synchronously; keep a small beat for the ping
-          cleaned.push(item);
-        }
-      } else if (item.risk === "Suspicious") {
+      // Mirrors the real backend: NO automatic remediation. Every HighRisk /
+      // Suspicious finding lands in the review queue; relocation happens
+      // only through the explicit per-item confirm path (quarantine_entry).
+      if (item.risk === "HighRisk" || item.risk === "Suspicious") {
         review.push(item);
       } else {
         safe += 1;
@@ -386,7 +377,7 @@
 
     var result = {
       total: n,
-      high_risk_cleaned: cleaned.map(toScored),
+      high_risk_cleaned: [], // real backend never auto-cleans; review-only
       suspicious_for_review: review.map(toScored),
       safe,
       source_states: [
@@ -510,7 +501,7 @@
           case "open_quarantine_folder":
             return delay(350).then(() => {
               if (window.__CURE_MOCK_FOOTER_ERRORS) {
-                throw new Error("No quarantine folder yet — nothing has been auto-cleaned");
+                throw new Error("No quarantine folder yet — nothing quarantined");
               }
               return "C:\\cure-mock\\data\\quarantine";
             });

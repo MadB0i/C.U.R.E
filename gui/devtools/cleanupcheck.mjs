@@ -170,12 +170,12 @@ const browser = await chromium.launch();
     reduced: true,
   });
   await page.waitForFunction(
-    () => (window.__cureMascotCount || 0) > 0,
+    () => (window.__cureResolvedCount || 0) > 0,
     null,
     { timeout: 30000 }
   );
   const active = await page.evaluate(() => window.__cureMascotActive === true);
-  check("reduced motion: mascot count increments, never animates", !active);
+  check("reduced motion: scan resolves items, mascot never animates", !active);
   await page.click("#open-cleanup");
   await page.waitForSelector("#cleanup-idle:not(.hidden)", { timeout: 15000 });
   await page.click("#cleanup-scan-btn");

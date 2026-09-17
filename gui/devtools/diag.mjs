@@ -20,7 +20,7 @@ for (let i = 0; i < 24; i++) {
   await page.waitForTimeout(500);
   const s = await page.evaluate(() => ({
     nodes: window.__cureNodeCount || 0,
-    pings: window.__curePingCount || 0,
+    resolved: window.__cureResolvedCount || 0,
     feed: document.querySelectorAll("#log li.item-line").length,
     resultsVisible: !document.getElementById("results-view").classList.contains("hidden"),
   }));

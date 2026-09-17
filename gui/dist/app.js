@@ -41,9 +41,14 @@
   }
 
   let scanToken = 0;
-  window.__curePingCount = 0;
   let itemFeedCount = 0;
-  let lastItemNode = null;
+  // Items successfully quarantined this session (explicit confirm path
+  // only — the backend never auto-cleans). Decremented on scoped undo.
+  let sessionQuarantined = 0;
+  function refreshQuarantinedTile() {
+    const el = document.getElementById("stat-cleaned");
+    if (el) el.textContent = String(sessionQuarantined);
+  }
 
   function escHtml(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -54,20 +59,22 @@
     statusText.textContent = text;
   }
 
-  let glitchTimer = null;
-  function glitchPillText() {
-    if (REDUCED) return;
-    statusText.classList.remove("glitch");
-    void statusText.offsetWidth;
-    statusText.classList.add("glitch");
-    clearTimeout(glitchTimer);
-    glitchTimer = setTimeout(() => statusText.classList.remove("glitch"), 650);
+  // Topbar session context — real scan metadata only, never invented.
+  function renderSessionMeta(summary) {
+    const el = document.getElementById("session-meta");
+    if (!el) return;
+    if (!summary) {
+      el.textContent = "STANDBY — NO ACTIVE SESSION";
+      return;
+    }
+    const review = (summary.suspicious_for_review || []).length;
+    const when = lastScanAt ? lastScanAt.toLocaleTimeString() : "—";
+    el.textContent = "LAST SCAN " + when + " · " + summary.total + " CHECKED · " + review + " TO REVIEW";
   }
 
   let typeChain = Promise.resolve();
   function appendLog(stage, message) {
     const li = document.createElement("li");
-    if (stage === "cleaning") li.classList.add("warn-line");
     const tag = document.createElement("b");
     tag.textContent = "[" + stage + "]";
     const body = document.createElement("span");
@@ -753,36 +760,6 @@
         }
         if (REDUCED && !rafId) drawStaticFrame();
         return nd;
-      },
-      ping(nd) {
-        window.__curePingCount += 1;
-        pings.push({
-          ang: nd ? nd.ang : Math.random() * Math.PI * 2,
-          rf: nd ? nd.rf : 0.58 + Math.random() * 0.34,
-          born: performance.now(),
-        });
-        if (REDUCED && !rafId) drawStaticFrame();
-      },
-      dispatchMascot(nd) {
-        window.__cureMascotCount = (window.__cureMascotCount || 0) + 1;
-        if (REDUCED || !nd) return;
-        // HighRisk: escalate this node's visit into the fight gesture. If the
-        // visit is queued, jump it to the front; if Rakshak is already mid-
-        // visit to it, flag the escalation; otherwise fall back to the
-        // legacy core->node dart (existing animation, unchanged).
-        const qi = visitQueue.findIndex(function(e) { return e.nd === nd; });
-        if (qi !== -1) {
-          const entry = visitQueue.splice(qi, 1)[0];
-          entry.fight = true;
-          visitQueue.unshift(entry);
-          return;
-        }
-        if (visit && visit.nd === nd) {
-          visit.fight = true;
-          return;
-        }
-        mascot = { nd, start: performance.now(), trail: [] };
-        window.__cureMascotActive = true;
       },
     };
   })();
@@ -1475,6 +1452,8 @@
           });
           btn.textContent = "Quarantined ✓";
           btn.classList.add("row-done");
+          sessionQuarantined += 1;
+          refreshQuarantinedTile();
           logEvent("action", "quarantined: " + entry.entry.name);
         } catch (err) {
           btn.disabled = false;
@@ -1552,19 +1531,14 @@
     const scope = scopeLine(summary);
     if (reviewCount > 0) {
       headline.textContent = findingsHeadline(reviewCount);
-      subline.textContent = scope +
-        (cleanedCount ? " · " + cleanedCount + " quarantined automatically" : "");
-    } else if (cleanedCount > 0) {
-      headline.textContent = "Items quarantined automatically";
-      subline.textContent = scope + " · " + cleanedCount +
-        " quarantined, nothing left to review";
+      subline.textContent = scope;
     } else {
       headline.textContent = "No findings detected in this scan";
       subline.textContent = scope;
     }
     renderResultsCoverage(summary);
 
-    countUp(document.getElementById("stat-cleaned"), cleanedCount);
+    countUp(document.getElementById("stat-cleaned"), sessionQuarantined);
     countUp(document.getElementById("stat-review"), reviewCount);
     countUp(document.getElementById("stat-safe"), summary.safe);
 
@@ -1841,7 +1815,6 @@
     setNav("scan-view");
     logList.innerHTML = "";
     itemFeedCount = 0;
-    lastItemNode = null;
     if (feedCountEl) feedCountEl.textContent = "0 ITEMS";
     const elapsedEl = document.getElementById("scan-elapsed");
     if (elapsedEl) elapsedEl.textContent = "elapsed 0.0s";
@@ -1863,6 +1836,7 @@
       lastSummary = summary;
       lastScanAt = new Date();
       scanPhase = "done";
+      renderSessionMeta(summary);
       logEvent("info", "scan finished: " + summary.total + " checks in " + fmtDuration(scanDurationMs));
       appendLog("done", summary.total + " entries processed — scan finished");
       radar.stop();
@@ -1880,24 +1854,11 @@
     }
   }
 
-  function appendStageLine(stage, message) {
-    const li = document.createElement("li");
-    if (stage === "cleaning") li.classList.add("warn-line");
-    const tag = document.createElement("b");
-    tag.textContent = "[" + stage + "]";
-    const body = document.createElement("span");
-    body.textContent = message;
-    li.append(tag, body);
-    logList.appendChild(li);
-    while (logList.children.length > 200) logList.removeChild(logList.firstChild);
-    logList.scrollTop = logList.scrollHeight;
-  }
-
   listen("scan-progress", (event) => {
     const payload = event.payload;
     if (payload.stage === "item-scanned") {
       appendItemLine(payload);
-      lastItemNode = radar.addNode(payload.risk, payload.name);
+      radar.addNode(payload.risk, payload.name);
       return;
     }
     if (payload.stage === "process-flagged") {
@@ -1912,14 +1873,6 @@
       return;
     }
     setPill("scanning", payload.message);
-    if (payload.stage === "cleaning") {
-      glitchPillText();
-      radar.dispatchMascot(lastItemNode);
-      lastItemNode = null;
-      appendStageLine(payload.stage, payload.message);
-      logEvent("action", payload.message);
-      return;
-    }
     if (payload.stage === "done") {
       logEvent("info", payload.message);
       appendLog(payload.stage, payload.message);
@@ -3166,6 +3119,8 @@
           await invoke("undo_entry", { id: scored.entry.id });
           undo.textContent = "Restored ✓";
           undo.classList.add("row-done");
+          sessionQuarantined = Math.max(0, sessionQuarantined - 1);
+          refreshQuarantinedTile();
           logEvent("action", "restored from quarantine: " + scored.entry.name);
         } catch (err) {
           undo.disabled = false;
@@ -3201,6 +3156,8 @@
           await invoke("quarantine_entry", { id: scored.entry.id, name: scored.entry.name, command: scored.entry.command });
           btn.textContent = "Quarantined ✓";
           btn.classList.add("row-done");
+          sessionQuarantined += 1;
+          refreshQuarantinedTile();
           logEvent("action", "quarantined: " + scored.entry.name);
         } catch (err) {
           btn.disabled = false;
@@ -3469,6 +3426,8 @@
         try {
           await invoke("undo_entry", { id: r.id });
           logEvent("action", "restored from quarantine: " + r.name);
+          sessionQuarantined = Math.max(0, sessionQuarantined - 1);
+          refreshQuarantinedTile();
           await refreshQuarantine();
         } catch (err) {
           undo.disabled = false;
