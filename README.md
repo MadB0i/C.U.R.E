@@ -1,144 +1,89 @@
-# C.U.R.E — Clean USB Rescue Engine
+# C.U.R.E. — Clean USB Rescue Engine
 
-[![CI](https://github.com/MadB0i/C.U.R.E/actions/workflows/ci.yml/badge.svg)](https://github.com/MadB0i/C.U.R.E/actions/workflows/ci.yml)
-[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/Rust-edition%202021-e43716?logo=rust&logoColor=white)](https://www.rust-lang.org/)
-[![Windows](https://img.shields.io/badge/OS-Windows%2010%2F11-0078d6?logo=windows&logoColor=white)](#)
-[![Tests](https://img.shields.io/badge/tests-268%20passing-2ea44f)](#)
-[![Tauri](https://img.shields.io/badge/UI-Tauri%20v2-24c8db?logo=tauri&logoColor=white)](https://tauri.app/)
+A local-first Windows security and forensic diagnostic tool focused on
+evidence-based detection, investigation, quarantine and cleanup.
 
-A portable, install-free Windows security toolkit that finds the most common
-ways malware survives a reboot, risk-scores every finding, and lets you
-**quarantine (never delete)** anything malicious — without touching your
-documents.
+## Overview
 
-<kbd><img src="gui/dev-screenshots/landing-1920.png" alt="C.U.R.E landing screen with Rakshak mascot" width="720"/></kbd>
+C.U.R.E. inspects how software persists on a Windows machine — autoruns,
+startup folders, scheduled tasks, services, WMI, and related mechanisms —
+and risk-scores every finding with its evidence attached.
 
-### See it in action
+It is evidence-first: nothing is remediated on the basis of a score
+alone. Detections are shown with their source, target, reason, and
+available actions, and the operator decides what happens next.
 
-<kbd><img src="docs/media/demo.gif" alt="C.U.R.E scanning with Rakshak mascot patrolling the radar" width="640"/></kbd>
+The architecture is local-first. All scanning, scoring, quarantine, and
+reporting happen on the machine. There is no telemetry, no account, and
+no network threat lookup.
 
-## Why C.U.R.E
-
-Windows persistence malware hides in places most toolkits skip — autoruns,
-startup folders, scheduled tasks. C.U.R.E sweeps all of them, scores each
-entry, and surfaces a clear **"keep or quarantine"** decision. It is designed
-around one rule:
-
-> **Nothing is scanned, cleaned, or deleted until *you* press a button.**
-> Quarantine is always a *move*, never a delete, and every action has an exact undo.
-
-When you press **Start Rescue**, C.U.R.E first closes suspicious fullscreen
-lock windows (borderless, topmost windows from unsigned processes — the classic
-ransom-screen pattern), then scans every persistence point on the machine.
-
-## Quick start
-
-### 1. Download
-Grab the latest `cure-gui.exe` (+ optional `cure-watch.exe`) from the
-[Releases page](https://github.com/MadB0i/C.U.R.E/releases). No install needed.
-Requires only Windows 10/11 with WebView2 (preinstalled on modern systems).
-
-### 2. Or build it
-```bat
-cargo build --release        :: cure.exe + cure-watch.exe
-cargo test  --workspace      :: 267 tests, engine + watcher + dirwatch (+1 GUI fixture test)
-
-cd gui\src-tauri
-cargo build                  :: cure-gui.exe
-```
-
-### 3. Make a rescue USB
-```bat
-copy cure-gui.exe E:\
-echo CURE-TRIGGER-V1> E:\.cure-trigger
-```
-Plug the stick into any PC, run `cure-gui.exe`, press **Start Rescue**.
-With `cure-watch.exe` running, the GUI auto-launches the moment a rescue USB is
-inserted — zero-click.
+Destructive actions always require explicit confirmation, and there is
+no automatic destructive remediation: quarantine is a recorded move with
+a scoped undo, never a silent delete.
 
 ## Features
 
-| Area | What it does |
-|---|---|
-| **Persistence scan** | Registry `Run\RunOnce`, Startup folder (all users), Scheduled Tasks, auto-start services, WMI subscriptions, IFEO debuggers, AppInit DLLs, per-user COM — mapped to MITRE ATT&CK (T1547.001, T1053.005, T1543.003, T1546.003/010/012/015) |
-| **Risk scoring** | Weighted model: drop-zone paths +30, trusted system paths −20, randomized names +25, hidden PowerShell +25, valid Authenticode −40, invalid signature +40, known-hash match = forced HIGH-RISK |
-| **Quarantine + Undo** | Every action is a JSON-recorded move into quarantine, with exact `undo` |
-| **Overlay dismissal** | Detects and closes ransom-screen style fullscreen lock windows before scanning |
-| **Ransomware Canary Guard** | Writes bait files in watched dirs; any edit/encrypt of a canary triggers an alert + tripwire |
-| **Process sweep** | Finds suspicious running processes (unsigned, drop-zone paths), lets you kill high-risk ones |
-| **Threat intel** | SHA-256 / IP / domain IOC matching + lookup against MITRE ATT&CK technique mapping (local fixture provider, clearly labeled demo data — no live feed, no network lookups) |
-| **Incident investigation** | Post-login observation (15–120 s): process/window activity correlated with startup findings (DIRECT/STRONG/PARTIAL/WEAK/NONE), timeline, transient-window panel, JSON/TXT export — observation only, no persistence installed |
-| **Report export** | Explicit JSON/TXT security report (`cure report`, Overview buttons): coverage states, findings with evidence/ATT&CK/signature/actions, optional redaction |
-| **Disk Cleanup** | Separate flow: temp files, browser caches, Recycle Bin, Windows.old, old installers (~GBs of reclaimable space) — explicit confirm only |
-| **0-click USB watch** | `cure-watch` polls for a trigger stick and brings the GUI to front automatically |
+- Startup persistence auditing
+- Services / scheduled tasks / WMI / IFEO / AppInit / COM inspection
+- Process Sentinel
+- Post-login incident observation and correlation
+- Evidence-oriented scan results
+- Quarantine with scoped undo
+- Disk cleanup with explicit confirmation
+- Event logging
+- Experimental Canary Guard
+- Local application data storage
+- Accessible futuristic desktop UI
 
-## Screenshots
-
-| Scan in progress | Results & review |
-|---|---|
-| <img src="gui/dev-screenshots/mascot-scan-1920.png" width="420"/> | <img src="gui/dev-screenshots/sweep-results-1920x1080.png" width="420"/> |
-
-| Ransomware canary alert | Disk cleanup |
-|---|---|
-| <img src="gui/dev-screenshots/rk-fight-900x600.png" width="420"/> | <img src="gui/dev-screenshots/cleanup-result-fixed-900.png" width="420"/> |
+C.U.R.E. is a diagnostic instrument, not an antivirus: no guaranteed
+malware detection, no real-time protection, no cloud threat
+intelligence, and no automatic malware removal.
 
 ## Architecture
 
-```
-cure/
-├── core/     cure_core — shared engine: scanners, risk.rs, baseline diffing,
-│             quarantine, canary, threat-intel IOC store, MITRE ATT&CK mapping
-├── winwatch/ cure_dirwatch — shared Windows dir-change acquisition for canary
-├── cli/      cure.exe — scan / diff / quarantine / undo / cleanup from any terminal
-├── watch/    cure-watch.exe — USB-trigger auto-launcher for the GUI
-└── gui/      cure-gui.exe — Tauri v2 + animated front-end (Rakshak mascot)
-```
+- Rust security/diagnostic core (`core`, `cli`)
+- Tauri v2 desktop GUI (`gui/src-tauri`, separate workspace)
+- Separate watcher (`watch`) and Canary components
+- Local-first: application data lives in an app-owned directory, no telemetry
 
-| Where | Tech |
-|---|---|
-| Engine | Rust — WinReg, `windows` crate (WinTrust/Authenticode), walkdir, sha2 |
-| Desktop UI | Tauri v2 (WebView2), vanilla JS + Canvas |
-| Quality | 268 tests, `cargo clippy -- -D warnings`, CI on GitHub Actions, Playwright UI harness |
+## Security Principles
 
-## CLI usage
+- Read-only detection by default
+- Explicit confirmation for destructive actions
+- Evidence before remediation
+- No telemetry
+- No credential extraction
+- No keylogging
+- No screenshots
+- No process/DLL injection
+- Canary Guard is experimental, not a production antivirus feature
+
+## Status
+
+V4 — released / actively developed.
+
+269 Rust tests passing across the workspaces. No production or security
+guarantees beyond what the test suite and reports verify.
+
+## Build
 
 ```bat
-cure.exe scan --data-dir E:\cure-data
-cure.exe diff --data-dir E:\cure-data          :: what changed since last scan
-cure.exe quarantine <id> --data-dir E:\cure-data
-cure.exe undo <id>       --data-dir E:\cure-data
-cure.exe report [--format json|txt] [--redact] --data-dir E:\cure-data
-cure.exe incident [--duration 15|30|60|120] [--format json|txt] --data-dir E:\cure-data
+cargo build --release        :: cure.exe + cure-watch.exe (root workspace)
 
-cure.exe cleanup scan
-cure.exe cleanup run [--include-downloads] [--dism]
+cd gui\src-tauri
+cargo build --release        :: cure-gui.exe (GUI workspace)
 ```
 
-## Safety model
+Run the test suites (root workspace, then GUI workspace):
 
-- Quarantine is always a **move**, never a delete — every action has a JSON
-  record and an exact `undo`.
-- Only reads/writes inside scanned persistence locations plus its own data dir.
-  Never touches Documents/Downloads/Desktop unless you ask.
-- Registry autoruns are **read-only** (detected + scored, not modified) —
-  surfaced for manual review.
-- No silent background scanning. The watcher only polls drive letters and
-  brings the window to front.
+```bat
+cargo test --workspace
 
-## Roadmap
+cd gui\src-tauri
+cargo test --workspace
+```
 
-- [ ] Ed25519-signed trigger files (authenticate trusted rescue USBs)
-- [x] Service / WMI subscription / IFEO / COM hijack scanners
-- [ ] Live threat-feed sync for the IOC store
-- [x] Publisher/certificate extraction (beyond verdict-only Authenticode)
-- [x] Startup `.lnk` target resolution + full task-XML command parsing
-
-## Known limitations
-
-- Trigger file isn't cryptographically signed yet (on the roadmap above)
-- Signature check is verdict-only — no publisher/certificate extraction yet
-- Hash-intel list is a small compiled-in demo seed, not a live feed
+Requires Windows 10/11 with WebView2 (preinstalled on modern systems).
 
 ## License
 
