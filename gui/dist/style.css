@@ -1051,11 +1051,6 @@ body {
   gap: 12px;
   margin-top: 14px;
 }
-#cleanup-btn.arm-danger {
-  background: var(--danger);
-  border-color: transparent;
-  color: #fff;
-}
 
 .cleanup-failures li {
   font-size: 11.5px;
@@ -1358,12 +1353,7 @@ body {
   text-decoration: line-through;
 }
 
-/* ── kill button states ──────────────────────────────────────── */
-#kill-procs-btn.arm-danger {
-  background: var(--danger-dim);
-  border-color: rgba(225, 89, 79, 0.35);
-  color: var(--danger);
-}
+/* ── kill button states (armed = .btn-active via the shared confirm dialog) ── */
 #kill-procs-btn.btn-active {
   background: var(--accent-dim);
   border-color: var(--accent-border);
@@ -1656,7 +1646,6 @@ body {
 }
 .data-table .kill-one:hover:not(:disabled) { color: var(--danger); border-color: rgba(225, 89, 79, 0.5); }
 .data-table .kill-one:disabled { opacity: 0.4; cursor: default; }
-.data-table .kill-one.arm-danger { background: var(--danger); border-color: transparent; color: #fff; }
 
 /* ---------- empty states ---------- */
 
@@ -1802,5 +1791,210 @@ body {
   padding: 14px 16px 0 !important;
   border-bottom: none !important;
 }
-#incident-timeline { max-height: 300px; }
+#incident-timeline { max-height: 320px; }
 #incident-timeline li { overflow-wrap: anywhere; }
+
+/* ══════════════ UI V3 — incident flagship (Stage 2 Phase C) ══════════════
+   Evidence-first forensic workflow. Reuses --panel/--border/--text tokens;
+   no new hues, no glow, no layout hacks. */
+
+.selectable { user-select: text; }
+.log .selectable, .entry-cards .selectable, .detail-drawer .selectable,
+.inc-event-det .selectable, .q-paths, .data-table td { user-select: text; }
+
+.trunc {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.trunc:hover, .trunc:focus-visible {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.rc-name.trunc { max-width: 340px; }
+.chip.trunc { max-width: 260px; }
+.inc-cmd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inc-cmd:hover, .inc-cmd:focus-visible { white-space: normal; overflow-wrap: anywhere; }
+
+.inc-meta {
+  padding: 0 16px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.commit-label { font-size: 12px; color: var(--text-muted); align-self: center; }
+
+.corr-legend {
+  margin: 0 16px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.corr-legend summary {
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 600;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+}
+.corr-legend ul { margin: 8px 0; padding-left: 18px; }
+.corr-legend li { margin: 4px 0; line-height: 1.5; }
+.corr-def { font-size: 11.5px; margin-top: 6px; }
+
+.inc-timeline { font-size: 11px; }
+.inc-event {
+  border-left: 2px solid var(--border-strong);
+  padding: 8px 0 8px 10px;
+  margin: 6px 0;
+  display: block;
+}
+.inc-event-top { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.inc-event-det {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+.inc-field {
+  font-family: var(--font-mono);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  max-width: 100%;
+}
+.inc-inspect { margin-top: 8px; }
+
+.receipt {
+  margin: 0 16px 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  font-size: 12px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.limits-list {
+  margin: 0;
+  padding: 10px 16px 14px 34px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+.recovery-copy { padding: 0 16px 14px; }
+.recovery-copy p { margin: 10px 0; font-size: 12.5px; }
+
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 9000;
+  display: flex;
+  justify-content: flex-end;
+}
+.drawer {
+  width: min(460px, 92vw);
+  height: 100%;
+  background: var(--panel);
+  border-left: 1px solid var(--border-strong);
+  padding: 18px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  box-shadow: var(--shadow);
+}
+.drawer-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+.inc-drawer-body { grid-template-columns: 130px 1fr; }
+.drawer-section {
+  grid-column: 1 / -1;
+  margin-top: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+.drawer-section-val { display: none; }
+
+/* ══════════════ UI V3 — results findings (Stage 2 Phase D) ══════════════ */
+
+.finding-loc {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  max-width: 100%;
+}
+.finding-details-toggle { margin-top: 8px; }
+.map-caption { padding: 10px 24px 4px; font-size: 11.5px; line-height: 1.5; }
+
+/* ══════════════ UI V3 — overview honesty (Stage 2 Phase E) ══════════════ */
+
+.landing-scope {
+  margin-top: 14px;
+  font-size: 12px;
+  line-height: 1.55;
+  text-align: center;
+  max-width: 560px;
+  overflow-wrap: anywhere;
+}
+#ov-scope { margin-top: 2px; }
+#ov-actions { max-height: 180px; }
+#ov-actions li { overflow-wrap: anywhere; }
+
+/* ══════════════ UI V3 — remaining screens + receipts (Stage 2 F+G) ══════════════ */
+
+.scan-status {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  width: min(1100px, 94%);
+  flex: none;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.scan-status .mono { font-family: var(--font-mono); font-size: 11px; }
+.q-rev { margin-top: 6px; font-size: 11px; }
+.trunc-cell {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trunc-cell:hover, .trunc-cell:focus-visible { white-space: normal; overflow-wrap: anywhere; }
+#event-log-list li, #ov-actions li { overflow-wrap: anywhere; white-space: normal; }
+
+/* ══════════════ UI V3 — accessibility + responsive (Stage 2 H+I) ══════════════
+   32px minimum targets on flagged actions; native semantics elsewhere. */
+
+.filter-btn, .quarantine-btn, .copy-btn, .detail-toggle,
+.data-table .kill-one, .ghost-btn, .canary-toggle {
+  min-height: 32px;
+}
+.filter-btn, .quarantine-btn, .copy-btn, .detail-toggle,
+.data-table .kill-one {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ghost-btn { padding: 6px 4px; }
+.headline:focus { outline-offset: 4px; }

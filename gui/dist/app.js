@@ -1300,7 +1300,7 @@
       }
     }
     let s = summary.total + " entries checked";
-    s += skipped > 0 ? ", " + skipped + " skipped" : ", nothing needs attention";
+    s += " · " + skipped + " skipped";
     if (lastScanAt) s += " · " + lastScanAt.toLocaleTimeString();
     return s;
   }
@@ -1396,6 +1396,47 @@
     }
     if (chips.children.length > 0) main.appendChild(chips);
 
+    const loc = document.createElement("div");
+    loc.className = "finding-loc selectable trunc";
+    loc.tabIndex = 0;
+    loc.textContent = "Location: " + (entry.entry.location || "Not collected");
+    loc.title = entry.entry.location || "Not collected";
+    main.appendChild(loc);
+
+    const detToggle = document.createElement("button");
+    detToggle.className = "detail-toggle finding-details-toggle";
+    detToggle.textContent = "View details";
+    detToggle.setAttribute("aria-expanded", "false");
+    const drawer = document.createElement("dl");
+    drawer.className = "detail-drawer hidden";
+    const dRows = [
+      ["Category", "Persistence"],
+      ["Source", rawSource + (atk ? " · MITRE " + atk.id + " " + atk.name : "")],
+      ["Severity / status", entry.risk + " · score " + entry.score],
+      ["Name", entry.entry.name],
+      ["Location", entry.entry.location || "Not collected"],
+      ["Command", entry.entry.command || "Not collected"],
+      ["Reasons", reasons.join(" · ") || "No scored signals — listed for context."],
+      ["Available evidence", reasons.join("; ") || "No scored signals — listed for context."],
+      ["Action", cleaned ? "Quarantined — restore from Quarantine with Undo." : (rawSource === "RegistryRun" ? "Manual removal required — registry values are not auto-disabled in this version." : "Quarantine available — asks for confirmation, reversible from Quarantine.")],
+    ];
+    for (const [k, v] of dRows) {
+      const dt = document.createElement("dt");
+      dt.textContent = k;
+      const dd = document.createElement("dd");
+      dd.className = "selectable";
+      dd.textContent = v;
+      if (String(v).length > 60) dd.title = v;
+      drawer.append(dt, dd);
+    }
+    detToggle.addEventListener("click", () => {
+      const open = drawer.classList.toggle("hidden");
+      detToggle.setAttribute("aria-expanded", String(!open));
+      detToggle.textContent = open ? "View details" : "Hide details";
+    });
+    main.appendChild(detToggle);
+    main.appendChild(drawer);
+
     card.appendChild(main);
 
     if (cleaned) {
@@ -1458,6 +1499,40 @@
     });
   }
 
+  // Results coverage strip: same backend source_states as Overview, but
+  // compact. PARTIAL is amber, CHECK FAILED / ACCESS DENIED are red,
+  // UNAVAILABLE is grey — a partial scan never resembles a fully checked one.
+  function renderResultsCoverage(summary) {
+    const cov = document.getElementById("res-coverage");
+    if (!cov) return;
+    cov.innerHTML = "";
+    const states = (summary && summary.source_states) || [];
+    if (!states.length) {
+      cov.append(covRow("Coverage", "per-source states not reported for this scan", "idle"));
+      return;
+    }
+    const levelOf = (st) => {
+      // Real backend CoverageState serializes as "Checked" / "NotChecked" /
+      // "Unavailable" / "CheckFailed" / "AccessDenied" strings or
+      // {"Partial": {"skipped": N}}; the dev mock uses "Available".
+      if (st === "Available" || st === "Checked") return "ok";
+      if (st === "Unavailable" || st === "NotChecked") return "idle";
+      if (st === "CheckFailed" || st === "AccessDenied") return "bad";
+      if (st && typeof st === "object") {
+        if ("Partial" in st) return "warn";
+        if ("CheckFailed" in st || "AccessDenied" in st) return "bad";
+        if ("Unavailable" in st || "NotChecked" in st) return "idle";
+        if ("Available" in st || "Checked" in st) return "ok";
+      }
+      return "idle";
+    };
+    for (const row of states) {
+      const st = row.state;
+      const info = sourceStatusInfo(st);
+      cov.append(covRow(row.area || "source", info.label + (info.detail && info.detail !== "fully enumerated" ? " — " + info.detail : "") + (row.detail ? " · " + row.detail : ""), levelOf(st)));
+    }
+  }
+
   function renderResults(summary) {
     const badge = document.getElementById("badge");
     const headline = document.getElementById("headline");
@@ -1478,22 +1553,20 @@
     }
 
     const subline = document.getElementById("subline");
+    const scope = scopeLine(summary);
     if (reviewCount > 0) {
       headline.textContent = findingsHeadline(reviewCount);
-      subline.textContent =
-        summary.total + " entries checked" +
-        (cleanedCount
-          ? ", " + cleanedCount + " cleaned automatically"
-          : "");
+      subline.textContent = scope +
+        (cleanedCount ? " · " + cleanedCount + " quarantined automatically" : "");
     } else if (cleanedCount > 0) {
-      headline.textContent = "Threats cleaned automatically";
-      subline.textContent =
-        summary.total + " entries checked, " + cleanedCount +
-        " cleaned, nothing left to review";
+      headline.textContent = "Items quarantined automatically";
+      subline.textContent = scope + " · " + cleanedCount +
+        " quarantined, nothing left to review";
     } else {
       headline.textContent = "No findings detected in this scan";
-      subline.textContent = scopeLine(summary);
+      subline.textContent = scope;
     }
+    renderResultsCoverage(summary);
 
     countUp(document.getElementById("stat-cleaned"), cleanedCount);
     countUp(document.getElementById("stat-review"), reviewCount);
@@ -1537,6 +1610,7 @@
           card.dataset.exe = p.exe_path || "";
           const box = document.createElement("input");
           box.type = "checkbox";
+          box.setAttribute("aria-label", "Select " + p.name + " (pid " + p.pid + ") for termination");
           box.addEventListener("change", function() {
             if (box.checked) sweepState.checked.add(p.pid);
             else sweepState.checked.delete(p.pid);
@@ -1651,6 +1725,7 @@
     renderOverview(summary);
     renderAudit(summary);
     renderProcesses(summary);
+    if (!resultsView.classList.contains("hidden")) focusViewHeading(resultsView);
   }
 
   function switchView(fromEl, toEl) {
@@ -1717,6 +1792,18 @@
       else v.classList.add("hidden");
     });
     if (el && el.id) setNav(el.id);
+    focusViewHeading(el);
+  }
+
+  // SPA focus management: view changes move focus to the view heading so
+  // screen-reader users land on the new content. Visual focus ring stays
+  // on :focus-visible only; mouse users see no change.
+  function focusViewHeading(viewEl) {
+    if (!viewEl || !viewEl.querySelector) return;
+    const h = viewEl.querySelector(".headline");
+    if (!h) return;
+    if (!h.hasAttribute("tabindex")) h.setAttribute("tabindex", "-1");
+    try { h.focus({ preventScroll: true }); } catch (_) { h.focus(); }
   }
 
   // Sidebar navigation. Cleanup entry/exit reuse the existing open/close
@@ -1760,6 +1847,12 @@
     itemFeedCount = 0;
     lastItemNode = null;
     if (feedCountEl) feedCountEl.textContent = "0 ITEMS";
+    const elapsedEl = document.getElementById("scan-elapsed");
+    if (elapsedEl) elapsedEl.textContent = "elapsed 0.0s";
+    const elapsedTimer = setInterval(() => {
+      if (token !== scanToken) { clearInterval(elapsedTimer); return; }
+      if (elapsedEl) elapsedEl.textContent = "elapsed " + ((performance.now() - scanStartedAt) / 1000).toFixed(1) + "s";
+    }, 500);
     for (const line of preLines) {
       appendLog("overlay", line);
     }
@@ -1769,6 +1862,8 @@
       const summary = await invoke("run_auto_scan");
       if (token !== scanToken) return;
       scanDurationMs = Math.round(performance.now() - scanStartedAt);
+      clearInterval(elapsedTimer);
+      if (elapsedEl) elapsedEl.textContent = "finished in " + fmtDuration(scanDurationMs) + " · " + summary.total + " entries checked";
       lastSummary = summary;
       lastScanAt = new Date();
       scanPhase = "done";
@@ -1780,6 +1875,7 @@
       if (token !== scanToken) return;
       renderResults(summary);
     } catch (err) {
+      clearInterval(elapsedTimer);
       radar.stop();
       scanPhase = "idle";
       setPill("error", String(err));
@@ -1846,7 +1942,9 @@
     footMsg.classList.toggle("error", !!isError);
     footMsg.classList.add("show");
     clearTimeout(footTimer);
-    footTimer = setTimeout(() => footMsg.classList.remove("show"), 2800);
+    // Durable enough to read; the same outcome is also kept in the Event
+    // Log and the relevant view (receipt/status line), never toast-only.
+    footTimer = setTimeout(() => footMsg.classList.remove("show"), 6000);
   }
 
   function cleanErrText(err, fallback) {
@@ -2392,6 +2490,8 @@
       if (on) cleanupState.selectedCats.add(cat.key);
       card.classList.toggle("on", on);
       card.classList.toggle("off", !on);
+      card.setAttribute("aria-pressed", String(on));
+      card.setAttribute("aria-label", cat.label + " — " + fmtBytes(cat.total_bytes) + ", " + cat.item_count + " items");
       card.title = on
         ? "Click to skip this category"
         : cat.item_count === 0
@@ -2415,6 +2515,7 @@
         else cleanupState.selectedCats.delete(cat.key);
         card.classList.toggle("on", nowOn);
         card.classList.toggle("off", !nowOn);
+        card.setAttribute("aria-pressed", String(nowOn));
         card.title = nowOn ? "Click to skip this category" : "Currently skipped — click to include";
         resetCleanupResult();
       });
@@ -2432,6 +2533,7 @@
       const box = document.createElement("input");
       box.type = "checkbox";
       box.dataset.path = dl.path;
+      box.setAttribute("aria-label", "Delete " + dl.name + " (" + fmtBytes(dl.size_bytes) + ")");
       box.addEventListener("change", () => {
         if (box.checked) cleanupState.checkedDownloads.add(dl.path);
         else cleanupState.checkedDownloads.delete(dl.path);
@@ -2670,6 +2772,7 @@
     const tag = document.createElement("b");
     tag.textContent = "[" + e.kind + "]";
     const body = document.createElement("span");
+    body.className = "selectable";
     body.textContent = e.text;
     li.append(time, tag, body);
     list.appendChild(li);
@@ -2693,6 +2796,7 @@
       const tag = document.createElement("b");
       tag.textContent = "[" + e.kind + "]";
       const body = document.createElement("span");
+      body.className = "selectable";
       body.textContent = e.text;
       li.append(time, tag, body);
       list.appendChild(li);
@@ -2773,6 +2877,22 @@
     return li;
   }
 
+  function updateOvIncident() {
+    const el = document.getElementById("ov-incident");
+    if (!el) return;
+    try {
+      if (typeof lastIncident !== "undefined" && lastIncident) {
+        el.textContent = "Last observation " + (lastIncident.investigation_id || "") + ": " +
+          ((typeof VERDICT_TEXT !== "undefined" && VERDICT_TEXT[lastIncident.verdict]) || lastIncident.verdict || "") +
+          " — " + (lastIncident.processes || []).length + " processes, " +
+          (lastIncident.windows || []).length + " windows, " +
+          (lastIncident.correlations || []).length + " correlations. See the Incident view for the full timeline.";
+        return;
+      }
+    } catch (_) { /* TDZ-safe: fall through to default */ }
+    el.textContent = "No observation recorded — run a login investigation from the Incident view.";
+  }
+
   function renderOverview(summary) {
     const t = troubleCounts(summary);
     const posture = document.getElementById("ov-posture");
@@ -2794,10 +2914,53 @@
     }
     setMetric("ov-last-scan", lastScanAt ? lastScanAt.toLocaleString() : "—", null);
     setMetric("ov-checks", String(summary.total), null);
+    const ovStates = (summary && summary.source_states) || [];
+    let skipped = 0;
+    let covState = "FULL";
+    let covTone = "is-ok";
+    for (const row of ovStates) {
+      const st = row.state;
+      if (st === "CheckFailed" || st === "AccessDenied") { covState = "FAILED"; covTone = "is-bad"; }
+      else if (st && typeof st === "object") {
+        if ("Partial" in st) { skipped += (st.Partial && st.Partial.skipped) || 0; if (covState !== "FAILED") { covState = "PARTIAL"; covTone = "is-warn"; } }
+        else if ("CheckFailed" in st || "AccessDenied" in st) { covState = "FAILED"; covTone = "is-bad"; }
+        else if (("Unavailable" in st || "NotChecked" in st) && covState === "FULL") { covState = "LIMITED"; covTone = null; }
+      }
+      else if ((st === "Unavailable" || st === "NotChecked") && covState === "FULL") { covState = "LIMITED"; covTone = null; }
+    }
+    setMetric("ov-skipped", String(skipped), skipped ? "is-warn" : null);
+    setMetric("ov-coverage-state", ovStates.length ? covState : "—", ovStates.length ? covTone : null);
     setMetric("ov-findings", String(t.findings), t.findings ? "is-warn" : "is-ok");
     setMetric("ov-critical", String(t.critical), t.critical ? "is-bad" : "is-ok");
     setMetric("ov-suspicious", String(t.suspicious), t.suspicious ? "is-warn" : "is-ok");
     setMetric("ov-duration", fmtDuration(scanDurationMs), null);
+    const ovScope = document.getElementById("ov-scope");
+    if (ovScope) {
+      const areas = ovStates.length ? ovStates.map((r) => r.area).join(" · ") : "Startup entries · Services · Tasks · WMI";
+      ovScope.textContent = "Scope: " + areas + " · " + summary.total + " checked · " + skipped + " skipped" +
+        (lastScanAt ? " · " + lastScanAt.toLocaleString() : "");
+    }
+    const ovActions = document.getElementById("ov-actions");
+    const ovActionsEmpty = document.getElementById("ov-actions-empty");
+    if (ovActions) {
+      ovActions.innerHTML = "";
+      const recent = eventLog.slice(-5).reverse();
+      for (const ev of recent) {
+        const li = document.createElement("li");
+        const time = document.createElement("span");
+        time.className = "ev-time";
+        try { time.textContent = ev.at.toLocaleTimeString(); } catch (_) { time.textContent = ""; }
+        const tag = document.createElement("b");
+        tag.textContent = "[" + (ev.kind || "info") + "]";
+        const body = document.createElement("span");
+        body.className = "selectable";
+        body.textContent = ev.text || "";
+        li.append(time, tag, body);
+        ovActions.appendChild(li);
+      }
+      if (ovActionsEmpty) ovActionsEmpty.classList.toggle("hidden", recent.length > 0);
+    }
+    updateOvIncident();
 
     const bySource = {};
     summary.high_risk_cleaned.concat(summary.suspicious_for_review).forEach((e) => {
@@ -2820,11 +2983,15 @@
     const stateByArea = {};
     for (const row of states) stateByArea[row.area] = row;
     const stateLevel = (st) => {
-      if (st === "Available") return "ok";
-      if (st === "Unavailable") return "idle";
+      // Same CoverageState shapes as renderResultsCoverage (see above).
+      if (st === "Available" || st === "Checked") return "ok";
+      if (st === "Unavailable" || st === "NotChecked") return "idle";
+      if (st === "CheckFailed" || st === "AccessDenied") return "bad";
       if (st && typeof st === "object") {
         if ("Partial" in st) return "warn";
         if ("CheckFailed" in st || "AccessDenied" in st) return "bad";
+        if ("Unavailable" in st || "NotChecked" in st) return "idle";
+        if ("Available" in st || "Checked" in st) return "ok";
       }
       return "idle";
     };
@@ -3149,16 +3316,23 @@
   }
 
   function renderAudit(summary) {
+    lastAuditSummary = summary;
+    paintAuditList();
+  }
+
+  function paintAuditList() {
+    const summary = lastAuditSummary;
     const list = document.getElementById("audit-list");
-    if (!list) return;
+    if (!list || !summary) return;
     list.innerHTML = "";
     const entries = summary.high_risk_cleaned
       .map((e) => ({ e, cleaned: true }))
       .concat(summary.suspicious_for_review.map((e) => ({ e, cleaned: false })));
     entries.sort((a, b) => b.e.score - a.e.score);
-    for (const { e, cleaned } of entries) list.append(buildAuditCard(e, cleaned));
+    const shown = entries.filter(({ e }) => auditFilter === "all" || e.risk === auditFilter);
+    for (const { e, cleaned } of shown) list.append(buildAuditCard(e, cleaned));
     const sub = document.getElementById("audit-subline");
-    if (sub) sub.textContent = entries.length + " persistence finding(s) in the last scan — nothing is disabled automatically.";
+    if (sub) sub.textContent = entries.length + " persistence finding(s) in the last scan — showing " + shown.length + " — nothing is disabled automatically.";
     const note = document.getElementById("audit-note");
     if (note) note.textContent = summary.safe + " safe entries are not listed individually. Publisher data is unavailable (signature checks are verdict-only).";
   }
@@ -3167,6 +3341,8 @@
 
   let procFilter = "all";
   let procCache = [];
+  let auditFilter = "all";
+  let lastAuditSummary = null;
 
   function procRow(p) {
     const tr = document.createElement("tr");
@@ -3177,10 +3353,11 @@
     pidTd.className = "mono";
     pidTd.textContent = String(p.pid);
     const pathTd = document.createElement("td");
-    pathTd.className = "mono";
+    pathTd.className = "mono selectable trunc-cell";
+    pathTd.tabIndex = 0;
     const short = (p.exe_path || "").split(/[/\\]/).pop() || "—";
     pathTd.textContent = short;
-    pathTd.title = p.exe_path || "";
+    pathTd.title = p.exe_path || "Not collected";
     const scoreTd = document.createElement("td");
     scoreTd.className = "mono";
     scoreTd.textContent = String(p.score);
@@ -3190,10 +3367,11 @@
     badge.textContent = p.risk === "HighRisk" ? "HIGH RISK" : (p.risk || "").toUpperCase();
     riskTd.append(badge);
     const rsnTd = document.createElement("td");
-    rsnTd.className = "row-reasons";
+    rsnTd.className = "row-reasons selectable";
+    rsnTd.tabIndex = 0;
     const reasons = Array.isArray(p.reasons) ? p.reasons : [];
     rsnTd.textContent = reasons.slice(0, 3).join(" · ") || "—";
-    rsnTd.title = reasons.join("\n");
+    rsnTd.title = reasons.join("\n") || "Not collected";
     const actTd = document.createElement("td");
     const kill = document.createElement("button");
     kill.className = "kill-one";
@@ -3303,9 +3481,14 @@
       });
       top.append(name, src, when, undo);
       const paths = document.createElement("div");
-      paths.className = "q-paths";
+      paths.className = "q-paths selectable";
+      paths.tabIndex = 0;
       paths.textContent = r.original_path + "  →  " + r.quarantine_path;
-      li.append(top, paths);
+      paths.title = "Original: " + r.original_path + "\nQuarantine: " + r.quarantine_path;
+      const rev = document.createElement("div");
+      rev.className = "q-rev dim";
+      rev.textContent = "Reversible — restore with Undo. Quarantined items are never deleted.";
+      li.append(top, paths, rev);
       list.append(li);
     }
     if (empty) empty.classList.toggle("hidden", records.length > 0);
@@ -3343,6 +3526,176 @@
   };
 
   const LEVEL_CLASS = { Direct: "sev-bad", Strong: "sev-warn", Partial: "", Weak: "", None: "" };
+  // Exact backend semantics (core/src/incident.rs module docs). Display only.
+  const LEVEL_DEFS = {
+    Direct: "finding's executable path matches the observed executable path (normalized). Service entries additionally require the reported PID to match.",
+    Strong: "finding command and observed command line reference each other (executable substring either direction, or shared distinctive arguments ≥12 chars) with the launch inside the window.",
+    Partial: "same executable file name, different paths (both shown).",
+    Weak: "same folder but different program, or a child of a correlated process. Proximity only.",
+    None: "no observed relationship.",
+  };
+
+  // Normalize a SourceStatus DTO (string "Available" from the mock, or the
+  // serde-tagged object from Rust) into a display label + tone + detail.
+  // Labels are the backend's own tokens: CHECKED / PARTIAL / UNAVAILABLE /
+  // CHECK FAILED / ACCESS DENIED. Uncertainty never renders as success.
+  // (Scan CoverageState "Checked" is also accepted defensively.)
+  function sourceStatusInfo(status) {
+    if (status === "Available" || status === "Checked" || (status && typeof status === "object" && ("Available" in status || "Checked" in status))) {
+      return { label: "CHECKED", level: "ok", detail: "fully enumerated" };
+    }
+    if (typeof status === "string") {
+      if (status === "Unavailable" || status === "NotChecked") return { label: status === "NotChecked" ? "NOT CHECKED" : "UNAVAILABLE", level: "idle", detail: "cannot run here" };
+      if (status === "CheckFailed") return { label: "CHECK FAILED", level: "bad", detail: "enumeration failed" };
+      if (status === "AccessDenied") return { label: "ACCESS DENIED", level: "bad", detail: "access denied (elevation may help)" };
+      return { label: String(status).toUpperCase(), level: "idle", detail: "" };
+    }
+    if (status && typeof status === "object") {
+      if ("Partial" in status) {
+        const p = status.Partial || {};
+        return { label: "PARTIAL", level: "warn", detail: (p.skipped || 0) + " skipped" + (p.reason ? " — " + p.reason : "") };
+      }
+      if ("Unavailable" in status) {
+        const u = status.Unavailable || {};
+        return { label: "UNAVAILABLE", level: "idle", detail: (typeof u === "string" ? u : u.reason) || "cannot run here" };
+      }
+      if ("CheckFailed" in status) {
+        const f = status.CheckFailed || {};
+        return { label: "CHECK FAILED", level: "bad", detail: (typeof f === "string" ? f : f.reason) || "enumeration failed" };
+      }
+      if ("AccessDenied" in status) {
+        const a = status.AccessDenied || {};
+        return { label: "ACCESS DENIED", level: "bad", detail: (typeof a === "string" ? a : a.reason) || "access denied (elevation may help)" };
+      }
+    }
+    return { label: "NOT COLLECTED", level: "idle", detail: "" };
+  }
+
+  function pidOf(text) {
+    const m = /pid\s+(\d+)/i.exec(String(text || ""));
+    return m ? Number(m[1]) : null;
+  }
+
+  // Forensic drawer (evidence inspector). Focus moves to Close on open and
+  // returns to the invoker on close; Escape and backdrop clicks close.
+  let incDrawerInvoker = null;
+  function openIncDrawer(title, sub, groups) {
+    const overlay = document.getElementById("inc-drawer-overlay");
+    const body = document.getElementById("inc-drawer-body");
+    const titleEl = document.getElementById("inc-drawer-title");
+    const subEl = document.getElementById("inc-drawer-sub");
+    const closeBtn = document.getElementById("inc-drawer-close");
+    if (!overlay || !body || !titleEl) return;
+    incDrawerInvoker = document.activeElement;
+    titleEl.textContent = title || "Evidence";
+    if (subEl) subEl.textContent = sub || "";
+    body.innerHTML = "";
+    for (const g of groups || []) {
+      const h = document.createElement("dt");
+      h.className = "drawer-section";
+      h.textContent = g.heading;
+      body.appendChild(h);
+      const spacer = document.createElement("dd");
+      spacer.className = "drawer-section-val";
+      spacer.textContent = "";
+      body.appendChild(spacer);
+      for (const [k, v] of g.rows || []) {
+        const dt = document.createElement("dt");
+        dt.textContent = k;
+        const dd = document.createElement("dd");
+        dd.className = "selectable";
+        dd.textContent = (v === undefined || v === null || v === "") ? "Not collected" : String(v);
+        if (v !== undefined && v !== null && String(v).length > 60) dd.title = String(v);
+        body.appendChild(dt);
+        body.appendChild(dd);
+      }
+    }
+    overlay.classList.remove("hidden");
+    if (closeBtn) closeBtn.focus();
+  }
+  function closeIncDrawer() {
+    const overlay = document.getElementById("inc-drawer-overlay");
+    if (overlay) overlay.classList.add("hidden");
+    if (incDrawerInvoker && incDrawerInvoker.focus) incDrawerInvoker.focus();
+    incDrawerInvoker = null;
+  }
+
+  function incLifetime(ms) {
+    if (ms === undefined || ms === null) return "Not collected";
+    return (ms / 1000).toFixed(2) + "s (±0.5 s poll precision)";
+  }
+
+  function buildCorrCard(c, procOf) {
+    const li = document.createElement("li");
+    li.className = "review-card";
+    li.dataset.pid = String(c.process_pid);
+    const main = document.createElement("div");
+    main.className = "rc-main";
+    const topRow = document.createElement("div");
+    topRow.className = "rc-top";
+    const name = document.createElement("span");
+    name.className = "rc-name selectable trunc";
+    name.textContent = (c.process_name || "Not collected") + " (pid " + c.process_pid + ")";
+    name.title = (c.process_name || "Not collected") + " (pid " + c.process_pid + ")";
+    name.tabIndex = 0;
+    const badgeEl = document.createElement("span");
+    badgeEl.className = "severity-badge " + (LEVEL_CLASS[c.level] || "");
+    badgeEl.textContent = c.level;
+    badgeEl.title = LEVEL_DEFS[c.level] || c.level;
+    topRow.append(name, badgeEl);
+    main.appendChild(topRow);
+    const chips = document.createElement("div");
+    chips.className = "chips";
+    const fchip = document.createElement("span");
+    fchip.className = "chip src selectable";
+    fchip.textContent = (c.finding_name || "no finding") + (c.finding_source ? " · " + c.finding_source : "");
+    fchip.title = "finding id: " + (c.finding_id || "Not collected");
+    fchip.tabIndex = 0;
+    chips.appendChild(fchip);
+    const p = procOf ? procOf.get(c.process_pid) : null;
+    if (p && p.ppid !== undefined) {
+      const ppidChip = document.createElement("span");
+      ppidChip.className = "chip";
+      ppidChip.textContent = "ppid " + p.ppid;
+      chips.appendChild(ppidChip);
+    }
+    main.appendChild(chips);
+    if (c.evidence && c.evidence.length) {
+      const ul = document.createElement("ul");
+      ul.className = "evidence-list";
+      for (const ev of c.evidence) {
+        const item = document.createElement("li");
+        item.className = "selectable";
+        item.textContent = ev;
+        ul.appendChild(item);
+      }
+      main.appendChild(ul);
+    }
+    const def = document.createElement("div");
+    def.className = "corr-def dim";
+    def.textContent = LEVEL_DEFS[c.level] || "";
+    main.appendChild(def);
+    li.appendChild(main);
+    const inspect = document.createElement("button");
+    inspect.className = "copy-btn";
+    inspect.textContent = "Inspect evidence";
+    inspect.addEventListener("click", () => {
+      const rows = [
+        ["Process", c.process_name || "Not collected"],
+        ["PID", String(c.process_pid)],
+        ["PPID", p ? String(p.ppid) : "Not collected"],
+        ["Path", p ? (p.exe_path || "Not collected") : "Not collected"],
+        ["Command line", p && p.command_line ? p.command_line : "Not collected"],
+      ];
+      openIncDrawer("Correlation · " + (c.level || "?"), (c.process_name || "?") + " ↔ " + (c.finding_name || "no finding"), [
+        { heading: "CORRELATION", rows: [["Classification", (c.level || "Not collected") + " — " + (LEVEL_DEFS[c.level] || "")], ["Finding", (c.finding_name || "Not collected") + (c.finding_source ? " · " + c.finding_source : "")], ["Finding id", c.finding_id || "Not collected"], ["Related evidence", (c.evidence || []).join("; ") || "Not collected"]] },
+        { heading: "EXECUTION", rows: rows.slice(3) },
+        { heading: "IDENTITY", rows: rows.slice(0, 3) },
+      ]);
+    });
+    li.appendChild(inspect);
+    return li;
+  }
 
   function setIncidentStatus(text, isError) {
     const el = document.getElementById("inc-status");
@@ -3362,93 +3715,255 @@
     }
     const why = document.getElementById("inc-verdict-why");
     if (why) why.textContent = VERDICT_WHY[result.verdict] || "";
-    for (const id of ["inc-results", "inc-timeline-panel", "inc-review-panel", "inc-export-panel"]) {
+    for (const id of ["inc-results", "inc-scope-panel", "inc-timeline-panel", "inc-review-panel", "inc-processes-panel", "inc-windows-panel", "inc-export-panel"]) {
       const el = document.getElementById(id);
       if (el) el.classList.remove("hidden");
+    }
+    const recPanel = document.getElementById("inc-recovery-panel");
+    if (recPanel) recPanel.classList.toggle("hidden", result.verdict !== "InsufficientObservation");
+    const meta = document.getElementById("inc-meta");
+    if (meta) {
+      meta.textContent = (result.investigation_id || "unknown id") + " · started " + (result.started_at || "Not collected") +
+        " · observed " + (result.duration_secs !== undefined ? result.duration_secs + "s" : "Not collected") +
+        " · " + (result.elevated ? "elevated" : "standard-user") +
+        (result.truncated ? " · truncated — results capped" : " · complete");
+    }
+    const receipt = document.getElementById("inc-receipt");
+    if (receipt) {
+      receipt.classList.remove("hidden");
+      receipt.textContent = "Investigation " + (result.investigation_id || "") + " complete: " +
+        (VERDICT_TEXT[result.verdict] || result.verdict || "Not collected") + " — observed " +
+        (result.processes || []).length + " processes, " + (result.windows || []).length + " windows, " +
+        (result.correlations || []).length + " correlations.";
+    }
+    const scope = document.getElementById("inc-scope");
+    if (scope) {
+      scope.innerHTML = "";
+      const winInfo = sourceStatusInfo(result.window_observation);
+      const procInfo = sourceStatusInfo(result.process_observation);
+      const winRow = covRow("Window observation", winInfo.label + (winInfo.detail ? " — " + winInfo.detail : ""), winInfo.level);
+      winRow.title = "Titles + classes only — no screenshots, no keystrokes, no contents.";
+      const procRowEl = covRow("Process observation", procInfo.label + (procInfo.detail ? " — " + procInfo.detail : ""), procInfo.level);
+      procRowEl.title = "Command lines are fetched only for correlated processes (bounded).";
+      const durRow = covRow("Observation window", (result.duration_secs !== undefined ? result.duration_secs + "s" : "Not collected") + (result.elevated ? " · elevated" : " · standard-user"), "idle");
+      scope.append(durRow, procRowEl, winRow);
+    }
+    const procOf = new Map((result.processes || []).map((p) => [p.pid, p]));
+    const corrByPid = new Map();
+    for (const c of result.correlations || []) {
+      if (!corrByPid.has(c.process_pid)) corrByPid.set(c.process_pid, []);
+      corrByPid.get(c.process_pid).push(c);
+    }
+    const winsByPid = new Map();
+    for (const w of result.windows || []) {
+      if (!winsByPid.has(w.pid)) winsByPid.set(w.pid, []);
+      winsByPid.get(w.pid).push(w);
     }
     const tl = document.getElementById("incident-timeline");
     if (tl) {
       tl.innerHTML = "";
       for (const e of result.timeline || []) {
         const li = document.createElement("li");
+        li.className = "inc-event";
+        const pid = pidOf(e.text);
+        const proc = (pid !== null && procOf.get(pid)) || null;
+        const top = document.createElement("div");
+        top.className = "inc-event-top";
         const time = document.createElement("span");
         time.className = "ev-time";
-        time.textContent = e.wall_time || "";
+        time.textContent = e.wall_time || "Not collected";
         const tag = document.createElement("b");
         tag.textContent = "[" + String(e.kind || "event") + "]";
         const body = document.createElement("span");
+        body.className = "selectable";
         body.textContent = e.text || "";
-        li.append(time, tag, body);
+        top.append(time, tag, body);
+        li.appendChild(top);
+        const det = document.createElement("div");
+        det.className = "inc-event-det";
+        const fields = [];
+        fields.push(["process", proc ? proc.name : "Not collected"]);
+        fields.push(["pid", pid !== null ? String(pid) : "Not collected"]);
+        fields.push(["ppid", proc ? String(proc.ppid) : "Not collected"]);
+        fields.push(["path", proc ? (proc.exe_path || "Not collected") : "Not collected"]);
+        fields.push(["command line", proc && proc.command_line ? proc.command_line : "Not collected"]);
+        const corrs = pid !== null ? (corrByPid.get(pid) || []) : [];
+        fields.push(["correlation", corrs.length ? corrs.map((c) => c.level + ": " + (c.finding_name || "finding")).join("; ") : "Not collected"]);
+        let winText = "Not collected";
+        if (String(e.kind || "").toLowerCase().includes("window")) {
+          const match = (result.windows || []).find((w) => w.title && String(e.text || "").includes(w.title));
+          if (match) winText = "“" + match.title + "” · class " + (match.class_name || "Not collected") + " · pid " + match.pid;
+          else if (pid !== null && winsByPid.get(pid)) {
+            winText = winsByPid.get(pid).map((w) => "“" + (w.title || "(no title)") + "” · " + (w.class_name || "?")).join("; ");
+          }
+        } else if (pid !== null && winsByPid.get(pid)) {
+          winText = winsByPid.get(pid).map((w) => "“" + (w.title || "(no title)") + "”").join("; ");
+        }
+        fields.push(["window", winText]);
+        for (const [k, v] of fields) {
+          const s = document.createElement("span");
+          s.className = "inc-field selectable trunc";
+          s.tabIndex = 0;
+          s.textContent = k + ": " + v;
+          s.title = k + ": " + v;
+          det.appendChild(s);
+        }
+        li.appendChild(det);
+        if (proc) {
+          const btn = document.createElement("button");
+          btn.className = "copy-btn inc-inspect";
+          btn.textContent = "Inspect pid " + proc.pid;
+          btn.addEventListener("click", () => {
+            const pc = corrByPid.get(proc.pid) || [];
+            const ws = winsByPid.get(proc.pid) || [];
+            openIncDrawer(proc.name || ("pid " + proc.pid), "pid " + proc.pid + " · ppid " + proc.ppid, [
+              { heading: "IDENTITY", rows: [["Name", proc.name || "Not collected"], ["PID", String(proc.pid)], ["PPID", String(proc.ppid)]] },
+              { heading: "EXECUTION", rows: [["Path", proc.exe_path || "Not collected"], ["Command line", proc.command_line || "Not collected"], ["Creation source", proc.via_events ? "WMI creation event" : "snapshot diff"], ["Publisher", "Not collected"], ["Signature", "Not collected"]] },
+              { heading: "OBSERVATION", rows: [["First seen", "+" + proc.first_seen_ms + " ms"], ["Last seen", "+" + proc.last_seen_ms + " ms"], ["Lifetime", incLifetime((proc.last_seen_ms || 0) - (proc.first_seen_ms || 0))], ["Exited", proc.exited ? "Yes" : "No"], ["Baseline context", proc.pre_existing ? "already running when observation started" : "created during the window"]] },
+              { heading: "WINDOW", rows: ws.length ? ws.map((w, i) => ["Window " + (i + 1), "“" + (w.title || "(no title)") + "” · " + (w.class_name || "?") + " · " + incLifetime((w.last_seen_ms || 0) - (w.first_seen_ms || 0))]) : [["Window", "No window observed for this PID"]] },
+              { heading: "CORRELATION", rows: pc.length ? pc.map((c, i) => ["Link " + (i + 1), c.level + ": " + (c.finding_name || "") + " — " + (LEVEL_DEFS[c.level] || "")]) : [["Classification", "No startup correlation"]] },
+              { heading: "SOURCE STATUS", rows: [["Process observation", sourceStatusInfo(result.process_observation).label], ["Window observation", sourceStatusInfo(result.window_observation).label]] },
+            ]);
+          });
+          li.appendChild(btn);
+        }
+        tl.appendChild(li);
+      }
+      if (!(result.timeline || []).length) {
+        const li = document.createElement("li");
+        li.textContent = "No timeline events recorded — see Limitations below.";
         tl.appendChild(li);
       }
     }
+    const corrStrong = document.getElementById("inc-corr-strong");
     const corr = document.getElementById("inc-correlations");
-    if (corr) {
-      corr.innerHTML = "";
-      for (const c of result.correlations || []) {
+    const corrEmpty = document.getElementById("inc-corr-empty");
+    if (corrStrong) corrStrong.innerHTML = "";
+    if (corr) corr.innerHTML = "";
+    {
+      const strong = (result.correlations || []).filter((c) => c.level === "Direct" || c.level === "Strong");
+      const weak = (result.correlations || []).filter((c) => c.level !== "Direct" && c.level !== "Strong");
+      for (const c of strong) if (corrStrong) corrStrong.appendChild(buildCorrCard(c, procOf));
+      for (const c of weak) if (corr) corr.appendChild(buildCorrCard(c, procOf));
+      const total = (result.correlations || []).length;
+      if (corrEmpty) corrEmpty.classList.toggle("hidden", total > 0);
+      if (!strong.length && corrStrong) {
         const li = document.createElement("li");
         li.className = "review-card";
+        li.textContent = total ? "No supporting (DIRECT/STRONG) evidence in this observation." : "No supporting (DIRECT/STRONG) evidence in this observation.";
+        corrStrong.appendChild(li);
+      }
+      if (!weak.length && corr) {
+        const li = document.createElement("li");
+        li.className = "review-card";
+        li.textContent = total ? "No weak or partial signals in this observation." : "No observed process relates to a startup finding.";
+        corr.appendChild(li);
+      }
+      if (!total) {
+        if (corrStrong && !corrStrong.children.length) {
+          const li = document.createElement("li");
+          li.className = "review-card";
+          li.textContent = "No supporting (DIRECT/STRONG) evidence in this observation.";
+          corrStrong.appendChild(li);
+        }
+        if (corr && !corr.children.length) {
+          const li = document.createElement("li");
+          li.className = "review-card";
+          li.textContent = "No observed process relates to a startup finding.";
+          corr.appendChild(li);
+        }
+      }
+    }
+    const procList = document.getElementById("inc-processes");
+    const procEmpty = document.getElementById("inc-processes-empty");
+    if (procList) {
+      procList.innerHTML = "";
+      const procs = (result.processes || []).slice().sort((a, b) => (a.first_seen_ms || 0) - (b.first_seen_ms || 0));
+      for (const p of procs) {
+        const li = document.createElement("li");
+        li.className = "review-card";
+        li.dataset.pid = String(p.pid);
         const main = document.createElement("div");
         main.className = "rc-main";
         const topRow = document.createElement("div");
         topRow.className = "rc-top";
         const name = document.createElement("span");
-        name.className = "rc-name";
-        name.textContent = (c.process_name || "?") + " (pid " + c.process_pid + ")";
+        name.className = "rc-name selectable trunc";
+        name.tabIndex = 0;
+        name.textContent = (p.name || "Not collected") + " (pid " + p.pid + " · ppid " + p.ppid + ")";
+        name.title = (p.exe_path || "Not collected") + (p.command_line ? "\n" + p.command_line : "\ncommand line: Not collected");
+        const corr0 = (corrByPid.get(p.pid) || [])[0];
         const badgeEl = document.createElement("span");
-        badgeEl.className = "severity-badge " + (LEVEL_CLASS[c.level] || "");
-        badgeEl.textContent = c.level;
+        badgeEl.className = "severity-badge " + (corr0 ? (LEVEL_CLASS[corr0.level] || "") : "");
+        badgeEl.textContent = corr0 ? corr0.level : "NO LINK";
+        badgeEl.title = corr0 ? (LEVEL_DEFS[corr0.level] || "") : "No startup correlation for this process.";
         topRow.append(name, badgeEl);
         main.appendChild(topRow);
         const chips = document.createElement("div");
         chips.className = "chips";
-        const fchip = document.createElement("span");
-        fchip.className = "chip src";
-        fchip.textContent = (c.finding_name || "no finding") + (c.finding_source ? " · " + c.finding_source : "");
-        fchip.title = c.finding_id || "";
-        chips.appendChild(fchip);
+        const pathChip = document.createElement("span");
+        pathChip.className = "chip src selectable trunc";
+        pathChip.tabIndex = 0;
+        pathChip.textContent = p.exe_path || "Not collected";
+        pathChip.title = p.exe_path || "Not collected";
+        chips.appendChild(pathChip);
+        const lifeChip = document.createElement("span");
+        lifeChip.className = "chip";
+        const lifeMs = (p.last_seen_ms || 0) - (p.first_seen_ms || 0);
+        lifeChip.textContent = (p.exited ? "exited · " : "running · ") + (lifeMs / 1000).toFixed(2) + "s";
+        lifeChip.title = "Lifetime " + incLifetime(lifeMs) + (p.pre_existing ? " · already running when observation started" : "") + (p.via_events ? " · first noticed via WMI creation event" : " · first noticed via snapshot diff");
+        chips.appendChild(lifeChip);
         main.appendChild(chips);
-        if (c.evidence && c.evidence.length) {
-          const ul = document.createElement("ul");
-          ul.className = "evidence-list";
-          for (const ev of c.evidence) {
-            const item = document.createElement("li");
-            item.textContent = ev;
-            ul.appendChild(item);
-          }
-          main.appendChild(ul);
-        }
+        const cmd = document.createElement("div");
+        cmd.className = "inc-cmd selectable trunc";
+        cmd.tabIndex = 0;
+        cmd.textContent = "cmd: " + (p.command_line || "Not collected");
+        cmd.title = p.command_line || "Not collected";
+        main.appendChild(cmd);
         li.appendChild(main);
-        corr.appendChild(li);
+        const inspect = document.createElement("button");
+        inspect.className = "copy-btn";
+        inspect.textContent = "Inspect";
+        inspect.addEventListener("click", () => {
+          const pc = corrByPid.get(p.pid) || [];
+          const ws = winsByPid.get(p.pid) || [];
+          openIncDrawer(p.name || ("pid " + p.pid), "pid " + p.pid + " · ppid " + p.ppid, [
+            { heading: "IDENTITY", rows: [["Name", p.name || "Not collected"], ["PID", String(p.pid)], ["PPID", String(p.ppid)]] },
+            { heading: "EXECUTION", rows: [["Path", p.exe_path || "Not collected"], ["Command line", p.command_line || "Not collected"], ["Creation source", p.via_events ? "WMI creation event" : "snapshot diff"]] },
+            { heading: "OBSERVATION", rows: [["First seen", "+" + p.first_seen_ms + " ms"], ["Last seen", "+" + p.last_seen_ms + " ms"], ["Lifetime", incLifetime(lifeMs)], ["Exited", p.exited ? "Yes" : "No"], ["Baseline context", p.pre_existing ? "already running when observation started" : "created during the window"]] },
+            { heading: "WINDOW", rows: ws.length ? ws.map((w, i) => ["Window " + (i + 1), "“" + (w.title || "(no title)") + "” · " + (w.class_name || "?")]) : [["Window", "No window observed for this PID"]] },
+            { heading: "CORRELATION", rows: pc.length ? pc.map((c, i) => ["Link " + (i + 1), c.level + ": " + (c.finding_name || "")]) : [["Classification", "No startup correlation"]] },
+          ]);
+        });
+        li.appendChild(inspect);
+        procList.appendChild(li);
       }
-      if (!(result.correlations || []).length) {
-        const li = document.createElement("li");
-        li.className = "review-card";
-        li.textContent = "No observed process relates to a startup finding.";
-        corr.appendChild(li);
-      }
+      if (procEmpty) procEmpty.classList.toggle("hidden", procs.length > 0);
     }
     const wins = document.getElementById("inc-windows");
     const winsEmpty = document.getElementById("inc-windows-empty");
     if (wins) {
       wins.innerHTML = "";
-      const transient = (result.windows || []).filter((w) => w.closed && (w.last_seen_ms - w.first_seen_ms) < 5000);
-      for (const w of transient) {
+      const all = (result.windows || []).slice().sort((a, b) => (a.first_seen_ms || 0) - (b.first_seen_ms || 0));
+      for (const w of all) {
         const li = document.createElement("li");
         li.className = "review-card";
+        li.dataset.pid = String(w.pid);
         const main = document.createElement("div");
         main.className = "rc-main";
         const topRow = document.createElement("div");
         topRow.className = "rc-top";
         const name = document.createElement("span");
-        name.className = "rc-name";
+        name.className = "rc-name selectable trunc";
+        name.tabIndex = 0;
         name.textContent = "“" + (w.title || "(no title)") + "”";
-        name.title = "class " + (w.class_name || "?");
+        name.title = "class " + (w.class_name || "Not collected") + "\ntitle: " + (w.title || "(no title)");
+        const ms = (w.last_seen_ms || 0) - (w.first_seen_ms || 0);
+        const transient = w.closed && ms < 5000;
         const life = document.createElement("span");
         life.className = "score-chip low";
-        const ms = w.last_seen_ms - w.first_seen_ms;
-        life.textContent = (ms / 1000).toFixed(2) + "s";
-        life.title = "Visible lifetime (poll granularity ±0.5 s)";
+        life.textContent = (transient ? "TRANSIENT · " : w.closed ? "closed · " : "open · ") + (ms / 1000).toFixed(2) + "s";
+        life.title = "Visible lifetime (poll granularity ±0.5 s)" + (w.pre_existing ? " · already open when observation started" : "");
         topRow.append(name, life);
         main.appendChild(topRow);
         const chips = document.createElement("div");
@@ -3457,32 +3972,62 @@
         pidChip.className = "chip";
         pidChip.textContent = "pid " + w.pid;
         chips.appendChild(pidChip);
-        const corr0 = (result.correlations || []).find((c) => c.process_pid === w.pid && c.level !== "None");
+        const clsChip = document.createElement("span");
+        clsChip.className = "chip selectable trunc";
+        clsChip.tabIndex = 0;
+        clsChip.textContent = "class " + (w.class_name || "Not collected");
+        clsChip.title = w.class_name || "Not collected";
+        chips.appendChild(clsChip);
+        const corr0 = (corrByPid.get(w.pid) || []).find((c) => c.level !== "None") || (corrByPid.get(w.pid) || [])[0];
         const corrChip = document.createElement("span");
         corrChip.className = "chip" + (corr0 ? " amber" : "");
         corrChip.textContent = corr0 ? (corr0.level + ": " + corr0.finding_name) : "no startup correlation";
+        corrChip.title = corr0 ? (LEVEL_DEFS[corr0.level] || "") : "No observed relationship for this window's process.";
         chips.appendChild(corrChip);
         const sigChip = document.createElement("span");
         sigChip.className = "chip";
         sigChip.textContent = "metadata only — no capture";
         chips.appendChild(sigChip);
         main.appendChild(chips);
+        li.appendChild(main);
+        const row2 = document.createElement("div");
+        row2.className = "audit-actions";
+        const inspect = document.createElement("button");
+        inspect.className = "copy-btn";
+        inspect.textContent = "Inspect";
+        inspect.addEventListener("click", () => {
+          const p = procOf.get(w.pid) || null;
+          openIncDrawer("“" + (w.title || "(no title)") + "”", "pid " + w.pid + " · " + (transient ? "transient" : w.closed ? "closed" : "open"), [
+            { heading: "IDENTITY", rows: [["Window title", w.title || "Not collected"], ["Window class", w.class_name || "Not collected"], ["PID", String(w.pid)], ["Process", p ? (p.name || "Not collected") : "Not collected"], ["PPID", p ? String(p.ppid) : "Not collected"]] },
+            { heading: "OBSERVATION", rows: [["First seen", "+" + w.first_seen_ms + " ms"], ["Last seen", "+" + w.last_seen_ms + " ms"], ["Lifetime", incLifetime(ms)], ["Closed", w.closed ? "Yes" : "No"], ["Transient status", transient ? "transient (closed after a brief life — short life alone means nothing about intent)" : "not transient"], ["Baseline context", w.pre_existing ? "already open when observation started" : "opened during the window"]] },
+            { heading: "EXECUTION", rows: [["Path", p ? (p.exe_path || "Not collected") : "Not collected"], ["Command line", p && p.command_line ? p.command_line : "Not collected"]] },
+            { heading: "CORRELATION", rows: corr0 ? [["Classification", corr0.level + " — " + (LEVEL_DEFS[corr0.level] || "")], ["Finding", (corr0.finding_name || "") + (corr0.finding_source ? " · " + corr0.finding_source : "")]] : [["Classification", "No startup correlation"]] },
+          ]);
+        });
         const copy = document.createElement("button");
         copy.className = "copy-btn";
         copy.textContent = "Copy evidence";
         copy.addEventListener("click", () => {
           copyEvidence(
-            "[CURE transient window] " + (w.title || "(no title)") + " | pid " + w.pid +
-            " | class " + (w.class_name || "?") + " | lifetime " + ms + " ms" +
+            "[CURE window] " + (w.title || "(no title)") + " | pid " + w.pid +
+            " | class " + (w.class_name || "Not collected") + " | lifetime " + ms + " ms" +
             (corr0 ? " | " + corr0.level + ": " + corr0.finding_name : " | no startup correlation"),
             copy
           );
         });
-        li.append(main, copy);
+        row2.append(inspect, copy);
+        li.append(row2);
         wins.appendChild(li);
       }
-      if (winsEmpty) winsEmpty.classList.toggle("hidden", transient.length > 0);
+      if (winsEmpty) {
+        const transientCount = all.filter((w) => w.closed && ((w.last_seen_ms || 0) - (w.first_seen_ms || 0)) < 5000).length;
+        winsEmpty.classList.toggle("hidden", all.length > 0);
+        winsEmpty.textContent = all.length ? (transientCount + " transient window(s) of " + all.length + " observed — all windows listed above with titles/classes only.") : "No windows observed in this window.";
+      }
     }
+    try { updateOvIncident(); } catch (_) { /* overview not ready */ }
+    const incView = document.getElementById("view-incident");
+    if (incView && !incView.classList.contains("hidden")) focusViewHeading(incView);
   }
 
   async function exportIncident(format) {
@@ -3580,6 +4125,14 @@
         paintProcessRows();
       });
     });
+    document.querySelectorAll("#view-audit .filter-btn[data-af]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#view-audit .filter-btn[data-af]").forEach((b) => b.classList.remove("on"));
+        btn.classList.add("on");
+        auditFilter = btn.getAttribute("data-af") || "all";
+        paintAuditList();
+      });
+    });
     document.querySelectorAll("#view-incident .filter-btn[data-dur]").forEach((btn) => {
       btn.addEventListener("click", () => {
         document.querySelectorAll("#view-incident .filter-btn[data-dur]").forEach((b) => b.classList.remove("on"));
@@ -3587,6 +4140,21 @@
         incidentDuration = Number(btn.getAttribute("data-dur")) || 30;
       });
     });
+    const incDrawerOverlay = document.getElementById("inc-drawer-overlay");
+    const incDrawerClose = document.getElementById("inc-drawer-close");
+    if (incDrawerClose) incDrawerClose.addEventListener("click", closeIncDrawer);
+    if (incDrawerOverlay) incDrawerOverlay.addEventListener("mousedown", (ev) => {
+      if (ev.target === incDrawerOverlay) closeIncDrawer();
+    });
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") {
+        const ov = document.getElementById("inc-drawer-overlay");
+        if (ov && !ov.classList.contains("hidden")) {
+          ev.stopPropagation();
+          closeIncDrawer();
+        }
+      }
+    }, true);
     const incStart = document.getElementById("btn-incident-start");
     if (incStart) incStart.addEventListener("click", async () => {
       if (incStart.disabled) return;
