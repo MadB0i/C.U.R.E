@@ -137,8 +137,12 @@ pub fn score_with_signals(
     let command_norm = normalize(&entry.command);
     let program_norm = normalize(extract_program_path(&entry.command));
 
-    let drop_zone = DROP_ZONE_TOKENS.iter().any(|t| command_norm.contains(t));
-    let trusted = TRUSTED_TOKENS.iter().any(|t| command_norm.contains(t));
+    let drop_zone = DROP_ZONE_TOKENS
+        .iter()
+        .any(|t| path_has_token(&command_norm, t));
+    let trusted = TRUSTED_TOKENS
+        .iter()
+        .any(|t| path_has_token(&command_norm, t));
 
     if drop_zone {
         score += 30;
@@ -232,6 +236,28 @@ fn normalize(text: &str) -> String {
     text.trim().to_ascii_lowercase().replace('\\', "/")
 }
 
+/// Component-wise token match on an already-`normalize`d path.
+///
+/// A token matches only whole `/`-separated components (multi-segment tokens
+/// like `appdata/local/temp` must align to consecutive components), so
+/// `…\Program Files-fake\…` or `…\mysystem32backup\…` no longer count as
+/// trusted/drop-zone hits.
+///
+/// Known limit (documented, out of scope here): a directory genuinely NAMED
+/// `system32` outside the real one (`C:\Temp\system32\evil.exe`) still
+/// matches — ruling that out needs canonicalization against %SystemRoot%,
+/// which is environment-dependent and does not belong in the scorer.
+pub fn path_has_token(normalized_path: &str, token: &str) -> bool {
+    let components: Vec<&str> = normalized_path.split('/').collect();
+    let want: Vec<&str> = token.split('/').collect();
+    if want.is_empty() || want.len() > components.len() {
+        return false;
+    }
+    components
+        .windows(want.len())
+        .any(|window| window == want.as_slice())
+}
+
 // ---------------------------------------------------------------------------
 // Service scoring (Detection Engine v2, same weights as persistence).
 //
@@ -250,7 +276,7 @@ pub fn service_needs_hash(image_path: &str, exe: Option<&std::path::Path>) -> bo
         return false;
     }
     let norm = normalize(image_path);
-    !TRUSTED_TOKENS.iter().any(|t| norm.contains(t))
+    !TRUSTED_TOKENS.iter().any(|t| path_has_token(&norm, t))
 }
 
 pub fn score_service(
@@ -263,8 +289,12 @@ pub fn score_service(
     let mut reasons: Vec<String> = Vec::new();
 
     let image_norm = normalize(&record.image_path);
-    let drop_zone = DROP_ZONE_TOKENS.iter().any(|t| image_norm.contains(t));
-    let trusted = TRUSTED_TOKENS.iter().any(|t| image_norm.contains(t));
+    let drop_zone = DROP_ZONE_TOKENS
+        .iter()
+        .any(|t| path_has_token(&image_norm, t));
+    let trusted = TRUSTED_TOKENS
+        .iter()
+        .any(|t| path_has_token(&image_norm, t));
 
     if image_missing {
         score += 30;
@@ -654,6 +684,72 @@ mod tests {
         rec.image_path = r"C:\cure-synth\svc\CURE-SYNTH-agent.exe --service".to_string();
         let scored = score_service(&rec, false, SignatureStatus::Invalid, None);
         assert_eq!(scored.risk, RiskLevel::HighRisk);
+    }
+
+    // ---- component-wise path matching (F-09) ----
+
+    #[test]
+    fn tokens_match_whole_components_only() {
+        // True component hits.
+        assert!(path_has_token(
+            "c:/program files/app/app.exe",
+            "program files"
+        ));
+        assert!(path_has_token("c:/windows/system32/svc.exe", "system32"));
+        assert!(path_has_token(
+            "c:/users/bob/appdata/local/temp/x.exe",
+            "appdata/local/temp"
+        ));
+        assert!(path_has_token("c:/users/public/x.exe", "users/public"));
+        assert!(path_has_token("c:/users/bob/downloads/x.exe", "downloads"));
+        // Substring lookalikes must NOT match.
+        assert!(!path_has_token(
+            "c:/program files-fake/app/app.exe",
+            "program files"
+        ));
+        assert!(!path_has_token(
+            "c:/tools/mysystem32backup/x.exe",
+            "system32"
+        ));
+        assert!(!path_has_token("c:/my-downloads/x.exe", "downloads"));
+        // Multi-segment tokens must be consecutive components.
+        assert!(!path_has_token(
+            "c:/users/bob/appdata/x/local/temp/x.exe",
+            "appdata/local/temp"
+        ));
+        assert!(!path_has_token("c:/users/bob/public/x.exe", "users/public"));
+        // Degenerate inputs.
+        assert!(!path_has_token("", "system32"));
+        assert!(!path_has_token("c:/x.exe", ""));
+    }
+
+    #[test]
+    fn spoofed_trusted_dir_loses_discount() {
+        // …\Program Files-fake\… earned −20 under substring matching.
+        let scored = score_with_signals(
+            &entry("tool", r"C:\Program Files-fake\Vendor\tool.exe"),
+            SignatureStatus::Unknown,
+            None,
+        );
+        assert!(
+            !scored.reasons.iter().any(|r| r.starts_with("-20")),
+            "reasons: {:?}",
+            scored.reasons
+        );
+    }
+
+    #[test]
+    fn service_needs_hash_uses_component_matching() {
+        assert!(!service_needs_hash(
+            r"C:\Program Files\App\svc.exe",
+            Some(std::path::Path::new(r"C:\Program Files\App\svc.exe")),
+        ));
+        // Lookalike dir is NOT trusted → hashing required.
+        assert!(service_needs_hash(
+            r"C:\Program Files-fake\App\svc.exe",
+            Some(std::path::Path::new(r"C:\Program Files-fake\App\svc.exe")),
+        ));
+        assert!(!service_needs_hash(r"C:\x\svc.exe", None));
     }
 
     #[test]

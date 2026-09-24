@@ -71,12 +71,16 @@ fn looks_randomized(name: &str) -> bool {
 
 fn in_drop_zone(path: &str) -> bool {
     let n = normalize(path);
-    DROP_ZONE_TOKENS.iter().any(|t| n.contains(t))
+    DROP_ZONE_TOKENS
+        .iter()
+        .any(|t| crate::risk::path_has_token(&n, t))
 }
 
 fn in_trusted(path: &str) -> bool {
     let n = normalize(path);
-    TRUSTED_TOKENS.iter().any(|t| n.contains(t))
+    TRUSTED_TOKENS
+        .iter()
+        .any(|t| crate::risk::path_has_token(&n, t))
 }
 
 // ── public API ────────────────────────────────────────────────────────
@@ -369,6 +373,17 @@ mod tests {
         let i = info("tool.exe", r"C:\Program Files\tool.exe");
         let ps = score_process(&i, &SignatureStatus::Invalid, None);
         assert!(ps.score >= 20); // -20 trusted + 40 invalid = 20
+    }
+
+    #[test]
+    fn trusted_lookalike_dir_gets_no_discount() {
+        // Component matching (F-09): "Program Files-fake" is not trusted.
+        let i = info("tool.exe", r"C:\Program Files-fake\tool.exe");
+        let ps = score_process(&i, &SignatureStatus::Invalid, None);
+        assert_eq!(ps.score, 40); // +40 invalid, no -20 discount
+        let j = info("tool.exe", r"C:\Program Files\tool.exe");
+        let qs = score_process(&j, &SignatureStatus::Invalid, None);
+        assert_eq!(qs.score, 20); // control: real component still discounts
     }
 
     #[test]
