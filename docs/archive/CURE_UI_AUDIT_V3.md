@@ -1,3 +1,5 @@
+> **[HISTORICAL] This is an archived development report from the V3 audit cycle (Aug–Sep 2026). It contains internal context specific to the author's machine. For current documentation, see docs/validation/REAL-PC-VALIDATION.md, docs/ARCHITECTURE.md, and docs/CHANGELOG.md.**
+
 # C.U.R.E. UI Audit V3 — Forensic UX Audit (Audit Only, No Implementation)
 
 Status: AUDIT ONLY. Nothing in `gui/dist` (`app.js`, `index.html`,
