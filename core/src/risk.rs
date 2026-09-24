@@ -167,8 +167,13 @@ pub fn score_with_signals(
     let mut score: i32 = 0;
     let mut reasons: Vec<String> = Vec::new();
 
-    let command_norm = normalize(&entry.command);
-    let program_norm = normalize(extract_program_path(&entry.command));
+    // F-LOLBIN-1: expand `%VAR%` across the WHOLE command line (program and
+    // arguments alike) before any heuristic sees it, so `%TEMP%\payload.exe`
+    // matches the drop-zone tokens. Same helper services use for ImagePath;
+    // identity off Windows (tests stay platform-independent there).
+    let expanded_command = crate::scanners::services::expand_env_vars(&entry.command);
+    let command_norm = normalize(&expanded_command);
+    let program_norm = normalize(extract_program_path(&expanded_command));
 
     let drop_zone = DROP_ZONE_TOKENS
         .iter()
