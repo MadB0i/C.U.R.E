@@ -109,7 +109,15 @@ fn shell_resolve_target(lnk_path: &Path) -> Option<String> {
                 (SLR_NO_UI.0 | SLR_NOUPDATE.0 | SLR_NOSEARCH.0) as u32,
             )?;
             let end = buf.iter().position(|&c| c == 0).unwrap_or(MAX_PATH);
-            Ok(String::from_utf16_lossy(&buf[..end]))
+            let short = String::from_utf16_lossy(&buf[..end]);
+            if short.is_empty() {
+                return Err(windows::core::Error::from_win32());
+            }
+            // Shell often returns 8.3 short names (CURE_T~1.EXE); expand to
+            // long for stable display and for scoring heuristics that need
+            // the long name (random-name detection). Best-effort: if the
+            // file doesn't exist, keep the short form.
+            Ok(to_long_path_best_effort(&short))
         })();
         if init == S_OK {
             // Only our own init gets torn down; a borrowed apartment
@@ -117,6 +125,20 @@ fn shell_resolve_target(lnk_path: &Path) -> Option<String> {
             CoUninitialize();
         }
         result.ok().filter(|s| !s.is_empty())
+    }
+}
+
+#[cfg(windows)]
+fn to_long_path_best_effort(path: &str) -> String {
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::GetLongPathNameW;
+    let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut buf = vec![0u16; 1024];
+    let len = unsafe { GetLongPathNameW(PCWSTR(wide.as_ptr()), Some(&mut buf)) };
+    if len > 0 && (len as usize) < buf.len() {
+        String::from_utf16_lossy(&buf[..len as usize])
+    } else {
+        path.to_string()
     }
 }
 

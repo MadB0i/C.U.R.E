@@ -123,7 +123,6 @@ fn resolve_lnk_command(link_path: &Path) -> Option<String> {
 
 #[cfg(windows)]
 fn to_long_path_if_exists(path: &str) -> String {
-    use std::os::windows::ffi::OsStrExt;
     use windows::core::PCWSTR;
     use windows::Win32::Storage::FileSystem::GetLongPathNameW;
     let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
@@ -215,7 +214,7 @@ mod tests {
         use windows::Win32::Foundation::BOOL;
         use windows::Win32::System::Com::{
             CoCreateInstance, CoInitializeEx, CoUninitialize, IPersistFile, CLSCTX_INPROC_SERVER,
-            COINIT_APARTMENTTHREADED, STGM_READ,
+            COINIT_APARTMENTTHREADED,
         };
         use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
 
@@ -228,8 +227,7 @@ mod tests {
             // only our own init (S_OK) gets torn down.
             let init_s_ok = init == windows::Win32::Foundation::S_OK;
             let res = (|| -> windows::core::Result<()> {
-                let shell: IShellLinkW =
-                    CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
+                let shell: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
                 let t = wide(std::ffi::OsStr::new(target));
                 shell.SetPath(PCWSTR(t.as_ptr()))?;
                 let a = wide(std::ffi::OsStr::new(args));
@@ -298,7 +296,10 @@ mod tests {
 
         let entries = scan(startup.path());
         let e = entries.iter().find(|e| e.name == "evil.lnk").unwrap();
-        let scored = crate::risk::score_entry(e, crate::signature::resolve_executable_path(&e.command).as_deref());
+        let scored = crate::risk::score_entry(
+            e,
+            crate::signature::resolve_executable_path(&e.command).as_deref(),
+        );
         assert_ne!(
             scored.risk,
             crate::model::RiskLevel::Safe,
@@ -320,12 +321,16 @@ mod tests {
 
         let entries = scan(startup.path());
         let e = entries.iter().find(|e| e.name == "signed.lnk").unwrap();
-        let scored = crate::risk::score_entry(e, crate::signature::resolve_executable_path(&e.command).as_deref());
+        let scored = crate::risk::score_entry(
+            e,
+            crate::signature::resolve_executable_path(&e.command).as_deref(),
+        );
         assert_eq!(
             scored.risk,
             crate::model::RiskLevel::Safe,
             "signed notepad via .lnk should be Safe, got {:?} score {}",
-            scored.risk, scored.score
+            scored.risk,
+            scored.score
         );
     }
 
@@ -349,8 +354,14 @@ mod tests {
             format!("{ps} {args}"),
             r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
         );
-        let lnk_scored = crate::risk::score_entry(lnk_entry, crate::signature::resolve_executable_path(&lnk_entry.command).as_deref());
-        let run_scored = crate::risk::score_entry(&run_entry, crate::signature::resolve_executable_path(&run_entry.command).as_deref());
+        let lnk_scored = crate::risk::score_entry(
+            lnk_entry,
+            crate::signature::resolve_executable_path(&lnk_entry.command).as_deref(),
+        );
+        let run_scored = crate::risk::score_entry(
+            &run_entry,
+            crate::signature::resolve_executable_path(&run_entry.command).as_deref(),
+        );
         assert_eq!(
             lnk_scored.score, run_scored.score,
             "F-LNK-1: lnk powershell score {} != Run key score {} (lnk command was {:?}, expected target+args)",
@@ -402,7 +413,8 @@ mod tests {
         let e = entries.iter().find(|e| e.name == "env.lnk").unwrap();
         // Command must be the expanded absolute target, not the raw %VAR% and not the .lnk path
         assert_eq!(
-            e.command, real_target.to_string_lossy().as_ref(),
+            e.command,
+            real_target.to_string_lossy().as_ref(),
             "env var not expanded to absolute: command={:?}",
             e.command
         );
@@ -417,7 +429,12 @@ mod tests {
         let target = startup.path().join("app.exe");
         std::fs::write(&target, b"MZ app").unwrap();
         let link = startup.path().join("args.lnk");
-        create_shell_link(&link, &target.to_string_lossy(), "--flag \"a b\" /q", r"C:\Windows");
+        create_shell_link(
+            &link,
+            &target.to_string_lossy(),
+            "--flag \"a b\" /q",
+            r"C:\Windows",
+        );
 
         let entries = scan(startup.path());
         let e = entries.iter().find(|e| e.name == "args.lnk").unwrap();
@@ -440,11 +457,7 @@ mod tests {
         let ghost = r"C:\nonexistent\CURE_TEST_ghost_e7f3a1.exe";
         let link = startup.path().join("ghost.lnk");
         // Use raw fixture for ghost (shell GetPath may not return non-existent absolute)
-        std::fs::write(
-            &link,
-            crate::fixtures::minimal_lnk_unicode(ghost, "", ""),
-        )
-        .unwrap();
+        std::fs::write(&link, crate::fixtures::minimal_lnk_unicode(ghost, "", "")).unwrap();
 
         let entries = scan(startup.path());
         let e = entries.iter().find(|e| e.name == "ghost.lnk").unwrap();
@@ -469,7 +482,11 @@ mod tests {
         let entries = scan(startup.path());
         let e = entries.iter().find(|e| e.name == "bad.lnk").unwrap();
         let exe_path = crate::signature::resolve_executable_path(&e.command);
-        assert!(exe_path.is_some(), "target not resolved for hash check: command={:?}", e.command);
+        assert!(
+            exe_path.is_some(),
+            "target not resolved for hash check: command={:?}",
+            e.command
+        );
         let hash_hit = crate::hash_intel::check_hash(exe_path.as_deref().unwrap());
         assert!(
             hash_hit.is_some(),
