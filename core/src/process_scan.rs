@@ -148,11 +148,12 @@ pub fn score_process(
         SignatureStatus::Unknown => {}
     }
 
-    // known-bad hash → force high risk
-    if let Some(ref desc) = hash_match {
+    // known-bad hash → force high risk (precedence 1, same as risk.rs:
+    // exact IOC beats signature and heuristics; provenance shown).
+    if let Some(desc) = hash_match {
         score = KNOWN_BAD_HASH_FORCE;
         reasons.clear();
-        reasons.push(format!("KNOWN BAD HASH: {}", desc));
+        reasons.push(crate::risk::hash_hit_reason(desc));
     }
 
     let score = score.max(0);
@@ -375,7 +376,9 @@ mod tests {
         let i = info("svchost.exe", r"C:\Windows\System32\svchost.exe");
         let ps = score_process(&i, &SignatureStatus::ValidSigned, Some("known malware"));
         assert_eq!(ps.risk, RiskLevel::HighRisk);
-        assert!(ps.reasons[0].contains("KNOWN BAD HASH"));
+        // Precedence 1 with provenance: verdict + feed label + description.
+        assert!(ps.reasons[0].starts_with("Known Malware Hash ["));
+        assert!(ps.reasons[0].contains("known malware"));
     }
 
     #[test]

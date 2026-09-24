@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::hash_intel::ThreatIntelProvider;
 use crate::model::{AttackInfo, PersistenceEntry, PersistenceSource, RiskLevel, ScoredEntry};
 use crate::signature::SignatureStatus;
 
@@ -88,19 +89,43 @@ pub fn score_entry(entry: &PersistenceEntry, exe_path: Option<&Path>) -> ScoredE
     score_with_signals(entry, signature, hash_match.as_deref())
 }
 
+/// Reason text for a hash-IOC hit: verdict + feed provenance + description.
+///
+/// The description comes from the IOC list (fixture data today); it is shown
+/// — capped — so the operator can judge evidence quality instead of staring
+/// at a bare "malware" chip. The `Known Malware Hash` prefix keeps the GUI's
+/// red chip matcher working (see app.js `reasonChipLabel`).
+pub fn hash_hit_reason(description: &str) -> String {
+    const MAX_DESC_CHARS: usize = 120;
+    let capped: String = description.chars().take(MAX_DESC_CHARS).collect();
+    let capped = if description.chars().count() > MAX_DESC_CHARS {
+        format!("{capped}…")
+    } else {
+        capped
+    };
+    format!(
+        "Known Malware Hash [{}]: {capped}",
+        crate::hash_intel::fixture_provider().provider_label()
+    )
+}
+
 /// Pure scoring core: identical logic to [`score_entry`] but with the
 /// signature verdict / hash-IOC result injected, so it is unit-testable on
 /// any platform without touching the filesystem or WinTrust.
 ///
-/// Scoring model (Detection Engine v2):
-/// - heuristic points as before (drop zone +30, trusted location -20,
-///   randomized name +25, sneaky PowerShell +25, profile exe +10)
-/// - valid Authenticode signature: **-40**
-/// - invalid/tampered signature: **+40**
-/// - unsigned binary: **+10 only** when other warning signs are already present
-/// - unknown/unresolvable signature: no change (v1 behaviour preserved)
-/// - a known-bad hash match hard-forces [`RiskLevel::HighRisk`], overriding
-///   the computed score entirely.
+/// Verdict precedence (strongest first — each level overrides the ones
+/// below; see tests `precedence_*`):
+/// 1. known-bad hash IOC → [`RiskLevel::HighRisk`] (exact SHA-256 match
+///    against the local list; feed provenance + description shown in the
+///    reason so the operator can judge evidence quality).
+/// 2. revoked/invalid signature → +40 (High on its own from a zero base).
+/// 3. heuristics: drop zone +30, randomized name +25, sneaky PowerShell
+///    +25, profile exe +10, missing service image +30.
+/// 4. trusted location −20, valid signature −40 (never below zero).
+/// 5. unsigned/unknown alone → no signal.
+///
+/// Publisher identity NEVER affects precedence (display only): an exact hash
+/// or a broken signature beats a valid signature, and signed malware exists.
 pub fn score_with_signals(
     entry: &PersistenceEntry,
     signature: SignatureStatus,
@@ -192,11 +217,11 @@ pub fn score_with_signals(
     };
     scored.risk = risk_level(scored.score);
 
-    if let Some(_description) = hash_match {
-        // Hard IOC override: beats every heuristic, even a valid signature.
-        // The full malware description stays in the embedded IOC list
-        // (core/src/known_bad_hashes.json); the chip tag stays short.
-        scored.reasons.push("Known Malware Hash".to_string());
+    if let Some(description) = hash_match {
+        // Precedence 1: exact IOC match beats every heuristic, even a valid
+        // signature (signed malware exists). Provenance + description shown
+        // so the operator sees WHAT matched and from WHICH feed.
+        scored.reasons.push(hash_hit_reason(description));
         scored.risk = RiskLevel::HighRisk;
     }
 
@@ -309,8 +334,8 @@ pub fn score_service(
     };
     scored.risk = risk_level(scored.score);
 
-    if hash_match.is_some() {
-        scored.reasons.push("Known Malware Hash".to_string());
+    if let Some(description) = hash_match {
+        scored.reasons.push(hash_hit_reason(description));
         scored.risk = RiskLevel::HighRisk;
     }
     scored
@@ -535,6 +560,112 @@ mod tests {
         );
         assert_eq!(scored.score, 20); // score itself stays honest...
         assert_eq!(scored.risk, RiskLevel::HighRisk); // ...but the IOC wins
+    }
+
+    // ---- verdict precedence pairs (levels 1-5, strongest first) ----
+
+    #[test]
+    fn precedence_hash_beats_valid_signature_with_provenance() {
+        let scored = score_with_signals(
+            &entry("signed-tool", r"C:\Program Files\Vendor\signed-tool.exe"),
+            SignatureStatus::ValidSigned,
+            Some("Evil Fixture"),
+        );
+        assert_eq!(scored.risk, RiskLevel::HighRisk);
+        let reason = scored
+            .reasons
+            .iter()
+            .find(|r| r.starts_with("Known Malware Hash"))
+            .expect("hash reason present");
+        // Operator sees WHAT matched and from WHICH feed — never a bare chip.
+        assert!(reason.contains("Evil Fixture"), "reason: {reason}");
+        assert!(reason.contains("DEMO"), "reason: {reason}");
+    }
+
+    #[test]
+    fn precedence_hash_beats_invalid_signature() {
+        let scored = score_with_signals(
+            &entry("bad", r"C:\Users\bob\bad.exe"),
+            SignatureStatus::Invalid,
+            Some("Evil Fixture"),
+        );
+        assert_eq!(scored.risk, RiskLevel::HighRisk);
+        assert!(scored
+            .reasons
+            .iter()
+            .any(|r| r.starts_with("Known Malware Hash")));
+    }
+
+    #[test]
+    fn precedence_invalid_alone_is_high() {
+        let scored = score_with_signals(
+            &entry("tool", r"C:\Users\bob\tool.exe"),
+            SignatureStatus::Invalid,
+            None,
+        );
+        assert_eq!(scored.risk, RiskLevel::HighRisk);
+        assert!(scored
+            .reasons
+            .iter()
+            .any(|r| r.contains("Invalid Signature")));
+    }
+
+    #[test]
+    fn precedence_valid_signature_discounts_without_hash() {
+        let scored = score_with_signals(
+            &entry("signed-tool", r"C:\Program Files\Vendor\signed-tool.exe"),
+            SignatureStatus::ValidSigned,
+            None,
+        );
+        assert_eq!(scored.risk, RiskLevel::Safe);
+        assert!(scored.reasons.iter().any(|r| r.contains("Valid Signature")));
+    }
+
+    #[test]
+    fn precedence_unsigned_alone_is_no_signal() {
+        let scored = score_with_signals(
+            &entry("tool", r"C:\tool.exe"),
+            SignatureStatus::Unsigned,
+            None,
+        );
+        assert_eq!(scored.risk, RiskLevel::Safe);
+        assert_eq!(scored.score, 0);
+    }
+
+    #[test]
+    fn precedence_service_hash_beats_valid_signature() {
+        let rec = crate::fixtures::safe_service_record();
+        let scored = score_service(
+            &rec,
+            false,
+            SignatureStatus::ValidSigned,
+            Some("Svc Fixture"),
+        );
+        assert_eq!(scored.risk, RiskLevel::HighRisk);
+        assert!(scored
+            .reasons
+            .iter()
+            .any(|r| r.starts_with("Known Malware Hash") && r.contains("Svc Fixture")));
+    }
+
+    #[test]
+    fn precedence_service_invalid_alone_is_high() {
+        let mut rec = crate::fixtures::review_service_record();
+        rec.image_path = r"C:\cure-synth\svc\CURE-SYNTH-agent.exe --service".to_string();
+        let scored = score_service(&rec, false, SignatureStatus::Invalid, None);
+        assert_eq!(scored.risk, RiskLevel::HighRisk);
+    }
+
+    #[test]
+    fn hash_reason_caps_description_and_names_feed() {
+        let long = "x".repeat(500);
+        let reason = hash_hit_reason(&long);
+        assert!(reason.starts_with("Known Malware Hash ["));
+        assert!(reason.contains("DEMO"));
+        assert!(reason.ends_with('…'));
+        // 120 capped chars + fixed prefix/label overhead, nothing unbounded.
+        assert!(reason.chars().count() < 120 + 100, "reason: {reason}");
+        assert!(!reason.contains(&long[..200]));
     }
 
     // ---- live pipeline on Windows (real WinTrust + real files) ----
