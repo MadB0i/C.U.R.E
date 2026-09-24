@@ -51,7 +51,9 @@ struct RansomFinding {
     path: String,
     detail: String,
     suspected_family: Option<String>,
-    nomoreransom_url: Option<String>,
+    // NOTE: no help URL is attached. The frontend must never navigate to
+    // remote content; the ransom help panel names the resource as plain
+    // text for the operator to type into a browser themselves.
 }
 
 #[derive(Serialize)]
@@ -455,7 +457,6 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
             RansomFindingCore::Note(note) => {
                 let snippet = ransom_detect::load_note_content(&note.path, 4096);
                 let family = ransom_detect::guess_family(&snippet);
-                let url = family.map(|_| "https://www.nomoreransom.org/".to_string());
                 RansomFinding {
                     finding_type: "ransom-note".to_string(),
                     path: note.path.to_string_lossy().to_string(),
@@ -465,7 +466,6 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
                         format!("Matched pattern: {} — \"{}\"", note.matched_stem, &snippet[..snippet.len().min(120)])
                     },
                     suspected_family: family.map(|s| s.to_string()),
-                    nomoreransom_url: url,
                 }
             }
             RansomFindingCore::BulkEncryption(cluster) => RansomFinding {
@@ -476,7 +476,6 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
                     cluster.file_count, cluster.extension, cluster.avg_age_days
                 ),
                 suspected_family: None,
-                nomoreransom_url: None,
             },
         };
 

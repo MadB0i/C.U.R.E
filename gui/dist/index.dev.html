@@ -4,9 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>C.U.R.E — Clean USB Rescue Engine</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- No remote fonts or assets: system font stack only (see style.css
+       --font-ui). The app must work fully offline; see README threat model. -->
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -252,10 +251,9 @@
           <h3>RANSOM INDICATORS</h3>
           <div id="ransom-cards" class="entry-cards"></div>
           <div id="ransom-link" class="hidden" style="margin-top:8px;font-size:12px;color:#c9a0ff">
-            If a ransomware family was identified, visit
-            <a href="https://www.nomoreransom.org/" target="_blank" rel="noopener"
-               style="color:#c9a0ff;text-decoration:underline">nomoreransom.org</a>
-            to check for a known decryptor. C.U.R.E cannot decrypt files.
+            If a ransomware family was identified, check nomoreransom.org
+            (typed by you into a browser) for a known decryptor.
+            C.U.R.E cannot decrypt files and never links out.
           </div>
         </div>
 
