@@ -219,6 +219,8 @@ struct CollectOutput {
 fn collect(paths: &ResolvedPaths) -> CollectOutput {
     use cure_core::report::source_state_row;
     let mut entries = scanners::startup::scan(&paths.startup_root);
+    // Machine-wide Startup folder: ambient on Windows (see collect_all).
+    entries.extend(scanners::startup::scan_common());
     let mut source_states = Vec::new();
     let task_report = scanners::scheduled_tasks::scan_report(&paths.tasks_root);
     let tasks_skipped = task_report.skipped;
@@ -426,6 +428,10 @@ fn cmd_scan(paths: &ResolvedPaths) -> Result<(), Box<dyn Error>> {
     use std::time::Instant;
     println!("C.U.R.E - Clean USB Rescue Engine");
     println!("startup root : {}", paths.startup_root.display());
+    match scanners::startup::default_common_startup_root() {
+        Some(common) => println!("common startup: {}", common.display()),
+        None => println!("common startup: n/a on this OS"),
+    }
     println!("tasks root   : {}", paths.tasks_root.display());
     if cfg!(windows) {
         println!("registry     : HKCU + HKLM Run / RunOnce + IFEO + AppInit + COM (HKCU) + WMI + services");
@@ -709,8 +715,10 @@ fn print_manual_guidance(found: &ScoredEntry) {
 fn cmd_undo(paths: &ResolvedPaths, id: &str) -> Result<(), Box<dyn Error>> {
     // Scoped restore: the file may only go back under the scanned
     // startup/task roots — a planted records.json must not redirect an
-    // elevated undo into a system location.
-    let roots = vec![paths.startup_root.clone(), paths.tasks_root.clone()];
+    // elevated undo into a system location. The machine-wide Startup folder
+    // is ambient (always scanned), so it is always in scope.
+    let mut roots = vec![paths.startup_root.clone(), paths.tasks_root.clone()];
+    roots.extend(cure_core::scanners::startup::default_common_startup_root());
     match quarantine::undo_scoped(&paths.data_dir, id, Some(&roots)) {
         Ok(record) => {
             println!("restored: {}", record.quarantine_path.display());

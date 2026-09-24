@@ -20,6 +20,37 @@ pub fn default_startup_root() -> PathBuf {
     }
 }
 
+/// Machine-wide Startup folder (`%ProgramData%\…\Startup`). `None`
+/// off-Windows or when `%ProgramData%` is unset — callers treat that as
+/// "no common root" rather than an error.
+pub fn default_common_startup_root() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var_os("ProgramData")
+            .map(PathBuf::from)
+            .map(|base| common_startup_root_from(&base))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn common_startup_root_from(base: &Path) -> PathBuf {
+    base.join(r"Microsoft\Windows\Start Menu\Programs\Startup")
+}
+
+/// Scan the machine-wide Startup folder with the same file-only,
+/// never-execute treatment as the per-user one. Empty when there is no
+/// common root (non-Windows, unset `%ProgramData%`) or it is unreadable.
+pub fn scan_common() -> Vec<PersistenceEntry> {
+    match default_common_startup_root() {
+        Some(root) => scan(&root),
+        None => Vec::new(),
+    }
+}
+
 pub fn scan(root: &Path) -> Vec<PersistenceEntry> {
     let mut entries = Vec::new();
     let Ok(read_dir) = fs::read_dir(root) else {
@@ -86,5 +117,25 @@ mod tests {
     #[test]
     fn missing_directory_yields_no_entries() {
         assert!(scan(Path::new("Z:/definitely/not/here")).is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn common_root_lives_under_programdata() {
+        let base = Path::new(r"C:\ProgramData");
+        assert_eq!(
+            common_startup_root_from(base),
+            PathBuf::from(r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup")
+        );
+    }
+
+    #[test]
+    fn common_scan_never_panics_and_uses_startup_source() {
+        // Live machine-wide folder when present; empty elsewhere. Either
+        // way every row is a StartupFolder entry with command == location.
+        for e in scan_common() {
+            assert_eq!(e.source, PersistenceSource::StartupFolder);
+            assert_eq!(e.command, e.location);
+        }
     }
 }

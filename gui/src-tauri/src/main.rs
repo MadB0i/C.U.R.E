@@ -224,6 +224,8 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
 
     emit_stage(&app, "startup", "Walking the per-user Startup folder");
     entries.extend(scanners::startup::scan(&startup_root()));
+    emit_stage(&app, "startup-common", "Walking the machine-wide Startup folder");
+    entries.extend(scanners::startup::scan_common());
 
     emit_stage(&app, "tasks", "Parsing scheduled task definitions");
     let task_report = scanners::scheduled_tasks::scan_report(&tasks_root());
@@ -598,8 +600,10 @@ fn quarantine_entry(id: String, _name: String, _command: String) -> Result<Strin
 
 #[tauri::command]
 fn undo_entry(id: String) -> Result<(), String> {
-    // Scoped restore (see cli cmd_undo): only under the scanned roots.
-    let roots = vec![startup_root(), tasks_root()];
+    // Scoped restore (see cli cmd_undo): only under the scanned roots. The
+    // machine-wide Startup folder is always scanned, so always in scope.
+    let mut roots = vec![startup_root(), tasks_root()];
+    roots.extend(scanners::startup::default_common_startup_root());
     quarantine::undo_scoped(&resolve_data_dir(), &id, Some(&roots))
         .map(|_| ())
         .map_err(|e| e.to_string())
@@ -702,6 +706,7 @@ async fn export_report(format: String, redact: bool) -> Result<String, String> {
     #[cfg(not(windows))]
     coverage.push(CoverageRow::unavailable("Registry autoruns", "Windows-only source"));
     entries.extend(scanners::startup::scan(&startup_root()));
+    entries.extend(scanners::startup::scan_common());
     let task_report = scanners::scheduled_tasks::scan_report(&tasks_root());
     coverage.push(tasks_state_row(&task_report));
     entries.extend(task_report.entries);
@@ -965,6 +970,7 @@ async fn export_incident_report(
     #[cfg(windows)]
     entries.extend(scanners::registry::scan().unwrap_or_default());
     entries.extend(scanners::startup::scan(&startup_root()));
+    entries.extend(scanners::startup::scan_common());
     entries.extend(scanners::scheduled_tasks::scan(&tasks_root()));
     let service_records = scanners::collect_services();
     entries.extend(service_records.iter().map(|r| r.entry.clone()));

@@ -16,6 +16,10 @@ use crate::model::PersistenceEntry;
 pub fn collect_all(startup_root: &Path, tasks_root: &Path) -> Vec<PersistenceEntry> {
     let mut all = Vec::new();
     all.extend(startup::scan(startup_root));
+    // Machine-wide Startup folder (no-op off-Windows). The `--startup-root`
+    // override replaces only the per-user root; the common folder is ambient
+    // (like HKLM Run keys, which likewise ignore overrides).
+    all.extend(startup::scan_common());
     all.extend(scheduled_tasks::scan(tasks_root));
     #[cfg(windows)]
     {
