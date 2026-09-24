@@ -19,6 +19,30 @@ const TRUSTED_TOKENS: [&str; 3] = ["program files", "system32", "syswow64"];
 
 const SNEAKY_POWERSHELL_TOKENS: [&str; 3] = ["-enc", "-windowstyle hidden", "-w hidden"];
 
+/// Known Windows script-host / LOLBin executables (file names, lowercase).
+/// A *signed* copy of one of these with suspicious arguments is the classic
+/// living-off-the-land pattern, so command-line heuristics must decide —
+/// see `discounts_suppressed` in `score_with_signals`.
+const LOLBIN_NAMES: &[&str] = &[
+    "powershell.exe",
+    "pwsh.exe",
+    "cmd.exe",
+    "mshta.exe",
+    "rundll32.exe",
+    "regsvr32.exe",
+    "wscript.exe",
+    "cscript.exe",
+    "msbuild.exe",
+];
+
+/// True when `program` (already normalized: lowercase, `/` separators) is a
+/// known LOLBin by exact file name. File-name equality — not substring — so
+/// `evilpowershell.exe` does not match.
+fn is_lolbin_program(program: &str) -> bool {
+    let file = program.rsplit('/').next().unwrap_or(program);
+    LOLBIN_NAMES.contains(&file)
+}
+
 pub fn extract_program_path(command: &str) -> &str {
     let trimmed = command.trim();
     if let Some(unquoted) = trimmed.strip_prefix('"') {
@@ -153,11 +177,29 @@ pub fn score_with_signals(
         .iter()
         .any(|t| path_has_token(&command_norm, t));
 
+    let sneaky_powershell = command_norm.contains("powershell")
+        && SNEAKY_POWERSHELL_TOKENS
+            .iter()
+            .any(|t| command_norm.contains(t));
+
+    // F-LOLBIN-1: a signed script host with suspicious command-line
+    // arguments must not be laundered by location/signature discounts.
+    // When at least one command-line heuristic fires (drop zone here;
+    // remote-arg joins this condition in the next step), the heuristics
+    // decide alone: NEITHER the trusted (-20) NOR the Valid (-40) discount
+    // applies. Penalties (Invalid +40, hash) are untouched, and with no
+    // heuristic firing scoring is unchanged.
+    let discounts_suppressed = is_lolbin_program(&program_norm) && (drop_zone || sneaky_powershell);
+    let trusted_effective = trusted && !discounts_suppressed;
+    if discounts_suppressed {
+        reasons.push("script host with suspicious arguments: trust discounts withheld".to_string());
+    }
+
     if drop_zone {
         score += 30;
         reasons.push("+30 command path sits in a temp/downloads/public drop zone".to_string());
     }
-    if trusted {
+    if trusted_effective {
         score -= 20;
         reasons.push(
             "-20 command path is a trusted install location (Program Files/System32)".to_string(),
@@ -177,17 +219,13 @@ pub fn score_with_signals(
         reasons.push("COM class redirection target (TreatAs)".to_string());
     }
 
-    let sneaky_powershell = command_norm.contains("powershell")
-        && SNEAKY_POWERSHELL_TOKENS
-            .iter()
-            .any(|t| command_norm.contains(t));
     if sneaky_powershell {
         score += 25;
         reasons.push("+25 PowerShell invoked with encoded command or hidden window".to_string());
     }
 
     let profile_exe =
-        program_norm.ends_with(".exe") && program_norm.contains("/users/") && !trusted;
+        program_norm.ends_with(".exe") && program_norm.contains("/users/") && !trusted_effective;
     if profile_exe {
         score += 10;
         reasons.push("+10 executable runs directly from a user profile folder".to_string());
@@ -198,10 +236,14 @@ pub fn score_with_signals(
     // other warning signs are already on the board. Reason strings double
     // as GUI chip tags — keep them short (see app.js reasonChipLabel).
     match signature {
-        SignatureStatus::ValidSigned => {
+        // F-LOLBIN-1: the Valid discount is withheld for script hosts with
+        // suspicious arguments (already noted above); the binary is still
+        // scored on its heuristics alone.
+        SignatureStatus::ValidSigned if !discounts_suppressed => {
             reasons.push(format!("-{SIGNED_DISCOUNT} Valid Signature"));
             score -= SIGNED_DISCOUNT;
         }
+        SignatureStatus::ValidSigned => {}
         SignatureStatus::Invalid => {
             reasons.push(format!("+{INVALID_SIGNATURE_PENALTY} Invalid Signature"));
             score += INVALID_SIGNATURE_PENALTY;
@@ -557,8 +599,11 @@ mod tests {
     }
 
     #[test]
-    fn valid_signature_can_downgrade_a_suspicious_entry() {
-        // sneaky powershell +25 normally Suspicious; signed tool calms it down
+    fn valid_signature_withheld_for_lolbin_with_heuristic() {
+        // F-LOLBIN-1: sneaky powershell +25 stays Suspicious even when
+        // signed — the Valid discount no longer launders script hosts with
+        // suspicious arguments. (Bare `powershell.exe` program matches the
+        // LOLBin list by file name.)
         let scored = score_with_signals(
             &entry(
                 "OfficeTelemetry",
@@ -567,8 +612,16 @@ mod tests {
             SignatureStatus::ValidSigned,
             None,
         );
-        assert_eq!(scored.score, 0);
-        assert_eq!(scored.risk, RiskLevel::Safe);
+        assert_eq!(scored.score, 25);
+        assert_eq!(scored.risk, RiskLevel::Suspicious);
+        assert!(
+            scored
+                .reasons
+                .iter()
+                .all(|r| !r.starts_with("-40 Valid Signature")),
+            "discount must be withheld: {:?}",
+            scored.reasons
+        );
     }
 
     // ---- Detection Engine v2: hash IOC override ----
