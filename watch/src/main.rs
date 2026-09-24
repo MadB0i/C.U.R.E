@@ -12,6 +12,8 @@ mod logger;
 mod pairing;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod self_update;
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+mod uninstall;
 
 use consent::{ConsentDecision, CONSENT_FILE_NAME};
 
@@ -24,6 +26,9 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == "pair") {
         std::process::exit(cmd_pair(&args));
+    }
+    if args.iter().any(|a| a == "--uninstall") {
+        std::process::exit(cmd_uninstall(&args));
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -90,6 +95,149 @@ only binary ever launched)",
 fn cmd_pair(_args: &[String]) -> i32 {
     println!("`cure-watch pair` is a Windows-only operation.");
     2
+}
+
+/// `cure-watch --uninstall [--yes] [--dry-run]`: remove exactly what
+/// self-install created (see `uninstall::managed_paths`), then verify.
+/// Exit 0 = clean, 1 = leftovers/refused/failed, 2 = usage error.
+/// Idempotent: absent items report as already-absent, never as errors.
+#[cfg(target_os = "windows")]
+fn cmd_uninstall(args: &[String]) -> i32 {
+    let mut yes = false;
+    let mut dry_run = false;
+    for arg in args {
+        match arg.as_str() {
+            "--uninstall" => {}
+            "--yes" => yes = true,
+            "--dry-run" => dry_run = true,
+            other => {
+                eprintln!("unknown flag for --uninstall: {other}");
+                eprintln!("usage: cure-watch --uninstall [--yes] [--dry-run]");
+                return 2;
+            }
+        }
+    }
+
+    let plan = uninstall::removal_plan();
+    println!("cure-watch uninstall: {} removal target(s):", plan.len());
+    for target in &plan {
+        println!("  {:?} {}", target.kind, target.path.display());
+    }
+    if dry_run {
+        println!("dry run: nothing will be deleted.");
+    } else if !yes {
+        if !stdin_is_tty() {
+            eprintln!(
+                "refusing to uninstall without confirmation in a non-interactive \
+session (re-run with --yes, or use --dry-run to preview)"
+            );
+            return 1;
+        }
+        if !ask_confirm("Remove the C.U.R.E watcher (files above)?") {
+            println!("cancelled: nothing was removed.");
+            return 0;
+        }
+    }
+
+    let mut leftovers: Vec<String> = Vec::new();
+    for target in &plan {
+        for (path, outcome) in uninstall::execute_target(target, dry_run) {
+            match &outcome {
+                uninstall::RemovalOutcome::Removed => {
+                    println!("removed: {}", path.display())
+                }
+                uninstall::RemovalOutcome::AlreadyAbsent
+                | uninstall::RemovalOutcome::WouldKeepAbsent => {
+                    println!("absent: {}", path.display())
+                }
+                uninstall::RemovalOutcome::WouldRemove => {
+                    println!("would remove: {}", path.display())
+                }
+                uninstall::RemovalOutcome::RefusedReparsePoint => {
+                    let msg = format!("reparse point left for manual review: {}", path.display());
+                    println!("{msg}");
+                    leftovers.push(msg);
+                }
+                uninstall::RemovalOutcome::RefusedUnknownName => {
+                    let msg = format!("refused (not a managed name): {}", path.display());
+                    println!("{msg}");
+                    leftovers.push(msg);
+                }
+                uninstall::RemovalOutcome::Failed(err) => {
+                    let msg = format!("failed {}: {err}", path.display());
+                    println!("{msg}");
+                    leftovers.push(msg);
+                }
+            }
+        }
+    }
+
+    if dry_run {
+        println!("dry run complete: nothing was changed.");
+        return 0;
+    }
+    // Verification pass: re-check every file/dir target is gone.
+    for target in &plan {
+        match target.kind {
+            uninstall::RemovalKind::File | uninstall::RemovalKind::DirIfEmpty => {
+                if !uninstall::verify_gone(&target.path, &target.kind) {
+                    leftovers.push(format!("still present: {}", target.path.display()));
+                }
+            }
+            // DecoySweep targets verify via the marker re-scan below.
+            uninstall::RemovalKind::DecoySweep => {}
+        }
+    }
+    // Re-scan decoy dirs directly for anything still matching the marker.
+    for target in plan
+        .iter()
+        .filter(|t| matches!(t.kind, uninstall::RemovalKind::DecoySweep))
+    {
+        if let Ok(entries) = std::fs::read_dir(&target.path) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if cure_core::canary::is_canary_decoy(&name) {
+                    leftovers.push(format!("decoy still present: {}", entry.path().display()));
+                }
+            }
+        }
+    }
+
+    if leftovers.is_empty() {
+        println!("clean — every cure-watch artifact verified gone.");
+        0
+    } else {
+        println!("leftovers — {} item(s) need attention:", leftovers.len());
+        for item in &leftovers {
+            println!("  - {item}");
+        }
+        1
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn cmd_uninstall(_args: &[String]) -> i32 {
+    println!("`cure-watch --uninstall` is a Windows-only operation.");
+    2
+}
+
+/// True when stdin is an interactive terminal (std only, no extra dep).
+#[cfg(target_os = "windows")]
+fn stdin_is_tty() -> bool {
+    use std::io::IsTerminal as _;
+    std::io::stdin().is_terminal()
+}
+
+/// Strict `[y/N]` prompt: only an explicit `y`/`yes` counts as consent.
+#[cfg(target_os = "windows")]
+fn ask_confirm(prompt: &str) -> bool {
+    use std::io::Write as _;
+    print!("{prompt} [y/N] ");
+    let _ = std::io::stdout().flush();
+    let mut line = String::new();
+    std::io::stdin()
+        .read_line(&mut line)
+        .is_ok_and(|_| matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes"))
 }
 
 #[cfg(target_os = "windows")]
