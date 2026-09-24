@@ -181,20 +181,26 @@ pub fn score_with_signals(
     let trusted = TRUSTED_TOKENS
         .iter()
         .any(|t| path_has_token(&command_norm, t));
-
     let sneaky_powershell = command_norm.contains("powershell")
         && SNEAKY_POWERSHELL_TOKENS
             .iter()
             .any(|t| command_norm.contains(t));
 
+    // F-LOLBIN-1: a LOLBin pulling a remote payload (URL arg or UNC path)
+    // scores at least Suspicious on its own (+25 clears the threshold even
+    // with every discount withheld). LOLBin-gated: `http://` in a data
+    // file path elsewhere is not this signal.
+    let remote_arg = is_lolbin_program(&program_norm) && has_remote_arg(&command_norm);
+
     // F-LOLBIN-1: a signed script host with suspicious command-line
     // arguments must not be laundered by location/signature discounts.
-    // When at least one command-line heuristic fires (drop zone here;
-    // remote-arg joins this condition in the next step), the heuristics
-    // decide alone: NEITHER the trusted (-20) NOR the Valid (-40) discount
-    // applies. Penalties (Invalid +40, hash) are untouched, and with no
-    // heuristic firing scoring is unchanged.
-    let discounts_suppressed = is_lolbin_program(&program_norm) && (drop_zone || sneaky_powershell);
+    // When at least one command-line heuristic fires (drop zone, sneaky
+    // PowerShell, remote arg), the heuristics decide alone: NEITHER the
+    // trusted (-20) NOR the Valid (-40) discount applies. Penalties
+    // (Invalid +40, hash) are untouched, and with no heuristic firing
+    // scoring is unchanged.
+    let discounts_suppressed =
+        is_lolbin_program(&program_norm) && (drop_zone || sneaky_powershell || remote_arg);
     let trusted_effective = trusted && !discounts_suppressed;
     if discounts_suppressed {
         reasons.push("script host with suspicious arguments: trust discounts withheld".to_string());
@@ -223,10 +229,14 @@ pub fn score_with_signals(
     if entry.source == PersistenceSource::ComHijack && is_bare_guid(&entry.command) {
         reasons.push("COM class redirection target (TreatAs)".to_string());
     }
-
     if sneaky_powershell {
         score += 25;
         reasons.push("+25 PowerShell invoked with encoded command or hidden window".to_string());
+    }
+
+    if remote_arg {
+        score += 25;
+        reasons.push("+25 script host invoked with remote argument (URL/UNC)".to_string());
     }
 
     let profile_exe =
@@ -286,6 +296,20 @@ pub fn score_with_signals(
     }
 
     scored
+}
+
+/// True when a normalized command line hands a LOLBin a remote payload:
+/// `http://`, `https://`, `ftp://` (matched as `://`), or a UNC path
+/// (`\\host\share`, normalized to `//host/share`). Pure over the already
+/// normalized string so it is unit-testable without the environment.
+fn has_remote_arg(command_norm: &str) -> bool {
+    if command_norm.contains("://") {
+        return true;
+    }
+    command_norm.split_whitespace().any(|tok| {
+        let t = tok.trim_matches('"');
+        t.starts_with("//") && t.len() > 2 && !t[2..].starts_with('/')
+    })
 }
 
 fn normalize(text: &str) -> String {
