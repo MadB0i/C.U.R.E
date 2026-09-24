@@ -5,22 +5,20 @@
   borderless, topmost test window that closes itself after N minutes.
 
 .DESCRIPTION
-  Why this shape: cure-gui's overlay dismissal (gui/src-tauri/src/main.rs,
-  collect_window_candidates + cure_core::overlay::is_suspicious_overlay)
-  closes a visible window only when ALL of these hold:
-    1. WS_EX_TOPMOST is set            (main.rs:1431)
-    2. WS_CAPTION is NOT set           (main.rs:1432, "borderless")
-    3. owner binary has NO valid Authenticode signature
-       (main.rs:1467 check_signature; overlay.rs:55 `!= ValidSigned`,
-       so Unsigned, Invalid, Unknown AND ValidRevocationUnknown all match)
-    4. not cure-gui's own window and not under %WINDIR%
-       (main.rs:1464-1466 is_own / is_under_windows_dir)
+  Why this shape: cure-gui's overlay review (Start Rescue ->
+  `list_overlay_candidates`, per-window cards) lists a visible window only
+  when ALL of these hold (`core/src/overlay.rs`): WS_EX_TOPMOST set,
+  WS_CAPTION unset ("borderless"), owner binary resolvable and NOT
+  ValidSigned, not cure-gui's own window, not under %WINDIR%, covering >=
+  90% of its monitor, and not on the path+hash allowlist.
   The window below is WS_POPUP (no caption) + WS_EX_TOPMOST, lives in
   %TEMP%\CURE_TEST (not under %WINDIR%), and is compiled locally by csc.exe
-  so it is UNSIGNED. That is the full match set — nothing more.
-  It handles WM_CLOSE via DefWindowProc, so CURE's first action (PostMessageW
-  WM_CLOSE, main.rs:1499) closes it gracefully; the 500 ms wait + TerminateProcess
-  fallback (main.rs:1501-1508) should NOT be needed for this window.
+  so it is UNSIGNED — but it is SMALL (~480x200, <25% of 1080p), so the
+  coverage gate correctly EXCLUDES it. Use it as the negative control
+  (must never be listed); use the repo's fullscreen testing/fake-overlay
+  for the positive case. Closing is always per-window confirmed: Close =
+  graceful WM_CLOSE (this window's DefWindowProc handles it), Force close =
+  explicit terminate only.
   The window quits itself after -Minutes via a timer. No network, no files
   (besides its own exe), no registry, no persistence.
 

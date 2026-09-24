@@ -47,8 +47,9 @@ real desktop windows). Items not executed are listed under "Needs VM validation"
 
 Dropped from P-list (checked, fine): CLI `scan`/`diff`/`report`/`incident` are read-only apart from
 writing their own output files (VERIFIED: `scan` writes only `baseline.json` to `--data-dir`);
-overlay dismissal requires the Start Rescue click (`gui …/main.rs:1332` comment + `dismiss_overlays`
-invoked from `start-rescue-btn` handler); `kill_high_risk_processes` re-validates PID→name
+overlay review requires the Start Rescue click and closes only per-window-confirmed
+candidates (graceful `WM_CLOSE` default; termination only via explicit per-window
+Force close); `kill_high_risk_processes` re-validates PID→name
 (`:1023-1035`); Tauri allowlist is minimal (`capabilities/default.json` = `core:default` only);
 frontend has no `eval`/`new Function` and all 32 `innerHTML` sites are clears/static/escaped
 (`escHtml` at `gui/dist/app.js:53-55`); services `Manual`/`Disabled` exclusion and HKLM-COM exclusion
@@ -144,13 +145,17 @@ number for exactly this reason.)
 - Watcher token flow end-to-end: consent → self-install → host pin →
   media stamp → arrival launch; spoofed-USB ignore; `pair` command.
 - Watcher self-install to the Startup folder (writes `%APPDATA%`, Startup).
+- `cure-watch --uninstall` live (incl. locked-file leftovers, decoy sweep,
+  post-uninstall no-launch on USB insert).
 - Real revoked-certificate validation (CERT_E_REVOKED path live).
 - Quarantine/undo of a real file with ACLs (elevated + unelevated),
   occupied-target, double-quarantine, orphan surfacing in CLI output.
 - `cure cleanup run` (incl. locked files, Downloads opt-in) and the new
   reparse-point refusals against real junctions.
 - DISM execution (elevated, minutes-long) incl. the new second prompt.
-- GUI `dismiss_overlays` close→terminate path; `kill_high_risk_processes`.
+- GUI overlay review: fullscreen-fixture card, graceful Close, explicit
+  Force close, allowlist loop, signed-owner negative control;
+  `kill_high_risk_processes`.
 - GUI ignored overlay test via `testing/run-gui-desktop-tests.bat`.
 - Elevated runs (skipped-key accounting, WMI/registry CHECK FAILED rows).
 - Clean-VM baseline run; USB-passthrough trigger timing; cold-cache

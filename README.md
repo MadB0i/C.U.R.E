@@ -77,7 +77,11 @@ What is trusted:
   first consented run (`%LOCALAPPDATA%\CURE\cure-gui.exe`, pinned by
   SHA-256; the watcher launches nothing else, ever).
 - Your own explicit confirmations (Start Rescue click, `[y/N]` prompts,
-  `--yes` flags). Nothing destructive runs without one.
+  `--yes` flags, per-window overlay Close buttons). Nothing destructive
+  runs without one. Overlay candidates are shown — never silently closed:
+  Close sends a graceful `WM_CLOSE`, and process termination happens only
+  through an explicit per-window Force-close click. Apps you approve are
+  remembered by exact path + binary hash in a local allowlist.
 
 What is NOT trusted:
 

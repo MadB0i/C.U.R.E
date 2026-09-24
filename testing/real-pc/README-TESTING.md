@@ -94,39 +94,40 @@ reached through the override flag (`--startup-root`, `cli/src/main.rs:41`).
 | Screenshot | Before/after `icacls` diff (README-worthy fidelity proof). |
 | Cleanup | Step 10. |
 
-## 7. Overlay dismissal (dummy window)
+## 7. Overlay review (dummy window)
 
-Background (exact criteria, `gui/src-tauri/src/main.rs:1426-1479` +
-`core/src/overlay.rs:51-56`): a **visible** window is closed only if
-**all** hold — `WS_EX_TOPMOST` set (`:1431`), `WS_CAPTION` unset
-(`:1432`), owner binary resolvable and **not** `ValidSigned` (`:1467`;
-`Unknown`/`Invalid`/`Unsigned`/`ValidRevocationUnknown` all match), not
-cure-gui's own window, not under `%WINDIR%` (`is_under_windows_dir`,
-`:1360-1366`). Close sequence: `PostMessageW(WM_CLOSE)`, 500 ms wait,
-then `OpenProcess(PROCESS_TERMINATE)` + `TerminateProcess` (`:1486-1516`).
-Trigger: **only** the Start Rescue click (`gui/dist/app.js:4394-4400`
-invokes `dismiss_overlays`); nothing auto-runs it — verified single call
-site.
+Background (exact criteria, `gui/src-tauri/src/main.rs` candidate
+collection + `core/src/overlay.rs` matcher): a **visible** window is
+*shown for confirmation* only if **all** hold — `WS_EX_TOPMOST` set,
+`WS_CAPTION` unset, owner binary resolvable (unattributable windows are
+skipped and can never match) and **not** `ValidSigned`, not cure-gui's own
+window, not under `%WINDIR%`, covering ≥ **90% of its monitor**
+(`OVERLAY_COVERAGE_THRESHOLD`, `core/src/overlay.rs`), and not on the
+user's path+hash allowlist (`overlay-allowlist.json` in the app data dir).
+Trigger: **only** the Start Rescue click (invokes `list_overlay_candidates`;
+verified call sites in `gui/dist/app.js`). **Nothing closes without a
+per-window click**: Close = graceful `WM_CLOSE` only
+(`close_overlay_window(hwnd, force=false)`); process termination happens
+only through the explicit per-window Force-close button
+(`force=true` → `TerminateProcess`, never an automatic fallback).
 
 | | |
 |---|---|
 | Do | `.\CURE_TEST_overlay.ps1 -Minutes 5` (compiles unsigned `CURE_TEST_overlay.exe` via `csc.exe` if needed; refuses to launch if it ever reports signed). Confirm the small topmost window appears. |
 | Do | In cure-gui click **Start Rescue**. |
-| CURE should do | The dummy closes **gracefully** (its `DefWindowProc` handles `WM_CLOSE`; the terminate fallback should be unnecessary). Report line names the window; `(terminated)` must NOT appear. |
-| Screenshot | Before (dummy visible) / after (closed + report line) — README-worthy. |
-| Cleanup | The window self-closes after N minutes regardless; `remove-test-artifacts.ps1` deletes the exe. |
+| CURE should do | A review card appears (process, full path, PID, signature state, size, coverage %) with **Close window** / **Force close** / **Don't ask again for this app** buttons, plus **Continue scan**. NOTE: the kit dummy is small (~480×200, <25% coverage), so under the 90% rule it is correctly **NOT listed** — this itself is the coverage-gate check. For a positive match use the repo's fullscreen fixture instead: build + run `testing\fake-overlay` (fullscreen, borderless, topmost, unsigned), then Start Rescue and expect a card for it. |
+| Do (positive) | Click **Close window** on the fake-overlay card. |
+| CURE should do | Graceful close (fixture handles `WM_CLOSE`); card reports closed, `(terminated)` must NOT appear. |
+| Do (allowlist loop) | Re-run the overlay, click **Don't ask again for this app** on its card, close it, re-run it, Start Rescue again. |
+| CURE should do | No card this time (`overlay-allowlist.json` gained a path+hash entry); delete that file to reset. |
+| Screenshot | Card with PID/signature/coverage (README-worthy); closed line without `(terminated)`. |
+| Cleanup | Windows self-close after N minutes regardless; `remove-test-artifacts.ps1` deletes the kit exe (fake-overlay is repo tooling, remove manually). |
 
-**Finding — FP surface (from code, UNVERIFIED live):** the criteria hit
-*any* visible + topmost + borderless + non-valid-signed + non-Windows-dir
-window. Legitimate examples: unsigned indie games in borderless-windowed
-mode, AutoHotkey/custom-utility topmost palettes, unsigned installer
-splashes, unsigned kiosk apps. If such a window ignores `WM_CLOSE` for
-500 ms, its **process is terminated** (`TerminateProcess(handle, 1)`) —
-potential data loss. Mitigations in code: AND-of-four rule, own/system
-exclusions, unattributable-window skip (`:1458`, `:1461` `continue`), and
-no auto-run (explicit Start Rescue click only). Test negative control:
-a topmost borderless window owned by a *signed* binary (e.g. PowerShell-
-hosted) must be left alone.
+**Known limits (honest note, kept):** a *fullscreen* unsigned borderless
+topmost window (unsigned indie game, AHK utility, installer splash) is
+still *shown* — a human must judge it. Force close terminates the owning
+process on explicit click only. Signed binaries and `%WINDIR%` owners are
+never listed; unattributable windows are skipped. All UNVERIFIED live.
 
 ## 8. Watcher token flow (needs a spare USB or `subst` drive)
 
@@ -156,26 +157,21 @@ UNVERIFIED live: all five rows (needs watcher + media on a live box).
 
 ## 9. cure-watch removal check
 
-**Finding: no uninstall command exists in the code** (`git grep
-"uninstall" -- '*.rs' '*.ps1'` returns nothing). Removal is fully manual —
-delete exactly these (paths from `self_update.rs:46-50`,
-`consent.rs:55-57`, `logger.rs:9`, `pairing.rs:228-241`) after killing the
-process:
+FIXED (was: no uninstall command): `cure-watch --uninstall` now exists
+(`watch/src/uninstall.rs`; derived from the same constants self-install
+uses, unit-tested against drift). Dry-run first, then run it:
 
 ```bat
-taskkill /IM cure-watch.exe /F
-del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\cure-watch.exe"
-del "%APPDATA%\cure-watch-consent.json"
-del "%APPDATA%\cure-watch.log"
-rmdir /s "%LOCALAPPDATA%\CURE"
-del "%USERPROFILE%\Desktop\~cure-canary-*" "%USERPROFILE%\Documents\~cure-canary-*" "%USERPROFILE%\Downloads\~cure-canary-*"
+cure-watch --uninstall --dry-run
+cure-watch --uninstall
 ```
 
 | | |
 |---|---|
-| Do | Run the commands above one by one. |
-| CURE should do | N/A — verify yourself: `Get-Process cure-watch` empty; all five paths gone; decoys gone from the three folders (names `~cure-canary-*`, `core/src/canary.rs:15-24`; planter never overwrites, `winwatch/src/lib.rs:52-54`). Re-run `cure-watch.exe` → consent prompt reappears (marker gone = `AskNow`, `consent.rs:30-43`). |
-| Screenshot | Before/after dir listings (README-worthy for the "reversible" claim). |
+| CURE should do | List the 9 targets (5 files + host dir + 3 decoy sweeps), ask `[y/N]` (refuses without `--yes` when non-interactive), remove, then print `clean` or `leftovers` with exit 0/1. Reparse points are never followed. After uninstall, reinserting a paired USB must launch nothing (no pairing record → pure gate ignores; log `arrival ignored: no pairing record`). |
+| Verify yourself | `Get-Process cure-watch` empty; `%APPDATA%\…\Startup\cure-watch.exe`, `%APPDATA%\cure-watch-consent.json`, `%APPDATA%\cure-watch.log`, `%LOCALAPPDATA%\CURE\` gone; `~cure-canary-*` gone from Desktop/Documents/Downloads. Re-run `cure-watch.exe` → consent prompt reappears (marker gone = `AskNow`, `consent.rs:30-43`). Manual fallback (same paths, from `self_update.rs:46-50`, `consent.rs:55-57`, `logger.rs:9`, `pairing.rs:228-241`): |
+| | `taskkill /IM cure-watch.exe /F` + delete the five paths above. |
+| Screenshot | `clean` output (README-worthy for the "reversible" claim). |
 | Cleanup | N/A (this IS cleanup). |
 
 ## 10. Final cleanup
@@ -186,7 +182,14 @@ del "%USERPROFILE%\Desktop\~cure-canary-*" "%USERPROFILE%\Documents\~cure-canary
 | Do | Re-run `cure.exe --data-dir … scan` and confirm zero `CURE_TEST_` rows. |
 | Screenshot | `RESULT: clean` output. |
 
-## What this kit deliberately does NOT cover (VM-only)
+## Needs manual validation (UNVERIFIED live — record outcomes here)
 
-`cure cleanup run`, DISM, elevated scans, real-malware canaries, cold-cache
-revocation, USB-passthrough timing — see `AUDIT.md` "Needs VM validation".
+- `cure cleanup run`, DISM (incl. the second prompt), elevated scans.
+- Real-malware canaries (kit stays synthetic by design), cold-cache
+  revocation rendering, USB-passthrough trigger timing.
+- Watcher: consent Yes/No, self-install, all five §8 USB rows, `--uninstall`
+  incl. locked-file leftovers, post-uninstall no-launch.
+- Overlay: fullscreen fixture card, graceful Close, explicit Force close on
+  the kit dummy, allowlist loop, signed-owner negative control.
+- Quarantine/undo of the ACL probe (hash-exact, ACE-level compare).
+- `remove-test-artifacts.ps1` ending `RESULT: clean` on a fully-built box.
