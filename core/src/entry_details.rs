@@ -20,8 +20,10 @@ use crate::scanners::scheduled_tasks::TaskDetails;
 /// Enrichment for one finding, by source shape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EntryDetails {
-    /// VALID / INVALID / UNSIGNED / UNKNOWN for the entry's resolved
-    /// executable, or UNKNOWN when nothing resolves.
+    /// VALID / INVALID / UNSIGNED / UNKNOWN / UNVERIFIED for the entry's
+    /// resolved executable, or UNKNOWN when nothing resolves. UNVERIFIED
+    /// means the signature checks out but revocation could not be confirmed
+    /// offline — display only, never a trust signal.
     pub signature: String,
     /// Signer display name when extractable. `None` is normal for
     /// unsigned/unverifiable targets and says nothing about intent.

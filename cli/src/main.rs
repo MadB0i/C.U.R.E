@@ -48,6 +48,13 @@ struct Cli {
     )]
     tasks_root: Option<PathBuf>,
 
+    #[arg(
+        long,
+        global = true,
+        help = "allow Authenticode revocation checks to fetch CRL/OCSP online (default: cache-only, no network)"
+    )]
+    online_revocation: bool,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -163,6 +170,12 @@ fn main() {
 
 fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
     let paths = resolve(cli);
+    // Explicit opt-in only: without this flag every signature check in this
+    // process is cache-only and no revocation fetch may leave the machine.
+    cure_core::signature::set_online_revocation_allowed(cli.online_revocation);
+    if cli.online_revocation {
+        println!("note: online revocation fetching enabled (CRL/OCSP may be fetched)");
+    }
     fs::create_dir_all(&paths.data_dir)?;
     match &cli.command {
         Command::Scan => cmd_scan(&paths),

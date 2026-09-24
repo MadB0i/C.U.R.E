@@ -172,6 +172,14 @@ pub fn score_with_signals(
             reasons.push(format!("+{UNSIGNED_WITH_WARNINGS_PENALTY} Unsigned Binary"));
             score += UNSIGNED_WITH_WARNINGS_PENALTY;
         }
+        SignatureStatus::ValidRevocationUnknown => {
+            // Scoreless evidence: the signature verifies but revocation is
+            // unverified (offline cache). Never the trusted discount, never
+            // a penalty. Worded to avoid the GUI's "valid signature" chip
+            // matcher (see app.js reasonChipLabel) — this must not render
+            // as a trust chip.
+            reasons.push("signed but revocation unverified (offline)".to_string());
+        }
         SignatureStatus::Unsigned | SignatureStatus::Unknown => {}
     }
 
@@ -274,6 +282,11 @@ pub fn score_service(
         SignatureStatus::Unsigned if score > 0 => {
             reasons.push(format!("+{UNSIGNED_WITH_WARNINGS_PENALTY} Unsigned Binary"));
             score += UNSIGNED_WITH_WARNINGS_PENALTY;
+        }
+        SignatureStatus::ValidRevocationUnknown => {
+            // Scoreless evidence (see score_with_signals): not trusted,
+            // not bad.
+            reasons.push("signed but revocation unverified (offline)".to_string());
         }
         SignatureStatus::Unsigned | SignatureStatus::Unknown => {}
     }

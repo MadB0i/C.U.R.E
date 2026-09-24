@@ -141,6 +141,10 @@ pub fn score_process(
                 ));
             }
         }
+        SignatureStatus::ValidRevocationUnknown => {
+            // Scoreless evidence: verified signature, unverified revocation.
+            reasons.push("signed but revocation unverified (offline)".to_string());
+        }
         SignatureStatus::Unknown => {}
     }
 

@@ -1540,6 +1540,9 @@ fn dismiss_overlays() -> Result<DismissReport, String> {
                 SignatureStatus::Invalid => "INVALID signature",
                 SignatureStatus::Unsigned => "unsigned",
                 SignatureStatus::Unknown => "unverifiable",
+                // Still closed by pick_overlays (`!= ValidSigned`): a window
+                // whose signature cannot be revocation-checked is not trusted.
+                SignatureStatus::ValidRevocationUnknown => "revocation-unverified",
             }
             .to_string();
             let went_away = close_overlay(*hwnd_raw);
