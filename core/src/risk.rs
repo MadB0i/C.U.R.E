@@ -124,6 +124,15 @@ pub fn hash_hit_reason(description: &str) -> String {
 /// 4. trusted location −20, valid signature −40 (never below zero).
 /// 5. unsigned/unknown alone → no signal.
 ///
+/// What "−20 trusted" means: the command path contains a whole
+/// `Program Files` / `System32` / `SysWOW64` component, i.e. the binary
+/// was installed through a trusted location rather than dropped somewhere
+/// writable. It is a *location* signal, not a trust verdict on the binary
+/// itself — which is why F-LOLBIN-1 suppresses it (with the Valid discount)
+/// for known script-host LOLBins when a command-line heuristic fires.
+///
+/// Score thresholds ([`risk_level`]): <15 Safe, 15–39 Suspicious, ≥40 HighRisk.
+///
 /// Publisher identity NEVER affects precedence (display only): an exact hash
 /// or a broken signature beats a valid signature, and signed malware exists.
 pub fn score_with_signals(
