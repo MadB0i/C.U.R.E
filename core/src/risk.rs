@@ -1071,30 +1071,12 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // LOLBin scoring — signed Microsoft hosts with suspicious args currently
-    // score Safe due to the -40 Valid discount. These tests document the
-    // desired future behavior (no discount when LOLBin + heuristic fires)
-    // and are intentionally ignored until the scoring change is approved.
+    // LOLBin scoring (F-LOLBIN-1): signed script hosts with suspicious
+    // command-line arguments get no trusted/Valid discounts — heuristics
+    // decide. regsvr32.exe joins the production list below.
     // -----------------------------------------------------------------------
 
-    const LOLBINS: &[&str] = &[
-        "powershell.exe",
-        "pwsh.exe",
-        "cmd.exe",
-        "mshta.exe",
-        "rundll32.exe",
-        "wscript.exe",
-        "cscript.exe",
-        "msbuild.exe",
-    ];
-
-    fn is_lolbin(program: &str) -> bool {
-        let lower = program.to_ascii_lowercase();
-        LOLBINS.iter().any(|bin| lower.ends_with(bin))
-    }
-
     #[test]
-    #[ignore = "pending approval: LOLBin with heuristics should not get Valid discount"]
     fn lolbin_powershell_hidden_encoded_stays_flagged() {
         let entry = crate::model::PersistenceEntry::new(
             crate::model::PersistenceSource::RegistryRun,
@@ -1109,7 +1091,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "pending approval: LOLBin with heuristics should not get Valid discount"]
     fn lolbin_cmd_with_temp_payload_stays_flagged() {
         let entry = crate::model::PersistenceEntry::new(
             crate::model::PersistenceSource::RegistryRun,
@@ -1128,11 +1109,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "pending approval: LOLBin with heuristics should not get Valid discount"]
     fn lolbin_mshta_with_http_stays_flagged() {
-        // mshta with http is not currently a heuristic, so this test documents
-        // that the minimal fix must either add a heuristic or explicitly list
-        // mshta as LOLBin that never gets discount when URL present.
+        // Remote-arg heuristic (F-LOLBIN-1 step 4): mshta + URL now fires
+        // on its own, so no blanket rule is needed for this case.
         let entry = crate::model::PersistenceEntry::new(
             crate::model::PersistenceSource::RegistryRun,
             "test",
@@ -1140,8 +1119,7 @@ mod tests {
             "HKCU\\Run",
         );
         let scored = score_with_signals(&entry, SignatureStatus::ValidSigned, None);
-        // Currently Safe (0) because no heuristic fires; desired after fix is investigation.
-        // This test will fail until a mshta+http heuristic or blanket LOLBin rule is added.
+        // +25 remote-arg, discounts withheld → Suspicious, never Safe.
         assert_ne!(
             scored.risk,
             RiskLevel::Safe,
@@ -1152,7 +1130,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "pending approval: LOLBin with heuristics should not get Valid discount"]
     fn lolbin_rundll32_with_temp_dll_stays_flagged() {
         let entry = crate::model::PersistenceEntry::new(
             crate::model::PersistenceSource::RegistryRun,
@@ -1171,11 +1148,123 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "pending approval: LOLBin discount helper is pure and case-insensitive"]
     fn lolbin_helper_is_pure() {
-        assert!(is_lolbin("C:\\Windows\\System32\\powershell.exe"));
-        assert!(is_lolbin("POWERSHELL.EXE"));
-        assert!(is_lolbin("cmd.exe"));
-        assert!(!is_lolbin("notepad.exe"));
+        // Production helper (was test-local before the fix).
+        assert!(is_lolbin_program("c:/windows/system32/powershell.exe"));
+        assert!(is_lolbin_program("powershell.exe"));
+        assert!(is_lolbin_program("c:/tool/cmd.exe"));
+        assert!(is_lolbin_program("c:/windows/system32/regsvr32.exe"));
+        assert!(!is_lolbin_program("c:/windows/system32/notepad.exe"));
+        assert!(!is_lolbin_program("c:/tools/evilpowershell.exe"));
+        assert!(!is_lolbin_program(""));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn lolbin_cmd_percent_temp_expands_to_drop_zone() {
+        // %TEMP% must expand before token matching (F-LOLBIN-1 step 3), so
+        // the drop-zone heuristic fires and discounts are withheld.
+        let entry = crate::model::PersistenceEntry::new(
+            crate::model::PersistenceSource::RegistryRun,
+            "test",
+            r"C:\Windows\System32\cmd.exe /c %TEMP%\payload.exe",
+            "HKCU\\Run",
+        );
+        let scored = score_with_signals(&entry, SignatureStatus::ValidSigned, None);
+        assert!(
+            scored.reasons.iter().any(|r| r.starts_with("+30")),
+            "expanded %TEMP% must hit the drop-zone token: {:?}",
+            scored.reasons
+        );
+        assert_ne!(
+            scored.risk,
+            RiskLevel::Safe,
+            "cmd with %TEMP% payload must not be Safe even when signed: {:?}",
+            scored.reasons
+        );
+    }
+
+    /// Benign LOLBin uses that must stay Safe under ValidSigned, each
+    /// checked Run-key style AND .lnk style (same command, `.lnk` name):
+    /// after the F-LNK-1 scanner change both styles share one pipeline,
+    /// so their scores must be identical.
+    #[test]
+    fn lolbin_benign_controls_stay_safe_both_styles() {
+        let cases = [
+            (
+                "rundll32-shell32",
+                r"C:\Windows\System32\rundll32.exe shell32.dll,Control_RunDLL",
+            ),
+            (
+                "rundll32-legit",
+                r"C:\Windows\System32\rundll32.exe C:\Windows\System32\legit.dll,Entry",
+            ),
+            (
+                "ps-file",
+                r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -File C:\Program Files\Vendor\tool.ps1",
+            ),
+            (
+                "cmd-bat",
+                r"C:\Windows\System32\cmd.exe /c C:\Windows\System32\something.bat",
+            ),
+            (
+                "mshta-local",
+                r"C:\Windows\System32\mshta.exe C:\Windows\help\local.hta",
+            ),
+        ];
+        for (label, command) in cases {
+            let run_entry = crate::model::PersistenceEntry::new(
+                crate::model::PersistenceSource::RegistryRun,
+                label,
+                command,
+                "HKCU\\Run",
+            );
+            let lnk_entry = crate::model::PersistenceEntry::new(
+                crate::model::PersistenceSource::StartupFolder,
+                &format!("{label}.lnk"),
+                command,
+                &format!("C:\\Startup\\{label}.lnk"),
+            );
+            let run_scored = score_with_signals(&run_entry, SignatureStatus::ValidSigned, None);
+            let lnk_scored = score_with_signals(&lnk_entry, SignatureStatus::ValidSigned, None);
+            assert_eq!(
+                run_scored.score, lnk_scored.score,
+                "{label}: Run-key vs .lnk style must score identically"
+            );
+            assert_eq!(
+                run_scored.risk,
+                RiskLevel::Safe,
+                "{label}: benign control must stay Safe, got {:?} {:?}",
+                run_scored.risk,
+                run_scored.reasons
+            );
+        }
+    }
+
+    /// Broadcast check over the same benign set with Unknown signature:
+    /// no discounts apply, yet nothing may cross into Suspicious either.
+    #[test]
+    fn lolbin_benign_controls_stay_safe_unsigned() {
+        for command in [
+            r"C:\Windows\System32\rundll32.exe shell32.dll,Control_RunDLL",
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -File C:\Program Files\Vendor\tool.ps1",
+            r"C:\Windows\System32\cmd.exe /c C:\Windows\System32\something.bat",
+            r"C:\Windows\System32\mshta.exe C:\Windows\help\local.hta",
+        ] {
+            let entry = crate::model::PersistenceEntry::new(
+                crate::model::PersistenceSource::RegistryRun,
+                "test",
+                command,
+                "HKCU\\Run",
+            );
+            let scored = score_with_signals(&entry, SignatureStatus::Unknown, None);
+            assert_eq!(
+                scored.risk,
+                RiskLevel::Safe,
+                "benign control must stay Safe unsigned too: {command} -> {:?} {:?}",
+                scored.risk,
+                scored.reasons
+            );
+        }
     }
 }
