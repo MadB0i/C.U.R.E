@@ -265,12 +265,34 @@ mod imp {
                 let _ = CloseServiceHandle(scm);
                 return Err(e.code().0);
             }
-            let statuses: &[ENUM_SERVICE_STATUS_PROCESSW] = std::slice::from_raw_parts(
-                buf.as_ptr() as *const ENUM_SERVICE_STATUS_PROCESSW,
-                returned as usize,
-            );
+            // ALIGNMENT INVARIANT: `buf` is a byte vec with no alignment
+            // guarantee, while ENUM_SERVICE_STATUS_PROCESSW needs 8. Copy
+            // the reported records into aligned storage instead of
+            // reinterpreting the byte buffer (the old from_raw_parts cast
+            // was undefined behavior on under-aligned heaps).
+            let rec_size = std::mem::size_of::<ENUM_SERVICE_STATUS_PROCESSW>();
+            let mut statuses: Vec<ENUM_SERVICE_STATUS_PROCESSW> =
+                Vec::with_capacity(returned as usize);
+            let mut cursor = buf.as_slice();
+            for _ in 0..returned {
+                let Some((head, tail)) = cursor.split_at_checked(rec_size) else {
+                    // Short buffer (SCM shrank the set mid-call): keep the
+                    // records decoded so far rather than panicking.
+                    break;
+                };
+                cursor = tail;
+                // SAFETY: `head` is exactly one struct's worth of bytes
+                // written by the API above; copying out by value avoids any
+                // alignment requirement on the source buffer. The struct is
+                // plain data (pointers + ints) so a byte copy is a valid
+                // clone; string pointers reference SCM memory, not `buf`.
+                // (Inside scan_inner's outer unsafe block.)
+                let rec: ENUM_SERVICE_STATUS_PROCESSW =
+                    std::ptr::read_unaligned(head.as_ptr() as *const _);
+                statuses.push(rec);
+            }
 
-            for st in statuses {
+            for st in &statuses {
                 match describe_service(scm, st) {
                     Ok(Some(rec)) => out.push(rec),
                     Err(()) => skipped_config += 1,
@@ -308,20 +330,30 @@ mod imp {
             return Err(());
         };
 
-        // Two-call QueryServiceConfig.
+        // Two-call QueryServiceConfig. The API packs the struct AND its
+        // string data contiguously into `needed` bytes, so a lone struct is
+        // not enough storage — but a byte vec has no alignment guarantee.
+        // ALIGNMENT INVARIANT: back the buffer with `u64` (alignment 8 ≥
+        // align_of::<QUERY_SERVICE_CONFIGW>() == 8 on 64-bit; debug-asserted
+        // below) and cast only that aligned base.
         let mut needed = 0u32;
         let _ = QueryServiceConfigW(svc, None, 0, &mut needed);
         if needed == 0 {
             let _ = CloseServiceHandle(svc);
             return Err(());
         }
-        let mut cfg_buf = vec![0u8; needed as usize];
+        debug_assert!(std::mem::align_of::<QUERY_SERVICE_CONFIGW>() <= 8);
+        let mut cfg_words = vec![0u64; needed as usize / 8 + 1];
         #[allow(clippy::cast_ptr_alignment)]
-        let cfg = &mut *(cfg_buf.as_mut_ptr() as *mut QUERY_SERVICE_CONFIGW);
-        if QueryServiceConfigW(svc, Some(cfg), needed, &mut needed).is_err() {
+        let cfg = cfg_words.as_mut_ptr() as *mut QUERY_SERVICE_CONFIGW;
+        if QueryServiceConfigW(svc, Some(&mut *cfg), needed, &mut needed).is_err() {
             let _ = CloseServiceHandle(svc);
             return Err(());
         }
+        // SAFETY: the successful call above wrote one full struct plus its
+        // string data into our aligned buffer; the strings are read via
+        // `wide_str` (NUL-terminated) before `svc` closes.
+        let cfg: &QUERY_SERVICE_CONFIGW = unsafe { &*cfg };
         let start_raw = cfg.dwStartType;
         let image_path = wide_str(cfg.lpBinaryPathName.0 as *const u16);
         let account = wide_str(cfg.lpServiceStartName.0 as *const u16);
@@ -412,5 +444,21 @@ mod tests {
     #[test]
     fn non_windows_returns_empty() {
         assert!(scan().is_empty());
+    }
+
+    /// Live SCM enumeration through the aligned buffer paths (read-only).
+    /// Guards the F-06 rewrite: every auto-start service on the box must
+    /// decode with a name and a start type, and the skipped-config counter
+    /// must stay consistent.
+    #[cfg(windows)]
+    #[test]
+    fn live_enumeration_decodes_all_records() {
+        let (records, skipped) = super::imp::scan_inner().expect("SCM enumeration must succeed");
+        assert!(!records.is_empty(), "expected auto-start services");
+        for rec in &records {
+            assert!(!rec.entry.name.is_empty());
+            assert!(!rec.image_path.is_empty());
+        }
+        let _ = skipped;
     }
 }
