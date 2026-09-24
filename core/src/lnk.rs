@@ -476,9 +476,13 @@ mod tests {
         create_shell_link(&link, &target, "--test-flag", dir.path());
         let raw = std::fs::read(&link).unwrap();
         let info = parse(&raw).expect("shell link must parse");
+        // IShellLink persists the canonical long form while `tempdir()` may
+        // hand back an 8.3 short form (e.g. RUNNER~1 on CI). Compare
+        // long-canonicalized on both sides so the test is stable.
+        let expected_long = to_long_path_best_effort(&target.to_string_lossy());
         assert_eq!(
             info.target.as_deref(),
-            Some(target.to_string_lossy().as_ref()),
+            Some(expected_long.as_str()),
             "raw parser must prefer the absolute LinkInfo path over the relative string"
         );
     }

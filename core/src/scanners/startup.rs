@@ -194,10 +194,18 @@ mod tests {
 
     #[test]
     fn common_scan_never_panics_and_uses_startup_source() {
-        // Live machine-wide folder when present; empty elsewhere. Either
-        // way every row is a StartupFolder entry with command == location.
+        // Live machine-wide folder when present; empty elsewhere. Every row
+        // is a StartupFolder entry. After F-LNK-1, `.lnk` rows carry
+        // command == resolved target (+ args) while location stays the .lnk
+        // file; non-shortcut rows keep command == location.
         for e in scan_common() {
             assert_eq!(e.source, PersistenceSource::StartupFolder);
+            assert!(!e.command.is_empty(), "empty command for {e:?}");
+            assert!(!e.location.is_empty(), "empty location for {e:?}");
+            if crate::entry_details::is_shortcut_name(&e.name) {
+                // Resolved target or fallback to the .lnk path itself.
+                continue;
+            }
             assert_eq!(e.command, e.location);
         }
     }
@@ -270,10 +278,13 @@ mod tests {
         let e = &entries[0];
         // location stays the persistence mechanism (the .lnk file itself)
         assert_eq!(e.location, link.to_string_lossy().as_ref());
-        // command must be the resolved target + args, never the .lnk path
+        // command must be the resolved target + args, never the .lnk path.
+        // `tempdir()` may be 8.3-short (RUNNER~1) while the resolver expands
+        // to long, so canonicalize the expectation the same way.
+        let expected_target = to_long_path_if_exists(&target.to_string_lossy());
         assert_eq!(
             e.command,
-            format!("{} --flag", target.to_string_lossy()),
+            format!("{expected_target} --flag"),
             "F-LNK-1: command still points at .lnk, not target"
         );
     }
@@ -411,10 +422,11 @@ mod tests {
 
         let entries = scan(startup.path());
         let e = entries.iter().find(|e| e.name == "env.lnk").unwrap();
-        // Command must be the expanded absolute target, not the raw %VAR% and not the .lnk path
+        // Command must be the expanded absolute target, not the raw %VAR% and not the .lnk path.
+        // %TEMP% itself may be 8.3-short while the resolver expands to long.
+        let expected_long = to_long_path_if_exists(&real_target.to_string_lossy());
         assert_eq!(
-            e.command,
-            real_target.to_string_lossy().as_ref(),
+            e.command, expected_long,
             "env var not expanded to absolute: command={:?}",
             e.command
         );
