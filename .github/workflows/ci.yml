@@ -11,6 +11,24 @@ env:
   RUSTFLAGS: "-D warnings"
 
 jobs:
+  frontend-net:
+    name: No remote URLs in shipped frontend
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail on remote asset URLs in gui/dist
+        shell: pwsh
+        run: |
+          # The shipped webview UI must work fully offline. The only allowed
+          # http(s) string is the SVG namespace constant (never fetched).
+          $hits = Select-String -Path 'gui/dist/*' -Pattern 'https?://' |
+            Where-Object { $_.Line -notmatch 'http://www\.w3\.org/2000/svg' }
+          if ($hits) {
+            $hits | ForEach-Object { Write-Output "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }
+            exit 1
+          }
+          Write-Output 'no remote URLs in gui/dist'
+
   test:
     name: Test (workspace)
     runs-on: windows-latest
@@ -23,7 +41,9 @@ jobs:
       - name: Run workspace tests
         run: cargo test --workspace
       - name: Check workspace clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Check formatting
+        run: cargo fmt --check
 
   build-gui:
     name: Build GUI
@@ -37,6 +57,9 @@ jobs:
           key: gui
       - name: Build GUI (release)
         run: cargo build --release
+        working-directory: gui/src-tauri
+      - name: Run headless-safe GUI tests (desktop tests are #[ignore]d)
+        run: cargo test
         working-directory: gui/src-tauri
       - name: Upload cure-gui artifact
         uses: actions/upload-artifact@v4

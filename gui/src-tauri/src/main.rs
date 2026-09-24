@@ -51,7 +51,9 @@ struct RansomFinding {
     path: String,
     detail: String,
     suspected_family: Option<String>,
-    nomoreransom_url: Option<String>,
+    // NOTE: no help URL is attached. The frontend must never navigate to
+    // remote content; the ransom help panel names the resource as plain
+    // text for the operator to type into a browser themselves.
 }
 
 #[derive(Serialize)]
@@ -222,6 +224,8 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
 
     emit_stage(&app, "startup", "Walking the per-user Startup folder");
     entries.extend(scanners::startup::scan(&startup_root()));
+    emit_stage(&app, "startup-common", "Walking the machine-wide Startup folder");
+    entries.extend(scanners::startup::scan_common());
 
     emit_stage(&app, "tasks", "Parsing scheduled task definitions");
     let task_report = scanners::scheduled_tasks::scan_report(&tasks_root());
@@ -455,7 +459,6 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
             RansomFindingCore::Note(note) => {
                 let snippet = ransom_detect::load_note_content(&note.path, 4096);
                 let family = ransom_detect::guess_family(&snippet);
-                let url = family.map(|_| "https://www.nomoreransom.org/".to_string());
                 RansomFinding {
                     finding_type: "ransom-note".to_string(),
                     path: note.path.to_string_lossy().to_string(),
@@ -465,7 +468,6 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
                         format!("Matched pattern: {} — \"{}\"", note.matched_stem, &snippet[..snippet.len().min(120)])
                     },
                     suspected_family: family.map(|s| s.to_string()),
-                    nomoreransom_url: url,
                 }
             }
             RansomFindingCore::BulkEncryption(cluster) => RansomFinding {
@@ -476,7 +478,6 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
                     cluster.file_count, cluster.extension, cluster.avg_age_days
                 ),
                 suspected_family: None,
-                nomoreransom_url: None,
             },
         };
 
@@ -599,8 +600,10 @@ fn quarantine_entry(id: String, _name: String, _command: String) -> Result<Strin
 
 #[tauri::command]
 fn undo_entry(id: String) -> Result<(), String> {
-    // Scoped restore (see cli cmd_undo): only under the scanned roots.
-    let roots = vec![startup_root(), tasks_root()];
+    // Scoped restore (see cli cmd_undo): only under the scanned roots. The
+    // machine-wide Startup folder is always scanned, so always in scope.
+    let mut roots = vec![startup_root(), tasks_root()];
+    roots.extend(scanners::startup::default_common_startup_root());
     quarantine::undo_scoped(&resolve_data_dir(), &id, Some(&roots))
         .map(|_| ())
         .map_err(|e| e.to_string())
@@ -703,6 +706,7 @@ async fn export_report(format: String, redact: bool) -> Result<String, String> {
     #[cfg(not(windows))]
     coverage.push(CoverageRow::unavailable("Registry autoruns", "Windows-only source"));
     entries.extend(scanners::startup::scan(&startup_root()));
+    entries.extend(scanners::startup::scan_common());
     let task_report = scanners::scheduled_tasks::scan_report(&tasks_root());
     coverage.push(tasks_state_row(&task_report));
     entries.extend(task_report.entries);
@@ -966,6 +970,7 @@ async fn export_incident_report(
     #[cfg(windows)]
     entries.extend(scanners::registry::scan().unwrap_or_default());
     entries.extend(scanners::startup::scan(&startup_root()));
+    entries.extend(scanners::startup::scan_common());
     entries.extend(scanners::scheduled_tasks::scan(&tasks_root()));
     let service_records = scanners::collect_services();
     entries.extend(service_records.iter().map(|r| r.entry.clone()));
@@ -1291,7 +1296,9 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             run_auto_scan,
-            dismiss_overlays,
+            list_overlay_candidates,
+            close_overlay_window,
+            allowlist_overlay,
             kill_high_risk_processes,
             quarantine_entry,
             undo_entry,
@@ -1337,18 +1344,168 @@ fn main() {
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize)]
-struct ClosedOverlay {
+struct OverlayCandidateDto {
+    hwnd: isize,
     title: String,
     process: String,
+    path: String,
+    pid: u32,
     signature: String,
-    /// true = WM_CLOSE was ignored and the process had to be terminated.
-    terminated: bool,
+    width: i32,
+    height: i32,
+    coverage_pct: f64,
 }
 
 #[derive(Serialize)]
-struct DismissReport {
+struct OverlayCandidateList {
     checked: usize,
-    closed: Vec<ClosedOverlay>,
+    candidates: Vec<OverlayCandidateDto>,
+}
+
+fn signature_text(sig: &SignatureStatus) -> String {
+    match sig {
+        SignatureStatus::ValidSigned => "signed",
+        SignatureStatus::Invalid => "INVALID signature",
+        SignatureStatus::Unsigned => "unsigned",
+        SignatureStatus::Unknown => "unverifiable",
+        // Shown for confirmation (`!= ValidSigned`): a window whose
+        // signature cannot be revocation-checked is not trusted.
+        SignatureStatus::ValidRevocationUnknown => "revocation-unverified",
+    }
+    .to_string()
+}
+
+/// Persistent per-app allowlist ("Don't ask again for this app"), stored as
+/// JSON next to the other app-owned data. Missing/corrupt file = empty list
+/// (fail open to *asking*, never to silent closing).
+fn overlay_allowlist_path() -> PathBuf {
+    resolve_data_dir().join("overlay-allowlist.json")
+}
+
+fn load_overlay_allowlist() -> Vec<cure_core::overlay::AllowEntry> {
+    load_overlay_allowlist_from(&overlay_allowlist_path())
+}
+
+fn load_overlay_allowlist_from(path: &Path) -> Vec<cure_core::overlay::AllowEntry> {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
+fn save_overlay_allowlist(entries: &[cure_core::overlay::AllowEntry]) -> Result<(), String> {
+    let dir = resolve_data_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create data dir: {e}"))?;
+    save_overlay_allowlist_to(&dir.join("overlay-allowlist.json"), entries)
+}
+
+fn save_overlay_allowlist_to(
+    path: &Path,
+    entries: &[cure_core::overlay::AllowEntry],
+) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("cannot create data dir: {e}"))?;
+    }
+    let json = serde_json::to_string_pretty(entries).map_err(|e| format!("encode error: {e}"))?;
+    std::fs::write(path, json).map_err(|e| format!("write error: {e}"))
+}
+
+/// List overlay candidates for per-window confirmation. Matches are SHOWN,
+/// never closed here — closing is a separate per-window command below.
+#[tauri::command]
+fn list_overlay_candidates() -> Result<OverlayCandidateList, String> {
+    #[cfg(not(windows))]
+    {
+        return Ok(OverlayCandidateList {
+            checked: 0,
+            candidates: Vec::new(),
+        });
+    }
+
+    #[cfg(windows)]
+    {
+        use cure_core::overlay::OverlayCandidate;
+        let allowlist = load_overlay_allowlist();
+        let collected = collect_window_candidates()?;
+        let checked = collected.len();
+        let mut with_hash: Vec<OverlayCandidate> = Vec::with_capacity(checked);
+        for (_, desc, sig) in &collected {
+            let hash = cure_core::hash_intel::sha256_file_hex(&desc.process_path);
+            with_hash.push(OverlayCandidate {
+                desc: desc.clone(),
+                signature: *sig,
+                binary_sha256: hash,
+            });
+        }
+        let picks = overlay::pick_overlays(&with_hash, &allowlist);
+        let mut candidates = Vec::with_capacity(picks.len());
+        for idx in picks {
+            let (hwnd_raw, desc, sig) = &collected[idx];
+            let width = (desc.rect.right - desc.rect.left).max(0);
+            let height = (desc.rect.bottom - desc.rect.top).max(0);
+            candidates.push(OverlayCandidateDto {
+                hwnd: *hwnd_raw,
+                title: desc.title.clone(),
+                process: desc.process_name(),
+                path: desc.process_path.to_string_lossy().into_owned(),
+                pid: desc.pid,
+                signature: signature_text(sig),
+                width,
+                height,
+                coverage_pct: desc.coverage_ratio() * 100.0,
+            });
+        }
+        Ok(OverlayCandidateList {
+            checked,
+            candidates,
+        })
+    }
+}
+
+/// Close a single candidate window the operator confirmed.
+/// `force = false`: graceful `WM_CLOSE` only. `force = true`: terminate the
+/// owning process (explicit per-window Force-close button only).
+#[tauri::command]
+fn close_overlay_window(hwnd: isize, force: bool) -> Result<CloseResult, String> {
+    #[cfg(not(windows))]
+    {
+        let _ = (hwnd, force);
+        return Err("overlay closing is Windows-only".to_string());
+    }
+
+    #[cfg(windows)]
+    {
+        let result = do_close_overlay_window(hwnd, force)?;
+        log_overlay_action(&format!(
+            "{} window hwnd={hwnd} (force={force}): closed={} terminated={}",
+            if force { "force-closed" } else { "close-requested" },
+            result.closed,
+            result.terminated
+        ));
+        Ok(result)
+    }
+}
+
+/// "Don't ask again for this app": pin the binary currently at `path` by
+/// (normalized full path, SHA-256) so future matches skip it. Fails when
+/// the file cannot be hashed — unhashable binaries stay askable.
+#[tauri::command]
+fn allowlist_overlay(path: String) -> Result<String, String> {
+    let target = PathBuf::from(&path);
+    if !target.is_file() {
+        return Err(format!("not a file (anymore): {path}"));
+    }
+    let hash = cure_core::hash_intel::sha256_file_hex(&target)
+        .ok_or_else(|| format!("could not hash (locked/unreadable?): {path}"))?;
+    let entry = cure_core::overlay::AllowEntry::new(&path, &hash);
+    let mut entries = load_overlay_allowlist();
+    if entries.iter().any(|e| e == &entry) {
+        return Ok(format!("already allowlisted: {path}"));
+    }
+    entries.push(entry);
+    save_overlay_allowlist(&entries)?;
+    log_overlay_action(&format!("allowlisted {path} (sha256 {hash})"));
+    Ok(format!("allowlisted (this binary only): {path}"))
 }
 
 #[cfg(windows)]
@@ -1382,21 +1539,28 @@ fn log_overlay_action(line: &str) {
 }
 
 /// Enumerate visible top-level windows and describe each one. Pure glue:
-/// every judgement call is delegated to cure_core::overlay.
+/// every judgement call is delegated to cure_core::overlay. Unattributable
+/// windows (no PID / unresolvable owner binary) are skipped here and can
+/// never become candidates — the matcher additionally refuses pid-0/empty
+/// owners as defense in depth.
 #[cfg(windows)]
 fn collect_window_candidates()
     -> Result<Vec<(isize, WindowDesc, SignatureStatus)>, String>
 {
-    use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
+    use windows::Win32::Foundation::{BOOL, HWND, LPARAM, RECT};
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
     use windows::Win32::System::Threading::{
         OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
         PROCESS_QUERY_LIMITED_INFORMATION,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW,
-        GetWindowThreadProcessId, IsWindowVisible, GWL_EXSTYLE, GWL_STYLE, WS_CAPTION,
-        WS_EX_TOPMOST,
+        EnumWindows, GetSystemMetrics, GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW,
+        GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, GWL_EXSTYLE, GWL_STYLE,
+        SM_CXSCREEN, SM_CYSCREEN, WS_CAPTION, WS_EX_TOPMOST,
     };
+    use cure_core::overlay::WindowRect;
 
     let mut out: Vec<(isize, WindowDesc, SignatureStatus)> = Vec::new();
     let own_exe = std::env::current_exe().ok().and_then(|e| e.canonicalize().ok());
@@ -1461,11 +1625,54 @@ fn collect_window_candidates()
             let is_system = is_under_windows_dir(&process_path);
             let signature = cure_core::signature::check_signature(&process_path);
 
+            // Window rect (for the coverage gate + the confirmation card).
+            let mut rc = RECT::default();
+            let rect = if GetWindowRect(hwnd, &mut rc).is_ok() {
+                WindowRect {
+                    left: rc.left,
+                    top: rc.top,
+                    right: rc.right,
+                    bottom: rc.bottom,
+                }
+            } else {
+                WindowRect {
+                    left: 0,
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                }
+            };
+            // Containing monitor size (per-monitor, not primary-only, so a
+            // fullscreen window on a secondary display still measures ~1.0).
+            // Falls back to the primary metrics if the monitor query fails.
+            // (Inside the loop's outer unsafe block.)
+            let mut monitor = (
+                GetSystemMetrics(SM_CXSCREEN) as u32,
+                GetSystemMetrics(SM_CYSCREEN) as u32,
+            );
+            {
+                let hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                let mut info = MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                    ..Default::default()
+                };
+                if GetMonitorInfoW(hmon, &mut info).as_bool() {
+                    let w = (info.rcMonitor.right - info.rcMonitor.left).max(0) as u32;
+                    let h = (info.rcMonitor.bottom - info.rcMonitor.top).max(0) as u32;
+                    if w > 0 && h > 0 {
+                        monitor = (w, h);
+                    }
+                }
+            }
+
             out.push((
                 raw,
                 WindowDesc {
                     title,
                     process_path,
+                    pid,
+                    rect,
+                    monitor,
                     is_topmost,
                     is_borderless,
                     is_own_process: is_own,
@@ -1478,13 +1685,12 @@ fn collect_window_candidates()
     Ok(out)
 }
 
-/// WM_CLOSE first; if the window survives 500ms, terminate its process.
+/// Request a graceful close (`WM_CLOSE` only — never terminate). Returns
+/// whether the window is gone afterwards (checked after a short wait so the
+/// UI can report honestly instead of assuming).
 #[cfg(windows)]
-fn close_overlay(hwnd_raw: isize) -> bool {
+fn request_close(hwnd_raw: isize) -> bool {
     use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-    use windows::Win32::System::Threading::{
-        OpenProcess, TerminateProcess, PROCESS_TERMINATE,
-    };
     use windows::Win32::UI::WindowsAndMessaging::{IsWindow, PostMessageW, WM_CLOSE};
     let hwnd = HWND(hwnd_raw as *mut core::ffi::c_void);
     unsafe {
@@ -1493,74 +1699,66 @@ fn close_overlay(hwnd_raw: isize) -> bool {
         }
         let _ = PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
         std::thread::sleep(std::time::Duration::from_millis(500));
-        if IsWindow(hwnd).as_bool() {
-            let mut pid = 0u32;
-            windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(
-                hwnd,
-                Some(&mut pid),
-            );
-            if let Ok(handle) = OpenProcess(PROCESS_TERMINATE, false, pid) {
-                let _ = TerminateProcess(handle, 1);
-                let _ = windows::Win32::Foundation::CloseHandle(handle);
-                return true;
-            }
-            return false;
-        }
-        true
+        !IsWindow(hwnd).as_bool()
     }
 }
 
-#[tauri::command]
-fn dismiss_overlays() -> Result<DismissReport, String> {
-    #[cfg(not(windows))]
-    {
-        return Ok(DismissReport {
-            checked: 0,
-            closed: Vec::new(),
-        });
-    }
-
-    #[cfg(windows)]
-    {
-        let candidates = collect_window_candidates()?;
-        let checked = candidates.len();
-        let picks = overlay::pick_overlays(
-            &candidates
-                .iter()
-                .map(|(_, desc, sig)| (desc.clone(), *sig))
-                .collect::<Vec<_>>(),
-        );
-
-        let mut closed = Vec::new();
-        for idx in picks {
-            let (hwnd_raw, desc, sig) = &candidates[idx];
-            let process = desc.process_name();
-            let sig_text = match sig {
-                SignatureStatus::ValidSigned => "signed",
-                SignatureStatus::Invalid => "INVALID signature",
-                SignatureStatus::Unsigned => "unsigned",
-                SignatureStatus::Unknown => "unverifiable",
-            }
-            .to_string();
-            let went_away = close_overlay(*hwnd_raw);
-            let terminated = !went_away;
-            log_overlay_action(&format!(
-                "closed window {:?} (process {}, {}{})",
-                desc.title,
-                desc.process_path.display(),
-                sig_text,
-                if terminated { "; process TERMINATED after WM_CLOSE was ignored" } else { "" }
-            ));
-            closed.push(ClosedOverlay {
-                title: desc.title.clone(),
-                process,
-                signature: sig_text,
-                terminated,
-            });
+/// Explicit, per-window "Force close": terminate the owning process.
+/// Only ever called from the frontend's Force-close button for a window the
+/// operator already reviewed — never as an automatic fallback.
+#[cfg(windows)]
+fn force_close(hwnd_raw: isize) -> Result<bool, String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+    use windows::Win32::UI::WindowsAndMessaging::{GetWindowThreadProcessId, IsWindow};
+    let hwnd = HWND(hwnd_raw as *mut core::ffi::c_void);
+    unsafe {
+        if !IsWindow(hwnd).as_bool() {
+            return Ok(true); // already gone
         }
-        Ok(DismissReport { checked, closed })
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == 0 {
+            return Err("could not attribute the window to a process".to_string());
+        }
+        let handle =
+            OpenProcess(PROCESS_TERMINATE, false, pid).map_err(|e| format!("OpenProcess failed: {e}"))?;
+        let _ = TerminateProcess(handle, 1);
+        let _ = windows::Win32::Foundation::CloseHandle(handle);
+        Ok(true)
     }
 }
+
+/// Close one candidate window. `force = false` posts `WM_CLOSE` and reports
+/// whether the window went away; `force = true` terminates the owning
+/// process (explicit operator action only).
+#[cfg(windows)]
+fn do_close_overlay_window(hwnd_raw: isize, force: bool) -> Result<CloseResult, String> {
+    if force {
+        let closed = force_close(hwnd_raw)?;
+        Ok(CloseResult {
+            closed,
+            terminated: true,
+        })
+    } else {
+        let closed = request_close(hwnd_raw);
+        Ok(CloseResult {
+            closed,
+            terminated: false,
+        })
+    }
+}
+
+#[derive(Serialize)]
+struct CloseResult {
+    closed: bool,
+    terminated: bool,
+}
+
+// NOTE: the old auto-closing `dismiss_overlays` command was removed in the
+// overlay-safety pass: candidates are listed (`list_overlay_candidates`)
+// and each close is a separate, operator-confirmed `close_overlay_window`
+// call (graceful by default, explicit per-window force only).
 
 // ---------------------------------------------------------------------------
 // E2E driver (test-only, inert unless CURE_E2E_CLEANUP is set)
@@ -1950,6 +2148,7 @@ mod overlay_fixture_tests {
     }
 
     #[test]
+    #[ignore = "needs an interactive desktop session: spawns real windows (fake-overlay + notepad) and closes one. Run locally via testing/run-gui-desktop-tests.bat; never in CI."]
     fn overlay_fixture_dismisses_fake_overlay_and_spares_notepad() {
         let bin = fake_overlay_bin();
         assert!(bin.exists(), "fake-overlay.exe not built yet — run: cargo build --release -p fake-overlay");
@@ -1967,11 +2166,16 @@ mod overlay_fixture_tests {
         assert!(candidates.len() >= 2, "expected at least 2 window candidates, got {}", candidates.len());
 
         // 4. Check that pick_overlays flags the fake-overlay but not notepad
-        let scored: Vec<(WindowDesc, SignatureStatus)> = candidates
+        // (allowlist empty: nothing pre-approved on a test box).
+        let scored: Vec<cure_core::overlay::OverlayCandidate> = candidates
             .iter()
-            .map(|(_, desc, sig)| (desc.clone(), *sig))
+            .map(|(_, desc, sig)| cure_core::overlay::OverlayCandidate {
+                desc: desc.clone(),
+                signature: *sig,
+                binary_sha256: cure_core::hash_intel::sha256_file_hex(&desc.process_path),
+            })
             .collect();
-        let picks = overlay::pick_overlays(&scored);
+        let picks = overlay::pick_overlays(&scored, &[]);
 
         let overlay_name = bin.file_stem().unwrap().to_string_lossy().to_string();
         let mut found_overlay = false;
@@ -1991,12 +2195,17 @@ mod overlay_fixture_tests {
         }
         assert!(found_overlay, "fake-overlay was not detected as a suspicious overlay");
 
-        // 5. Close the fake-overlay
+        // 5. Graceful close of the fake-overlay (default path: WM_CLOSE
+        // only, no termination — the fixture's DefWindowProc handles it).
         let (hwnd_raw, _, _) = candidates.iter().find(|(_, desc, _)| {
             desc.process_name().to_ascii_lowercase().contains(&overlay_name.to_ascii_lowercase())
         }).expect("fake-overlay hwnd not found");
-        let closed = close_overlay(*hwnd_raw);
-        assert!(closed, "fake-overlay window was not closed");
+        let result = close_overlay_window(*hwnd_raw, false).expect("close_overlay_window failed");
+        assert!(result.closed, "fake-overlay window was not closed");
+        assert!(
+            !result.terminated,
+            "graceful close must not terminate (force=false)"
+        );
         std::thread::sleep(std::time::Duration::from_millis(600));
         assert!(!is_window_alive(*hwnd_raw), "fake-overlay process still alive after close_overlay");
 
@@ -2040,5 +2249,45 @@ mod data_dir_tests {
             .and_then(|e| e.parent().map(Path::to_path_buf));
         assert_ne!(Some(dir.clone()), exe_parent);
         assert_ne!(dir, PathBuf::from("."));
+    }
+}
+
+#[cfg(test)]
+#[cfg(windows)]
+mod overlay_allowlist_store_tests {
+    use super::*;
+
+    use cure_core::overlay::AllowEntry;
+
+    #[test]
+    fn missing_or_corrupt_file_means_empty_allowlist() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("overlay-allowlist.json");
+        assert!(load_overlay_allowlist_from(&path).is_empty());
+        std::fs::write(&path, b"{not json").unwrap();
+        assert!(load_overlay_allowlist_from(&path).is_empty());
+    }
+
+    #[test]
+    fn roundtrip_preserves_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("overlay-allowlist.json");
+        let entries = vec![
+            AllowEntry::new(r"D:\Games\indie.exe", &"aa".repeat(32)),
+            AllowEntry::new(r"C:\Tools\overlay-tool.exe", &"bb".repeat(32)),
+        ];
+        save_overlay_allowlist_to(&path, &entries).unwrap();
+        assert_eq!(load_overlay_allowlist_from(&path), entries);
+    }
+
+    #[test]
+    fn duplicates_are_the_callers_job_to_avoid() {
+        // save/load is a dumb store; dedup lives in allowlist_overlay.
+        // This locks the store behavior so a future dedup change is explicit.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("overlay-allowlist.json");
+        let one = AllowEntry::new(r"D:\Games\indie.exe", &"aa".repeat(32));
+        save_overlay_allowlist_to(&path, &[one.clone(), one.clone()]).unwrap();
+        assert_eq!(load_overlay_allowlist_from(&path).len(), 2);
     }
 }

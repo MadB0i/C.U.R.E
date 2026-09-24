@@ -18,23 +18,32 @@
 //!    `WTD_CHOICE_CATALOG`. This reproduces what
 //!    `Get-AuthenticodeSignature` reports for system binaries.
 //!
-//! MVP scope: verdict only — the publisher/certificate subject is NOT
-//! extracted yet (that needs certificate store walking; tracked as a Phase 4
-//! stretch goal in the README).
+//! Publisher names are extracted lazily for display only (see
+//! [`signature_detail`]) and never feed scoring — signed malware exists.
+//!
+//! Revocation posture: whole-chain revocation is always requested. By default
+//! (`RevocationMode::CacheOnly`) URL retrieval is forbidden so verification
+//! never touches the network; chains whose revocation data is not cached
+//! yield `ValidRevocationUnknown` instead of a verdict either way.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Outcome of Authenticode verification for one executable.
 ///
 /// Display mapping used by the UI/report:
 /// VALID = `ValidSigned`, INVALID = `Invalid`, UNSIGNED = `Unsigned`,
 /// UNKNOWN = `Unknown` (unverifiable — file missing, unresolvable, or
-/// WinTrust could not run). There is deliberately no separate ERROR state:
-/// anything unverifiable is UNKNOWN, and UNKNOWN is never scored against
-/// an entry — absence of evidence is not evidence.
+/// WinTrust could not run), UNVERIFIED = `ValidRevocationUnknown` (the
+/// signature itself verifies but revocation could not be checked against the
+/// offline cache). There is deliberately no separate ERROR state: anything
+/// unverifiable is UNKNOWN, and UNKNOWN is never scored against an entry —
+/// absence of evidence is not evidence. UNVERIFIED is likewise never a
+/// discount (not fully trusted) and never a penalty (not bad).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignatureStatus {
-    /// A signature (embedded or catalog-backed) verifies cleanly.
+    /// A signature (embedded or catalog-backed) verifies cleanly, revocation
+    /// included (or revocation was explicitly checked online via opt-in).
     ValidSigned,
     /// No verifiable signature at all: neither embedded nor claimed by any
     /// security catalog.
@@ -50,6 +59,115 @@ pub enum SignatureStatus {
     /// No verdict: file missing/unreadable, path unresolvable, or WinTrust
     /// could not run. Never scored for or against the entry.
     Unknown,
+    /// The signature chain verifies but revocation status is UNKNOWN because
+    /// the offline cache has no CRL/OCSP data for it (cache-only default, no
+    /// network). Displayed as UNVERIFIED: never the trusted `-40` discount,
+    /// never the `+40` penalty — scoreless evidence only.
+    ValidRevocationUnknown,
+}
+
+/// How revocation is checked during [`check_signature`].
+///
+/// The default is [`RevocationMode::CacheOnly`]: revocation is verified
+/// against the local Windows cache only, so C.U.R.E makes NO network calls.
+/// [`RevocationMode::Online`] may fetch CRLs/OCSP and is strictly opt-in
+/// (CLI `--online-revocation`); the GUI never enables it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RevocationMode {
+    /// Whole-chain revocation, cache only. Offline-safe, zero network.
+    #[default]
+    CacheOnly,
+    /// Whole-chain revocation with live fetch allowed. Explicit opt-in only.
+    Online,
+}
+
+/// Process-wide revocation opt-in. `false` (default) = cache-only everywhere.
+/// Flipped once at startup by the CLI `--online-revocation` flag; read on
+/// every verification so scans stay consistent within a run.
+static ONLINE_REVOCATION_ALLOWED: AtomicBool = AtomicBool::new(false);
+
+/// Enable (`true`) or disable (`false`, default) online revocation fetching.
+/// Off by default: C.U.R.E makes no network calls unless the operator opts in.
+pub fn set_online_revocation_allowed(allowed: bool) {
+    ONLINE_REVOCATION_ALLOWED.store(allowed, Ordering::SeqCst);
+}
+
+/// Effective revocation mode for this process.
+pub fn revocation_mode() -> RevocationMode {
+    if ONLINE_REVOCATION_ALLOWED.load(Ordering::SeqCst) {
+        RevocationMode::Online
+    } else {
+        RevocationMode::CacheOnly
+    }
+}
+
+/// Raw WinTrust flag words `(fdwRevocationChecks, dwProvFlags)` for a mode.
+///
+/// `WTD_REVOKE_WHOLECHAIN` (1) always; `WTD_CACHE_ONLY_URL_RETRIEVAL`
+/// (0x10000) only in cache-only mode. Pure and cross-platform so the contract
+/// is unit-tested without WinTrust; the Windows glue wraps these words in the
+/// typed `windows` constants (same numeric values, verified against the
+/// 0.58 projection).
+pub fn wintrust_flag_words(mode: RevocationMode) -> (u32, u32) {
+    match mode {
+        RevocationMode::CacheOnly => (0x0000_0001, 0x0001_0000),
+        RevocationMode::Online => (0x0000_0001, 0),
+    }
+}
+
+/// Pure HRESULT → status mapping shared by the embedded and catalog stages.
+///
+/// - `S_OK` → valid (under whole-chain checking this means revocation
+///   verified too).
+/// - `TRUST_E_NOSIGNATURE` → unsigned (caller tries the catalog fallback).
+/// - Revoked-signer codes → [`SignatureStatus::Invalid`] (untrusted, +40).
+/// - Revocation-indeterminate codes (offline cache miss, no provider) →
+///   [`SignatureStatus::ValidRevocationUnknown`] (scoreless, UNVERIFIED).
+/// - Environmental codes → [`SignatureStatus::Unknown`].
+/// - Anything else (bad digest, expired, untrusted root, …) → Invalid.
+pub fn status_from_hresult(hr: i32) -> SignatureStatus {
+    const S_OK: i32 = 0;
+    const TRUST_E_NOSIGNATURE: i32 = 0x800B_0100u32 as i32;
+    const CRYPT_E_FILE_ERROR: i32 = 0x8009_2003u32 as i32;
+    const TRUST_E_PROVIDER_UNKNOWN: i32 = 0x800B_0001u32 as i32;
+    const TRUST_E_ACTION_UNKNOWN: i32 = 0x800B_0002u32 as i32;
+    const TRUST_E_SUBJECT_FORM_UNKNOWN: i32 = 0x800B_0003u32 as i32;
+    // Revoked signers: untrusted, full penalty.
+    const CERT_E_REVOKED: i32 = 0x800B_010Cu32 as i32;
+    const CRYPT_E_REVOKED: i32 = 0x8009_2010u32 as i32;
+    // Signature verifies but revocation cannot be established offline.
+    const CRYPT_E_NO_REVOCATION_DLL: i32 = 0x8009_2011u32 as i32;
+    const CRYPT_E_NO_REVOCATION_CHECK: i32 = 0x8009_2012u32 as i32;
+    const CRYPT_E_REVOCATION_OFFLINE: i32 = 0x8009_2013u32 as i32;
+
+    if hr == S_OK {
+        return SignatureStatus::ValidSigned;
+    }
+    if hr == TRUST_E_NOSIGNATURE {
+        return SignatureStatus::Unsigned;
+    }
+    if hr == CERT_E_REVOKED || hr == CRYPT_E_REVOKED {
+        return SignatureStatus::Invalid;
+    }
+    if hr == CRYPT_E_NO_REVOCATION_DLL
+        || hr == CRYPT_E_NO_REVOCATION_CHECK
+        || hr == CRYPT_E_REVOCATION_OFFLINE
+    {
+        return SignatureStatus::ValidRevocationUnknown;
+    }
+    match hr {
+        // environmental problems: no verdict rather than "bad"
+        code if code == CRYPT_E_FILE_ERROR
+            || code == TRUST_E_PROVIDER_UNKNOWN
+            || code == TRUST_E_ACTION_UNKNOWN
+            || code == TRUST_E_SUBJECT_FORM_UNKNOWN =>
+        {
+            SignatureStatus::Unknown
+        }
+        // anything else means verification RAN and FAILED:
+        // tampered digest, bad cert chain, expired signer, distrust
+        _ => SignatureStatus::Invalid,
+    }
 }
 
 /// Extracts just the executable from a persistence command line and returns
@@ -73,23 +191,33 @@ pub fn resolve_executable_path(command: &str) -> Option<PathBuf> {
     Some(candidate.to_path_buf())
 }
 
-/// Verifies a file's Authenticode signature. Non-Windows builds have no
-/// WinTrust and always answer `Unknown`.
+/// Verifies a file's Authenticode signature with the process revocation mode
+/// (cache-only by default — no network; CLI `--online-revocation` opts in).
+/// Non-Windows builds have no WinTrust and always answer `Unknown`.
 pub fn check_signature(exe_path: &Path) -> SignatureStatus {
-    signature_detail(exe_path).status
+    check_signature_with_mode(exe_path, revocation_mode())
+}
+
+/// [`check_signature`] with an explicit [`RevocationMode`], bypassing the
+/// process-wide opt-in. Prefer the global-aware entry points unless a caller
+/// has a documented reason to pin a mode.
+pub fn check_signature_with_mode(exe_path: &Path, mode: RevocationMode) -> SignatureStatus {
+    signature_detail_with_mode(exe_path, mode).status
 }
 
 impl SignatureStatus {
     /// Stable display token for UI/report/export: VALID, INVALID,
-    /// UNSIGNED, or UNKNOWN. UNKNOWN covers every unverifiable case
-    /// (missing file, unresolvable path, WinTrust failure) and must never
-    /// be presented as suspicion.
+    /// UNSIGNED, UNKNOWN, or UNVERIFIED (signature verifies, revocation
+    /// unknown — never trust it like VALID, never score it like INVALID).
+    /// UNKNOWN covers every unverifiable case (missing file, unresolvable
+    /// path, WinTrust failure) and must never be presented as suspicion.
     pub fn label(&self) -> &'static str {
         match self {
             Self::ValidSigned => "VALID",
             Self::Invalid => "INVALID",
             Self::Unsigned => "UNSIGNED",
             Self::Unknown => "UNKNOWN",
+            Self::ValidRevocationUnknown => "UNVERIFIED",
         }
     }
 }
@@ -102,15 +230,20 @@ impl SignatureStatus {
 /// publisher says nothing about intent — signed malware exists.
 /// Extraction failures degrade to `publisher: None`; the verdict stands.
 pub fn signature_detail(exe_path: &Path) -> SignatureDetail {
+    signature_detail_with_mode(exe_path, revocation_mode())
+}
+
+/// [`signature_detail`] with an explicit [`RevocationMode`].
+pub fn signature_detail_with_mode(exe_path: &Path, mode: RevocationMode) -> SignatureDetail {
     #[cfg(windows)]
     {
-        let status = imp::verify(exe_path);
-        let publisher = imp::signer_publisher(exe_path);
+        let status = imp::verify_with_mode(exe_path, mode);
+        let publisher = imp::signer_publisher(exe_path, mode);
         SignatureDetail { status, publisher }
     }
     #[cfg(not(windows))]
     {
-        let _ = exe_path;
+        let _ = (exe_path, mode);
         SignatureDetail {
             status: SignatureStatus::Unknown,
             publisher: None,
@@ -144,11 +277,11 @@ mod imp {
     use windows::Win32::Security::WinTrust::{
         WinVerifyTrust, DRIVER_ACTION_VERIFY, WINTRUST_ACTION_GENERIC_VERIFY_V2,
         WINTRUST_CATALOG_INFO, WINTRUST_DATA, WINTRUST_DATA_0, WINTRUST_DATA_UNION_CHOICE,
-        WINTRUST_FILE_INFO, WTD_CHOICE_CATALOG, WTD_CHOICE_FILE, WTD_REVOKE_NONE,
-        WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE,
+        WINTRUST_FILE_INFO, WTD_CHOICE_CATALOG, WTD_CHOICE_FILE, WTD_STATEACTION_CLOSE,
+        WTD_STATEACTION_VERIFY, WTD_UI_NONE,
     };
 
-    use super::SignatureStatus;
+    use super::{status_from_hresult, wintrust_flag_words, RevocationMode, SignatureStatus};
 
     /// NUL-terminated UTF-16 for Win32 string parameters.
     fn wide(os: &std::ffi::OsStr) -> Vec<u16> {
@@ -157,14 +290,14 @@ mod imp {
         v
     }
 
-    pub(super) fn verify(path: &Path) -> SignatureStatus {
+    pub(super) fn verify_with_mode(path: &Path, mode: RevocationMode) -> SignatureStatus {
         // Stage 1: embedded signature.
-        let status = hr_to_status(wintrust_file_verify(path));
+        let status = status_from_hresult(wintrust_file_verify(path, mode));
         if !matches!(status, SignatureStatus::Unsigned) {
             return status;
         }
         // Stage 2: catalog-backed signature.
-        catalog_verify(path)
+        catalog_verify(path, mode)
     }
 
     /// Best-effort signer display name (`CERT_NAME_SIMPLE_DISPLAY_TYPE`).
@@ -174,14 +307,14 @@ mod imp {
     /// Embedded signatures are read from the file itself; catalog-signed
     /// system binaries (no embedded blob — trust comes from a `.cat`) fall
     /// back to the verifying catalog's own PKCS#7 signer.
-    pub(super) fn signer_publisher(path: &Path) -> Option<String> {
+    pub(super) fn signer_publisher(path: &Path, mode: RevocationMode) -> Option<String> {
         use windows::Win32::Security::Cryptography::{
             CERT_QUERY_CONTENT_FLAG_ALL, CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED,
         };
         if let Some(name) = publisher_from_query(path, CERT_QUERY_CONTENT_FLAG_ALL) {
             return Some(name);
         }
-        let catalog = verified_catalog_path(path)?;
+        let catalog = verified_catalog_path(path, mode)?;
         publisher_from_query(&catalog, CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED)
     }
 
@@ -314,7 +447,7 @@ mod imp {
         }
     }
 
-    fn wintrust_file_verify(path: &Path) -> i32 {
+    fn wintrust_file_verify(path: &Path, mode: RevocationMode) -> i32 {
         let wpath = wide(path.as_os_str());
         let mut file_info = WINTRUST_FILE_INFO {
             cbStruct: u32::try_from(std::mem::size_of::<WINTRUST_FILE_INFO>()).unwrap_or(0),
@@ -330,13 +463,14 @@ mod imp {
                 WINTRUST_DATA_0 {
                     pFile: &mut file_info,
                 },
+                mode,
             )
         }
     }
 
     /// Catalog stage: does any security catalog claim this exact binary?
-    fn catalog_verify(path: &Path) -> SignatureStatus {
-        match verified_catalog_path(path) {
+    fn catalog_verify(path: &Path, mode: RevocationMode) -> SignatureStatus {
+        match verified_catalog_path(path, mode) {
             Some(_) => SignatureStatus::ValidSigned,
             None => {
                 // Distinguish "no catalog claims it" (Unsigned) from
@@ -352,7 +486,7 @@ mod imp {
 
     /// Path of the first catalog that verifies for this file, if any.
     /// Shared by the catalog verdict and the publisher fallback.
-    fn verified_catalog_path(path: &Path) -> Option<std::path::PathBuf> {
+    fn verified_catalog_path(path: &Path, mode: RevocationMode) -> Option<std::path::PathBuf> {
         let hash = catalog_file_hash(path)?;
         let wpath = wide(path.as_os_str());
         // The provider matches members by tag; system catalogs key them by file name.
@@ -412,6 +546,7 @@ mod imp {
                     WINTRUST_DATA_0 {
                         pCatalog: &mut catalog_info,
                     },
+                    mode,
                 )
             };
             if hr == 0 {
@@ -464,15 +599,26 @@ mod imp {
 
     /// Runs WinVerifyTrust once and closes the provider state afterwards
     /// (skipping the CLOSE call leaks the provider's state blob).
+    ///
+    /// Revocation is always whole-chain. In cache-only mode the provider
+    /// flags additionally forbid URL retrieval, so no CRL/OCSP fetch can
+    /// leave the machine; a chain whose revocation data is not cached fails
+    /// with an offline/indeterminate code instead of phoning home.
     unsafe fn run_winverifytrust(
         action_guid: &mut windows::core::GUID,
         union_choice: WINTRUST_DATA_UNION_CHOICE,
         anonymous: WINTRUST_DATA_0,
+        mode: RevocationMode,
     ) -> i32 {
+        use windows::Win32::Security::WinTrust::{
+            WINTRUST_DATA_PROVIDER_FLAGS, WINTRUST_DATA_REVOCATION_CHECKS,
+        };
+        let (revocation, prov_flags) = wintrust_flag_words(mode);
         let mut data = WINTRUST_DATA {
             cbStruct: u32::try_from(std::mem::size_of::<WINTRUST_DATA>()).unwrap_or(0),
             dwUIChoice: WTD_UI_NONE,
-            fdwRevocationChecks: WTD_REVOKE_NONE,
+            fdwRevocationChecks: WINTRUST_DATA_REVOCATION_CHECKS(revocation),
+            dwProvFlags: WINTRUST_DATA_PROVIDER_FLAGS(prov_flags),
             dwUnionChoice: union_choice,
             dwStateAction: WTD_STATEACTION_VERIFY,
             Anonymous: anonymous,
@@ -490,35 +636,6 @@ mod imp {
             &mut data as *mut WINTRUST_DATA as *mut std::ffi::c_void,
         );
         hr
-    }
-
-    fn hr_to_status(hr: i32) -> SignatureStatus {
-        const S_OK: i32 = 0;
-        const TRUST_E_NOSIGNATURE: i32 = 0x800B_0100u32 as i32; // no signature found
-        const CRYPT_E_FILE_ERROR: i32 = 0x8009_2003u32 as i32; // file unreadable
-        const TRUST_E_PROVIDER_UNKNOWN: i32 = 0x800B_0001u32 as i32;
-        const TRUST_E_ACTION_UNKNOWN: i32 = 0x800B_0002u32 as i32;
-        const TRUST_E_SUBJECT_FORM_UNKNOWN: i32 = 0x800B_0003u32 as i32;
-
-        if hr == S_OK {
-            return SignatureStatus::ValidSigned;
-        }
-        if hr == TRUST_E_NOSIGNATURE {
-            return SignatureStatus::Unsigned;
-        }
-        match hr {
-            // environmental problems: no verdict rather than "bad"
-            code if code == CRYPT_E_FILE_ERROR
-                || code == TRUST_E_PROVIDER_UNKNOWN
-                || code == TRUST_E_ACTION_UNKNOWN
-                || code == TRUST_E_SUBJECT_FORM_UNKNOWN =>
-            {
-                SignatureStatus::Unknown
-            }
-            // anything else means verification RAN and FAILED:
-            // tampered digest, bad cert chain, expired/revoked signer, distrust
-            _ => SignatureStatus::Invalid,
-        }
     }
 }
 
@@ -622,9 +739,15 @@ mod tests {
         if !notepad.is_file() {
             return;
         }
-        assert_eq!(
-            check_signature(&notepad),
-            SignatureStatus::ValidSigned,
+        // Cache-only revocation (the default) makes this environment
+        // dependent: a warm CRL/OCSP cache yields VALID; a cold one yields
+        // UNVERIFIED. Both prove the chain verifies — neither may be
+        // Unsigned/Invalid/Unknown for a stock system binary.
+        assert!(
+            matches!(
+                check_signature(&notepad),
+                SignatureStatus::ValidSigned | SignatureStatus::ValidRevocationUnknown
+            ),
             "{notepad:?} should verify (embedded or via security catalog)"
         );
     }
@@ -690,6 +813,150 @@ mod tests {
         assert_eq!(check_signature(&ghost), SignatureStatus::Unknown);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn missing_file_detail_is_unknown_without_publisher() {
+        let ghost = std::env::temp_dir().join("cure-no-such-publisher-evert.exe");
+        let _ = std::fs::remove_file(&ghost);
+        let detail = signature_detail(&ghost);
+        assert_eq!(detail.status, SignatureStatus::Unknown);
+        assert_eq!(detail.publisher, None);
+    }
+
+    // --- Pure HRESULT mapping: every branch, no WinTrust needed. ---
+
+    #[test]
+    fn success_is_valid() {
+        assert_eq!(status_from_hresult(0), SignatureStatus::ValidSigned);
+    }
+
+    #[test]
+    fn no_signature_is_unsigned() {
+        assert_eq!(
+            status_from_hresult(0x800B_0100u32 as i32),
+            SignatureStatus::Unsigned
+        );
+    }
+
+    #[test]
+    fn environmental_failures_are_unknown() {
+        for hr in [
+            0x8009_2003u32 as i32, // CRYPT_E_FILE_ERROR
+            0x800B_0001u32 as i32, // TRUST_E_PROVIDER_UNKNOWN
+            0x800B_0002u32 as i32, // TRUST_E_ACTION_UNKNOWN
+            0x800B_0003u32 as i32, // TRUST_E_SUBJECT_FORM_UNKNOWN
+        ] {
+            assert_eq!(
+                status_from_hresult(hr),
+                SignatureStatus::Unknown,
+                "hr={hr:#X}"
+            );
+        }
+    }
+
+    #[test]
+    fn revoked_signers_are_invalid() {
+        for hr in [
+            0x800B_010Cu32 as i32, // CERT_E_REVOKED
+            0x8009_2010u32 as i32, // CRYPT_E_REVOKED
+        ] {
+            assert_eq!(
+                status_from_hresult(hr),
+                SignatureStatus::Invalid,
+                "hr={hr:#X}"
+            );
+        }
+    }
+
+    #[test]
+    fn offline_revocation_is_valid_but_unverified() {
+        for hr in [
+            0x8009_2011u32 as i32, // CRYPT_E_NO_REVOCATION_DLL
+            0x8009_2012u32 as i32, // CRYPT_E_NO_REVOCATION_CHECK
+            0x8009_2013u32 as i32, // CRYPT_E_REVOCATION_OFFLINE
+        ] {
+            assert_eq!(
+                status_from_hresult(hr),
+                SignatureStatus::ValidRevocationUnknown,
+                "hr={hr:#X}"
+            );
+        }
+    }
+
+    #[test]
+    fn other_verification_failures_are_invalid() {
+        for hr in [
+            0x800B_0101u32 as i32, // CERT_E_EXPIRED
+            0x800B_0109u32 as i32, // CERT_E_UNTRUSTEDROOT
+            0x8009_6010u32 as i32, // TRUST_E_BAD_DIGEST
+            0x800B_010Fu32 as i32, // CERT_E_WRONG_USAGE
+            -1,                    // unexpected failure
+        ] {
+            assert_eq!(
+                status_from_hresult(hr),
+                SignatureStatus::Invalid,
+                "hr={hr:#X}"
+            );
+        }
+    }
+
+    #[test]
+    fn unverified_label_is_distinct_from_valid() {
+        assert_eq!(
+            SignatureStatus::ValidRevocationUnknown.label(),
+            "UNVERIFIED"
+        );
+        assert_eq!(SignatureStatus::ValidSigned.label(), "VALID");
+    }
+
+    #[test]
+    fn revocation_flag_words_match_wintrust_contract() {
+        // WTD_REVOKE_WHOLECHAIN = 1, WTD_CACHE_ONLY_URL_RETRIEVAL = 0x10000.
+        assert_eq!(
+            wintrust_flag_words(RevocationMode::CacheOnly),
+            (0x0000_0001, 0x0001_0000)
+        );
+        assert_eq!(
+            wintrust_flag_words(RevocationMode::Online),
+            (0x0000_0001, 0)
+        );
+    }
+
+    #[test]
+    fn revocation_defaults_to_cache_only() {
+        // Read-only: the process default must be offline unless the CLI
+        // opt-in ran. (The setter itself is intentionally untested here —
+        // flipping process-global state from a test could race parallel
+        // tests that verify real binaries.)
+        assert_eq!(revocation_mode(), RevocationMode::CacheOnly);
+        assert_eq!(RevocationMode::default(), RevocationMode::CacheOnly);
+    }
+
+    #[test]
+    fn unverified_status_is_scoreless_in_risk() {
+        // Belt-and-braces alongside risk.rs tests: UNVERIFIED must add no
+        // discount and no penalty, only an evidence reason.
+        let entry = crate::model::PersistenceEntry {
+            id: "t".to_string(),
+            name: "app.exe".to_string(),
+            command: r"C:\Program Files\App\app.exe".to_string(),
+            location: "loc".to_string(),
+            source: crate::model::PersistenceSource::RegistryRun,
+        };
+        let scored =
+            crate::risk::score_with_signals(&entry, SignatureStatus::ValidRevocationUnknown, None);
+        assert_eq!(scored.score, 0);
+        assert_eq!(scored.risk, crate::model::RiskLevel::Safe);
+        assert!(
+            scored
+                .reasons
+                .iter()
+                .any(|r| r.contains("revocation unverified")),
+            "reasons: {:?}",
+            scored.reasons
+        );
+    }
+
     #[test]
     fn directories_and_empty_paths_are_unknown() {
         // WinTrust cannot verify a directory (or nothing) — Unknown, never
@@ -709,7 +976,17 @@ mod tests {
             return;
         }
         let detail = signature_detail(&notepad);
-        assert_eq!(detail.status, SignatureStatus::ValidSigned);
+        // See real_microsoft_binary_verifies_as_signed: cold revocation
+        // caches yield UNVERIFIED instead of VALID; the publisher fallback
+        // works from the verifying catalog either way.
+        assert!(
+            matches!(
+                detail.status,
+                SignatureStatus::ValidSigned | SignatureStatus::ValidRevocationUnknown
+            ),
+            "unexpected status: {:?}",
+            detail.status
+        );
         let publisher = detail
             .publisher
             .expect("signed MS binary must name a publisher");
@@ -728,16 +1005,6 @@ mod tests {
         };
         let detail = signature_detail(&exe);
         assert_eq!(detail.status, SignatureStatus::Unsigned);
-        assert_eq!(detail.publisher, None);
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn missing_file_detail_is_unknown_without_publisher() {
-        let ghost = std::env::temp_dir().join("cure-no-such-publisher-evert.exe");
-        let _ = std::fs::remove_file(&ghost);
-        let detail = signature_detail(&ghost);
-        assert_eq!(detail.status, SignatureStatus::Unknown);
         assert_eq!(detail.publisher, None);
     }
 }

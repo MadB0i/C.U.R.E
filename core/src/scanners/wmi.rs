@@ -12,10 +12,11 @@
 //!   bounded string search — no script, query, or consumer payload is ever
 //!   executed, expanded, or passed to a shell.
 //! - Any COM/WMI failure (service disabled, locked-down box, timeout)
-//!   yields an empty vec, never a panic or a hard error.
+//!   yields an INCOMPLETE result (see [`scan_report`]), never a panic, never
+//!   a hard error, and never a bare "0 entries" that reads as clean.
 //! - Output is capped (objects per query, text length, total entries).
 //!
-//! Non-Windows builds return an empty vec.
+//! Non-Windows builds report Unavailable.
 
 use crate::model::PersistenceEntry;
 
@@ -40,14 +41,22 @@ pub struct WmiScanReport {
 
 #[cfg(windows)]
 pub fn scan_report() -> WmiScanReport {
+    let (entries, result) = imp::scan();
+    combine(entries, result)
+}
+
+/// Pure combine step (unit-testable without COM): entries are always kept;
+/// only the status reflects the outcome.
+#[cfg(windows)]
+fn combine(entries: Vec<PersistenceEntry>, result: windows::core::Result<()>) -> WmiScanReport {
     use crate::elevation::SourceStatus;
-    match imp::scan() {
-        Ok(entries) => WmiScanReport {
+    match result {
+        Ok(()) => WmiScanReport {
             entries,
             status: SourceStatus::Available,
         },
         Err(e) => WmiScanReport {
-            entries: Vec::new(),
+            entries,
             status: crate::elevation::classify_win_error(
                 e.code().0,
                 "WMI event subscription query",
@@ -98,20 +107,32 @@ mod imp {
     const MAX_ENTRIES: usize = 128;
     const NEXT_TIMEOUT_MS: i32 = 5000;
 
-    pub(super) fn scan() -> windows::core::Result<Vec<PersistenceEntry>> {
+    /// COM setup + full enumeration.
+    ///
+    /// Returns the entries collected so far plus the outcome. Partial results
+    /// are KEPT on failure (a denied third query must not discard two good
+    /// ones); the caller maps `Err` to an INCOMPLETE status so a failed check
+    /// can never read as "0 entries, clean".
+    ///
+    /// COM apartment notes: S_OK = we initialized and must uninitialize;
+    /// S_FALSE = already initialized (same model), proceed without touching
+    /// it; RPC_E_CHANGED_MODE = initialized with a different model — WMI
+    /// still works via marshaling, so proceed without touching it. Only a
+    /// genuine init failure aborts before trying.
+    pub(super) fn scan() -> (Vec<PersistenceEntry>, windows::core::Result<()>) {
+        use windows::Win32::Foundation::{RPC_E_CHANGED_MODE, S_OK};
         let mut entries = Vec::new();
-        // S_OK = we initialized COM and must uninitialize; S_FALSE = the
-        // thread was already initialized (leave it alone).
         let init = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
-        if init.is_err() {
-            return Ok(entries);
+        if init.is_err() && init != RPC_E_CHANGED_MODE {
+            return (entries, Err(windows::core::Error::from(init)));
         }
         let result = scan_inner(&mut entries);
-        if init == windows::Win32::Foundation::S_OK {
+        // Only our own init gets uninitialized; borrowed apartments
+        // (S_FALSE, CHANGED_MODE) are left exactly as found.
+        if init == S_OK {
             unsafe { CoUninitialize() };
         }
-        let _ = result;
-        Ok(entries)
+        (entries, result)
     }
 
     fn scan_inner(entries: &mut Vec<PersistenceEntry>) -> windows::core::Result<()> {
@@ -364,11 +385,60 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn live_scan_never_panics_and_reports_wmi_source() {
+        use crate::elevation::SourceStatus;
         use crate::model::PersistenceSource;
         // Live WMI read; asserts shape only. A clean box yields zero rows.
-        for e in scan() {
+        // On this dev box COM works, so the status must be Available — a
+        // regression to silent-empty would show up here as well as in prod.
+        let (entries, result) = imp::scan();
+        assert!(result.is_ok());
+        for e in &entries {
             assert_eq!(e.source, PersistenceSource::WmiSubscription);
             assert!(e.location.starts_with(WMI_NAMESPACE));
+        }
+        let report = combine(entries, result);
+        assert!(matches!(report.status, SourceStatus::Available));
+    }
+
+    #[cfg(windows)]
+    mod combine_tests {
+        use super::super::{combine, filter_location};
+        use crate::elevation::SourceStatus;
+        use crate::model::{PersistenceEntry, PersistenceSource};
+        use windows::Win32::Foundation::{E_ACCESSDENIED, E_FAIL};
+
+        fn partial() -> Vec<PersistenceEntry> {
+            vec![PersistenceEntry::new(
+                PersistenceSource::WmiSubscription,
+                "WMI filter KEEP-ME",
+                "SELECT * FROM __InstanceModificationEvent",
+                filter_location("KEEP-ME"),
+            )]
+        }
+
+        #[test]
+        fn ok_keeps_entries_and_reports_available() {
+            let report = combine(partial(), Ok(()));
+            assert!(matches!(report.status, SourceStatus::Available));
+            assert_eq!(report.entries.len(), 1);
+        }
+
+        #[test]
+        fn access_denied_keeps_partial_entries() {
+            // The F-05 regression: a denied query must surface INCOMPLETE
+            // with its partial rows, never bare "0 entries".
+            let report = combine(partial(), Err(windows::core::Error::from(E_ACCESSDENIED)));
+            assert!(matches!(report.status, SourceStatus::AccessDenied { .. }));
+            assert_eq!(report.entries.len(), 1);
+            assert!(!report.status.is_usable());
+        }
+
+        #[test]
+        fn generic_failure_is_check_failed_with_partials_kept() {
+            let report = combine(partial(), Err(windows::core::Error::from(E_FAIL)));
+            assert!(matches!(report.status, SourceStatus::CheckFailed { .. }));
+            assert_eq!(report.entries.len(), 1);
+            assert!(!report.status.is_usable());
         }
     }
 }

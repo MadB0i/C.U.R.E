@@ -4,9 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>C.U.R.E — Clean USB Rescue Engine</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- No remote fonts or assets: system font stack only (see style.css
+       --font-ui). The app must work fully offline; see README threat model. -->
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -252,10 +251,9 @@
           <h3>RANSOM INDICATORS</h3>
           <div id="ransom-cards" class="entry-cards"></div>
           <div id="ransom-link" class="hidden" style="margin-top:8px;font-size:12px;color:#c9a0ff">
-            If a ransomware family was identified, visit
-            <a href="https://www.nomoreransom.org/" target="_blank" rel="noopener"
-               style="color:#c9a0ff;text-decoration:underline">nomoreransom.org</a>
-            to check for a known decryptor. C.U.R.E cannot decrypt files.
+            If a ransomware family was identified, check nomoreransom.org
+            (typed by you into a browser) for a known decryptor.
+            C.U.R.E cannot decrypt files and never links out.
           </div>
         </div>
 
@@ -290,15 +288,30 @@
         </div>
 
 
-        <aside id="map-card" class="map-card reveal" style="--d:520ms">
-          <div class="feed-head">
-            <svg viewBox="0 0 16 16" class="feed-icon"><circle cx="8" cy="8" r="1.5"/><circle cx="12.5" cy="3.9" r="1.2"/><circle cx="12.5" cy="12.1" r="1.2"/><circle cx="3.5" cy="12.1" r="1.2"/><path d="M9.2 7l2.4-2.2M9.2 9l2.4 2.2M6.6 8H5"/></svg>
+        <aside id="map-card" class="map-card map-premium reveal" style="--d:520ms">
+          <div class="map-aurora" aria-hidden="true"></div>
+          <div class="feed-head map-head">
+            <span class="map-live-dot" aria-hidden="true"></span>
             <span class="feed-title">SCAN MAP</span>
-            <span id="map-count" class="feed-count">0 nodes</span>
+            <span class="map-live-label">LIVE</span>
+            <span id="map-count" class="feed-count map-count-pill">0 nodes</span>
           </div>
-          <div id="rakshak-status" class="rakshak-status"><span class="rk-name">Rakshak</span> is patrolling</div>
-          <div id="map-stage">
+          <div id="rakshak-status" class="rakshak-status"><span class="rk-pulse" aria-hidden="true"></span><span class="rk-name">Rakshak</span> is patrolling</div>
+          <div id="map-legend" class="map-legend" aria-label="Findings by risk">
+            <span class="map-legend-item risk-high"><i aria-hidden="true"></i><b id="map-n-high">0</b>&nbsp;high</span>
+            <span class="map-legend-item risk-susp"><i aria-hidden="true"></i><b id="map-n-susp">0</b>&nbsp;susp</span>
+            <span class="map-legend-item risk-safe"><i aria-hidden="true"></i><b id="map-n-safe">0</b>&nbsp;safe</span>
+          </div>
+          <div id="map-stage" class="map-stage-premium">
             <canvas id="map-canvas"></canvas>
+            <span class="map-frame-corner tl" aria-hidden="true"></span><span class="map-frame-corner tr" aria-hidden="true"></span><span class="map-frame-corner bl" aria-hidden="true"></span><span class="map-frame-corner br" aria-hidden="true"></span>
+            <div class="map-scanbeam" aria-hidden="true"></div>
+            <div id="map-tooltip" class="map-tooltip hidden" role="status"></div>
+          </div>
+          <div class="map-threat-row" aria-hidden="true">
+            <span class="map-threat-label">THREAT LEVEL</span>
+            <div class="map-threat-track"><div id="map-threat-fill" class="map-threat-fill"></div></div>
+            <span id="map-threat-text" class="map-threat-text">—</span>
           </div>
           <div class="map-caption dim">Node map of checked entries by risk — layout is illustrative, not geography. Color is redundant with the counts and labels: red = high risk, amber = suspicious, green = safe.</div>
         </aside>
@@ -404,38 +417,55 @@
                     <p class="important-box"><strong>Important</strong><span>This operation cannot be undone. Make sure you have reviewed the selected items before proceeding.</span></p>
                   </aside>
                   </div>
-                  <div class="cleanup-actions">
-                    <div id="toss-stage" class="toss-stage hidden" aria-hidden="true">
-                      <svg viewBox="0 0 150 56" width="150" height="56">
+                  <div class="cleanup-actions cleanup-actions-premium">
+                    <div id="toss-stage" class="toss-stage toss-premium hidden" aria-hidden="true">
+                      <div class="toss-glow" aria-hidden="true"></div>
+                      <svg viewBox="0 0 150 56" width="210" height="78">
                         <defs>
                           <radialGradient id="orb-grad" cx="35%" cy="32%" r="80%">
-                            <stop offset="0%" stop-color="#d9d4ff"/>
-                            <stop offset="45%" stop-color="#7c6cf0"/>
+                            <stop offset="0%" stop-color="#e6e1ff"/>
+                            <stop offset="45%" stop-color="#8b7cf6"/>
                             <stop offset="100%" stop-color="#453aa6"/>
                           </radialGradient>
+                          <radialGradient id="trash-glow-grad" cx="50%" cy="50%" r="50%">
+                            <stop offset="0%" stop-color="rgba(139,124,246,0.35)"/>
+                            <stop offset="100%" stop-color="rgba(139,124,246,0)"/>
+                          </radialGradient>
+                          <filter id="toss-glow-filter" x="-60%" y="-60%" width="220%" height="220%">
+                            <feGaussianBlur stdDeviation="1.6" result="b"/>
+                            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+                          </filter>
                         </defs>
+                        <ellipse cx="75" cy="30" rx="68" ry="22" fill="none" stroke="rgba(139,124,246,0.18)" stroke-width="0.7" stroke-dasharray="3 5" class="toss-orbit" />
+                        <ellipse cx="124" cy="28" rx="16" ry="16" fill="url(#trash-glow-grad)" class="toss-trash-aura" />
                         <g id="trail-g"></g>
-                        <g id="file-glyphs">
-                          <g class="file-glyph" transform="translate(6,30)"><rect width="12" height="15" rx="2" fill="rgba(237,237,239,0.5)"/><rect x="3" y="4" width="6" height="1.6" rx="0.8" fill="rgba(10,10,11,0.55)"/><rect x="3" y="7.5" width="6" height="1.6" rx="0.8" fill="rgba(10,10,11,0.55)"/></g>
-                          <g class="file-glyph" transform="translate(27,30)"><rect width="12" height="15" rx="2" fill="rgba(237,237,239,0.42)"/><rect x="3" y="4" width="6" height="1.6" rx="0.8" fill="rgba(10,10,11,0.55)"/><rect x="3" y="7.5" width="6" height="1.6" rx="0.8" fill="rgba(10,10,11,0.55)"/></g>
-                          <g class="file-glyph" transform="translate(48,30)"><rect width="12" height="15" rx="2" fill="rgba(237,237,239,0.34)"/><rect x="3" y="4" width="6" height="1.6" rx="0.8" fill="rgba(10,10,11,0.55)"/><rect x="3" y="7.5" width="6" height="1.6" rx="0.8" fill="rgba(10,10,11,0.55)"/></g>
+                        <g id="file-glyphs" filter="url(#toss-glow-filter)">
+                          <g class="file-glyph" transform="translate(6,30)"><rect width="12" height="15" rx="2.5" fill="rgba(237,237,239,0.55)"/><rect x="3" y="4" width="6" height="1.6" rx="0.8" fill="rgba(10,10,11,0.55)"/><rect x="3" y="7.5" width="6" height="1.6" rx="0.8" fill="rgba(10,10,11,0.55)"/><rect x="3" y="11" width="4" height="1.4" rx="0.7" fill="rgba(139,124,246,0.7)"/></g>
+                          <g class="file-glyph" transform="translate(27,30)"><rect width="12" height="15" rx="2.5" fill="rgba(237,237,239,0.47)"/><rect x="3" y="4" width="6" height="1.6" rx="0.8" fill="rgba(10,10,11,0.55)"/><rect x="3" y="7.5" width="6" height="1.6" rx="0.8" fill="rgba(10,10,11,0.55)"/><rect x="3" y="11" width="4" height="1.4" rx="0.7" fill="rgba(139,124,246,0.6)"/></g>
+                          <g class="file-glyph" transform="translate(48,30)"><rect width="12" height="15" rx="2.5" fill="rgba(237,237,239,0.38)"/><rect x="3" y="4" width="6" height="1.6" rx="0.8" fill="rgba(10,10,11,0.55)"/><rect x="3" y="7.5" width="6" height="1.6" rx="0.8" fill="rgba(10,10,11,0.55)"/><rect x="3" y="11" width="4" height="1.4" rx="0.7" fill="rgba(139,124,246,0.5)"/></g>
                         </g>
-                        <g id="trash-g" transform="translate(124,30)">
-                          <g id="trash-lid"><rect x="-9" y="-9" width="18" height="3" rx="1.5" fill="rgba(237,237,239,0.55)"/></g>
-                          <path d="M-7 -5.5 h14 l-1.5 21 a2 2 0 0 1 -2 1.9 h-7 a2 2 0 0 1 -2 -1.9 z" fill="none" stroke="rgba(237,237,239,0.5)" stroke-width="1.6"/>
-                          <line x1="-2.6" y1="-1.5" x2="-2.1" y2="12.5" stroke="rgba(237,237,239,0.32)" stroke-width="1.2"/>
-                          <line x1="2.6" y1="-1.5" x2="2.1" y2="12.5" stroke="rgba(237,237,239,0.32)" stroke-width="1.2"/>
+                        <g id="trash-g" transform="translate(124,30)" filter="url(#toss-glow-filter)">
+                          <g id="trash-lid"><rect x="-9" y="-9" width="18" height="3.4" rx="1.7" fill="rgba(237,237,239,0.65)"/><rect x="-3" y="-11.5" width="6" height="2.4" rx="1.2" fill="rgba(139,124,246,0.8)"/></g>
+                          <path d="M-7 -5.5 h14 l-1.5 21 a2 2 0 0 1 -2 1.9 h-7 a2 2 0 0 1 -2 -1.9 z" fill="rgba(139,124,246,0.08)" stroke="rgba(237,237,239,0.6)" stroke-width="1.6"/>
+                          <line x1="-2.6" y1="-1.5" x2="-2.1" y2="12.5" stroke="rgba(237,237,239,0.35)" stroke-width="1.2"/>
+                          <line x1="2.6" y1="-1.5" x2="2.1" y2="12.5" stroke="rgba(237,237,239,0.35)" stroke-width="1.2"/>
                         </g>
-                        <g id="mascot-g">
+                        <g id="mascot-g" filter="url(#toss-glow-filter)">
                           <circle id="mascot-orb" cx="24" cy="16" r="10" fill="url(#orb-grad)"/>
-                          <circle cx="20.6" cy="14.8" r="2.2" fill="rgba(255,255,255,0.85)"/>
-                          <circle cx="27.4" cy="14.8" r="2.2" fill="rgba(255,255,255,0.85)"/>
+                          <circle cx="20.6" cy="14.8" r="2.2" fill="rgba(255,255,255,0.9)"/>
+                          <circle cx="27.4" cy="14.8" r="2.2" fill="rgba(255,255,255,0.9)"/>
                           <circle cx="20.6" cy="14.8" r="0.9" fill="#1a1a2e"/>
                           <circle cx="27.4" cy="14.8" r="0.9" fill="#1a1a2e"/>
                         </g>
                        </svg>
                     </div>
-                    <button id="cleanup-btn" class="btn" disabled>Clean up</button>
+                    <div class="cleanup-btn-col">
+                      <button id="cleanup-btn" class="btn btn-cleanup-premium" disabled><span class="btn-shine" aria-hidden="true"></span><span id="cleanup-btn-label">Clean up</span></button>
+                      <div id="cleanup-progress-wrap" class="cleanup-progress-wrap hidden" aria-hidden="true">
+                        <div class="cleanup-progress-track"><div id="cleanup-progress-bar" class="cleanup-progress-bar"></div><div class="cleanup-progress-shimmer" aria-hidden="true"></div></div>
+                        <span id="cleanup-progress-pct" class="cleanup-progress-pct">0%</span>
+                      </div>
+                    </div>
                     <span id="cleanup-live-counter" class="cleanup-live-counter hidden"></span>
                   </div>
                   <div id="cleanup-status" class="cleanup-result dim hidden"></div>

@@ -122,7 +122,8 @@ pub struct FindingReport {
     pub reasons: Vec<String>,
     pub attack_id: String,
     pub attack_name: String,
-    /// VALID / INVALID / UNSIGNED / UNKNOWN, or NOT ASSESSED.
+    /// VALID / INVALID / UNSIGNED / UNKNOWN / UNVERIFIED, or NOT ASSESSED.
+    /// UNVERIFIED = signature verifies, revocation unknown (offline cache).
     pub signature: String,
     pub publisher: Option<String>,
     /// SHA-256 hex — computed for HighRisk findings with a resolvable

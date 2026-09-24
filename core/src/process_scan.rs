@@ -71,12 +71,16 @@ fn looks_randomized(name: &str) -> bool {
 
 fn in_drop_zone(path: &str) -> bool {
     let n = normalize(path);
-    DROP_ZONE_TOKENS.iter().any(|t| n.contains(t))
+    DROP_ZONE_TOKENS
+        .iter()
+        .any(|t| crate::risk::path_has_token(&n, t))
 }
 
 fn in_trusted(path: &str) -> bool {
     let n = normalize(path);
-    TRUSTED_TOKENS.iter().any(|t| n.contains(t))
+    TRUSTED_TOKENS
+        .iter()
+        .any(|t| crate::risk::path_has_token(&n, t))
 }
 
 // ── public API ────────────────────────────────────────────────────────
@@ -141,14 +145,19 @@ pub fn score_process(
                 ));
             }
         }
+        SignatureStatus::ValidRevocationUnknown => {
+            // Scoreless evidence: verified signature, unverified revocation.
+            reasons.push("signed but revocation unverified (offline)".to_string());
+        }
         SignatureStatus::Unknown => {}
     }
 
-    // known-bad hash → force high risk
-    if let Some(ref desc) = hash_match {
+    // known-bad hash → force high risk (precedence 1, same as risk.rs:
+    // exact IOC beats signature and heuristics; provenance shown).
+    if let Some(desc) = hash_match {
         score = KNOWN_BAD_HASH_FORCE;
         reasons.clear();
-        reasons.push(format!("KNOWN BAD HASH: {}", desc));
+        reasons.push(crate::risk::hash_hit_reason(desc));
     }
 
     let score = score.max(0);
@@ -367,11 +376,24 @@ mod tests {
     }
 
     #[test]
+    fn trusted_lookalike_dir_gets_no_discount() {
+        // Component matching (F-09): "Program Files-fake" is not trusted.
+        let i = info("tool.exe", r"C:\Program Files-fake\tool.exe");
+        let ps = score_process(&i, &SignatureStatus::Invalid, None);
+        assert_eq!(ps.score, 40); // +40 invalid, no -20 discount
+        let j = info("tool.exe", r"C:\Program Files\tool.exe");
+        let qs = score_process(&j, &SignatureStatus::Invalid, None);
+        assert_eq!(qs.score, 20); // control: real component still discounts
+    }
+
+    #[test]
     fn known_bad_hash_forces_high_risk() {
         let i = info("svchost.exe", r"C:\Windows\System32\svchost.exe");
         let ps = score_process(&i, &SignatureStatus::ValidSigned, Some("known malware"));
         assert_eq!(ps.risk, RiskLevel::HighRisk);
-        assert!(ps.reasons[0].contains("KNOWN BAD HASH"));
+        // Precedence 1 with provenance: verdict + feed label + description.
+        assert!(ps.reasons[0].starts_with("Known Malware Hash ["));
+        assert!(ps.reasons[0].contains("known malware"));
     }
 
     #[test]

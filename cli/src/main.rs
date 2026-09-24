@@ -48,6 +48,13 @@ struct Cli {
     )]
     tasks_root: Option<PathBuf>,
 
+    #[arg(
+        long,
+        global = true,
+        help = "allow Authenticode revocation checks to fetch CRL/OCSP online (default: cache-only, no network)"
+    )]
+    online_revocation: bool,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -58,6 +65,13 @@ enum Command {
     Diff,
     Quarantine {
         id: String,
+        #[arg(
+            long,
+            help = "skip the interactive confirmation (required in non-TTY sessions)"
+        )]
+        yes: bool,
+        #[arg(long, help = "show what would be quarantined without moving anything")]
+        dry_run: bool,
     },
     Undo {
         id: String,
@@ -156,11 +170,17 @@ fn main() {
 
 fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
     let paths = resolve(cli);
+    // Explicit opt-in only: without this flag every signature check in this
+    // process is cache-only and no revocation fetch may leave the machine.
+    cure_core::signature::set_online_revocation_allowed(cli.online_revocation);
+    if cli.online_revocation {
+        println!("note: online revocation fetching enabled (CRL/OCSP may be fetched)");
+    }
     fs::create_dir_all(&paths.data_dir)?;
     match &cli.command {
         Command::Scan => cmd_scan(&paths),
         Command::Diff => cmd_diff(&paths),
-        Command::Quarantine { id } => cmd_quarantine(&paths, id),
+        Command::Quarantine { id, yes, dry_run } => cmd_quarantine(&paths, id, *yes, *dry_run),
         Command::Undo { id } => cmd_undo(&paths, id),
         Command::Report {
             format,
@@ -199,6 +219,8 @@ struct CollectOutput {
 fn collect(paths: &ResolvedPaths) -> CollectOutput {
     use cure_core::report::source_state_row;
     let mut entries = scanners::startup::scan(&paths.startup_root);
+    // Machine-wide Startup folder: ambient on Windows (see collect_all).
+    entries.extend(scanners::startup::scan_common());
     let mut source_states = Vec::new();
     let task_report = scanners::scheduled_tasks::scan_report(&paths.tasks_root);
     let tasks_skipped = task_report.skipped;
@@ -353,9 +375,10 @@ fn print_report(scored: &[ScoredEntry], data_dir: &Path) {
             println!("             att&ck: {} ({})", s.attack.id, s.attack.name);
         }
         // Shortcut targets: resolve without executing (popup forensics).
+        // (Boundary-safe helper: Startup filenames are attacker-controlled
+        // and may end in multi-byte characters.)
         if s.entry.source == PersistenceSource::StartupFolder
-            && s.entry.name.len() > 4
-            && s.entry.name[s.entry.name.len() - 4..].eq_ignore_ascii_case(".lnk")
+            && cure_core::entry_details::is_shortcut_name(&s.entry.name)
         {
             match cure_core::lnk::analyze(Path::new(&s.entry.location)) {
                 Some(info) => {
@@ -405,6 +428,10 @@ fn cmd_scan(paths: &ResolvedPaths) -> Result<(), Box<dyn Error>> {
     use std::time::Instant;
     println!("C.U.R.E - Clean USB Rescue Engine");
     println!("startup root : {}", paths.startup_root.display());
+    match scanners::startup::default_common_startup_root() {
+        Some(common) => println!("common startup: {}", common.display()),
+        None => println!("common startup: n/a on this OS"),
+    }
     println!("tasks root   : {}", paths.tasks_root.display());
     if cfg!(windows) {
         println!("registry     : HKCU + HKLM Run / RunOnce + IFEO + AppInit + COM (HKCU) + WMI + services");
@@ -487,7 +514,46 @@ fn cmd_diff(paths: &ResolvedPaths) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn cmd_quarantine(paths: &ResolvedPaths, id: &str) -> Result<(), Box<dyn Error>> {
+/// How `cure quarantine` should proceed before touching anything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QuarantinePlan {
+    /// Show the item and ask `[y/N]` on the terminal.
+    Ask,
+    /// `--yes`: proceed without asking.
+    Proceed,
+    /// `--dry-run`: report only, never move.
+    DryRun,
+    /// No terminal and no `--yes`: refuse rather than guess.
+    Refuse,
+}
+
+/// Pure plan selection. Precedence is deliberate: `--dry-run` always wins
+/// (it can never mutate, so it is safe even piped), then `--yes`, then the
+/// TTY check. Pure so all four paths are unit-testable without a terminal.
+fn plan_quarantine(yes: bool, dry_run: bool, stdin_is_tty: bool) -> QuarantinePlan {
+    if dry_run {
+        QuarantinePlan::DryRun
+    } else if yes {
+        QuarantinePlan::Proceed
+    } else if stdin_is_tty {
+        QuarantinePlan::Ask
+    } else {
+        QuarantinePlan::Refuse
+    }
+}
+
+/// Pure confirmation parser: only an explicit `y`/`yes` (any case,
+/// surrounding whitespace tolerated) counts as consent.
+fn parse_confirmation(input: &str) -> bool {
+    matches!(input.trim().to_ascii_lowercase().as_str(), "y" | "yes")
+}
+
+fn cmd_quarantine(
+    paths: &ResolvedPaths,
+    id: &str,
+    yes: bool,
+    dry_run: bool,
+) -> Result<(), Box<dyn Error>> {
     let collected = collect(paths);
     let scored = score_all(&collected.entries, &collected.services);
 
@@ -507,6 +573,36 @@ fn cmd_quarantine(paths: &ResolvedPaths, id: &str) -> Result<(), Box<dyn Error>>
     if !found.entry.source.is_file_backed() {
         print_manual_guidance(found);
         return Ok(());
+    }
+    // Show exactly what is about to move, then require explicit consent.
+    println!("quarantine candidate:");
+    println!("  id     : {}", found.entry.id);
+    println!("  name   : {}", found.entry.name);
+    println!("  source : {}", found.entry.source.tag());
+    println!("  file   : {}", found.entry.location);
+    println!(
+        "  action : move to quarantine/ under the data dir (undo with `cure undo {}`)",
+        found.entry.id
+    );
+    match plan_quarantine(yes, dry_run, stdin_is_tty()) {
+        QuarantinePlan::DryRun => {
+            println!("dry run: nothing was moved.");
+            return Ok(());
+        }
+        QuarantinePlan::Refuse => {
+            return Err(
+                "refusing to quarantine without confirmation in a non-interactive \
+session (re-run with --yes, or use --dry-run to preview)"
+                    .into(),
+            );
+        }
+        QuarantinePlan::Proceed => {}
+        QuarantinePlan::Ask => {
+            if !confirm("Quarantine this file?") {
+                println!("cancelled: nothing was moved.");
+                return Ok(());
+            }
+        }
     }
     match found.entry.source {
         PersistenceSource::StartupFolder => {
@@ -528,7 +624,24 @@ fn cmd_quarantine(paths: &ResolvedPaths, id: &str) -> Result<(), Box<dyn Error>>
         }
         _ => unreachable!("non-file-backed sources handled above"),
     }
+    report_orphans(paths);
     Ok(())
+}
+
+/// Quarantine-dir files with no record (interrupted runs, operator copies).
+/// They are surfaced here and left untouched — nothing auto-deletes them.
+fn report_orphans(paths: &ResolvedPaths) {
+    let orphans = quarantine::list_orphans(&paths.data_dir);
+    if orphans.is_empty() {
+        return;
+    }
+    println!(
+        "note: {} file(s) in quarantine/ have no record and were left untouched:",
+        orphans.len()
+    );
+    for orphan in &orphans {
+        println!("  orphan: {}", orphan.display());
+    }
 }
 
 /// Manual, reversible remediation guidance for findings C.U.R.E will never
@@ -602,12 +715,18 @@ fn print_manual_guidance(found: &ScoredEntry) {
 fn cmd_undo(paths: &ResolvedPaths, id: &str) -> Result<(), Box<dyn Error>> {
     // Scoped restore: the file may only go back under the scanned
     // startup/task roots — a planted records.json must not redirect an
-    // elevated undo into a system location.
-    let roots = vec![paths.startup_root.clone(), paths.tasks_root.clone()];
+    // elevated undo into a system location. The machine-wide Startup folder
+    // is ambient (always scanned), so it is always in scope.
+    let mut roots = vec![paths.startup_root.clone(), paths.tasks_root.clone()];
+    roots.extend(cure_core::scanners::startup::default_common_startup_root());
     match quarantine::undo_scoped(&paths.data_dir, id, Some(&roots)) {
         Ok(record) => {
             println!("restored: {}", record.quarantine_path.display());
             println!("      to: {}", record.original_path.display());
+            for note in &record.security_notes {
+                println!("      note: {note}");
+            }
+            report_orphans(paths);
             Ok(())
         }
         Err(err) if err.kind() == io::ErrorKind::NotFound => {
@@ -1053,7 +1172,15 @@ fn confirm(prompt: &str) -> bool {
     let mut line = String::new();
     std::io::stdin()
         .read_line(&mut line)
-        .is_ok_and(|_| matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes"))
+        .is_ok_and(|_| parse_confirmation(&line))
+}
+
+/// True when stdin is an interactive terminal. Uses std only (no extra
+/// dependency): in pipes, CI, and `cmd /c` chains this is false, which is
+/// exactly when we must refuse a destructive default.
+fn stdin_is_tty() -> bool {
+    use std::io::IsTerminal as _;
+    std::io::stdin().is_terminal()
 }
 
 fn file_age_days(path: &Path) -> u64 {
@@ -1149,7 +1276,15 @@ fn cmd_cleanup_run(
     }
 
     if dism {
+        // DISM is a different kind of mutation (elevated, minutes-long
+        // system servicing) from the file deletes confirmed above: it gets
+        // its own explicit prompt that names it. A piped/non-interactive
+        // stdin answers "no" via confirm()'s strict y/yes parse.
         println!();
+        if !confirm("Run DISM component-store cleanup now? (needs elevation, takes minutes)") {
+            println!("skipped DISM component-store cleanup.");
+            return Ok(());
+        }
         println!("running DISM component-store cleanup (can take several minutes)…");
         match disk_cleanup::run_dism_cleanup() {
             Ok(output) => {
@@ -1177,4 +1312,45 @@ fn truncate_tail(text: &str, max_chars: usize) -> String {
         .skip(text.chars().count() - max_chars)
         .collect();
     format!("…{cut}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dry_run_wins_over_everything() {
+        // --dry-run never mutates, so it is safe even piped with --yes.
+        assert_eq!(plan_quarantine(false, true, true), QuarantinePlan::DryRun);
+        assert_eq!(plan_quarantine(true, true, true), QuarantinePlan::DryRun);
+        assert_eq!(plan_quarantine(true, true, false), QuarantinePlan::DryRun);
+        assert_eq!(plan_quarantine(false, true, false), QuarantinePlan::DryRun);
+    }
+
+    #[test]
+    fn yes_proceeds_without_prompt() {
+        assert_eq!(plan_quarantine(true, false, true), QuarantinePlan::Proceed);
+        assert_eq!(plan_quarantine(true, false, false), QuarantinePlan::Proceed);
+    }
+
+    #[test]
+    fn interactive_without_flags_asks() {
+        assert_eq!(plan_quarantine(false, false, true), QuarantinePlan::Ask);
+    }
+
+    #[test]
+    fn non_tty_without_yes_refuses() {
+        // Piped / CI / scheduled sessions must fail closed, not guess.
+        assert_eq!(plan_quarantine(false, false, false), QuarantinePlan::Refuse);
+    }
+
+    #[test]
+    fn only_explicit_yes_confirms() {
+        for yes in ["y", "Y", "yes", "YES", "  yes  ", "y\n"] {
+            assert!(parse_confirmation(yes), "rejected: {yes:?}");
+        }
+        for no in ["", "n", "no", "ye", "yess", "abort", "1", "ok"] {
+            assert!(!parse_confirmation(no), "accepted: {no:?}");
+        }
+    }
 }

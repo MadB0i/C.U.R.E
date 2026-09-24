@@ -20,8 +20,10 @@ use crate::scanners::scheduled_tasks::TaskDetails;
 /// Enrichment for one finding, by source shape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EntryDetails {
-    /// VALID / INVALID / UNSIGNED / UNKNOWN for the entry's resolved
-    /// executable, or UNKNOWN when nothing resolves.
+    /// VALID / INVALID / UNSIGNED / UNKNOWN / UNVERIFIED for the entry's
+    /// resolved executable, or UNKNOWN when nothing resolves. UNVERIFIED
+    /// means the signature checks out but revocation could not be confirmed
+    /// offline — display only, never a trust signal.
     pub signature: String,
     /// Signer display name when extractable. `None` is normal for
     /// unsigned/unverifiable targets and says nothing about intent.
@@ -77,8 +79,11 @@ pub fn for_entry(entry: &PersistenceEntry) -> EntryDetails {
     }
 }
 
-fn is_shortcut_name(name: &str) -> bool {
-    name.len() > 4 && name[name.len() - 4..].eq_ignore_ascii_case(".lnk")
+/// True for `.lnk` shortcut names (any ASCII case). Byte-index free: names
+/// are attacker-controlled (Startup filenames) and may end in multi-byte
+/// characters, where `name[len-4..]` would panic on a split code point.
+pub fn is_shortcut_name(name: &str) -> bool {
+    name.len() > 4 && name.to_ascii_lowercase().ends_with(".lnk")
 }
 
 fn read_task_file(path: &Path) -> String {
@@ -142,6 +147,19 @@ mod tests {
         assert!(!is_shortcut_name("updater.exe"));
         assert!(!is_shortcut_name("lnk"));
         assert!(!is_shortcut_name(""));
+    }
+
+    #[test]
+    fn shortcut_matching_survives_non_ascii_names() {
+        // Attacker-controlled Startup filenames may end in multi-byte
+        // characters; the old byte-slice check panicked on split code
+        // points. None of these may panic; only a real .lnk suffix hits.
+        assert!(!is_shortcut_name("evil\u{1F600}")); // trailing emoji
+        assert!(!is_shortcut_name("updater\u{4E2D}.lnk.bak"));
+        assert!(!is_shortcut_name("\u{1F600}.lnkFilled")); // >4 bytes, no suffix
+        assert!(is_shortcut_name("updater\u{4E2D}.lnk")); // CJK stem + suffix
+        assert!(is_shortcut_name("evil\u{1F600}.LNK"));
+        assert!(!is_shortcut_name(".lnk")); // suffix only, no stem
     }
 
     #[test]
