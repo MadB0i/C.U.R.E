@@ -66,15 +66,79 @@ pub fn scan(root: &Path) -> Vec<PersistenceEntry> {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let command = path.to_string_lossy().into_owned();
+        let location = path.to_string_lossy().into_owned();
+        // For shortcuts, command is the resolved target + args (what gets
+        // executed), while location stays the .lnk file itself (what gets
+        // quarantined). This separation is load-bearing: risk.rs, signature
+        // checks, and reports must score the target, never the .lnk path.
+        let command = if crate::entry_details::is_shortcut_name(&name) {
+            resolve_lnk_command(&path).unwrap_or_else(|| location.clone())
+        } else {
+            location.clone()
+        };
         entries.push(PersistenceEntry::new(
             PersistenceSource::StartupFolder,
             name,
-            command.clone(),
             command,
+            location,
         ));
     }
     entries
+}
+
+/// Resolve a Startup .lnk to its target + arguments, expanded and made
+/// absolute. Returns `None` when the shortcut is unparseable or has no
+/// target — caller falls back to the .lnk path itself.
+fn resolve_lnk_command(link_path: &Path) -> Option<String> {
+    let info = crate::lnk::analyze(link_path)?;
+    let mut target = info.target?;
+    // Environment strings (%TEMP%, %APPDATA%, ...) are untrusted input;
+    // expand them via the same helper services use for ImagePath.
+    target = crate::scanners::services::expand_env_vars(&target);
+    // If still relative, resolve against the shortcut's working dir or its
+    // parent directory. The shell already does this on Windows, but the raw
+    // fallback (and non-Windows) leaves relative strings as-is.
+    let target_path = Path::new(&target);
+    let mut absolute = if target_path.is_absolute() {
+        target
+    } else {
+        let base = info
+            .working_dir
+            .as_deref()
+            .map(Path::new)
+            .filter(|p| p.is_absolute())
+            .unwrap_or_else(|| link_path.parent().unwrap_or_else(|| Path::new(".")));
+        base.join(target_path).to_string_lossy().into_owned()
+    };
+    // Shell may return 8.3 short names (CURE_T~1.EXE); expand to long for
+    // scoring heuristics (random-name detection needs the long name) and
+    // for stable display. Best-effort: if the file doesn't exist, keep as-is.
+    absolute = to_long_path_if_exists(&absolute);
+    if let Some(args) = info.arguments.filter(|a| !a.is_empty()) {
+        Some(format!("{absolute} {args}"))
+    } else {
+        Some(absolute)
+    }
+}
+
+#[cfg(windows)]
+fn to_long_path_if_exists(path: &str) -> String {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::GetLongPathNameW;
+    let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut buf = vec![0u16; 1024];
+    let len = unsafe { GetLongPathNameW(PCWSTR(wide.as_ptr()), Some(&mut buf)) };
+    if len > 0 && (len as usize) < buf.len() {
+        String::from_utf16_lossy(&buf[..len as usize])
+    } else {
+        path.to_string()
+    }
+}
+
+#[cfg(not(windows))]
+fn to_long_path_if_exists(path: &str) -> String {
+    path.to_string()
 }
 
 #[cfg(test)]
@@ -220,7 +284,12 @@ mod tests {
     #[test]
     fn lnk_unsigned_dummy_must_not_score_safe() {
         let startup = temp_startup_in_repo();
-        let target = startup.path().join("a7x9k2p9.exe");
+        // Place unsigned target in a real drop zone (Temp) with a long
+        // random-looking name so heuristics fire. The .lnk itself lives in
+        // the repo startup dir (no drop zone), so scoring the .lnk path
+        // would incorrectly be Safe.
+        let target_dir = tempfile::tempdir().unwrap();
+        let target = target_dir.path().join("a7x9k2p9q1w2b3.exe");
         // Copy current test binary (unsigned PE) as dummy; signature will be Unsigned
         let src = std::env::current_exe().unwrap();
         std::fs::copy(&src, &target).unwrap();
@@ -370,7 +439,12 @@ mod tests {
         let startup = temp_startup_in_repo();
         let ghost = r"C:\nonexistent\CURE_TEST_ghost_e7f3a1.exe";
         let link = startup.path().join("ghost.lnk");
-        create_shell_link(&link, ghost, "", "");
+        // Use raw fixture for ghost (shell GetPath may not return non-existent absolute)
+        std::fs::write(
+            &link,
+            crate::fixtures::minimal_lnk_unicode(ghost, "", ""),
+        )
+        .unwrap();
 
         let entries = scan(startup.path());
         let e = entries.iter().find(|e| e.name == "ghost.lnk").unwrap();
