@@ -384,11 +384,65 @@ pub fn delete_candidates(candidates: &[CleanupCandidate]) -> CleanupResult {
 }
 
 fn delete_path(path: &Path) -> io::Result<()> {
-    if path.is_dir() {
-        fs::remove_dir_all(path)
-    } else {
-        fs::remove_file(path)
+    // Never follow the final component: `symlink_metadata` does not resolve
+    // links, while `is_dir()` would. A symlink/junction handed to
+    // `remove_dir_all` would delete THROUGH it into the target.
+    let md = fs::symlink_metadata(path)?;
+    match classify_delete_target(&md) {
+        DeleteAction::RemoveDir => fs::remove_dir_all(path),
+        DeleteAction::RemoveFile => fs::remove_file(path),
+        DeleteAction::RefuseReparsePoint => Err(io::Error::other(format!(
+            "refusing to delete through a symlink/junction: {}",
+            path.display()
+        ))),
     }
+    // NOTE (residual TOCTOU): a hostile writer with access to the scanned
+    // tree could swap a directory for a junction between this check and the
+    // removal. Closing that needs handle-relative deletion; the steady-state
+    // hole (scanned trees containing links) is closed here, and every delete
+    // still requires the operator's explicit confirmation of the plan.
+}
+
+/// What `delete_path` may do with one candidate, decided from
+/// non-following metadata. Pure over `Metadata` so the policy is
+/// unit-testable without creating links.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeleteAction {
+    RemoveDir,
+    RemoveFile,
+    RefuseReparsePoint,
+}
+
+fn classify_delete_target(md: &fs::Metadata) -> DeleteAction {
+    if is_reparse_point(md) {
+        // File symlinks too: removing the link itself would be safe, but a
+        // link in a cleanup tree is unexpected — surface it instead of
+        // guessing. (Fail closed: the per-item failure is reported, the
+        // batch continues.)
+        return DeleteAction::RefuseReparsePoint;
+    }
+    if md.is_dir() {
+        DeleteAction::RemoveDir
+    } else {
+        DeleteAction::RemoveFile
+    }
+}
+
+fn is_reparse_point(md: &fs::Metadata) -> bool {
+    if md.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        // Junctions and mount points: FILE_ATTRIBUTE_REPARSE_POINT covers
+        // every reparse flavor, not just what is_symlink() reports.
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if md.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return true;
+        }
+    }
+    false
 }
 
 pub fn summarize(candidates: &[CleanupCandidate]) -> Vec<CategorySummary> {
@@ -683,6 +737,110 @@ mod tests {
         assert_eq!(result.deleted, 0);
         assert_eq!(result.failed, 1);
         assert!(!result.failures[0].reason.is_empty());
+    }
+
+    #[test]
+    fn classify_plain_file_and_dir() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("plain.log");
+        write_file(&file, 10);
+        let dir = tmp.path().join("plain-dir");
+        std::fs::create_dir(&dir).unwrap();
+        assert_eq!(
+            classify_delete_target(&std::fs::symlink_metadata(&file).unwrap()),
+            DeleteAction::RemoveFile
+        );
+        assert_eq!(
+            classify_delete_target(&std::fs::symlink_metadata(&dir).unwrap()),
+            DeleteAction::RemoveDir
+        );
+        assert!(!is_reparse_point(
+            &std::fs::symlink_metadata(&file).unwrap()
+        ));
+    }
+
+    /// A file symlink inside a cleanup tree must be refused, and the link
+    /// TARGET (outside the tree) must survive untouched.
+    #[cfg(windows)]
+    #[test]
+    fn delete_refuses_file_symlink_and_spares_target() {
+        use std::os::windows::fs::symlink_file;
+
+        let outside = TempDir::new().unwrap();
+        let target = outside.path().join("precious.txt");
+        write_file(&target, 50);
+        let tree = TempDir::new().unwrap();
+        let link = tree.path().join("link.log");
+        if symlink_file(&target, &link).is_err() {
+            eprintln!("SKIP: no symlink privilege in this environment");
+            return;
+        }
+
+        let candidate = CleanupCandidate {
+            path: link.clone(),
+            size_bytes: 50,
+            category: CleanupCategory::Temp,
+        };
+        let result = delete_candidates(&[candidate]);
+        assert_eq!(result.deleted, 0);
+        assert_eq!(result.failed, 1);
+        assert!(result.failures[0].reason.contains("symlink/junction"));
+        assert!(!link.exists() || link.is_symlink());
+        assert_eq!(std::fs::read(&target).unwrap().len(), 50);
+    }
+
+    /// A directory junction inside a cleanup tree must be refused, and the
+    /// target tree (outside) must survive untouched. Junctions need no
+    /// symlink privilege; `mklink /J` is the fallback creator.
+    #[cfg(windows)]
+    #[test]
+    fn delete_refuses_dir_junction_and_spares_target() {
+        let outside = TempDir::new().unwrap();
+        let target_dir = outside.path().join("real-data");
+        write_file(&target_dir.join("sub").join("keep.txt"), 60);
+        let tree = TempDir::new().unwrap();
+        let link = tree.path().join("cache-link");
+
+        let linked = std::os::windows::fs::symlink_dir(&target_dir, &link).is_ok()
+            || mklink_junction(&target_dir, &link);
+        if !linked {
+            eprintln!("SKIP: cannot create junctions in this environment");
+            return;
+        }
+        assert!(
+            is_reparse_point(&std::fs::symlink_metadata(&link).unwrap()),
+            "test setup must really be a reparse point"
+        );
+
+        let candidate = CleanupCandidate {
+            path: link.clone(),
+            size_bytes: 60,
+            category: CleanupCategory::BrowserCache,
+        };
+        let result = delete_candidates(&[candidate]);
+        assert_eq!(result.deleted, 0);
+        assert_eq!(result.failed, 1);
+        assert!(result.failures[0].reason.contains("symlink/junction"));
+        assert_eq!(
+            std::fs::read(target_dir.join("sub").join("keep.txt"))
+                .unwrap()
+                .len(),
+            60
+        );
+    }
+
+    #[cfg(windows)]
+    fn mklink_junction(target: &Path, link: &Path) -> bool {
+        std::process::Command::new("cmd")
+            .args([
+                "/C",
+                "mklink",
+                "/J",
+                &link.to_string_lossy(),
+                &target.to_string_lossy(),
+            ])
+            .output()
+            .is_ok_and(|out| out.status.success())
     }
 
     #[cfg(windows)]
