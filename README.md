@@ -1,5 +1,7 @@
 # C.U.R.E. — Clean USB Rescue Engine
 
+[![CI](https://github.com/MadB0i/C.U.R.E/actions/workflows/ci.yml/badge.svg)](https://github.com/MadB0i/C.U.R.E/actions/workflows/ci.yml)
+
 A local-first Windows security and forensic diagnostic tool focused on
 evidence-based detection, investigation, quarantine and cleanup.
 
@@ -62,8 +64,43 @@ intelligence, and no automatic malware removal.
 
 V4 — released / actively developed.
 
-269 Rust tests passing across the workspaces. No production or security
-guarantees beyond what the test suite and reports verify.
+Test counts are not hardcoded here (they move with every fix): the CI badge
+above is authoritative. Reproduce locally with the commands under Build
+(root workspace, then GUI workspace). No production or security guarantees
+beyond what the test suite and reports verify.
+
+## Security model / threat model
+
+What is trusted:
+
+- The rescue USB **you prepared** and the host-installed copies it pins on
+  first consented run (`%LOCALAPPDATA%\CURE\cure-gui.exe`, pinned by
+  SHA-256; the watcher launches nothing else, ever).
+- Your own explicit confirmations (Start Rescue click, `[y/N]` prompts,
+  `--yes` flags). Nothing destructive runs without one.
+
+What is NOT trusted:
+
+- Any other USB stick, including its `.cure-trigger` file and any
+  executables it carries. A copied trigger without this machine's pairing
+  token is ignored; a drive-supplied binary is never executed.
+- Data from the scanned machine: file names, registry values, task XML,
+  and window titles are attacker-controlled input. They are displayed
+  escaped (never executed, never passed to a shell) and scores treat them
+  as evidence, not verdicts.
+
+Cooperative vs enforced: quarantine/undo integrity (pending records,
+atomic saves, hash checks) is **enforced** by the engine. Stopping malware
+that is already running as your user is **not** — same-user code execution
+is outside what any user-space scanner can enforce, and C.U.R.E does not
+claim otherwise.
+
+Network: none by default. Scanning, scoring, quarantine, and reporting are
+fully offline (cache-only certificate revocation; the shipped webview UI
+loads no remote content — CI fails on any remote URL in `gui/dist`). The
+only network opt-in is CLI `--online-revocation` (live CRL/OCSP fetch).
+Ransomware help resources are named as plain text, never links, so there is
+nothing in the UI that can navigate anywhere.
 
 ## Build
 

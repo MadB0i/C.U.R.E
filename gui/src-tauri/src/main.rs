@@ -1958,6 +1958,7 @@ mod overlay_fixture_tests {
     }
 
     #[test]
+    #[ignore = "needs an interactive desktop session: spawns real windows (fake-overlay + notepad) and closes one. Run locally via testing/run-gui-desktop-tests.bat; never in CI."]
     fn overlay_fixture_dismisses_fake_overlay_and_spares_notepad() {
         let bin = fake_overlay_bin();
         assert!(bin.exists(), "fake-overlay.exe not built yet — run: cargo build --release -p fake-overlay");

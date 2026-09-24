@@ -15,10 +15,21 @@ WebView2.
 ```bat
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --check
 ```
 
 Both must be fully green. `gui/` is a separate workspace (own lockfile):
-build it with `cargo build --release` inside `gui\src-tauri`.
+build it with `cargo build --release` inside `gui\src-tauri`, and run its
+headless-safe tests with `cargo test` there.
+
+The overlay dismissal test (`overlay_fixture_dismisses_fake_overlay_and_
+spares_notepad`) is `#[ignore]`d: it spawns real windows (fake-overlay +
+notepad) and closes one, so it needs an interactive desktop and never runs
+in CI. Run it locally (clean VM recommended) with:
+
+```bat
+testing\run-gui-desktop-tests.bat
+```
 
 ## 1. Watcher: first-run consent
 
