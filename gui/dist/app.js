@@ -4387,6 +4387,89 @@
     }
   });
 
+  // Overlay review cards: one per candidate window. Every action is an
+  // explicit per-window click — Close (graceful WM_CLOSE), Force close
+  // (terminate, explicit only), Don't-ask-again (path+hash allowlist).
+  // All attacker-controlled strings (title, path, process) go through
+  // textContent, never innerHTML.
+  function renderOverlayReview(candidates, lines) {
+    const done = new Set();
+    function maybeFinish() {
+      if (done.size === candidates.length) {
+        appendLog("overlay", "review complete: " + lines.filter(function (l) { return l.indexOf("overlay:") === 0; }).length + " action(s)");
+        runScan(lines);
+      }
+    }
+    candidates.forEach(function (c) {
+      const li = document.createElement("li");
+      li.className = "item-line fresh risk-high";
+      const head = document.createElement("span");
+      head.className = "iname";
+      head.textContent = "overlay candidate: " + c.process + " (pid " + c.pid + ")";
+      const detail = document.createElement("span");
+      detail.className = "isrc";
+      detail.textContent = c.path + " · " + c.signature + " · " + c.width + "x" + c.height + " (" + Math.round(c.coverage_pct) + "% of monitor) · " + c.title;
+      const btnRow = document.createElement("span");
+      function markDone(label) {
+        done.add(c.hwnd);
+        Array.prototype.forEach.call(btnRow.querySelectorAll("button"), function (b) { b.disabled = true; });
+        lines.push(label);
+        appendLog("overlay", label);
+        maybeFinish();
+      }
+      const closeBtn = document.createElement("button");
+      closeBtn.className = "btn";
+      closeBtn.textContent = "Close window";
+      closeBtn.addEventListener("click", async () => {
+        closeBtn.disabled = true;
+        try {
+          const r = await invoke("close_overlay_window", { hwnd: c.hwnd, force: false });
+          if (r && r.closed) markDone("overlay: closed " + c.process + " (graceful)");
+          else { closeBtn.disabled = false; appendLog("overlay", "still open (use Force close to terminate): " + c.process); }
+        } catch (e) { closeBtn.disabled = false; appendLog("error", String(e)); }
+      });
+      const forceBtn = document.createElement("button");
+      forceBtn.className = "btn btn-danger";
+      forceBtn.textContent = "Force close";
+      forceBtn.title = "Terminate the owning process. Use only for a window you have reviewed.";
+      forceBtn.addEventListener("click", async () => {
+        if (!window.confirm("Terminate " + c.process + " (pid " + c.pid + ")? Unsaved work in that process will be lost.")) return;
+        forceBtn.disabled = true;
+        try {
+          const r = await invoke("close_overlay_window", { hwnd: c.hwnd, force: true });
+          if (r && r.closed) markDone("overlay: force-closed " + c.process + " (terminated)");
+          else { forceBtn.disabled = false; appendLog("overlay", "force close failed: " + c.process); }
+        } catch (e) { forceBtn.disabled = false; appendLog("error", String(e)); }
+      });
+      const allowBtn = document.createElement("button");
+      allowBtn.className = "ghost-btn";
+      allowBtn.textContent = "Don't ask again for this app";
+      allowBtn.title = "Allowlist this exact binary (path + hash). Future matches skip it.";
+      allowBtn.addEventListener("click", async () => {
+        allowBtn.disabled = true;
+        try {
+          const msg = await invoke("allowlist_overlay", { path: c.path });
+          markDone("overlay: " + msg);
+        } catch (e) { allowBtn.disabled = false; appendLog("error", String(e)); }
+      });
+      btnRow.append(closeBtn, document.createTextNode(" "), forceBtn, document.createTextNode(" "), allowBtn);
+      li.append(head, document.createElement("br"), detail, document.createElement("br"), btnRow);
+      logList.appendChild(li);
+    });
+    const contLi = document.createElement("li");
+    const contBtn = document.createElement("button");
+    contBtn.className = "btn";
+    contBtn.textContent = "Continue scan without closing →";
+    contBtn.addEventListener("click", () => {
+      contBtn.disabled = true;
+      lines.push("overlay: review skipped by operator (" + (candidates.length - done.size) + " candidate(s) left open)");
+      runScan(lines);
+    });
+    contLi.appendChild(contBtn);
+    logList.appendChild(contLi);
+    logList.scrollTop = logList.scrollHeight;
+  }
+
   (async () => {
     scanView.classList.add("hidden");
     landingView.classList.remove("hidden");
@@ -4396,20 +4479,25 @@
       await switchView(landingView, scanView);
       setNav("scan-view");
       const lines = [];
+      let rep = null;
       try {
-        const rep = await invoke("dismiss_overlays");
-        if (rep.closed && rep.closed.length > 0) {
-          lines.push("Closed " + rep.closed.length + " suspicious window(s): " + rep.closed.map(function (c) { return c.process; }).join(", "));
-          for (const c of rep.closed) {
-            lines.push("  ↳ closed " + c.title + " — " + c.signature + (c.terminated ? " (terminated)" : ""));
-          }
-        } else {
-          lines.push("No suspicious overlay windows found");
-        }
+        rep = await invoke("list_overlay_candidates");
       } catch (e) {
         lines.push("Overlay check unavailable: " + e);
+        runScan(lines);
+        return;
       }
-      runScan(lines);
+      const candidates = (rep && rep.candidates) || [];
+      appendLog("overlay", "checked " + (rep ? rep.checked : 0) + " windows, " + candidates.length + " candidate(s) need review");
+      if (candidates.length === 0) {
+        lines.push("No suspicious overlay windows found");
+        runScan(lines);
+        return;
+      }
+      // Matches are SHOWN, never closed here: each card carries its own
+      // Close / Force close / Don't-ask-again buttons, plus one button to
+      // continue the scan. Nothing closes without a per-window click.
+      renderOverlayReview(candidates, lines);
     });
     document.getElementById("start-cleanup-btn").addEventListener("click", async () => {
       cleanupState.open = true;

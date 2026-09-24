@@ -416,18 +416,29 @@
     core: {
       invoke(command, args) {
         switch (command) {
-          case "dismiss_overlays": {
+          case "list_overlay_candidates": {
             const hits = window.__CURE_MOCK_OVERLAY_HITS || 0;
-            const closed = [];
+            const candidates = [];
             for (let i = 0; i < hits; i++) {
-              closed.push({
+              candidates.push({
+                hwnd: 1000 + i,
                 title: i === 0 ? "SIMULATED RANSOM SCREEN" : "OVERLAY WINDOW " + (i + 1),
                 process: i === 0 ? "fake-overlay.exe" : "overlay-" + (i + 1) + ".exe",
+                path: "C:\\cure-mock\\overlay-" + (i + 1) + ".exe",
+                pid: 9000 + i,
                 signature: "unsigned",
-                terminated: false,
+                width: 1920,
+                height: 1080,
+                coverage_pct: 100.0,
               });
             }
-            return delay(80).then(() => ({ checked: 12, closed: closed }));
+            return delay(80).then(() => ({ checked: 12, candidates: candidates }));
+          }
+          case "close_overlay_window": {
+            return delay(60).then(() => ({ closed: true, terminated: !!(args && args.force) }));
+          }
+          case "allowlist_overlay": {
+            return delay(40).then(() => "allowlisted (this binary only): " + (args && args.path));
           }
           case "run_auto_scan":
             return runAutoScan();
