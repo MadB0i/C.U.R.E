@@ -1,5 +1,29 @@
 # Changelog — C.U.R.E
 
+## 2026-09-24 — F-LOLBIN-1 (signed script hosts scored Safe)
+
+**Found by read-only probe on the same box.** A signed Microsoft LOLBin
+with suspicious arguments scored `0 Safe`: `-20 trusted` + `-40 Valid`
+cancelled `+25`/`+30` heuristics (e.g. `powershell -Hidden -EncodedCommand`,
+`rundll32 …Temp\evil.dll`, `mshta http://…` — all Safe under Valid).
+
+**Fix** (`core/src/risk.rs`, Run-key and `.lnk` together): known LOLBins
+(powershell/pwsh/cmd/mshta/rundll32/regsvr32/wscript/cscript/msbuild) with
+any command-line heuristic firing get **neither** discount — heuristics
+decide; `%VAR%` expands across the whole command first; one new
+LOLBin-gated remote-arg heuristic (URL/UNC → +25, floor Suspicious).
+Benign uses (plain `-File`, local `.hta`, `shell32.dll,Control_RunDLL`)
+stay `0 Safe`. Live FP check on this PC: 114 entries, **0 verdict
+changes**. See `docs/checks/2026-09-24-flolbin-1-fix.md` for the full
+before/after table.
+
+**Baseline-id note:** F-LNK-1 changed Startup `.lnk` `command` from the lnk
+path to `resolved target + args`, and `make_id` hashes `command` — so old
+`.lnk` entries appear as **removed + added** in `baseline.json` after
+upgrading. Quarantine records are unaffected (`original_path` is still the
+lnk file; old ids still undo — locked by regression test
+`old_lnk_record_with_stale_command_id_still_undoes`).
+
 ## 2026-09-24 — F-LNK-1 (Startup .lnk false-negative)
 
 **Found during real-PC validation on a standard-user Windows 11 box.** The Startup scanner stored the `.lnk` file path itself as `entry.command` (and thus scored it), not the shortcut's target. Two bugs combined:

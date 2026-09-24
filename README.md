@@ -152,6 +152,7 @@ standard user, 2026-09-24). Nothing below is claimed beyond that report.
 | Real-malware canary | | | | ✓ (synthetic by design) |
 | GUI fully offline (no remote URLs) | | | ✓ (grep + CI gate) | |
 | Scoring weights, WMI/service/error paths | | ✓ | | |
+| LOLBin scoring (discounts withheld, remote-arg) + live 114-entry zero-diff FP check | ✓ (zero-diff) | ✓ | | |
 
 ## Project structure
 
@@ -171,6 +172,11 @@ See `docs/ARCHITECTURE.md` (one page) and `testing/real-pc/README-TESTING.md`
 
 ## Limitations / roadmap
 
+- Scoring is heuristic-based, not a verdict engine: weights favor
+  precision (benign signed tools stay Safe), so novel attacker patterns
+  outside the heuristic list can score Safe — notably, only *known*
+  LOLBin/argument shapes are flagged, and `%VAR%` expansion depends on the
+  process environment. Treat Suspicious/High as investigation leads.
 - Needs elevation for HKLM areas and the Task Scheduler root (reported as
   INCOMPLETE, never silent).
 - IOC feed is a labeled DEMO fixture; a signed-feed provider is future work.
