@@ -58,6 +58,13 @@ enum Command {
     Diff,
     Quarantine {
         id: String,
+        #[arg(
+            long,
+            help = "skip the interactive confirmation (required in non-TTY sessions)"
+        )]
+        yes: bool,
+        #[arg(long, help = "show what would be quarantined without moving anything")]
+        dry_run: bool,
     },
     Undo {
         id: String,
@@ -160,7 +167,7 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
     match &cli.command {
         Command::Scan => cmd_scan(&paths),
         Command::Diff => cmd_diff(&paths),
-        Command::Quarantine { id } => cmd_quarantine(&paths, id),
+        Command::Quarantine { id, yes, dry_run } => cmd_quarantine(&paths, id, *yes, *dry_run),
         Command::Undo { id } => cmd_undo(&paths, id),
         Command::Report {
             format,
@@ -487,7 +494,46 @@ fn cmd_diff(paths: &ResolvedPaths) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn cmd_quarantine(paths: &ResolvedPaths, id: &str) -> Result<(), Box<dyn Error>> {
+/// How `cure quarantine` should proceed before touching anything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QuarantinePlan {
+    /// Show the item and ask `[y/N]` on the terminal.
+    Ask,
+    /// `--yes`: proceed without asking.
+    Proceed,
+    /// `--dry-run`: report only, never move.
+    DryRun,
+    /// No terminal and no `--yes`: refuse rather than guess.
+    Refuse,
+}
+
+/// Pure plan selection. Precedence is deliberate: `--dry-run` always wins
+/// (it can never mutate, so it is safe even piped), then `--yes`, then the
+/// TTY check. Pure so all four paths are unit-testable without a terminal.
+fn plan_quarantine(yes: bool, dry_run: bool, stdin_is_tty: bool) -> QuarantinePlan {
+    if dry_run {
+        QuarantinePlan::DryRun
+    } else if yes {
+        QuarantinePlan::Proceed
+    } else if stdin_is_tty {
+        QuarantinePlan::Ask
+    } else {
+        QuarantinePlan::Refuse
+    }
+}
+
+/// Pure confirmation parser: only an explicit `y`/`yes` (any case,
+/// surrounding whitespace tolerated) counts as consent.
+fn parse_confirmation(input: &str) -> bool {
+    matches!(input.trim().to_ascii_lowercase().as_str(), "y" | "yes")
+}
+
+fn cmd_quarantine(
+    paths: &ResolvedPaths,
+    id: &str,
+    yes: bool,
+    dry_run: bool,
+) -> Result<(), Box<dyn Error>> {
     let collected = collect(paths);
     let scored = score_all(&collected.entries, &collected.services);
 
@@ -507,6 +553,36 @@ fn cmd_quarantine(paths: &ResolvedPaths, id: &str) -> Result<(), Box<dyn Error>>
     if !found.entry.source.is_file_backed() {
         print_manual_guidance(found);
         return Ok(());
+    }
+    // Show exactly what is about to move, then require explicit consent.
+    println!("quarantine candidate:");
+    println!("  id     : {}", found.entry.id);
+    println!("  name   : {}", found.entry.name);
+    println!("  source : {}", found.entry.source.tag());
+    println!("  file   : {}", found.entry.location);
+    println!(
+        "  action : move to quarantine/ under the data dir (undo with `cure undo {}`)",
+        found.entry.id
+    );
+    match plan_quarantine(yes, dry_run, stdin_is_tty()) {
+        QuarantinePlan::DryRun => {
+            println!("dry run: nothing was moved.");
+            return Ok(());
+        }
+        QuarantinePlan::Refuse => {
+            return Err(
+                "refusing to quarantine without confirmation in a non-interactive \
+session (re-run with --yes, or use --dry-run to preview)"
+                    .into(),
+            );
+        }
+        QuarantinePlan::Proceed => {}
+        QuarantinePlan::Ask => {
+            if !confirm("Quarantine this file?") {
+                println!("cancelled: nothing was moved.");
+                return Ok(());
+            }
+        }
     }
     match found.entry.source {
         PersistenceSource::StartupFolder => {
@@ -1053,7 +1129,15 @@ fn confirm(prompt: &str) -> bool {
     let mut line = String::new();
     std::io::stdin()
         .read_line(&mut line)
-        .is_ok_and(|_| matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes"))
+        .is_ok_and(|_| parse_confirmation(&line))
+}
+
+/// True when stdin is an interactive terminal. Uses std only (no extra
+/// dependency): in pipes, CI, and `cmd /c` chains this is false, which is
+/// exactly when we must refuse a destructive default.
+fn stdin_is_tty() -> bool {
+    use std::io::IsTerminal as _;
+    std::io::stdin().is_terminal()
 }
 
 fn file_age_days(path: &Path) -> u64 {
@@ -1177,4 +1261,45 @@ fn truncate_tail(text: &str, max_chars: usize) -> String {
         .skip(text.chars().count() - max_chars)
         .collect();
     format!("…{cut}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dry_run_wins_over_everything() {
+        // --dry-run never mutates, so it is safe even piped with --yes.
+        assert_eq!(plan_quarantine(false, true, true), QuarantinePlan::DryRun);
+        assert_eq!(plan_quarantine(true, true, true), QuarantinePlan::DryRun);
+        assert_eq!(plan_quarantine(true, true, false), QuarantinePlan::DryRun);
+        assert_eq!(plan_quarantine(false, true, false), QuarantinePlan::DryRun);
+    }
+
+    #[test]
+    fn yes_proceeds_without_prompt() {
+        assert_eq!(plan_quarantine(true, false, true), QuarantinePlan::Proceed);
+        assert_eq!(plan_quarantine(true, false, false), QuarantinePlan::Proceed);
+    }
+
+    #[test]
+    fn interactive_without_flags_asks() {
+        assert_eq!(plan_quarantine(false, false, true), QuarantinePlan::Ask);
+    }
+
+    #[test]
+    fn non_tty_without_yes_refuses() {
+        // Piped / CI / scheduled sessions must fail closed, not guess.
+        assert_eq!(plan_quarantine(false, false, false), QuarantinePlan::Refuse);
+    }
+
+    #[test]
+    fn only_explicit_yes_confirms() {
+        for yes in ["y", "Y", "yes", "YES", "  yes  ", "y\n"] {
+            assert!(parse_confirmation(yes), "rejected: {yes:?}");
+        }
+        for no in ["", "n", "no", "ye", "yess", "abort", "1", "ok"] {
+            assert!(!parse_confirmation(no), "accepted: {no:?}");
+        }
+    }
 }
