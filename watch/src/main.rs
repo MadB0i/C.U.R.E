@@ -9,16 +9,22 @@ mod drives;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod logger;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-mod self_update;
+mod pairing;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-mod trigger;
+mod self_update;
 
 use consent::{ConsentDecision, CONSENT_FILE_NAME};
 
+#[cfg(target_os = "windows")]
+use std::path::{Path, PathBuf};
+
 const POLL_INTERVAL_MS: u64 = 1500;
-const GUI_EXE_NAME: &str = "cure-gui.exe";
 
 fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|a| a == "pair") {
+        std::process::exit(cmd_pair(&args));
+    }
     #[cfg(not(target_os = "windows"))]
     {
         println!("cure-watch performs its USB auto-launch duty on Windows only.");
@@ -31,6 +37,59 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+/// `cure-watch pair E:` — stamp this machine's pairing token onto a drive so
+/// later insertions of that drive can trigger a launch. Exit 0 = paired,
+/// 1 = operational error, 2 = usage error. Never launches anything.
+#[cfg(target_os = "windows")]
+fn cmd_pair(args: &[String]) -> i32 {
+    let Some(root) = pairing::parse_pair_drive(args) else {
+        eprintln!("usage: cure-watch pair <drive>   (example: cure-watch pair E:)");
+        return 2;
+    };
+    if !root.is_dir() {
+        eprintln!(
+            "error: drive {} not found or not a directory",
+            root.display()
+        );
+        return 1;
+    }
+    ensure_pairing();
+    let Some(pair) = pairing::load_pairing() else {
+        eprintln!("error: this watcher is not paired yet.");
+        eprintln!(
+            "Run cure-watch.exe once from your rescue media (answer Yes at the \
+consent prompt) to bootstrap pairing, then stamp media with this command."
+        );
+        return 1;
+    };
+    match std::fs::write(
+        root.join(pairing::TRIGGER_FILE_NAME),
+        pairing::format_trigger(&pair.token_hex),
+    ) {
+        Ok(()) => {
+            println!(
+                "paired {} (token stamped; the host-installed copy remains the \
+only binary ever launched)",
+                root.display()
+            );
+            0
+        }
+        Err(err) => {
+            eprintln!(
+                "error: could not write trigger to {}: {err}",
+                root.display()
+            );
+            1
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn cmd_pair(_args: &[String]) -> i32 {
+    println!("`cure-watch pair` is a Windows-only operation.");
+    2
 }
 
 #[cfg(target_os = "windows")]
@@ -93,8 +152,14 @@ fn prompt_enable() -> bool {
 
     const TEXT: &str = "C.U.R.E Watcher wants to run quietly in the background:\n\n\
   \u{2022} It watches for newly inserted USB drives.\n\
-  \u{2022} When a drive carrying a valid C.U.R.E trigger file is detected, it \
-auto-launches a one-click rescue scan from that drive.\n\
+  \u{2022} When a drive carrying a trigger paired with THIS machine is \
+detected, it launches the rescue GUI installed on this machine \
+(%LOCALAPPDATA%\\CURE\\cure-gui.exe) — never any program from the drive \
+itself. Drives are paired with `cure-watch pair E:` (or, at install, the \
+removable media you start the watcher from).\n\
+  \u{2022} At install, the GUI copy sitting next to the watcher (your rescue \
+media, which you deliberately executed) is pinned for later launches; USB \
+executables are never run.\n\
   \u{2022} It also runs the experimental canary guard: it plants small decoy \
 files (~cure-canary-*) in Desktop/Documents/Downloads, watches those folders \
 for mass-encryption behaviour, and polls running processes for known \
@@ -123,6 +188,9 @@ nothing gets installed)";
 #[cfg(target_os = "windows")]
 fn start_watching() -> Result<(), Box<dyn std::error::Error>> {
     self_install()?;
+    // Pin the host GUI copy + pairing token (best effort: watching and the
+    // canary guard work regardless; launches stay disabled until paired).
+    ensure_pairing();
     logger::log(
         "startup",
         &format!(
@@ -144,20 +212,7 @@ fn start_watching() -> Result<(), Box<dyn std::error::Error>> {
             println!("drive appeared: {drive}");
             logger::log("drive", &format!("new drive appeared: {drive}"));
             let root = std::path::PathBuf::from(&drive);
-            if trigger::has_valid_trigger(&root) {
-                println!("valid C.U.R.E trigger found on {drive}; launching GUI");
-                logger::log(
-                    "trigger",
-                    &format!("VALID C.U.R.E trigger on {drive}; launching GUI"),
-                );
-                launch_gui(&root);
-            } else {
-                println!("no C.U.R.E trigger on {drive}; ignoring");
-                logger::log(
-                    "trigger",
-                    &format!("invalid/missing trigger on {drive}; ignoring"),
-                );
-            }
+            launch_gui(&root);
         }
         previous = current;
     }
@@ -228,43 +283,204 @@ fn self_install() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// True when the host GUI copy at `host_exe` matches `pair` on every axis:
+/// plain file, not a reparse point, SHA-256 pinned hash intact.
+#[cfg(target_os = "windows")]
+fn host_copy_verified(host_exe: &Path, pair: &pairing::Pairing) -> bool {
+    host_exe.is_file()
+        && !pairing::is_reparse_point(host_exe)
+        && cure_core::hash_intel::sha256_file_hex(host_exe).as_deref()
+            == Some(pair.gui_sha256_hex.as_str())
+}
+
+/// The GUI copy next to the running watcher, but ONLY when it sits on
+/// removable media (the operator's rescue USB being deliberately executed).
+/// A copy next to a fixed-drive install (Startup, Downloads, …) is never a
+/// pairing source: trusting it would let anything able to drop a file next
+/// to the watcher re-pin the launched binary.
+#[cfg(target_os = "windows")]
+fn removable_beside_gui() -> Option<(PathBuf, PathBuf)> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?.to_path_buf();
+    let root = pairing::drive_root_of(&exe)?;
+    if !pairing::is_removable_drive(&root) {
+        return None;
+    }
+    let gui = dir.join(pairing::HOST_GUI_EXE_NAME);
+    if gui.is_file() && !pairing::is_reparse_point(&gui) {
+        Some((root, gui))
+    } else {
+        None
+    }
+}
+
+/// Bootstrap or repair the host pairing (best effort, never fatal).
+///
+/// - Already paired and host copy verifies: nothing to do.
+/// - Otherwise the operator must be running from removable rescue media: its
+///   GUI copy is pinned to `%LOCALAPPDATA%\CURE\` (verified by re-hashing
+///   after the copy) and the media is stamped with the token. An existing
+///   token is KEPT across GUI updates so already-paired USBs keep working;
+///   only a missing pairing mints a fresh token.
+/// - Anything else (fixed-drive launch, no media, IO failure): log and carry
+///   on watching — launches simply stay disabled until pairing completes.
+#[cfg(target_os = "windows")]
+fn ensure_pairing() {
+    use pairing::Pairing;
+
+    let Some(host_exe) = pairing::host_gui_exe() else {
+        logger::log(
+            "pairing",
+            "LOCALAPPDATA unset; pairing unavailable (portable mode, launches disabled)",
+        );
+        return;
+    };
+    if let Some(pair) = pairing::load_pairing() {
+        if host_copy_verified(&host_exe, &pair) {
+            return;
+        }
+        logger::log(
+            "pairing",
+            "pairing record present but host copy does not verify; attempting re-pin",
+        );
+    }
+    let Some((media_root, source)) = removable_beside_gui() else {
+        logger::log(
+            "pairing",
+            "no removable rescue media with a GUI copy alongside; launches disabled \
+until pairing completes (run once from rescue media, or `cure-watch pair E:`)",
+        );
+        return;
+    };
+    let Some(hash) = cure_core::hash_intel::sha256_file_hex(&source) else {
+        logger::log(
+            "pairing",
+            &format!("cannot hash media GUI copy at {}", source.display()),
+        );
+        return;
+    };
+    if std::fs::copy(&source, &host_exe).is_err() {
+        logger::log(
+            "pairing",
+            &format!("cannot stage host GUI copy at {}", host_exe.display()),
+        );
+        return;
+    }
+    // Confirm the staged bytes before pinning their hash — a short write or a
+    // swap between copy and pin must never become the trusted record.
+    if cure_core::hash_intel::sha256_file_hex(&host_exe).as_deref() != Some(hash.as_str()) {
+        logger::log("pairing", "staged host copy failed verification; removed");
+        let _ = std::fs::remove_file(&host_exe);
+        return;
+    }
+    let token_hex = pairing::load_pairing().map_or_else(
+        || {
+            pairing::generate_token_hex().unwrap_or_else(|err| {
+                logger::log("pairing", &format!("CSPRNG failure: {err}"));
+                String::new()
+            })
+        },
+        |existing| existing.token_hex,
+    );
+    if token_hex.is_empty() {
+        let _ = std::fs::remove_file(&host_exe);
+        return;
+    }
+    let record = Pairing {
+        token_hex: token_hex.clone(),
+        gui_sha256_hex: hash,
+    };
+    if pairing::save_pairing(&record).is_err() {
+        logger::log("pairing", "cannot persist pairing record");
+        let _ = std::fs::remove_file(&host_exe);
+        return;
+    }
+    logger::log(
+        "pairing",
+        &format!("host GUI copy pinned at {}", host_exe.display()),
+    );
+    match std::fs::write(
+        media_root.join(pairing::TRIGGER_FILE_NAME),
+        pairing::format_trigger(&token_hex),
+    ) {
+        Ok(()) => logger::log(
+            "pairing",
+            &format!("paired removable media at {}", media_root.display()),
+        ),
+        Err(err) => logger::log(
+            "pairing",
+            &format!(
+                "pinned host copy but could not stamp trigger on {}: {err}",
+                media_root.display()
+            ),
+        ),
+    }
+}
+
+/// React to one newly arrived drive. Launches ONLY the pinned host copy, and
+/// only when the drive's trigger carries this machine's token. Every Ignore
+/// path is silent on the console (no feedback to a probing device) and
+/// recorded in the local log; only setup states (unpaired watcher, broken
+/// host copy) print, because the operator must fix those.
 #[cfg(target_os = "windows")]
 fn launch_gui(drive_root: &std::path::Path) {
-    let beside_watcher = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.to_path_buf()))
-        .map(|dir| dir.join(GUI_EXE_NAME));
-    let candidates = [Some(drive_root.join(GUI_EXE_NAME)), beside_watcher];
-    for candidate in candidates.into_iter().flatten() {
-        if candidate.is_file() {
-            match std::process::Command::new(&candidate)
+    let Some(host_exe) = pairing::host_gui_exe() else {
+        println!("watcher is not paired (LOCALAPPDATA unavailable); ignoring drive");
+        logger::log(
+            "trigger",
+            "arrival ignored: LOCALAPPDATA unavailable, no pairing possible",
+        );
+        return;
+    };
+    let Some(pair) = pairing::load_pairing() else {
+        println!("watcher is not paired yet; ignoring drive (run once from rescue media)");
+        logger::log(
+            "trigger",
+            "arrival ignored: no pairing record (bootstrap by running once from rescue media)",
+        );
+        return;
+    };
+    let trigger = pairing::read_trigger_bytes(drive_root);
+    let host = pairing::HostState {
+        exists: host_exe.is_file(),
+        sha256_matches_pin: cure_core::hash_intel::sha256_file_hex(&host_exe).as_deref()
+            == Some(pair.gui_sha256_hex.as_str()),
+        is_reparse_point: pairing::is_reparse_point(&host_exe),
+    };
+    match pairing::decide_launch(trigger.as_deref(), &pair.token_hex, &host_exe, &host) {
+        pairing::LaunchDecision::Launch { host_exe } => {
+            // Absolute path, argument list, no shell: this resolves to
+            // CreateProcessW on the pinned copy — never a drive-supplied path.
+            match std::process::Command::new(&host_exe)
                 .arg("--data-dir")
                 .arg(drive_root)
                 .spawn()
             {
                 Ok(_) => {
-                    println!("launched {}", candidate.display());
-                    logger::log("launch", &format!("launched {}", candidate.display()));
+                    println!("launched pinned GUI for {}", drive_root.display());
+                    logger::log(
+                        "launch",
+                        &format!(
+                            "launched pinned {} for {}",
+                            host_exe.display(),
+                            drive_root.display()
+                        ),
+                    );
                 }
                 Err(err) => {
-                    println!("failed to launch {}: {err}", candidate.display());
+                    println!("failed to launch pinned GUI: {err}");
                     logger::log(
                         "launch-error",
-                        &format!("failed to launch {}: {err}", candidate.display()),
+                        &format!("failed to launch pinned GUI: {err}"),
                     );
                 }
             }
-            return;
+        }
+        pairing::LaunchDecision::Ignore { reason } => {
+            logger::log(
+                "trigger",
+                &format!("drive {} ignored: {reason}", drive_root.display()),
+            );
         }
     }
-    println!(
-        "no {} found on the USB drive or next to the watcher; nothing to launch",
-        GUI_EXE_NAME
-    );
-    logger::log(
-        "launch-error",
-        &format!(
-            "no {GUI_EXE_NAME} found on the USB drive or next to the watcher; nothing to launch"
-        ),
-    );
 }

@@ -104,37 +104,45 @@ Procedure:
 2. **Launch the fake overlay.** Run `fake-overlay.exe`. Verify it covers
    the desktop edge-to-edge and its title reads
    `CURE TEST FIXTURE — NOT REAL MALWARE`. Leave it running.
-3. **Prepare the rescue drive.** On a real USB:
+3. **Prepare the rescue drive.** The watcher never executes anything from the
+   drive: it launches only the pinned host copy
+   (`%LOCALAPPDATA%\CURE\cure-gui.exe`), and only for drives stamped with
+   this machine's pairing token. Pairing is bootstrapped by running the
+   watcher once from the rescue USB itself (step 1 stamps that media);
+   stamp further media explicitly:
    ```bat
-   copy gui\src-tauri\target\release\cure-gui.exe E:\
-   echo CURE-TRIGGER-V1> E:\.cure-trigger
+   cure-watch.exe pair E:
    ```
-   No-USB fallback:
+   No-USB fallback (`subst` drives are not removable, so they are never
+   auto-stamped — stamp them explicitly):
    ```bat
    mkdir C:\cure-usb-test
-   copy gui\src-tauri\target\release\cure-gui.exe C:\cure-usb-test\
-   echo CURE-TRIGGER-V1> C:\cure-usb-test\.cure-trigger
    subst X: C:\cure-usb-test
+   cure-watch.exe pair X:
    ```
-   Optional negative control (must be *ignored*):
+   Optional negative controls (all must be *ignored*, log-only):
    ```bat
    mkdir C:\cure-bad-test
    echo not-a-real-trigger> C:\cure-bad-test\.cure-trigger
    subst Y: C:\cure-bad-test
    ```
+   plus: a drive carrying a bare `CURE-TRIGGER-V1` file, and a drive with a
+   valid token but its own `cure-gui.exe` dropped next to it (the USB copy
+   must never execute — the log must show the pinned host path instead).
 4. **Attach/insert the drive**, then read `%APPDATA%\cure-watch.log`
    within seconds. Expected shape (UTC):
    ```
    2026-08-23T14:02:11Z [startup] watcher started (pid 4188, polling every 1500 ms)
    2026-08-23T14:02:11Z [install] installed watcher to C:\Users\you\AppData\...\Startup\cure-watch.exe
+   2026-08-23T14:02:11Z [pairing] host GUI copy pinned at C:\Users\you\AppData\Local\CURE\cure-gui.exe
    2026-08-23T14:05:47Z [drive] new drive appeared: X:\
-   2026-08-23T14:05:47Z [trigger] VALID C.U.R.E trigger on X:\; launching GUI
-   2026-08-23T14:05:48Z [launch] launched X:\cure-gui.exe
-   2026-08-23T14:05:47Z [trigger] invalid/missing trigger on Y:\; ignoring
+   2026-08-23T14:05:48Z [launch] launched pinned C:\Users\you\AppData\Local\CURE\cure-gui.exe for X:\
+   2026-08-23T14:05:47Z [trigger] drive Y:\ ignored: malformed trigger file; ignoring
    ```
    Event vocabulary: `startup`, `install`, `consent`, `drive`, `trigger`,
-   `launch`, `launch-error`, `canary`. The log is authoritative even if the
-   visual check is ambiguous.
+   `launch`, `launch-error`, `canary`, `pairing`. The log is authoritative
+   even if the visual check is ambiguous. Token mismatches are silent on the
+   console by design — check the log, not the screen.
 5. **Visual z-order check.** Within ~2 s the C.U.R.E window should appear
    **in front of** the fake overlay, zero clicks (topmost + focus at
    startup, re-surfaced after ~1.2 s; manual launches are normal windows).
