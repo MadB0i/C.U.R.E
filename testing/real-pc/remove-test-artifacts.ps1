@@ -105,23 +105,51 @@ if ($DryRun) {
 }
 
 # 4. Scheduled task ---------------------------------------------------------------
+# NOTE: schtasks writes failures to stderr, which throws under
+# $ErrorActionPreference='Stop' before $LASTEXITCODE is readable — hence
+# the try/catch (a "not found" query is the expected absent case, not an
+# error).
+function Test-TaskPresent([string]$Name) {
+    try {
+        schtasks /Query /TN "\$Name" 2>$null | Out-Null
+        return ($LASTEXITCODE -eq 0)
+    } catch {
+        return $false
+    }
+}
 Write-Host ""
 if ($DryRun) {
     Write-Host "[DRY-RUN] would run: schtasks /Delete /TN $TaskName /F"
     Write-Host "[DRY-RUN] would run: schtasks /Query /TN $TaskName (expect 'not exist')"
 } else {
-    schtasks /Query /TN "\$TaskName" 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 0) {
+    if (Test-TaskPresent $TaskName) {
         schtasks /Delete /TN "\$TaskName" /F
         Write-Host "deleted scheduled task: \$TaskName"
     } else {
         Write-Host "absent (never created or already deleted): \$TaskName"
     }
-    schtasks /Query /TN "\$TaskName" 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 0) { $script:leftovers += "scheduled task still present: \$TaskName" }
+    if (Test-TaskPresent $TaskName) { $script:leftovers += "scheduled task still present: \$TaskName" }
 }
 
-# 5. Test dir itself (only if empty) ----------------------------------------------
+# 5. CURE data dir (baseline/quarantine the operator created via --data-dir) --
+# Exact-name exception to the prefix rule: leaf must be exactly `cure-data`
+# directly under $TestDir (the path README step 0 mandates). Anything else
+# is left for the operator.
+$DataDir = Join-Path $TestDir 'cure-data'
+Write-Host ""
+if ($DryRun) {
+    Write-Host "[DRY-RUN] would remove $DataDir recursively (exact-name match only)"
+} else {
+    if ((Test-Path -LiteralPath $DataDir) -and (Split-Path $DataDir -Leaf) -eq 'cure-data') {
+        Remove-Item -LiteralPath $DataDir -Recurse -Force
+        Write-Host "removed data dir: $DataDir"
+    } else {
+        Write-Host "absent (already clean): $DataDir"
+    }
+    if (Test-Path -LiteralPath $DataDir) { $script:leftovers += "data dir still present: $DataDir" }
+}
+
+# 6. Test dir itself (only if empty) ----------------------------------------------
 Write-Host ""
 if ($DryRun) {
     Write-Host "[DRY-RUN] would remove $TestDir if empty afterwards"

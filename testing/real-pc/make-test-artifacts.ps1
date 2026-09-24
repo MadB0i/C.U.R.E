@@ -123,8 +123,15 @@ Invoke-Step "Startup shortcut" "create $LnkPath -> $HelperPath" {
 
 # 5. Per-user logon task (attempted; standard users are usually denied) ----
 Invoke-Step "scheduled task" "schtasks /Create /TN $TaskName /TR helper /SC ONLOGON /F" {
-    $out = schtasks /Create /TN $TaskName /TR "`"$HelperPath`"" /SC ONLOGON /F 2>&1
-    $code = $LASTEXITCODE
+    try {
+        $out = schtasks /Create /TN $TaskName /TR "`"$HelperPath`"" /SC ONLOGON /F 2>&1
+        $code = $LASTEXITCODE
+    } catch {
+        # Native stderr + $ErrorActionPreference='Stop' throws before $LASTEXITCODE
+        # is readable; treat any throw here as refusal (nothing was created).
+        $out = @("schtasks threw: $($_.Exception.Message)")
+        $code = 1
+    }
     Write-Host ($out -join "`n")
     if ($code -ne 0) {
         Write-Host "SKIP   : task creation refused (exit $code) — expected for a"
