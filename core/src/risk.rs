@@ -1221,9 +1221,9 @@ mod tests {
             );
             let lnk_entry = crate::model::PersistenceEntry::new(
                 crate::model::PersistenceSource::StartupFolder,
-                &format!("{label}.lnk"),
+                format!("{label}.lnk"),
                 command,
-                &format!("C:\\Startup\\{label}.lnk"),
+                format!("C:\\Startup\\{label}.lnk"),
             );
             let run_scored = score_with_signals(&run_entry, SignatureStatus::ValidSigned, None);
             let lnk_scored = score_with_signals(&lnk_entry, SignatureStatus::ValidSigned, None);
