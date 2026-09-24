@@ -1,8 +1,10 @@
 import { chromium } from "playwright";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import os from "node:os";
 const dist = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist");
 const url = "file:///" + path.join(dist, "index.dev.html").replace(/\\/g, "/");
+const outDir = process.env.CURE_SHOTS_DIR || path.join(os.tmpdir(), "cure-v41-check");
 const browser = await chromium.launch();
 const failures = [];
 const ok = (n, c, x = "") => { console.log((c ? "ok   " : "FAIL ") + n + (x ? " [" + x + "]" : "")); if (!c) failures.push(n); };
@@ -31,7 +33,7 @@ const rcVisible = await page.locator("#action-receipt:not(.hidden)").isVisible()
 const rcText = ((await page.textContent("#action-receipt-text")) || "").trim();
 ok("receipt shown on quarantine", rcVisible, rcText.slice(0, 80));
 ok("receipt names the item", /Quarantined: .+ — moved to quarantine/.test(rcText), rcText.slice(0, 80));
-await page.screenshot({ path: "C:/Users/rupjy/AppData/Local/Temp/opencode/v41-results.png" });
+await page.screenshot({ path: path.join(outDir, "v41-results.png") });
 await page.click("#action-receipt-x");
 await page.waitForTimeout(300);
 ok("receipt dismisses", await page.locator("#action-receipt.hidden").count() === 1);
@@ -62,7 +64,7 @@ ok("summary items numeric", /^\d+$/.test((sum.items || "").trim()), sum.items);
 ok("summary size has unit", /[KMG]?B/.test(sum.size || ""), sum.size);
 ok("summary selected live", /items ·/.test(sum.sel || ""), sum.sel);
 ok("summary status Ready", (sum.status || "").trim() === "Ready", sum.status);
-await page.screenshot({ path: "C:/Users/rupjy/AppData/Local/Temp/opencode/v41-cleanup.png" });
+await page.screenshot({ path: path.join(outDir, "v41-cleanup.png") });
 // contrast on new elements
 const c = await page.evaluate(() => {
   const lum = (rgb) => {

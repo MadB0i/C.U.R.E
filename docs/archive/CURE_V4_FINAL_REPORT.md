@@ -1,3 +1,5 @@
+> **[HISTORICAL] This is an archived development report from the V4 development cycle (Sep 2026). It contains internal paths and context specific to the author's machine. For current documentation, see docs/validation/REAL-PC-VALIDATION.md, docs/ARCHITECTURE.md, and docs/CHANGELOG.md.**
+
 # C.U.R.E. V4 FINAL REPORT — real quarantine + no Desktop writes + futuristic forensic UI
 
 Base: `eea2cad` (V3). Working tree: 9 modified + 5 new files (see §15).
@@ -182,8 +184,8 @@ with connectivity. Font stack degrades to system fonts offline.
 
 ## 15. BEFORE/AFTER SCREENSHOT SUMMARY
 
-V3 baseline: `C:/Users/rupjy/AppData/Local/Temp/opencode/v3-shots/`.
-V4: `C:/Users/rupjy/AppData/Local/Temp/opencode/v4-shots/`
+V3 baseline: `%USERPROFILE%\AppData\Local\Temp\opencode\v3-shots\`.
+V4: `%USERPROFILE%\AppData\Local\Temp\opencode\v4-shots\`
 (`v4-overview/results/modal/incident` @1280×720, 1366×768, 1920×1080).
 Visible delta: grouped glowing sidebar, session-context topbar, metric
 command grid, severity-spine evidence cards, gridded scan-map rail,
@@ -223,5 +225,5 @@ git diff --check
 ```
 
 Desktop: rebuilt `cure-gui.exe` (V4 UI + both fixes) copied to
-`C:\Users\rupjy\OneDrive\Desktop\cure-gui.exe`; no baseline/quarantine
+`%USERPROFILE%\OneDrive\Desktop\cure-gui.exe`; no baseline/quarantine
 JSON on Desktop. NOT COMMITTED — awaiting instruction.

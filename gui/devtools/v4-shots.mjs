@@ -1,9 +1,10 @@
 import { chromium } from "playwright";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import os from "node:os";
 const dist = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist");
 const url = "file:///" + path.join(dist, "index.dev.html").replace(/\\/g, "/");
-const shots = "C:/Users/rupjy/AppData/Local/Temp/opencode/v4-shots";
+const shots = process.env.CURE_SHOTS_DIR || path.join(os.tmpdir(), "cure-v4-shots");
 const { mkdirSync } = await import("node:fs");
 mkdirSync(shots, { recursive: true });
 const browser = await chromium.launch();
