@@ -617,7 +617,24 @@ session (re-run with --yes, or use --dry-run to preview)"
         }
         _ => unreachable!("non-file-backed sources handled above"),
     }
+    report_orphans(paths);
     Ok(())
+}
+
+/// Quarantine-dir files with no record (interrupted runs, operator copies).
+/// They are surfaced here and left untouched — nothing auto-deletes them.
+fn report_orphans(paths: &ResolvedPaths) {
+    let orphans = quarantine::list_orphans(&paths.data_dir);
+    if orphans.is_empty() {
+        return;
+    }
+    println!(
+        "note: {} file(s) in quarantine/ have no record and were left untouched:",
+        orphans.len()
+    );
+    for orphan in &orphans {
+        println!("  orphan: {}", orphan.display());
+    }
 }
 
 /// Manual, reversible remediation guidance for findings C.U.R.E will never
@@ -697,6 +714,10 @@ fn cmd_undo(paths: &ResolvedPaths, id: &str) -> Result<(), Box<dyn Error>> {
         Ok(record) => {
             println!("restored: {}", record.quarantine_path.display());
             println!("      to: {}", record.original_path.display());
+            for note in &record.security_notes {
+                println!("      note: {note}");
+            }
+            report_orphans(paths);
             Ok(())
         }
         Err(err) if err.kind() == io::ErrorKind::NotFound => {

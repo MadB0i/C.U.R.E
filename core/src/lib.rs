@@ -1,3 +1,4 @@
+pub mod acl;
 pub mod attack;
 pub mod baseline;
 pub mod canary;
