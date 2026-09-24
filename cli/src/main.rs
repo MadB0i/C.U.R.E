@@ -1268,7 +1268,15 @@ fn cmd_cleanup_run(
     }
 
     if dism {
+        // DISM is a different kind of mutation (elevated, minutes-long
+        // system servicing) from the file deletes confirmed above: it gets
+        // its own explicit prompt that names it. A piped/non-interactive
+        // stdin answers "no" via confirm()'s strict y/yes parse.
         println!();
+        if !confirm("Run DISM component-store cleanup now? (needs elevation, takes minutes)") {
+            println!("skipped DISM component-store cleanup.");
+            return Ok(());
+        }
         println!("running DISM component-store cleanup (can take several minutes)…");
         match disk_cleanup::run_dism_cleanup() {
             Ok(output) => {
