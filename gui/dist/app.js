@@ -842,12 +842,83 @@
     let RX = 0;
 
     const motes = [];
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 16; i++) {
       motes.push({
-        rf: 0.2 + Math.random() * 0.28,
-        sp: (0.0003 + Math.random() * 0.0005) * (i % 2 ? 1 : -1),
+        rf: 0.14 + Math.random() * 0.42,
+        sp: (0.0003 + Math.random() * 0.0007) * (i % 2 ? 1 : -1),
         ph: Math.random() * Math.PI * 2,
-        a: 0.08 + Math.random() * 0.1,
+        a: 0.07 + Math.random() * 0.14,
+        tw: 0.6 + Math.random() * 1.8,
+        sz: 0.8 + Math.random() * 0.9,
+      });
+    }
+    // premium hover probe (tooltip) — purely visual, never affects counts
+    let hovered = null;
+    const tooltipEl = document.getElementById("map-tooltip");
+    function updateMapLegend() {
+      try {
+        const all = NetStore.all();
+        let hi = 0, su = 0, sa = 0;
+        for (const n of all) {
+          if (n.risk === "HighRisk") hi++;
+          else if (n.risk === "Suspicious") su++;
+          else sa++;
+        }
+        const eH = document.getElementById("map-n-high");
+        const eS = document.getElementById("map-n-susp");
+        const eF = document.getElementById("map-n-safe");
+        if (eH) eH.textContent = String(hi);
+        if (eS) eS.textContent = String(su);
+        if (eF) eF.textContent = String(sa);
+        const fill = document.getElementById("map-threat-fill");
+        const txt = document.getElementById("map-threat-text");
+        const total = all.length || 1;
+        const score = Math.min(100, Math.round(((hi * 1 + su * 0.45) / total) * 100));
+        if (fill) fill.style.width = score + "%";
+        if (txt) {
+          txt.textContent = all.length === 0 ? "—" : hi > 0 ? "HIGH " + score + "%" : su > 0 ? "WATCH " + score + "%" : "SECURE";
+          txt.style.color = hi > 0 ? "#f4928a" : su > 0 ? "#e8c476" : "#7fd8ab";
+        }
+      } catch (_) { /* legend is decorative */ }
+    }
+    if (stageEl && !stageEl.__cureMapHoverWired) {
+      stageEl.__cureMapHoverWired = true;
+      stageEl.addEventListener("mousemove", (ev) => {
+        if (!W || !H) return;
+        const rect = canvas.getBoundingClientRect();
+        const mx = ((ev.clientX - rect.left) / Math.max(rect.width, 1)) * W;
+        const my = ((ev.clientY - rect.top) / Math.max(rect.height, 1)) * H;
+        let best = null, bestD = 16 * DPR;
+        for (const nd of NetStore.all()) {
+          const p = nodeXY(nd);
+          const d = Math.hypot(p.x - mx, p.y - my);
+          if (d < bestD) { bestD = d; best = { nd, x: p.x, y: p.y }; }
+        }
+        hovered = best;
+        if (tooltipEl) {
+          if (best) {
+            const rk = best.nd.risk === "HighRisk" ? "high" : best.nd.risk === "Suspicious" ? "suspicious" : "safe";
+            tooltipEl.innerHTML = "";
+            const nm = document.createElement("div");
+            nm.textContent = String(best.nd.name || "?").slice(0, 60);
+            const rs = document.createElement("div");
+            rs.innerHTML = '<span class="tt-risk-' + rk + '">' + String(best.nd.risk || "?") + "</span>";
+            tooltipEl.append(nm, rs);
+            tooltipEl.classList.remove("hidden");
+            const sx = (best.x / W) * rect.width;
+            const sy = (best.y / H) * rect.height;
+            tooltipEl.style.left = Math.min(Math.max(sx + 12, 4), Math.max(rect.width - 170, 4)) + "px";
+            tooltipEl.style.top = Math.min(Math.max(sy - 10, 4), Math.max(rect.height - 60, 4)) + "px";
+          } else {
+            tooltipEl.classList.add("hidden");
+          }
+        }
+        stageEl.style.cursor = best ? "crosshair" : "";
+      });
+      stageEl.addEventListener("mouseleave", () => {
+        hovered = null;
+        if (tooltipEl) tooltipEl.classList.add("hidden");
+        if (stageEl) stageEl.style.cursor = "";
       });
     }
 
@@ -939,26 +1010,65 @@
       ctx.fillStyle = vg;
       ctx.fillRect(0, 0, W, H);
 
+      // futuristic nebula wash: violet core + cyan off-axis + faint red depth
+      const neb = ctx.createRadialGradient(CX, CY, 0, CX, CY, M * 1.05);
+      neb.addColorStop(0, "rgba(139,124,246,0.075)");
+      neb.addColorStop(0.45, "rgba(139,124,246,0.022)");
+      neb.addColorStop(0.7, "rgba(80,200,220,0.018)");
+      neb.addColorStop(1, "rgba(139,124,246,0)");
+      ctx.fillStyle = neb;
+      ctx.fillRect(0, 0, W, H);
+      const neb2 = ctx.createRadialGradient(CX + RX * 0.45, CY - R * 0.4, 0, CX + RX * 0.45, CY - R * 0.4, M * 0.55);
+      neb2.addColorStop(0, "rgba(80,200,220,0.05)");
+      neb2.addColorStop(1, "rgba(80,200,220,0)");
+      ctx.fillStyle = neb2;
+      ctx.fillRect(0, 0, W, H);
+
       const glow = ctx.createRadialGradient(CX, CY, 0, CX, CY, M);
-      glow.addColorStop(0, "rgba(124,108,240,0.04)");
-      glow.addColorStop(0.5, "rgba(124,108,240,0.014)");
+      glow.addColorStop(0, "rgba(124,108,240,0.05)");
+      glow.addColorStop(0.5, "rgba(124,108,240,0.016)");
       glow.addColorStop(1, "rgba(124,108,240,0)");
       ctx.fillStyle = glow;
       ctx.fillRect(0, 0, W, H);
 
       ctx.lineWidth = 1 * DPR;
-      ctx.strokeStyle = ACCENT(0.075);
-      ellipse(CX, CY, RX, R);
+      // rotating dashed orbit rings — holographic depth
+      const rot = REDUCED ? 0 : now / 9000;
+      ctx.save();
+      ctx.translate(CX, CY);
+      ctx.rotate(rot * 0.35);
+      ctx.strokeStyle = ACCENT(0.10);
+      ctx.setLineDash([5 * DPR, 7 * DPR]);
+      ellipse(0, 0, RX, R);
+      ctx.restore();
+      ctx.save();
+      ctx.translate(CX, CY);
+      ctx.rotate(-rot * 0.5);
+      ctx.strokeStyle = ACCENT(0.07);
+      ctx.setLineDash([2.5 * DPR, 6 * DPR]);
+      ellipse(0, 0, RX * 0.62, R * 0.62);
+      ctx.restore();
+      ctx.setLineDash([]);
       ctx.strokeStyle = ACCENT(0.05);
-      ellipse(CX, CY, RX * 0.62, R * 0.62);
+      ellipse(CX, CY, RX * 0.34, R * 0.34);
+      // faint crosshair ticks
+      ctx.strokeStyle = ACCENT(0.05);
+      ctx.beginPath();
+      for (let k = 0; k < 4; k++) {
+        const a = (k / 4) * Math.PI * 2 + (REDUCED ? 0 : now / 14000);
+        ctx.moveTo(CX + Math.cos(a) * RX * 0.34, CY + Math.sin(a) * R * 0.34);
+        ctx.lineTo(CX + Math.cos(a) * RX * 0.38, CY + Math.sin(a) * R * 0.38);
+      }
+      ctx.stroke();
 
       for (const m of motes) {
         const a = m.ph + m.sp * now;
         const x = CX + Math.cos(a) * RX * m.rf;
         const y = CY + Math.sin(a) * R * m.rf;
-        ctx.fillStyle = ACCENT(m.a.toFixed(2));
+        const tw = REDUCED ? 1 : 0.55 + 0.45 * Math.sin(now / (700 * m.tw) + m.ph * 3);
+        ctx.fillStyle = ACCENT((m.a * tw).toFixed(3));
         ctx.beginPath();
-        ctx.arc(x, y, 1.1 * DPR, 0, Math.PI * 2);
+        ctx.arc(x, y, m.sz * DPR, 0, Math.PI * 2);
         ctx.fill();
       }
     }
@@ -967,24 +1077,44 @@
       const k = Math.min(1.2, Math.max(0.6, Math.min(RX, R) / 260));
       const breathe =
         REDUCED ? 0.5 : 0.5 + 0.5 * Math.sin(now / 2100);
-      const haloR = (12 + 9 * breathe) * k * DPR;
+      const haloR = (14 + 10 * breathe) * k * DPR;
       const halo = ctx.createRadialGradient(CX, CY, 0, CX, CY, haloR);
-      halo.addColorStop(0, ACCENT((0.18 + 0.1 * breathe).toFixed(3)));
+      halo.addColorStop(0, ACCENT((0.24 + 0.12 * breathe).toFixed(3)));
+      halo.addColorStop(0.6, ACCENT((0.08 + 0.05 * breathe).toFixed(3)));
       halo.addColorStop(1, ACCENT(0));
       ctx.fillStyle = halo;
       ctx.beginPath();
       ctx.arc(CX, CY, haloR, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.lineWidth = 1 * DPR;
-      ctx.strokeStyle = ACCENT(REDUCED ? 0.32 : 0.32 + 0.12 * breathe);
-      ring(CX, CY, 11 * k * DPR);
+      // holographic double ring
+      ctx.lineWidth = 1.2 * DPR;
+      ctx.strokeStyle = ACCENT(REDUCED ? 0.38 : 0.38 + 0.14 * breathe);
+      ring(CX, CY, 12.5 * k * DPR);
+      if (!REDUCED) {
+        ctx.save();
+        ctx.strokeStyle = ACCENT(0.5);
+        ctx.setLineDash([6 * DPR, 5 * DPR]);
+        ctx.lineDashOffset = -now / 60;
+        ring(CX, CY, 17 * k * DPR);
+        ctx.restore();
+        ctx.strokeStyle = "rgba(155,231,244," + (0.22 + 0.12 * breathe).toFixed(3) + ")";
+        ctx.lineWidth = 1 * DPR;
+        ring(CX, CY, 8 * k * DPR);
+      } else {
+        ctx.strokeStyle = ACCENT(0.3);
+        ring(CX, CY, 17 * k * DPR);
+      }
 
-      ctx.fillStyle = "#7c6cf0";
-      ctx.shadowColor = "rgba(124, 108, 240, 0.45)";
-      ctx.shadowBlur = (3 + 2 * breathe) * DPR;
+      const cg = ctx.createRadialGradient(CX - 1 * DPR, CY - 1 * DPR, 0, CX, CY, 4 * k * DPR);
+      cg.addColorStop(0, "#e6e1ff");
+      cg.addColorStop(0.5, "#7c6cf0");
+      cg.addColorStop(1, "#4a3fa0");
+      ctx.fillStyle = cg;
+      ctx.shadowColor = "rgba(124, 108, 240, 0.6)";
+      ctx.shadowBlur = (5 + 3 * breathe) * DPR;
       ctx.beginPath();
-      ctx.arc(CX, CY, (2.6 + 0.7 * breathe) * k * DPR, 0, Math.PI * 2);
+      ctx.arc(CX, CY, (2.8 + 0.8 * breathe) * k * DPR, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
     }
@@ -992,26 +1122,67 @@
     function drawGraph(now) {
       const nodes = NetStore.all();
       ctx.textBaseline = "middle";
-      for (const nd of nodes) {
+      for (let ni = 0; ni < nodes.length; ni++) {
+        const nd = nodes[ni];
         const p = nodeXY(nd);
         const c = RGB[nd.risk] || RGB.Safe;
         const gapX = CX + Math.cos(nd.ang) * 9 * DPR;
         const gapY = CY + Math.sin(nd.ang) * 9 * DPR;
+        const isHover = hovered && hovered.nd === nd;
+        const isThreat = nd.risk === "HighRisk";
+        const isSusp = nd.risk === "Suspicious";
+        const pulse = REDUCED ? 0 : 0.5 + 0.5 * Math.sin(now / 620 + ni * 1.7);
 
-        ctx.strokeStyle = ACCENT(edgeAlpha(nd.risk));
-        ctx.lineWidth = 1 * DPR;
+        // premium connector: gradient beam with soft glow
+        const beam = ctx.createLinearGradient(gapX, gapY, p.x, p.y);
+        beam.addColorStop(0, ACCENT(0.05));
+        beam.addColorStop(1, rgba(c, isThreat ? 0.42 : isSusp ? 0.32 : 0.20));
+        ctx.strokeStyle = beam;
+        ctx.lineWidth = (isHover ? 1.8 : isThreat ? 1.4 : 1) * DPR;
+        ctx.shadowColor = rgba(c, 0.35);
+        ctx.shadowBlur = (isThreat ? 5 : 2) * DPR;
         ctx.beginPath();
         ctx.moveTo(gapX, gapY);
         ctx.lineTo(p.x, p.y);
         ctx.stroke();
+        ctx.shadowBlur = 0;
 
-        ctx.fillStyle = rgba(c, 0.92);
-        ctx.shadowColor = rgba(c, 0.6);
-        ctx.shadowBlur = 2.5 * DPR;
+        // threat echo rings on high-risk nodes
+        if (isThreat && !REDUCED) {
+          const ph = ((now / 1400) + ni * 0.23) % 1;
+          ctx.lineWidth = 1 * DPR;
+          ctx.strokeStyle = rgba(c, ((1 - ph) * 0.4).toFixed(3));
+          ring(p.x, p.y, (dotRadius(nd.risk) + ph * 11) * DPR);
+        }
+        // hover halo
+        if (isHover) {
+          ctx.lineWidth = 1.4 * DPR;
+          ctx.strokeStyle = rgba(c, 0.65);
+          ring(p.x, p.y, (dotRadius(nd.risk) + 5.5) * DPR);
+        }
+
+        const baseR = dotRadius(nd.risk) * (isHover ? 1.35 : 1) * (isThreat && !REDUCED ? 1 + 0.14 * pulse : 1);
+        // outer aura
+        const aura = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, baseR * 3.2 * DPR);
+        aura.addColorStop(0, rgba(c, isThreat ? 0.5 : 0.32));
+        aura.addColorStop(1, rgba(c, 0));
+        ctx.fillStyle = aura;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, dotRadius(nd.risk) * DPR, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, baseR * 3.2 * DPR, 0, Math.PI * 2);
+        ctx.fill();
+        // core dot
+        ctx.fillStyle = rgba(c, 0.95);
+        ctx.shadowColor = rgba(c, 0.85);
+        ctx.shadowBlur = (isThreat ? 7 : 4) * DPR;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, baseR * DPR, 0, Math.PI * 2);
         ctx.fill();
         ctx.shadowBlur = 0;
+        // specular highlight
+        ctx.fillStyle = "rgba(255,255,255,0.85)";
+        ctx.beginPath();
+        ctx.arc(p.x - baseR * 0.3 * DPR, p.y - baseR * 0.3 * DPR, Math.max(0.7 * DPR, baseR * 0.28 * DPR), 0, Math.PI * 2);
+        ctx.fill();
 
         if (showLabel(nd)) {
           ctx.font =
@@ -1185,6 +1356,7 @@
     return {
       show(summaryTotal) {
         if (countEl) countEl.textContent = summaryTotal + " nodes";
+        updateMapLegend();
         travelers = [];
         lastSpawn = performance.now() - 2400;
         // any nodes Rakshak didn't reach (huge scans) settle into place here
@@ -2165,11 +2337,44 @@
     downloads: document.getElementById("cleanup-downloads"),
     dlList: document.getElementById("cleanup-dl-list"),
     btn: document.getElementById("cleanup-btn"),
+    btnLabel: document.getElementById("cleanup-btn-label"),
     status: document.getElementById("cleanup-status"),
     failures: document.getElementById("cleanup-failures"),
     stage: document.getElementById("toss-stage"),
     liveCounter: document.getElementById("cleanup-live-counter"),
+    progWrap: document.getElementById("cleanup-progress-wrap"),
+    progBar: document.getElementById("cleanup-progress-bar"),
+    progPct: document.getElementById("cleanup-progress-pct"),
+    panel: document.getElementById("cleanup-panel"),
   };
+  function setCleanupBtnLabel(t) {
+    if (cleanupEls.btnLabel) cleanupEls.btnLabel.textContent = t;
+    else cleanupEls.btn.textContent = t;
+  }
+  const CLEANUP_ICONS = {
+    temp: "🧹",
+    browser_cache: "🌐",
+    recycle_bin: "♻️",
+    windows_old: "🗂️",
+  };
+  function cleanupConfettiBurst() {
+    if (REDUCED || !cleanupEls.panel) return;
+    const host = cleanupEls.panel;
+    const prev = host.style.position;
+    if (!prev || prev === "static") host.style.position = "relative";
+    const colors = ["#7c6cf0", "#9be7f4", "#43b581", "#e8c476", "#e9ebf4"];
+    const r = host.getBoundingClientRect();
+    for (let i = 0; i < 22; i++) {
+      const s = document.createElement("span");
+      s.className = "cleanup-confetti";
+      s.style.left = (12 + Math.random() * 76) + "%";
+      s.style.top = "18%";
+      s.style.background = colors[i % colors.length];
+      s.style.animationDelay = (Math.random() * 0.25) + "s";
+      host.appendChild(s);
+      setTimeout(() => s.remove(), 1600);
+    }
+  }
 
   const cleanupState = {
     summary: null,
@@ -2339,6 +2544,12 @@
     const ramp = Math.min(elapsed / 1400, 1);
     cleanupEls.liveCounter.textContent =
       "+" + fmtBytes(Math.round(toss.expected * ramp));
+    if (cleanupEls.progBar) {
+      const pct = Math.round(ramp * 92 + (cycleT * 8));
+      const clamped = Math.min(99, pct);
+      cleanupEls.progBar.style.width = clamped + "%";
+      if (cleanupEls.progPct) cleanupEls.progPct.textContent = clamped + "%";
+    }
 
     toss.raf = requestAnimationFrame(tossFrame);
   }
@@ -2347,6 +2558,11 @@
     window.__cureTossSeen = true;
     tossInit();
     cleanupEls.stage.classList.remove("hidden");
+    cleanupEls.stage.classList.add("toss-active");
+    if (cleanupEls.progWrap) cleanupEls.progWrap.classList.remove("hidden");
+    if (cleanupEls.progBar) cleanupEls.progBar.style.width = "4%";
+    if (cleanupEls.progPct) cleanupEls.progPct.textContent = "4%";
+    if (cleanupEls.panel) cleanupEls.panel.classList.remove("cleanup-success");
     if (REDUCED) {
       tossSetOrb(ORB_REST[0], ORB_REST[1], 1, 1);
       return;
@@ -2361,8 +2577,13 @@
   }
 
   function stopToss(freedBytes) {
+    if (cleanupEls.progBar) cleanupEls.progBar.style.width = "100%";
+    if (cleanupEls.progPct) cleanupEls.progPct.textContent = "100%";
+    if (cleanupEls.stage) cleanupEls.stage.classList.remove("toss-active");
+    setTimeout(() => { if (cleanupEls.progWrap) cleanupEls.progWrap.classList.add("hidden"); }, 900);
     if (REDUCED || !toss.active) {
       if (REDUCED) tossSetOrb(ORB_REST[0], ORB_REST[1], 1, 1);
+      if (cleanupEls.progWrap) cleanupEls.progWrap.classList.add("hidden");
       return;
     }
     toss.active = false;
@@ -2385,6 +2606,9 @@
       toss.active = false;
       cancelAnimationFrame(toss.raf);
     }
+    if (cleanupEls.stage) cleanupEls.stage.classList.remove("toss-active");
+    if (cleanupEls.progWrap) cleanupEls.progWrap.classList.add("hidden");
+    if (cleanupEls.progBar) cleanupEls.progBar.style.width = "0%";
     if (toss.svg) {
       tossSetOrb(ORB_REST[0], ORB_REST[1], 1, 1);
       for (let i = 0; i < toss.glyphs.length; i++) {
@@ -2402,6 +2626,7 @@
   function resetCleanupResult() {
     cleanupEls.status.textContent = "";
     cleanupEls.status.classList.add("hidden");
+    cleanupEls.status.classList.remove("cleanup-ok", "cleanup-fail");
     if (cleanupPhase === "done-ok" || cleanupPhase === "done-fail") {
       cleanupPhase = "ready";
       setCleanupStep(1);
@@ -2435,7 +2660,12 @@
     if (!cleanupState.running) {
       cleanupEls.btn.classList.remove("btn-active");
     }
-    cleanupEls.btn.textContent = "Clean up";
+    if (!cleanupState.running && s) {
+      const selB = cleanupSelectionBytes();
+      setCleanupBtnLabel(selB > 0 ? "Clean up • " + fmtBytes(selB) : "Clean up");
+    } else if (!cleanupState.running) {
+      setCleanupBtnLabel("Clean up");
+    }
     renderCleanupSummary();
   }
 
@@ -2505,12 +2735,14 @@
 
     const itemCount = summary.categories.reduce((n, c) => n + c.item_count, 0);
     cleanupEls.total.innerHTML =
-      "≈ <b>" + fmtBytes(summary.total_bytes) + "</b> reclaimable across " +
-      (itemCount + summary.downloads.length) + " items";
+      '<span class="total-orb" aria-hidden="true"></span><span>≈ <b>' + fmtBytes(summary.total_bytes) + "</b> reclaimable across " +
+      (itemCount + summary.downloads.length) + " items</span>";
     cleanupEls.subline.textContent =
       itemCount + summary.downloads.length + " cleanable items found on this machine";
 
     cleanupEls.grid.innerHTML = "";
+    const maxCatBytes = Math.max(1, ...summary.categories.map((c) => c.total_bytes));
+    let catIdx = 0;
     for (const cat of summary.categories) {
       const card = document.createElement("button");
       card.type = "button";
@@ -2521,6 +2753,8 @@
       if (on) cleanupState.selectedCats.add(cat.key);
       card.classList.toggle("on", on);
       card.classList.toggle("off", !on);
+      if (!REDUCED) card.style.animationDelay = (catIdx * 70) + "ms";
+      catIdx++;
       card.setAttribute("aria-pressed", String(on));
       card.setAttribute("aria-label", cat.label + " — " + fmtBytes(cat.total_bytes) + ", " + cat.item_count + " items");
       card.title = on
@@ -2528,9 +2762,16 @@
         : cat.item_count === 0
           ? "Nothing found in this category"
           : "Currently skipped — click to include";
+      const top = document.createElement("span");
+      top.className = "cc-top";
+      const icon = document.createElement("span");
+      icon.className = "cc-icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = CLEANUP_ICONS[cat.key] || "📦";
       const name = document.createElement("span");
       name.className = "cc-name";
       name.textContent = cat.label;
+      top.append(icon, name);
       const size = document.createElement("span");
       size.className = "cc-size";
       size.textContent = fmtBytes(cat.total_bytes);
@@ -2538,7 +2779,13 @@
       count.className = "cc-count";
       count.textContent =
         cat.item_count + (cat.item_count === 1 ? " item" : " items");
-      card.append(name, size, count);
+      const bar = document.createElement("span");
+      bar.className = "cc-bar";
+      bar.setAttribute("aria-hidden", "true");
+      const fill = document.createElement("i");
+      fill.style.width = Math.max(cat.item_count === 0 ? 0 : 6, Math.round((cat.total_bytes / maxCatBytes) * 100)) + "%";
+      bar.appendChild(fill);
+      card.append(top, size, count, bar);
       card.addEventListener("click", () => {
         if (card.disabled) return;
         const nowOn = !cleanupState.selectedCats.has(cat.key);
@@ -2589,11 +2836,24 @@
     cleanupEls.body.classList.add("hidden");
     cleanupEls.loading.classList.remove("hidden");
     cleanupEls.loading.textContent = "measuring reclaimable space…";
+    // premium skeleton shimmer while measuring
+    if (cleanupEls.panel) cleanupEls.panel.classList.add("cleanup-scanning");
+    let skel = cleanupEls.panel ? cleanupEls.panel.querySelector(".cleanup-skeleton") : null;
+    if (!skel && cleanupEls.panel && !REDUCED) {
+      skel = document.createElement("div");
+      skel.className = "cleanup-skeleton";
+      skel.setAttribute("aria-hidden", "true");
+      skel.innerHTML = "<i></i><i></i><i></i><i></i>";
+      cleanupEls.loading.after(skel);
+    }
+    if (skel) skel.classList.remove("hidden");
     if (!keepResult) {
       setCleanupPill("scanning", "measuring reclaimable space…");
     }
     try {
       const summary = await invoke("scan_cleanup");
+      if (skel) skel.remove();
+      if (cleanupEls.panel) cleanupEls.panel.classList.remove("cleanup-scanning");
       renderCleanup(summary, keepResult);
       if (!keepResult) {
         setCleanupPill(
@@ -2681,7 +2941,7 @@
     cleanupState.running = true;
     cleanupEls.btn.disabled = true;
     cleanupEls.btn.classList.add("btn-active");
-    cleanupEls.btn.textContent = "Cleaning…";
+    setCleanupBtnLabel("Cleaning…");
     const expected = cleanupSelectionBytes();
     startToss(expected);
     try {
@@ -2702,12 +2962,30 @@
         " — deleted " + result.deleted + " of " + result.attempted +
         (result.failed ? ", " + result.failed + " locked or failed" : "");
       cleanupEls.status.classList.remove("hidden");
+      cleanupEls.status.classList.toggle("cleanup-ok", !result.failed);
+      cleanupEls.status.classList.toggle("cleanup-fail", !!result.failed);
+      if (!result.failed && cleanupEls.panel) {
+        cleanupEls.panel.classList.add("cleanup-success");
+        cleanupConfettiBurst();
+        setTimeout(() => { if (cleanupEls.panel) cleanupEls.panel.classList.remove("cleanup-success"); }, 1400);
+      }
       logEvent("action", "cleanup: freed " + fmtBytes(result.bytes_freed) + ", deleted " + result.deleted + " of " + result.attempted + (result.failed ? ", " + result.failed + " failed" : ""));
       if (result.failures.length > 0) {
         cleanupEls.failures.innerHTML = "";
         for (const failure of result.failures) {
           const li = document.createElement("li");
-          li.textContent = failure.path + " — " + failure.reason;
+          li.className = "cf-card";
+          const badge = document.createElement("span");
+          badge.className = "cf-badge";
+          badge.textContent = "locked · skipped";
+          const p = document.createElement("span");
+          p.className = "cf-path selectable";
+          p.textContent = failure.path;
+          p.title = failure.path;
+          const r = document.createElement("span");
+          r.className = "cf-reason selectable";
+          r.textContent = failure.reason;
+          li.append(badge, p, r);
           cleanupEls.failures.appendChild(li);
         }
         cleanupEls.failures.classList.remove("hidden");
@@ -2720,6 +2998,8 @@
       cleanupEls.status.textContent =
         "cleanup failed: " + cleanErrText(err, String(err));
       cleanupEls.status.classList.remove("hidden");
+      cleanupEls.status.classList.remove("cleanup-ok");
+      cleanupEls.status.classList.add("cleanup-fail");
     } finally {
       cleanupState.running = false;
       cleanupEls.btn.classList.remove("btn-active");
