@@ -1,3 +1,5 @@
+> **[HISTORICAL] This is an archived development report from the V3 development cycle (Aug–Sep 2026). It contains internal context specific to the author's machine. For current documentation, see docs/validation/REAL-PC-VALIDATION.md, docs/ARCHITECTURE.md, and docs/CHANGELOG.md.**
+
 # C.U.R.E. V3 Final Report — Stage 2 (C–S) + Actual Visual Redesign
 
 Status: **COMPLETE (implemented + verified)**. No commit performed. No

@@ -1,8 +1,13 @@
 import { chromium } from 'playwright';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const htmlPath = 'file:///D:/Projects/CURE/gui/dist/index.dev.html';
-const OUT = 'C:/Users/rupjy/AppData/Local/Temp/opencode/cure-media';
+const here = path.dirname(fileURLToPath(import.meta.url));
+const distDir = path.join(here, '..', 'dist');
+const htmlPath = pathToFileURL(path.join(distDir, 'index.dev.html')).href;
+const OUT = process.env.CURE_MEDIA_DIR || path.join(os.tmpdir(), 'cure-media');
 fs.mkdirSync(OUT, { recursive: true });
 const frameDir = OUT + '/frames';
 fs.mkdirSync(frameDir, { recursive: true });
@@ -10,7 +15,7 @@ fs.mkdirSync(frameDir, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 900, height: 600 } });
 
-const mockSrc = fs.readFileSync('D:/Projects/CURE/gui/dist/mock-tauri.js', 'utf8');
+const mockSrc = fs.readFileSync(path.join(distDir, 'mock-tauri.js'), 'utf8');
 await page.addInitScript(mockSrc);
 await page.addInitScript(() => { window.__CURE_MOCK_ITEM_COUNT = 40; });
 

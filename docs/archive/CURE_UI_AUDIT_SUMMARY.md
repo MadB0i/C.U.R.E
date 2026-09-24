@@ -1,3 +1,5 @@
+> **[HISTORICAL] This is an archived development report from the V3 audit cycle (Aug–Sep 2026). It contains internal context specific to the author's machine. For current documentation, see docs/validation/REAL-PC-VALIDATION.md, docs/ARCHITECTURE.md, and docs/CHANGELOG.md.**
+
 # C.U.R.E. UI Audit V3 — Summary
 
 Full audit: `CURE_UI_AUDIT_V3.md` (21 sections; audit only, zero files
