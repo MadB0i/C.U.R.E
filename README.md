@@ -102,6 +102,34 @@ only network opt-in is CLI `--online-revocation` (live CRL/OCSP fetch).
 Ransomware help resources are named as plain text, never links, so there is
 nothing in the UI that can navigate anywhere.
 
+Watcher pairing: a USB launches the GUI only if its `.cure-trigger` carries
+this machine's token (`cure-watch pair E:`) AND the pinned host copy still
+matches its SHA-256 pin. After `cure-watch --uninstall` (below) there is no
+pairing record, so no trigger can launch anything — proven through the same
+pure launch gate the watcher uses (`decide_launch` with an empty pin always
+ignores).
+
+## Watcher install + uninstall
+
+First run of `cure-watch.exe` asks Yes/No. Yes self-installs a copy into
+your Startup folder and pins `%LOCALAPPDATA%\CURE\cure-gui.exe` for later
+launches; No installs nothing. The GUI does not manage the watcher — the
+command below is the interface.
+
+```bat
+cure-watch --uninstall              :: confirm, then remove (idempotent)
+cure-watch --uninstall --yes        :: non-interactive
+cure-watch --uninstall --dry-run    :: preview only, changes nothing
+```
+
+It removes exactly what self-install created (same constants, unit-tested
+against drift): the Startup copy, `%APPDATA%\cure-watch-consent.json`,
+`%APPDATA%\cure-watch.log`, `%LOCALAPPDATA%\CURE\` (pinned exe + pairing
+record, dir removed only if empty), and `~cure-canary-*` decoys in
+Desktop/Documents/Downloads. Reparse points are never followed; anything
+unexpected is left in place and reported. It ends with a verification pass
+printing `clean` or `leftovers` (exit 0/1).
+
 ## Build
 
 ```bat
