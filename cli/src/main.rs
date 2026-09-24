@@ -373,9 +373,10 @@ fn print_report(scored: &[ScoredEntry], data_dir: &Path) {
             println!("             att&ck: {} ({})", s.attack.id, s.attack.name);
         }
         // Shortcut targets: resolve without executing (popup forensics).
+        // (Boundary-safe helper: Startup filenames are attacker-controlled
+        // and may end in multi-byte characters.)
         if s.entry.source == PersistenceSource::StartupFolder
-            && s.entry.name.len() > 4
-            && s.entry.name[s.entry.name.len() - 4..].eq_ignore_ascii_case(".lnk")
+            && cure_core::entry_details::is_shortcut_name(&s.entry.name)
         {
             match cure_core::lnk::analyze(Path::new(&s.entry.location)) {
                 Some(info) => {
