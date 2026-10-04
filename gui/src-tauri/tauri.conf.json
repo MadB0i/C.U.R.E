@@ -1,23 +1,35 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "CURE",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "com.cure.rescue.engine",
   "build": {
-    "frontendDist": "../dist"
+    "frontendDist": [
+      "../dist/index.html",
+      "../dist/style.css",
+      "../dist/xray.css",
+      "../dist/luma.css",
+      "../dist/storage.css",
+      "../dist/luma.js",
+      "../dist/xray.js",
+      "../dist/storage-core.js",
+      "../dist/app.js"
+    ]
   },
   "app": {
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "C.U.R.E — Clean USB Rescue Engine",
-        "width": 900,
-        "height": 600,
-        "resizable": true
+        "title": "C.U.R.E \u2014 Evidence Console",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "minWidth": 900,
+        "minHeight": 600
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; frame-src 'none'"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; frame-src 'none'"
     }
   },
   "bundle": {

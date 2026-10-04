@@ -1,12 +1,34 @@
-# C.U.R.E. — Clean USB Rescue Engine
+# C.U.R.E
+
+**Evidence-first Windows persistence inspection and reversible quarantine.**
 
 [![CI](https://github.com/MadB0i/C.U.R.E/actions/workflows/ci.yml/badge.svg)](https://github.com/MadB0i/C.U.R.E/actions/workflows/ci.yml)
 
-**A local-first Windows tool that finds how software persists on your PC, shows the evidence, and removes nothing without your explicit say-so.**
+![C.U.R.E Rescue Console — System X-Ray during a live collection run, sample data from the deterministic mock backend](docs/screenshots/02-scan.png)
 
-![C.U.R.E start screen (sample data from the mock backend)](docs/screenshots/01-idle.png)
+- Inspect Windows persistence sources and review the evidence behind each risk score.
+- See collection coverage and access limits alongside findings.
+- Quarantine supported files only after confirmation, then restore with scoped undo.
+- Reclaim real disk space from temp files, browser caches, Recycle Bin and
+  `Windows.old` — measured by the engine, deleted only after you confirm.
 
-![Demo: Start Rescue → scan → results → quarantine → undo (sample data)](docs/media/demo.gif)
+[**Download latest release**](https://github.com/MadB0i/C.U.R.E/releases/latest)
+
+Binaries are unsigned. Windows 10/11 with WebView2 is required — no installer,
+no admin needed for the core flows. The Rescue Console shown here is the
+prepared **0.2.0 candidate**; the current public release is still v0.1.0. No new
+tag or release has been published.
+
+![Sample workflow: launch → Rescue Scan → System X-Ray → finding → evidence → confirmed quarantine → undo → separately confirmed cleanup](docs/media/demo.gif)
+
+The interface is built around the **System X-Ray**, a sectioned view of the
+machine being inspected: nine persistence layers on the left, the system core
+on a bounded board, and an inspection beam that travels to whichever collector
+the backend says is running. **Luma**, an original vector companion, works the
+scanner console, the evidence scanner and the cleanup bins, and rotates through
+distinct action sets rather than one repeating loop. Evidence, coverage limits
+and operator controls remain central; every number on screen comes from the
+local engine.
 
 ## Why it exists
 
@@ -22,7 +44,7 @@ will never touch automatically (registry, services, WMI).
 ```
 scan      → collectors read persistence locations (nothing is changed)
 score     → heuristics + Authenticode + local hash IOCs → risk + reasons
-YOU CLICK → Start Rescue, per-item confirm, or --yes (never automatic)
+YOU CONFIRM → per-item quarantine confirmation, or CLI --yes (never automatic)
 quarantine→ recorded move to quarantine/ (+ ACL snapshot) …
 undo      → … restored byte-identical, ACLs included, or a fidelity note
 ```
@@ -123,7 +145,28 @@ cargo fmt --check
 
 cd gui\src-tauri
 cargo test                   :: headless-safe GUI tests (one desktop test is #[ignore]d)
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
 ```
+
+The GUI has deterministic state, accessibility, keyboard, layout, reduced-motion
+and pixel checks. They use mock data and make no changes to the host:
+
+```powershell
+python -m pip install -r gui/devtools/requirements.txt
+python -m playwright install chromium
+cd gui/devtools
+npm ci
+npm test
+npm run layout
+npm run pixel
+```
+
+See [GUI verification](gui/devtools/README.md) for capture commands and
+[rescue console redesign verification](docs/UI-REDESIGN-VERIFICATION.md) for
+the visual pass and its checks, plus
+[release readiness](docs/RELEASE-READINESS-0.2.0.md) for the candidate commit,
+checks, assets and remaining validation limits.
 
 Counts move with every fix, so they are not hardcoded here — the CI badge
 at the top is authoritative. The `#[ignore]`d overlay test needs an
@@ -163,7 +206,7 @@ watch/           cure-watch.exe (USB pairing, launch, canary, uninstall)
 winwatch/        shared directory watching + decoy planting
 gui/             Tauri v2 frontend (dist/ ships offline; index.dev.html = mock)
 testing/         fake-overlay fixture · real-pc/ live kit · vm-stage/ VM harness
-tools/docs-capture/  isolated Playwright screenshot/demo tooling
+tools/docs-capture/  screenshot/demo entry points sharing the verified GUI flow
 docs/            screenshots/ · media/ · validation/ · ARCHITECTURE.md
 ```
 
@@ -180,7 +223,10 @@ See `docs/ARCHITECTURE.md` (one page) and `testing/real-pc/README-TESTING.md`
 - Needs elevation for HKLM areas and the Task Scheduler root (reported as
   INCOMPLETE, never silent).
 - IOC feed is a labeled DEMO fixture; a signed-feed provider is future work.
-- No Winget/store installer yet; no signed binaries shipped.
+- No Winget/store installer yet; no signed binaries shipped. New release packaging
+  includes SHA256SUMS.txt for the executables and ZIP; it is not a publisher signature.
+- Some collectors do not report explicit access coverage. Watcher/USB connection
+  status is unavailable in the GUI; pairing remains a watcher CLI operation.
 - Overlay live loop, cold-cache revocation, and USB-passthrough timing
   still want an isolated box (see the validation report).
 

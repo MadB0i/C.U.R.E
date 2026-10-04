@@ -1,10 +1,15 @@
 [package]
 name = "cure_gui"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-description = "C.U.R.E animated rescue GUI (Tauri v2)"
+description = "C.U.R.E Evidence Console GUI (Tauri v2)"
 
 [workspace]
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+desktop-e2e = []
 
 [[bin]]
 name = "cure-gui"

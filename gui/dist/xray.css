@@ -1,0 +1,405 @@
+/* ==========================================================================
+   SYSTEM X-RAY — hero frame, instrument panel and layer ledger.
+   The canvas supplies the art; the DOM supplies the precise, accessible
+   layer states. Both read the same live scan state.
+   ========================================================================== */
+
+/* ---------- page head ---------- */
+
+.rescue-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s6);
+  margin-bottom: var(--s6);
+}
+
+.rescue-head .headline {
+  font-size: var(--xl);
+}
+
+.rescue-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex: 0 0 auto;
+}
+
+/* ---------- hero ---------- */
+
+.xray-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(252px, 21%, 322px);
+  gap: var(--s6);
+  align-items: stretch;
+  margin-bottom: var(--s5);
+  padding: var(--s5);
+  background:
+    var(--ambient-cool),
+    radial-gradient(80% 120% at 78% 50%, rgba(139, 111, 240, 0.07), transparent 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.028), transparent 46%),
+    var(--ink-150);
+  border: 1px solid var(--hair);
+  border-radius: var(--r3);
+  box-shadow: var(--edge-light), var(--shadow-2);
+}
+
+.xray-field {
+  position: relative;
+  min-width: 0;
+  min-height: clamp(230px, 40vh, 470px);
+  border-radius: var(--r2);
+  overflow: hidden;
+}
+
+.xray-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.xray-core-readout {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, 0);
+  width: min(210px, 46%);
+  text-align: center;
+  font: 500 10px/1.4 "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0.01em;
+  color: var(--cure-300);
+  opacity: 0.9;
+  pointer-events: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.xray-corner {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+
+.xray-corner.top {
+  top: 0;
+  left: 0;
+}
+
+.xray-corner.bottom {
+  bottom: 0;
+  left: 0;
+}
+
+.xray-tag {
+  font: 650 10px/1 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.xray-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 650 10px/1 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cure-300);
+}
+
+.xray-live::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.xray-field[data-running="false"] .xray-live {
+  color: var(--text-3);
+}
+
+.xray-motion {
+  font-size: var(--t-2xs);
+  min-height: 24px;
+  padding: 0 var(--s2);
+}
+
+.xray-side {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--s4);
+  min-width: 0;
+  padding-left: var(--s5);
+  border-left: 1px solid var(--hair-soft);
+}
+
+.scan-companion .companion-motion {
+  margin-top: var(--s2);
+}
+
+/* ---------- instrument panel ---------- */
+
+.instrument {
+  display: grid;
+  grid-template-columns: 1.7fr repeat(4, minmax(0, 1fr));
+  margin-bottom: var(--s6);
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  background: var(--ink-150);
+  overflow: hidden;
+  box-shadow: var(--edge-light);
+}
+
+.ins-cell {
+  position: relative;
+  min-width: 0;
+  padding: var(--s4) var(--s5);
+}
+
+.ins-cell + .ins-cell {
+  border-left: 1px solid var(--hair-soft);
+}
+
+.ins-cell.lead {
+  background: linear-gradient(90deg, rgba(139, 111, 240, 0.09), transparent);
+}
+
+.ins-label {
+  display: block;
+  font-size: var(--t-2xs);
+  font-weight: 650;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.ins-value {
+  display: block;
+  margin-top: 6px;
+  font: 600 var(--base) "Cascadia Code", Consolas, monospace;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ins-cell.lead .ins-value {
+  font-family: var(--font-ui);
+  font-size: var(--sm);
+  font-weight: 550;
+  letter-spacing: 0;
+  color: var(--cure-300);
+  white-space: normal;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* ---------- ledger + log ---------- */
+
+.xray-lower {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--s10);
+}
+
+.xray-lower .panel {
+  margin-bottom: 0;
+}
+
+.xray-lower .log {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.sweep-sources {
+  display: grid;
+}
+
+.sweep-sources li {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) minmax(0, 1.15fr);
+  align-items: baseline;
+  gap: var(--s3);
+  padding: 7px 0;
+  border-bottom: 1px solid var(--hair-soft);
+}
+
+.sweep-sources .cov-name {
+  font-size: var(--sm);
+}
+
+.sweep-sources .source-state {
+  font-size: var(--xs);
+  text-align: right;
+  color: var(--text-3);
+}
+
+.sweep-sources li.active {
+  background: linear-gradient(90deg, rgba(139, 111, 240, 0.11), transparent);
+}
+
+.sweep-sources li.active .cov-name,
+.sweep-sources li.active .source-state {
+  color: var(--cure-300);
+}
+
+.sweep-sources li.checked .source-state {
+  color: var(--ok);
+}
+
+.sweep-sources li.partial .source-state,
+.sweep-sources li.warn .source-state,
+.sweep-sources li.review .source-state {
+  color: var(--warning);
+}
+
+.sweep-sources li.bad .source-state,
+.sweep-sources li.highrisk .source-state {
+  color: var(--danger);
+}
+
+.sweep-sources li.idle .source-state {
+  color: var(--text-3);
+}
+
+.sweep-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s5);
+  margin-top: var(--s4);
+  font-size: var(--t-2xs);
+  color: var(--text-3);
+}
+
+.sweep-foot b {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (min-width: 1800px) {
+  .xray-field {
+    min-height: clamp(300px, 48vh, 520px);
+  }
+}
+
+@media (max-width: 1400px) {
+  .xray-hero {
+    grid-template-columns: minmax(0, 1fr) clamp(210px, 22%, 268px);
+    gap: var(--s4);
+    padding: var(--s4);
+  }
+  .xray-side {
+    padding-left: var(--s4);
+  }
+  .xray-lower {
+    gap: var(--s8);
+  }
+}
+
+@media (max-width: 1180px) {
+  /* Keep the operator figure beside the field, not under it: the hero must
+     not push live instrumentation past the fold on small laptops. */
+  .xray-hero {
+    grid-template-columns: minmax(0, 1fr) 150px;
+  }
+  .xray-side {
+    justify-content: center;
+    padding-left: var(--s4);
+  }
+  .scan-companion {
+    gap: var(--s2);
+  }
+  .scan-companion .companion-detail {
+    display: none;
+  }
+  .scan-companion .companion-title {
+    font-size: var(--xs);
+  }
+  .scan-companion .companion-motion {
+    min-height: 24px;
+    padding: 0 var(--s2);
+    font-size: 10px;
+  }
+  .xray-field {
+    min-height: clamp(210px, 36vh, 340px);
+  }
+  .instrument {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ins-cell:nth-child(odd) {
+    border-left: 0;
+  }
+  .ins-cell:nth-child(n + 3) {
+    border-top: 1px solid var(--hair-soft);
+  }
+  .ins-cell.lead {
+    grid-column: 1 / -1;
+  }
+  .xray-lower {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s8);
+  }
+}
+
+@media (max-width: 760px) {
+  .rescue-head {
+    flex-wrap: wrap;
+  }
+  .xray-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .xray-side {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: var(--s5);
+    padding-left: 0;
+    padding-top: var(--s4);
+    border-left: 0;
+    border-top: 1px solid var(--hair-soft);
+  }
+  .scan-companion {
+    flex-direction: row;
+    align-items: center;
+    text-align: left;
+  }
+  .scan-companion .companion-figure {
+    margin: 0;
+  }
+  .scan-companion .companion-motion {
+    align-self: flex-start;
+  }
+  .xray-field {
+    min-height: clamp(200px, 30vh, 300px);
+  }
+  .instrument {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ins-cell + .ins-cell {
+    border-left: 0;
+    border-top: 1px solid var(--hair-soft);
+  }
+  .sweep-sources li {
+    grid-template-columns: 8px minmax(0, 1fr);
+  }
+  .sweep-sources .source-state {
+    grid-column: 2;
+    text-align: left;
+  }
+}

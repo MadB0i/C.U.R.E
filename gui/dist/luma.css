@@ -1,0 +1,325 @@
+/* ==========================================================================
+   LUMA — C.U.R.E utility node.
+
+   LUMA is a status indicator and must stay secondary to the real system data,
+   so the node is small, flat and restrained: no bloom, no filters, no
+   character. State is carried by one ring colour plus one animated layer.
+
+   Sizing note: --luma-node is owned entirely by this file. It replaces the
+   old character-width variable, which was spread across four stylesheets and
+   has been removed rather than left behind as dead plumbing.
+   ========================================================================== */
+
+.companion {
+  --luma-node: 76px;
+  --ln-violet: #8b5cf6;
+  --ln-violet-lit: #b79cff;
+  --ln-amber: #f0a92c;
+  --ln-green: #34d399;
+  --ln-tick: #454e63;
+
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.companion-figure {
+  margin: 0;
+  display: grid;
+  place-items: center;
+  width: min(var(--luma-node), 100%);
+  max-width: 100%;
+}
+
+.companion-art {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+/* ---------- node -------------------------------------------------------- */
+
+.luma-node circle,
+.luma-node path {
+  vector-effect: non-scaling-stroke;
+}
+
+.ln-body {
+  fill: #171b24;
+  stroke: #39415a;
+  stroke-width: 1;
+}
+
+/* Two shallow arcs give the body its bevel and rim without a gradient, so the
+   node stays flat, cheap and free of any glow filter. */
+.ln-bevel {
+  fill: none;
+  stroke: rgba(226, 232, 255, 0.14);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+.ln-rim {
+  fill: none;
+  stroke: rgba(139, 111, 240, 0.4);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+.ln-core {
+  fill: var(--ln-violet-lit);
+}
+
+.ln-ticks line {
+  stroke: var(--ln-tick);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+.ln-ticks {
+  opacity: 0.55;
+}
+
+.ln-ring,
+.ln-sweep,
+.ln-segs {
+  fill: none;
+  stroke-linecap: round;
+  transform-origin: 50px 50px;
+}
+
+.ln-ring {
+  stroke: var(--ln-violet);
+  stroke-width: 2;
+  opacity: 0.5;
+  animation: ln-breathe 4.6s ease-in-out infinite;
+}
+
+/* Only one of the two animated layers is ever shown at a time. */
+.ln-sweep,
+.ln-segs {
+  display: none;
+}
+
+/* ---------- states ------------------------------------------------------ */
+
+/* idle — a slow violet breath */
+[data-state="idle"] .ln-ring {
+  stroke: var(--ln-violet);
+}
+
+/* scanning — a bright arc sweeps the inspection ring */
+[data-state="scan"] .ln-ring {
+  stroke: var(--ln-violet);
+  stroke-width: 1.5;
+  opacity: 0.26;
+  animation: none;
+}
+[data-state="scan"] .ln-sweep {
+  display: block;
+  stroke: var(--ln-violet-lit);
+  stroke-width: 2.2;
+  stroke-dasharray: 26 74;
+  animation: ln-spin 2.1s linear infinite;
+}
+[data-state="scan"] .ln-ticks {
+  opacity: 0.7;
+  animation: ln-spin 14s linear infinite reverse;
+}
+
+/* cleanup — segments converge on the core, then release */
+[data-state="cleanup"] .ln-ring {
+  stroke: var(--ln-violet);
+  stroke-width: 1.5;
+  opacity: 0.26;
+  animation: none;
+}
+[data-state="cleanup"] .ln-segs {
+  display: block;
+  stroke: var(--ln-violet-lit);
+  stroke-width: 2.6;
+  stroke-dasharray: 11 5.667;
+  animation: ln-collapse 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* review — amber, and deliberately still apart from one slow pulse */
+[data-state="review"] .ln-ring {
+  stroke: var(--ln-amber);
+  stroke-width: 2.2;
+  opacity: 0.85;
+  animation: ln-alert 2.4s ease-in-out infinite;
+}
+[data-state="review"] .ln-core {
+  fill: var(--ln-amber);
+}
+[data-state="review"] .ln-ticks {
+  opacity: 0.75;
+}
+
+/* success and seal are both confirmed outcomes, so they share one restrained
+   treatment: the ring draws once and rests. */
+[data-state="success"] .ln-ring,
+[data-state="seal"] .ln-ring {
+  stroke: var(--ln-green);
+  stroke-width: 2.2;
+  opacity: 0.9;
+  stroke-dasharray: 100;
+  animation: ln-confirm 900ms ease-out both;
+}
+[data-state="success"] .ln-core,
+[data-state="seal"] .ln-core {
+  fill: var(--ln-green);
+}
+
+/* ---------- keyframes --------------------------------------------------- */
+
+@keyframes ln-breathe {
+  0%,
+  100% {
+    opacity: 0.32;
+    transform: scale(0.985);
+  }
+  50% {
+    opacity: 0.72;
+    transform: scale(1);
+  }
+}
+@keyframes ln-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes ln-collapse {
+  0% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  68% {
+    opacity: 0.2;
+    transform: scale(0.34);
+  }
+  100% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+}
+@keyframes ln-alert {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.99);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.015);
+  }
+}
+@keyframes ln-confirm {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ---------- copy -------------------------------------------------------- */
+
+.companion-copy {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.companion-kind {
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ln-violet-lit);
+}
+
+.companion-title {
+  font-size: 0.92rem;
+  font-weight: 650;
+  line-height: 1.3;
+  color: var(--text-strong);
+}
+
+.companion-detail {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.companion-reduced {
+  display: none;
+  font-size: 0.72rem;
+  color: var(--text-faint);
+}
+
+.companion-motion {
+  align-self: start;
+  font-size: 0.74rem;
+  padding: 0.3rem 0.6rem;
+}
+
+/* ---------- motion governance ------------------------------------------- */
+
+/* One preference governs the whole presentation. This mirrors the
+   reduced-motion contract in style.css, keyed on the paused flag Luma
+   publishes on the document root, so pausing leaves no loop or transition
+   running anywhere and the node still shows its state. */
+[data-paused="true"] *,
+[data-paused="true"] *::before,
+[data-paused="true"] *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .companion-motion {
+    display: none;
+  }
+  .companion-reduced {
+    display: inline;
+  }
+}
+
+/* ---------- placement ---------------------------------------------------
+   The node stays small on purpose: it reports, it does not compete with the
+   measurements beside it. */
+
+.scan-companion {
+  --luma-node: 88px;
+}
+.hero-companion {
+  --luma-node: 84px;
+}
+.overview-companion {
+  --luma-node: 72px;
+}
+.result-companion {
+  --luma-node: 44px;
+}
+.result-companion .companion-detail {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .scan-companion {
+    --luma-node: 76px;
+  }
+  .hero-companion {
+    --luma-node: 72px;
+  }
+}
+
+@media (max-width: 620px) {
+  .scan-companion,
+  .hero-companion,
+  .overview-companion {
+    --luma-node: 64px;
+  }
+}

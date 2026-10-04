@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
   "use strict";
 
   const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -51,12 +51,32 @@
   }
 
   function escHtml(s) {
-    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   }
 
   function setPill(state, text) {
     statusPill.className = "pill " + state;
     statusText.textContent = text;
+    // The X-Ray corner tag mirrors the real session state, never a guess.
+    const live = document.getElementById("xray-live");
+    const fieldEl = document.getElementById("xray-field");
+    if (live) {
+      live.textContent =
+        state === "scanning"
+          ? "Collecting"
+          : state === "error"
+            ? "Interrupted"
+            : state === "clean"
+              ? "Complete"
+              : state === "warn"
+                ? "Review"
+                : "Idle";
+    }
+    if (fieldEl) fieldEl.dataset.running = String(state === "scanning");
   }
 
   // Topbar session context — real scan metadata only, never invented.
@@ -64,19 +84,31 @@
     const el = document.getElementById("session-meta");
     if (!el) return;
     if (!summary) {
-      el.textContent = "STANDBY — NO ACTIVE SESSION";
+      el.textContent = "NO SCAN THIS SESSION";
       return;
     }
     const review = (summary.suspicious_for_review || []).length;
     const when = lastScanAt ? lastScanAt.toLocaleTimeString() : "—";
-    el.textContent = "LAST SCAN " + when + " · " + summary.total + " CHECKED · " + review + " TO REVIEW";
+    el.textContent =
+      "LAST SCAN " +
+      when +
+      " · " +
+      summary.total +
+      " CHECKED · " +
+      review +
+      " TO REVIEW";
   }
 
   // Topbar clock — real local system time, refreshed every 15 s.
   function tickClock() {
     const el = document.getElementById("topbar-clock");
     if (!el) return;
-    el.textContent = new Date().toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    el.textContent = new Date().toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   }
   tickClock();
   setInterval(tickClock, 15000);
@@ -87,7 +119,8 @@
     const box = document.getElementById("action-receipt");
     const txt = document.getElementById("action-receipt-text");
     if (!box || !txt) return;
-    txt.textContent = title + " — " + detail + " · " + new Date().toLocaleTimeString();
+    txt.textContent =
+      title + " — " + detail + " · " + new Date().toLocaleTimeString();
     box.classList.toggle("error", !!isError);
     box.classList.remove("hidden");
   }
@@ -96,50 +129,22 @@
     if (box) box.classList.add("hidden");
   }
 
-  let typeChain = Promise.resolve();
   function appendLog(stage, message) {
     const li = document.createElement("li");
     const tag = document.createElement("b");
-    tag.textContent = "[" + stage + "]";
+    tag.textContent = stage;
     const body = document.createElement("span");
+    body.textContent = String(message);
     li.append(tag, body);
-    logList.appendChild(li);
-    while (logList.children.length > 200) logList.removeChild(logList.firstChild);
-
-    if (REDUCED) {
-      body.textContent = message;
-      logList.scrollTop = logList.scrollHeight;
-      return;
-    }
-
-    const caret = document.createElement("span");
-    caret.className = "caret";
-    const prev = typeChain;
-    typeChain = prev.then(
-      () =>
-        new Promise((typed) => {
-          li.appendChild(caret);
-          let shown = 0;
-          const step = Math.max(1, Math.round(message.length / 60));
-          const tick = () => {
-            shown += step;
-            body.textContent = message.slice(0, shown);
-            logList.scrollTop = logList.scrollHeight;
-            if (shown < message.length) {
-              setTimeout(tick, 13);
-            } else {
-              caret.remove();
-              typed();
-            }
-          };
-          tick();
-        })
-    );
+    logList.append(li);
+    while (logList.children.length > 200) logList.firstChild.remove();
+    logList.scrollTop = logList.scrollHeight;
   }
 
   function appendItemLine(p) {
     const li = document.createElement("li");
-    li.className = "item-line fresh risk-" + String(p.risk || "Safe").toLowerCase();
+    li.className =
+      "item-line fresh risk-" + String(p.risk || "Safe").toLowerCase();
 
     const arrow = document.createElement("span");
     arrow.className = "arrow";
@@ -163,7 +168,8 @@
 
     li.append(arrow, name, src, risk, score);
     logList.appendChild(li);
-    while (logList.children.length > 200) logList.removeChild(logList.firstChild);
+    while (logList.children.length > 200)
+      logList.removeChild(logList.firstChild);
     logList.scrollTop = logList.scrollHeight;
     itemFeedCount += 1;
     if (feedCountEl) feedCountEl.textContent = itemFeedCount + " ITEMS";
@@ -171,7 +177,8 @@
 
   function appendProcessLine(p) {
     const li = document.createElement("li");
-    li.className = "item-line fresh risk-" + String(p.risk || "Safe").toLowerCase();
+    li.className =
+      "item-line fresh risk-" + String(p.risk || "Safe").toLowerCase();
 
     const arrow = document.createElement("span");
     arrow.className = "arrow";
@@ -195,7 +202,8 @@
 
     li.append(arrow, name, src, risk, score);
     logList.appendChild(li);
-    while (logList.children.length > 200) logList.removeChild(logList.firstChild);
+    while (logList.children.length > 200)
+      logList.removeChild(logList.firstChild);
     logList.scrollTop = logList.scrollHeight;
     itemFeedCount += 1;
     if (feedCountEl) feedCountEl.textContent = itemFeedCount + " ITEMS";
@@ -209,1202 +217,25 @@
     arrow.textContent = "\u26A0";
     const name = document.createElement("span");
     name.className = "iname";
-    name.textContent = p.finding_type === "ransom-note" ? "Ransom note" : "Bulk encryption";
+    name.textContent =
+      p.finding_type === "ransom-note" ? "Ransom note" : "Bulk encryption";
     const detail = document.createElement("span");
     detail.className = "isrc";
     detail.textContent = p.detail || "";
     li.append(arrow, name, detail);
     logList.appendChild(li);
-    while (logList.children.length > 200) logList.removeChild(logList.firstChild);
+    while (logList.children.length > 200)
+      logList.removeChild(logList.firstChild);
     logList.scrollTop = logList.scrollHeight;
     itemFeedCount += 1;
     if (feedCountEl) feedCountEl.textContent = itemFeedCount + " ITEMS";
   }
 
-  // ---- shared network model ----
-  // One node/edge data source; the scan-view radar renders it live while the
-  // results-view map re-renders it settled at its own scale.
-  const TRAVEL = 360;
-  const RGB = {
-    Safe: [79, 174, 125],
-    Suspicious: [209, 161, 63],
-    HighRisk: [225, 89, 79],
-  };
-
-  const NetStore = (() => {
-    const GOLDEN = 2.399963229728653;
-    let nodes = [];
-    let nodeSeq = 0;
-    return {
-      reset() {
-        nodes.length = 0;
-        nodeSeq = Math.floor(Math.random() * 100);
-      },
-      add(risk, name) {
-        const nd = {
-          ang: (nodeSeq++ * GOLDEN) % (Math.PI * 2),
-          rf: 0.58 + Math.random() * 0.34,
-          born: performance.now() - (REDUCED ? TRAVEL : 0),
-          risk,
-          name: String(name || "?"),
-          resolved: true,
-        };
-        nodes.push(nd);
-        window.__cureNodeCount = (window.__cureNodeCount || 0) + 1;
-        return nd;
-      },
-      all() {
-        return nodes;
-      },
-    };
-  })();
-
-  const radar = (() => {
-    const stage = document.getElementById("net-stage");
-    const canvas = document.getElementById("radar");
-    const ctx = canvas.getContext("2d");
-    const DPR = Math.min(window.devicePixelRatio || 1, 2);
-    const ACCENT = (a) => "rgba(124, 108, 240, " + a + ")";
-
-    let rafId = null;
-    let pings = [];
-    let pulses = [];
-    let lastPulse = 0;
-    let mascot = null;
-    let visit = null;
-    let visitQueue = [];
-    let visitsDone = 0;
-    let W = 0;
-    let H = 0;
-    let CX = 0;
-    let CY = 0;
-    let R = 0;
-    let RX = 0;
-
-    const motes = [];
-    for (let i = 0; i < 10; i++) {
-      motes.push({
-        rf: 0.16 + Math.random() * 0.3,
-        sp: (0.0004 + Math.random() * 0.0008) * (i % 2 ? 1 : -1),
-        ph: Math.random() * Math.PI * 2,
-        a: 0.12 + Math.random() * 0.16,
-      });
-    }
-
-    function size() {
-      const rect = stage.getBoundingClientRect();
-      W = Math.max(1, Math.round(rect.width * DPR));
-      H = Math.max(1, Math.round(rect.height * DPR));
-      canvas.width = W;
-      canvas.height = H;
-      CX = W / 2;
-      CY = H / 2;
-      R = Math.max(12, (Math.min(W, H) / 2) * 0.9);
-      RX = Math.max(R, Math.min(W / 2 - 24 * DPR, R * 1.9));
-    }
-    if (window.ResizeObserver) {
-      new ResizeObserver(() => {
-        size();
-        if (REDUCED && !rafId) drawStaticFrame();
-      }).observe(stage);
-    } else {
-      window.addEventListener("resize", () => {
-        size();
-        if (REDUCED && !rafId) drawStaticFrame();
-      });
-    }
-
-    function ring(x, y, r) {
-      ctx.beginPath();
-      ctx.arc(x, y, Math.max(r, 0.01), 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    function rgba(c, a) {
-      return "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + a + ")";
-    }
-
-    function nodeXY(nd) {
-      return {
-        x: CX + Math.cos(nd.ang) * nd.rf * RX,
-        y: CY + Math.sin(nd.ang) * nd.rf * R,
-      };
-    }
-
-    function ellipse(x, y, rx, ry) {
-      ctx.beginPath();
-      ctx.ellipse(x, y, Math.max(rx, 0.01), Math.max(ry, 0.01), 0, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    function drawBackdrop(now) {
-      const M = Math.max(RX, R);
-      const vg = ctx.createRadialGradient(CX, CY, R * 0.15, CX, CY, M * 1.35);
-      vg.addColorStop(0, "rgba(10,10,11,0)");
-      vg.addColorStop(1, "rgba(10,10,11,0.62)");
-      ctx.fillStyle = vg;
-      ctx.fillRect(0, 0, W, H);
-
-      const glow = ctx.createRadialGradient(CX, CY, 0, CX, CY, M);
-      glow.addColorStop(0, "rgba(124,108,240,0.05)");
-      glow.addColorStop(0.45, "rgba(124,108,240,0.018)");
-      glow.addColorStop(1, "rgba(124,108,240,0)");
-      ctx.fillStyle = glow;
-      ctx.fillRect(0, 0, W, H);
-
-      ctx.lineWidth = 1 * DPR;
-      ctx.strokeStyle = ACCENT(0.08);
-      ellipse(CX, CY, RX, R);
-      ctx.strokeStyle = ACCENT(0.055);
-      ellipse(CX, CY, RX * 0.66, R * 0.66);
-      ctx.strokeStyle = ACCENT(0.038);
-      ellipse(CX, CY, RX * 0.33, R * 0.33);
-
-      ctx.strokeStyle = ACCENT(0.03);
-      ctx.beginPath();
-      ctx.moveTo(CX - RX, CY);
-      ctx.lineTo(CX + RX, CY);
-      ctx.moveTo(CX, CY - R);
-      ctx.lineTo(CX, CY + R);
-      ctx.stroke();
-
-      for (const m of motes) {
-        const a = m.ph + m.sp * now;
-        const x = CX + Math.cos(a) * RX * m.rf;
-        const y = CY + Math.sin(a) * R * m.rf;
-        ctx.fillStyle = ACCENT(m.a.toFixed(2));
-        ctx.beginPath();
-        ctx.arc(x, y, 1.3 * DPR, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    function drawCore(now) {
-      const k = Math.min(1.5, Math.max(0.85, Math.min(RX, R) / 300));
-      const breathe = REDUCED ? 0.5 : 0.5 + 0.5 * Math.sin(now / 850);
-      const haloR = (16 + 14 * breathe) * k * DPR;
-      const halo = ctx.createRadialGradient(CX, CY, 0, CX, CY, haloR);
-      halo.addColorStop(0, ACCENT((0.22 + 0.12 * breathe).toFixed(3)));
-      halo.addColorStop(1, ACCENT(0));
-      ctx.fillStyle = halo;
-      ctx.beginPath();
-      ctx.arc(CX, CY, haloR, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.lineWidth = 1.2 * DPR;
-      if (!REDUCED) {
-        ctx.strokeStyle = ACCENT(0.5);
-        ctx.beginPath();
-        ctx.arc(CX, CY, 15 * k * DPR, now / 2400, now / 2400 + 1.15);
-        ctx.stroke();
-        ctx.strokeStyle = ACCENT(0.26);
-        ctx.beginPath();
-        ctx.arc(CX, CY, 20 * k * DPR, -now / 3600, -now / 3600 + 0.7);
-        ctx.stroke();
-      } else {
-        ctx.strokeStyle = ACCENT(0.36);
-        ring(CX, CY, 15 * k * DPR);
-      }
-
-      ctx.fillStyle = "#7c6cf0";
-      ctx.shadowColor = "rgba(124, 108, 240, 0.5)";
-      ctx.shadowBlur = (4 + 3 * breathe) * DPR;
-      ctx.beginPath();
-      ctx.arc(CX, CY, (3.4 + 1.1 * breathe) * k * DPR, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    }
-
-    function edgeAlpha(risk) {
-      // uniform violet connectors — risk color lives on the node dots
-      return 0.22;
-    }
-
-    function labelAlphaFor(risk) {
-      if (risk === "HighRisk") return 0.7;
-      if (risk === "Suspicious") return 0.55;
-      return 0.34;
-    }
-
-    function dotRadius(risk) {
-      if (risk === "HighRisk") return 3.1;
-      if (risk === "Suspicious") return 2.6;
-      return 2.2;
-    }
-
-    function shortName(nd) {
-      let s = nd.name || "";
-      if (s.includes("\\")) {
-        const parts = s.split("\\");
-        s = parts[parts.length - 1];
-      }
-      if (s.length > 22) s = s.slice(0, 21) + "…";
-      return s;
-    }
-
-    function showLabel(nd) {
-      return NetStore.all().length <= 60 || nd.risk !== "Safe";
-    }
-
-    function drawNetwork(now) {
-      ctx.textBaseline = "middle";
-      for (const nd of NetStore.all()) {
-        const t = Math.min((now - nd.born) / TRAVEL, 1);
-        const ease = 1 - Math.pow(1 - t, 3);
-        const p = nodeXY(nd);
-        const pending = nd.resolved === false;
-        const c = pending ? [222, 220, 240] : (RGB[nd.risk] || RGB.Safe);
-        const gapX = CX + Math.cos(nd.ang) * 12 * DPR;
-        const gapY = CY + Math.sin(nd.ang) * 12 * DPR;
-        const hx = gapX + (p.x - gapX) * ease;
-        const hy = gapY + (p.y - gapY) * ease;
-
-        if (t < 1) {
-          ctx.strokeStyle = ACCENT((0.3 * (0.35 + 0.65 * t)).toFixed(3));
-          ctx.lineWidth = 1.3 * DPR;
-          ctx.beginPath();
-          ctx.moveTo(gapX, gapY);
-          ctx.lineTo(hx, hy);
-          ctx.stroke();
-          ctx.fillStyle = "rgba(237,237,239,0.9)";
-          ctx.shadowColor = rgba(c, 0.9);
-          ctx.shadowBlur = 4 * DPR;
-          ctx.beginPath();
-          ctx.arc(hx, hy, 2.4 * DPR, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.shadowBlur = 0;
-        } else {
-          ctx.strokeStyle = ACCENT(edgeAlpha(nd.risk));
-          ctx.lineWidth = 1 * DPR;
-          ctx.beginPath();
-          ctx.moveTo(gapX, gapY);
-          ctx.lineTo(p.x, p.y);
-          ctx.stroke();
-        }
-
-        const na = t >= 1 ? 1 : Math.max(0, (t - 0.6) / 0.4);
-        if (na > 0) {
-          const flashAt = nd.resolvedAt != null ? nd.resolvedAt : nd.born + TRAVEL;
-          const flash =
-            t >= 1 && !pending ? Math.max(0, 1 - (now - flashAt) / 480) : 0;
-          ctx.fillStyle = rgba(c, na.toFixed(2));
-          ctx.shadowColor = rgba(c, 0.9);
-          ctx.shadowBlur = (2 + flash * 5) * DPR;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, (pending ? 2.4 : dotRadius(nd.risk)) * (1 + flash * 0.35) * DPR, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.shadowBlur = 0;
-        }
-
-        if (t >= 1 && showLabel(nd)) {
-          const la =
-            Math.min((now - (nd.born + TRAVEL)) / 420, 1) *
-            labelAlphaFor(nd.risk);
-          if (la > 0.01) {
-            const right = Math.cos(nd.ang) >= 0;
-            ctx.font =
-              10 * DPR + 'px ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace';
-            ctx.textAlign = right ? "left" : "right";
-            ctx.fillStyle = "rgba(139,139,147," + la.toFixed(2) + ")";
-            ctx.shadowColor = "rgba(10,10,11,0.9)";
-            ctx.shadowBlur = 4 * DPR;
-            ctx.fillText(shortName(nd), p.x + (right ? 1 : -1) * 9 * DPR, p.y);
-            ctx.shadowBlur = 0;
-          }
-        }
-      }
-    }
-
-    function drawPings(now) {
-      pings = pings.filter((p) => now - p.born < 1300);
-      for (const p of pings) {
-        const pos = nodeXY(p);
-        const t = (now - p.born) / 1300;
-        ctx.lineWidth = 2.2 * DPR;
-        ctx.strokeStyle =
-          "rgba(225,89,79," + ((1 - t) * 0.55).toFixed(3) + ")";
-        ring(pos.x, pos.y, t * 46 * DPR);
-        ctx.lineWidth = 1 * DPR;
-        ctx.strokeStyle =
-          "rgba(225,89,79," + ((1 - t) * 0.26).toFixed(3) + ")";
-        ring(pos.x, pos.y, t * 26 * DPR);
-      }
-    }
-
-    // ---- mascot: violet orb that darts core -> node and knocks threats out
-    const MASCOT_TRAVEL_MS = 340;
-    const MASCOT_IMPACT_MS = 220;
-    // Rakshak's per-node patrol: travel to each new node, pause a beat to
-    // "check" it (node resolves to its risk color), then move on. Speeds
-    // adapt to backlog so a normal scan shows a real visit per node.
-    const VISIT_TRAVEL_MS = 420;
-    const VISIT_TRAVEL_MIN_MS = 150;
-    const CHECK_MS = 340;
-    const CHECK_MIN_MS = 0;
-    const VISIT_QUEUE_CAP = 10;
-    const MAX_VISITS = 48;
-
-    // ---- Rakshak's patrol visits: travel to each pending node, check it,
-    // resolve its color, escalate to the fight gesture on threats.
-
-    function drawOrbAt(x, y, r, sx, sy) {
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.scale(sx, sy);
-      const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
-      g.addColorStop(0, "#d9d4ff");
-      g.addColorStop(0.5, "#7c6cf0");
-      g.addColorStop(1, "#453aa6");
-      ctx.shadowColor = "rgba(124,108,240,0.65)";
-      ctx.shadowBlur = 10 * DPR;
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(0, 0, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      ctx.restore();
-    }
-
-    function startNextVisit(now) {
-      if (visit || !visitQueue.length) return;
-      const entry = visitQueue.shift();
-      visit = { nd: entry.nd, fight: entry.fight, start: now, phase: "travel", trail: [] };
-      window.__cureVisitActive = true;
-    }
-
-    function drawVisit(now) {
-      if (!visit) return;
-      const p = nodeXY(visit.nd);
-
-      if (visit.phase === "travel") {
-        // hustle when nodes are backing up — calm when the scan is light
-        const load = Math.min(visitQueue.length, 6);
-        const dur = Math.max(VISIT_TRAVEL_MIN_MS, VISIT_TRAVEL_MS - load * 55);
-        const t = Math.min((now - visit.start) / dur, 1);
-        const e = 1 - Math.pow(1 - t, 2.2);
-        const x = CX + (p.x - CX) * e;
-        const y = CY + (p.y - CY) * e;
-
-        visit.trail.push({ x, y });
-        if (visit.trail.length > 7) visit.trail.shift();
-        for (let i = 0; i < visit.trail.length; i++) {
-          const tr = visit.trail[i];
-          ctx.fillStyle = ACCENT((((i + 1) / visit.trail.length) * 0.2).toFixed(3));
-          ctx.beginPath();
-          ctx.arc(tr.x, tr.y, Math.max(0.6, 2.1 - i * 0.18) * DPR, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        const stretch = 1 + 0.22 * Math.sin(t * Math.PI);
-        const ang = Math.atan2(p.y - CY, p.x - CX);
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(ang);
-        drawOrbAt(0, 0, 6.2 * DPR, stretch, 1 / stretch);
-        ctx.restore();
-
-        if (t >= 1) {
-          visit.phase = "check";
-          visit.start = now;
-        }
-        return;
-      }
-
-      // check phase: a quick pause + glow pulse while the node resolves
-      const load = Math.min(visitQueue.length, 6);
-      const dur = Math.max(CHECK_MIN_MS, CHECK_MS - load * 55);
-      const ct = (now - visit.start) / dur;
-      const pulse = Math.sin(Math.min(ct, 1) * Math.PI);
-      drawOrbAt(p.x, p.y, (6.2 + 0.6 * pulse) * DPR, 1, 1);
-      if (dur > 0 && ct < 1) {
-        ctx.lineWidth = 1.6 * DPR;
-        ctx.strokeStyle = ACCENT((0.5 * (1 - ct)).toFixed(3));
-        ring(p.x, p.y, (6 + ct * 17) * DPR);
-      }
-      if (ct >= 1) {
-        visit.nd.resolved = true;
-        visit.nd.resolvedAt = now;
-        visitsDone += 1;
-        window.__cureResolvedCount = (window.__cureResolvedCount || 0) + 1;
-        if (visit.fight) {
-          // fight gesture plays in place: pre-complete the legacy travel so
-          // only the existing impact rings/squash animate at the node
-          mascot = { nd: visit.nd, start: now - MASCOT_TRAVEL_MS, trail: [] };
-          window.__cureMascotActive = true;
-        }
-        visit = null;
-        window.__cureVisitActive = visitQueue.length > 0;
-      }
-    }
-
-    function drawMascot(now) {
-      if (!mascot) return;
-      const p = nodeXY(mascot.nd);
-      const t = Math.min((now - mascot.start) / MASCOT_TRAVEL_MS, 1);
-      const e = 1 - Math.pow(1 - t, 2.4);
-      const x = CX + (p.x - CX) * e;
-      const y = CY + (p.y - CY) * e;
-
-      mascot.trail.push({ x, y });
-      if (mascot.trail.length > 7) mascot.trail.shift();
-      for (let i = 0; i < mascot.trail.length; i++) {
-        const tr = mascot.trail[i];
-        ctx.fillStyle = ACCENT((((i + 1) / mascot.trail.length) * 0.2).toFixed(3));
-        ctx.beginPath();
-        ctx.arc(tr.x, tr.y, Math.max(0.6, 2.1 - i * 0.18) * DPR, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      const stretch = 1 + 0.26 * Math.sin(t * Math.PI);
-      let sx = stretch;
-      let sy = 1 / stretch;
-      let r = 6.2 * DPR;
-
-      if (t >= 1) {
-        const it = Math.min((now - mascot.start - MASCOT_TRAVEL_MS) / MASCOT_IMPACT_MS, 1);
-        const pulse = Math.sin(it * Math.PI);
-        sx = 1 + 0.42 * pulse;
-        sy = 1 - 0.34 * pulse;
-        ctx.lineWidth = 2 * DPR;
-        ctx.strokeStyle = ACCENT(((1 - it) * 0.75).toFixed(3));
-        ring(p.x, p.y, (4 + it * 26) * DPR);
-        ctx.lineWidth = 1 * DPR;
-        ctx.strokeStyle = "rgba(237,237,239," + ((1 - it) * 0.5).toFixed(3) + ")";
-        ring(p.x, p.y, (2 + it * 14) * DPR);
-        r *= 1 + 0.22 * (1 - it);
-        if (it >= 1) {
-          mascot = null;
-          window.__cureMascotActive = false;
-          return;
-        }
-      }
-
-      const ang = Math.atan2(p.y - CY, p.x - CX);
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(ang);
-      ctx.scale(sx, sy);
-      const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
-      g.addColorStop(0, "#d9d4ff");
-      g.addColorStop(0.5, "#7c6cf0");
-      g.addColorStop(1, "#453aa6");
-      ctx.shadowColor = "rgba(124,108,240,0.65)";
-      ctx.shadowBlur = 10 * DPR;
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(0, 0, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      // face: two dot eyes with pupils (eyes widen on impact)
-      const eR = r * 0.27, pR = r * 0.11, eW = t >= 1 ? 1.12 : 1;
-      ctx.fillStyle = "rgba(255,255,255,0.88)";
-      ctx.beginPath(); ctx.arc(-r * 0.34, -r * 0.12, eR * eW, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc( r * 0.34, -r * 0.12, eR * eW, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = "#1a1a2e";
-      ctx.beginPath(); ctx.arc(-r * 0.34, -r * 0.12, pR, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc( r * 0.34, -r * 0.12, pR, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
-    }
-
-    function frame(now) {
-      if (!pulses.length || now - lastPulse > 2800) {
-        pulses.push({ born: now });
-        lastPulse = now;
-      }
-      pulses = pulses.filter((p) => now - p.born < 2600);
-      ctx.clearRect(0, 0, W, H);
-      drawBackdrop(now);
-      ctx.lineWidth = 1 * DPR;
-      for (const p of pulses) {
-        const t = (now - p.born) / 2600;
-        ctx.strokeStyle = ACCENT((0.1 * (1 - t)).toFixed(3));
-        ellipse(CX, CY, 8 * DPR + (RX - 8 * DPR) * t, 8 * DPR + (R - 8 * DPR) * t);
-      }
-      drawNetwork(now);
-      drawPings(now);
-      drawCore(now);
-      drawMascot(now);
-      startNextVisit(now);
-      drawVisit(now);
-      rafId = requestAnimationFrame(frame);
-    }
-
-    function drawStaticFrame() {
-      const now = performance.now();
-      ctx.clearRect(0, 0, W, H);
-      drawBackdrop(now);
-      drawNetwork(now);
-      for (const p of pings) {
-        const pos = nodeXY(p);
-        ctx.fillStyle = "rgba(225,89,79,0.55)";
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 3 * DPR, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      drawCore(now);
-    }
-
-    return {
-      start() {
-        size();
-        pings = [];
-        pulses = [];
-        mascot = null;
-        visit = null;
-        visitQueue = [];
-        visitsDone = 0;
-        window.__cureMascotActive = false;
-        window.__cureVisitActive = false;
-        window.__cureResolvedCount = 0;
-        NetStore.reset();
-        lastPulse = performance.now();
-        if (REDUCED) {
-          if (rafId) cancelAnimationFrame(rafId);
-          rafId = null;
-          drawStaticFrame();
-          return;
-        }
-        if (!rafId) rafId = requestAnimationFrame(frame);
-      },
-      stop() {
-        if (rafId) cancelAnimationFrame(rafId);
-        rafId = null;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-      },
-      addNode(risk, name) {
-        const nd = NetStore.add(RGB[risk] ? risk : "Safe", name);
-        // Rakshak personally visits new nodes while there's budget; once the
-        // queue saturates (huge scans) nodes resolve instantly via the
-        // existing pulse-only birth animation.
-        if (!REDUCED && visitsDone < MAX_VISITS && visitQueue.length < VISIT_QUEUE_CAP) {
-          nd.resolved = false;
-          visitQueue.push({ nd, fight: false });
-        } else {
-          window.__cureResolvedCount = (window.__cureResolvedCount || 0) + 1;
-        }
-        if (REDUCED && !rafId) drawStaticFrame();
-        return nd;
-      },
-    };
-  })();
-
+  // ---- shared finding presentation ----
+  // Presentation-only topology is isolated from scan/action state.
   function countUp(el, target) {
-    if (REDUCED || target === 0) {
-      el.textContent = String(target);
-      return;
-    }
-    const started = performance.now();
-    const tick = (now) => {
-      const t = Math.min((now - started) / 800, 1);
-      const eased = 1 - Math.pow(1 - t, 3);
-      el.textContent = String(Math.round(target * eased));
-      if (t < 1) requestAnimationFrame(tick);
-      else if (!REDUCED) {
-        el.style.transition = "color 0.4s ease";
-        el.style.color = "var(--accent)";
-        requestAnimationFrame(() => { el.style.color = ""; });
-      }
-    };
-    requestAnimationFrame(tick);
+    if (el) el.textContent = String(target);
   }
-
-  // ---- results-view scan map ----
-  // Renders the same NetStore data as a settled, ambient "dormant but alive"
-  // constellation: slow core breathing + an occasional faint edge traveler.
-  const netmap = (() => {
-    const stageEl = document.getElementById("map-stage");
-    const canvas = document.getElementById("map-canvas");
-    const countEl = document.getElementById("map-count");
-    if (!stageEl || !canvas || !canvas.getContext) {
-      return { show() {}, hide() {} };
-    }
-    const ctx = canvas.getContext("2d");
-    const DPR = Math.min(window.devicePixelRatio || 1, 2);
-    const ACCENT = (a) => "rgba(124, 108, 240, " + a + ")";
-    const TRAVELER_MS = 1500;
-    // Rakshak's results-view life: a one-time "secured" wash sweeps outward
-    // from the core while he holds a guard pose, then he relaxes into a slow
-    // figure-eight patrol around the core.
-    const WASH_MS = 850;
-    const GUARD_HOLD_MS = 2600;
-    const GUARD_RELAX_MS = 1400;
-
-    let rafId = null;
-    let travelers = [];
-    let lastSpawn = 0;
-    let flourish = null;
-    let guardUntil = 0;
-    let W = 0;
-    let H = 0;
-    let CX = 0;
-    let CY = 0;
-    let R = 0;
-    let RX = 0;
-
-    const motes = [];
-    for (let i = 0; i < 16; i++) {
-      motes.push({
-        rf: 0.14 + Math.random() * 0.42,
-        sp: (0.0003 + Math.random() * 0.0007) * (i % 2 ? 1 : -1),
-        ph: Math.random() * Math.PI * 2,
-        a: 0.07 + Math.random() * 0.14,
-        tw: 0.6 + Math.random() * 1.8,
-        sz: 0.8 + Math.random() * 0.9,
-      });
-    }
-    // premium hover probe (tooltip) — purely visual, never affects counts
-    let hovered = null;
-    const tooltipEl = document.getElementById("map-tooltip");
-    function updateMapLegend() {
-      try {
-        const all = NetStore.all();
-        let hi = 0, su = 0, sa = 0;
-        for (const n of all) {
-          if (n.risk === "HighRisk") hi++;
-          else if (n.risk === "Suspicious") su++;
-          else sa++;
-        }
-        const eH = document.getElementById("map-n-high");
-        const eS = document.getElementById("map-n-susp");
-        const eF = document.getElementById("map-n-safe");
-        if (eH) eH.textContent = String(hi);
-        if (eS) eS.textContent = String(su);
-        if (eF) eF.textContent = String(sa);
-        const fill = document.getElementById("map-threat-fill");
-        const txt = document.getElementById("map-threat-text");
-        const total = all.length || 1;
-        const score = Math.min(100, Math.round(((hi * 1 + su * 0.45) / total) * 100));
-        if (fill) fill.style.width = score + "%";
-        if (txt) {
-          txt.textContent = all.length === 0 ? "—" : hi > 0 ? "HIGH " + score + "%" : su > 0 ? "WATCH " + score + "%" : "SECURE";
-          txt.style.color = hi > 0 ? "#f4928a" : su > 0 ? "#e8c476" : "#7fd8ab";
-        }
-      } catch (_) { /* legend is decorative */ }
-    }
-    if (stageEl && !stageEl.__cureMapHoverWired) {
-      stageEl.__cureMapHoverWired = true;
-      stageEl.addEventListener("mousemove", (ev) => {
-        if (!W || !H) return;
-        const rect = canvas.getBoundingClientRect();
-        const mx = ((ev.clientX - rect.left) / Math.max(rect.width, 1)) * W;
-        const my = ((ev.clientY - rect.top) / Math.max(rect.height, 1)) * H;
-        let best = null, bestD = 16 * DPR;
-        for (const nd of NetStore.all()) {
-          const p = nodeXY(nd);
-          const d = Math.hypot(p.x - mx, p.y - my);
-          if (d < bestD) { bestD = d; best = { nd, x: p.x, y: p.y }; }
-        }
-        hovered = best;
-        if (tooltipEl) {
-          if (best) {
-            const rk = best.nd.risk === "HighRisk" ? "high" : best.nd.risk === "Suspicious" ? "suspicious" : "safe";
-            tooltipEl.innerHTML = "";
-            const nm = document.createElement("div");
-            nm.textContent = String(best.nd.name || "?").slice(0, 60);
-            const rs = document.createElement("div");
-            rs.innerHTML = '<span class="tt-risk-' + rk + '">' + String(best.nd.risk || "?") + "</span>";
-            tooltipEl.append(nm, rs);
-            tooltipEl.classList.remove("hidden");
-            const sx = (best.x / W) * rect.width;
-            const sy = (best.y / H) * rect.height;
-            tooltipEl.style.left = Math.min(Math.max(sx + 12, 4), Math.max(rect.width - 170, 4)) + "px";
-            tooltipEl.style.top = Math.min(Math.max(sy - 10, 4), Math.max(rect.height - 60, 4)) + "px";
-          } else {
-            tooltipEl.classList.add("hidden");
-          }
-        }
-        stageEl.style.cursor = best ? "crosshair" : "";
-      });
-      stageEl.addEventListener("mouseleave", () => {
-        hovered = null;
-        if (tooltipEl) tooltipEl.classList.add("hidden");
-        if (stageEl) stageEl.style.cursor = "";
-      });
-    }
-
-    function size() {
-      const rect = stageEl.getBoundingClientRect();
-      if (rect.width < 8 || rect.height < 8) return false;
-      W = Math.max(1, Math.round(rect.width * DPR));
-      H = Math.max(1, Math.round(rect.height * DPR));
-      canvas.width = W;
-      canvas.height = H;
-      CX = W / 2;
-      CY = H / 2;
-      // the results rail is portrait — derive the vertical radius from the
-      // available height so the constellation fills the panel instead of
-      // floating as a landscape-biased blob mid-card
-      R = Math.max(10, (H / 2 - 8 * DPR) * 0.92);
-      RX = Math.max(30, Math.min(W / 2 - 12 * DPR, R * 2.2));
-      return true;
-    }
-    function onResize() {
-      if (size()) {
-        if (REDUCED || !rafId) drawFrame(performance.now());
-      }
-    }
-    if (window.ResizeObserver) {
-      new ResizeObserver(onResize).observe(stageEl);
-    } else {
-      window.addEventListener("resize", onResize);
-    }
-
-    function ring(x, y, r) {
-      ctx.beginPath();
-      ctx.arc(x, y, Math.max(r, 0.01), 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    function ellipse(x, y, rx, ry) {
-      ctx.beginPath();
-      ctx.ellipse(x, y, Math.max(rx, 0.01), Math.max(ry, 0.01), 0, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    function rgba(c, a) {
-      return "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + a + ")";
-    }
-    function nodeXY(nd) {
-      // spread nodes toward the panel edges: rf [0.58..0.92] -> [0.6..0.975]
-      const rm = 0.6 + (nd.rf - 0.58) * 1.1;
-      return {
-        x: CX + Math.cos(nd.ang) * rm * RX,
-        y: CY + Math.sin(nd.ang) * rm * R,
-      };
-    }
-    function edgeAlpha(risk) {
-      // uniform violet connectors — risk color lives on the node dots
-      return 0.22;
-    }
-    function labelAlphaFor(risk) {
-      if (risk === "HighRisk") return 0.66;
-      if (risk === "Suspicious") return 0.52;
-      return 0.32;
-    }
-    function dotRadius(risk) {
-      if (risk === "HighRisk") return 2.9;
-      if (risk === "Suspicious") return 2.4;
-      return 2.0;
-    }
-    function shortName(nd) {
-      let s = nd.name || "";
-      if (s.includes("\\")) {
-        const parts = s.split("\\");
-        s = parts[parts.length - 1];
-      }
-      const max = W < 340 * DPR ? 13 : 18;
-      if (s.length > max) s = s.slice(0, max - 1) + "…";
-      return s;
-    }
-    function showLabel(nd) {
-      const n = NetStore.all().length;
-      if (nd.risk !== "Safe") return true;
-      // narrow rail: risky nodes only, or labels turn to mush
-      if (W < 340 * DPR) return false;
-      return n <= 24;
-    }
-
-    function drawBackdrop(now) {
-      const M = Math.max(RX, R);
-      const vg = ctx.createRadialGradient(CX, CY, R * 0.2, CX, CY, M * 1.25);
-      vg.addColorStop(0, "rgba(10,10,11,0)");
-      vg.addColorStop(1, "rgba(10,10,11,0.5)");
-      ctx.fillStyle = vg;
-      ctx.fillRect(0, 0, W, H);
-
-      // futuristic nebula wash: violet core + cyan off-axis + faint red depth
-      const neb = ctx.createRadialGradient(CX, CY, 0, CX, CY, M * 1.05);
-      neb.addColorStop(0, "rgba(139,124,246,0.075)");
-      neb.addColorStop(0.45, "rgba(139,124,246,0.022)");
-      neb.addColorStop(0.7, "rgba(80,200,220,0.018)");
-      neb.addColorStop(1, "rgba(139,124,246,0)");
-      ctx.fillStyle = neb;
-      ctx.fillRect(0, 0, W, H);
-      const neb2 = ctx.createRadialGradient(CX + RX * 0.45, CY - R * 0.4, 0, CX + RX * 0.45, CY - R * 0.4, M * 0.55);
-      neb2.addColorStop(0, "rgba(80,200,220,0.05)");
-      neb2.addColorStop(1, "rgba(80,200,220,0)");
-      ctx.fillStyle = neb2;
-      ctx.fillRect(0, 0, W, H);
-
-      const glow = ctx.createRadialGradient(CX, CY, 0, CX, CY, M);
-      glow.addColorStop(0, "rgba(124,108,240,0.05)");
-      glow.addColorStop(0.5, "rgba(124,108,240,0.016)");
-      glow.addColorStop(1, "rgba(124,108,240,0)");
-      ctx.fillStyle = glow;
-      ctx.fillRect(0, 0, W, H);
-
-      ctx.lineWidth = 1 * DPR;
-      // rotating dashed orbit rings — holographic depth
-      const rot = REDUCED ? 0 : now / 9000;
-      ctx.save();
-      ctx.translate(CX, CY);
-      ctx.rotate(rot * 0.35);
-      ctx.strokeStyle = ACCENT(0.10);
-      ctx.setLineDash([5 * DPR, 7 * DPR]);
-      ellipse(0, 0, RX, R);
-      ctx.restore();
-      ctx.save();
-      ctx.translate(CX, CY);
-      ctx.rotate(-rot * 0.5);
-      ctx.strokeStyle = ACCENT(0.07);
-      ctx.setLineDash([2.5 * DPR, 6 * DPR]);
-      ellipse(0, 0, RX * 0.62, R * 0.62);
-      ctx.restore();
-      ctx.setLineDash([]);
-      ctx.strokeStyle = ACCENT(0.05);
-      ellipse(CX, CY, RX * 0.34, R * 0.34);
-      // faint crosshair ticks
-      ctx.strokeStyle = ACCENT(0.05);
-      ctx.beginPath();
-      for (let k = 0; k < 4; k++) {
-        const a = (k / 4) * Math.PI * 2 + (REDUCED ? 0 : now / 14000);
-        ctx.moveTo(CX + Math.cos(a) * RX * 0.34, CY + Math.sin(a) * R * 0.34);
-        ctx.lineTo(CX + Math.cos(a) * RX * 0.38, CY + Math.sin(a) * R * 0.38);
-      }
-      ctx.stroke();
-
-      for (const m of motes) {
-        const a = m.ph + m.sp * now;
-        const x = CX + Math.cos(a) * RX * m.rf;
-        const y = CY + Math.sin(a) * R * m.rf;
-        const tw = REDUCED ? 1 : 0.55 + 0.45 * Math.sin(now / (700 * m.tw) + m.ph * 3);
-        ctx.fillStyle = ACCENT((m.a * tw).toFixed(3));
-        ctx.beginPath();
-        ctx.arc(x, y, m.sz * DPR, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    function drawCore(now) {
-      const k = Math.min(1.2, Math.max(0.6, Math.min(RX, R) / 260));
-      const breathe =
-        REDUCED ? 0.5 : 0.5 + 0.5 * Math.sin(now / 2100);
-      const haloR = (14 + 10 * breathe) * k * DPR;
-      const halo = ctx.createRadialGradient(CX, CY, 0, CX, CY, haloR);
-      halo.addColorStop(0, ACCENT((0.24 + 0.12 * breathe).toFixed(3)));
-      halo.addColorStop(0.6, ACCENT((0.08 + 0.05 * breathe).toFixed(3)));
-      halo.addColorStop(1, ACCENT(0));
-      ctx.fillStyle = halo;
-      ctx.beginPath();
-      ctx.arc(CX, CY, haloR, 0, Math.PI * 2);
-      ctx.fill();
-
-      // holographic double ring
-      ctx.lineWidth = 1.2 * DPR;
-      ctx.strokeStyle = ACCENT(REDUCED ? 0.38 : 0.38 + 0.14 * breathe);
-      ring(CX, CY, 12.5 * k * DPR);
-      if (!REDUCED) {
-        ctx.save();
-        ctx.strokeStyle = ACCENT(0.5);
-        ctx.setLineDash([6 * DPR, 5 * DPR]);
-        ctx.lineDashOffset = -now / 60;
-        ring(CX, CY, 17 * k * DPR);
-        ctx.restore();
-        ctx.strokeStyle = "rgba(155,231,244," + (0.22 + 0.12 * breathe).toFixed(3) + ")";
-        ctx.lineWidth = 1 * DPR;
-        ring(CX, CY, 8 * k * DPR);
-      } else {
-        ctx.strokeStyle = ACCENT(0.3);
-        ring(CX, CY, 17 * k * DPR);
-      }
-
-      const cg = ctx.createRadialGradient(CX - 1 * DPR, CY - 1 * DPR, 0, CX, CY, 4 * k * DPR);
-      cg.addColorStop(0, "#e6e1ff");
-      cg.addColorStop(0.5, "#7c6cf0");
-      cg.addColorStop(1, "#4a3fa0");
-      ctx.fillStyle = cg;
-      ctx.shadowColor = "rgba(124, 108, 240, 0.6)";
-      ctx.shadowBlur = (5 + 3 * breathe) * DPR;
-      ctx.beginPath();
-      ctx.arc(CX, CY, (2.8 + 0.8 * breathe) * k * DPR, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    }
-
-    function drawGraph(now) {
-      const nodes = NetStore.all();
-      ctx.textBaseline = "middle";
-      for (let ni = 0; ni < nodes.length; ni++) {
-        const nd = nodes[ni];
-        const p = nodeXY(nd);
-        const c = RGB[nd.risk] || RGB.Safe;
-        const gapX = CX + Math.cos(nd.ang) * 9 * DPR;
-        const gapY = CY + Math.sin(nd.ang) * 9 * DPR;
-        const isHover = hovered && hovered.nd === nd;
-        const isThreat = nd.risk === "HighRisk";
-        const isSusp = nd.risk === "Suspicious";
-        const pulse = REDUCED ? 0 : 0.5 + 0.5 * Math.sin(now / 620 + ni * 1.7);
-
-        // premium connector: gradient beam with soft glow
-        const beam = ctx.createLinearGradient(gapX, gapY, p.x, p.y);
-        beam.addColorStop(0, ACCENT(0.05));
-        beam.addColorStop(1, rgba(c, isThreat ? 0.42 : isSusp ? 0.32 : 0.20));
-        ctx.strokeStyle = beam;
-        ctx.lineWidth = (isHover ? 1.8 : isThreat ? 1.4 : 1) * DPR;
-        ctx.shadowColor = rgba(c, 0.35);
-        ctx.shadowBlur = (isThreat ? 5 : 2) * DPR;
-        ctx.beginPath();
-        ctx.moveTo(gapX, gapY);
-        ctx.lineTo(p.x, p.y);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-
-        // threat echo rings on high-risk nodes
-        if (isThreat && !REDUCED) {
-          const ph = ((now / 1400) + ni * 0.23) % 1;
-          ctx.lineWidth = 1 * DPR;
-          ctx.strokeStyle = rgba(c, ((1 - ph) * 0.4).toFixed(3));
-          ring(p.x, p.y, (dotRadius(nd.risk) + ph * 11) * DPR);
-        }
-        // hover halo
-        if (isHover) {
-          ctx.lineWidth = 1.4 * DPR;
-          ctx.strokeStyle = rgba(c, 0.65);
-          ring(p.x, p.y, (dotRadius(nd.risk) + 5.5) * DPR);
-        }
-
-        const baseR = dotRadius(nd.risk) * (isHover ? 1.35 : 1) * (isThreat && !REDUCED ? 1 + 0.14 * pulse : 1);
-        // outer aura
-        const aura = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, baseR * 3.2 * DPR);
-        aura.addColorStop(0, rgba(c, isThreat ? 0.5 : 0.32));
-        aura.addColorStop(1, rgba(c, 0));
-        ctx.fillStyle = aura;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, baseR * 3.2 * DPR, 0, Math.PI * 2);
-        ctx.fill();
-        // core dot
-        ctx.fillStyle = rgba(c, 0.95);
-        ctx.shadowColor = rgba(c, 0.85);
-        ctx.shadowBlur = (isThreat ? 7 : 4) * DPR;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, baseR * DPR, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        // specular highlight
-        ctx.fillStyle = "rgba(255,255,255,0.85)";
-        ctx.beginPath();
-        ctx.arc(p.x - baseR * 0.3 * DPR, p.y - baseR * 0.3 * DPR, Math.max(0.7 * DPR, baseR * 0.28 * DPR), 0, Math.PI * 2);
-        ctx.fill();
-
-        if (showLabel(nd)) {
-          ctx.font =
-            9 * DPR + 'px ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace';
-          const label = shortName(nd);
-          // default: extend away from the core; flip whenever the label
-          // would run off-canvas on its chosen side (measured, not guessed)
-          let align = Math.cos(nd.ang) >= 0 ? "left" : "right";
-          const lw = ctx.measureText(label).width;
-          if (align === "left" && p.x + 8 * DPR + lw > W - 2) {
-            align = "right";
-          } else if (align === "right" && p.x - 8 * DPR - lw < 2) {
-            align = "left";
-          }
-          ctx.textAlign = align;
-          ctx.fillStyle = "rgba(139,139,147," + labelAlphaFor(nd.risk).toFixed(2) + ")";
-          ctx.shadowColor = "rgba(10,10,11,0.9)";
-          ctx.shadowBlur = 4 * DPR;
-          ctx.fillText(label, p.x + (align === "left" ? 1 : -1) * 8 * DPR, p.y);
-          ctx.shadowBlur = 0;
-        }
-      }
-    }
-
-    function drawTravelers(now) {
-      travelers = travelers.filter((tr) => now - tr.born < TRAVELER_MS);
-      for (const tr of travelers) {
-        const nd = NetStore.all()[tr.idx];
-        if (!nd) continue;
-        const t = (now - tr.born) / TRAVELER_MS;
-        const ease = 1 - Math.pow(1 - t, 2.2);
-        const p = nodeXY(nd);
-        const c = RGB[nd.risk] || RGB.Safe;
-        const gapX = CX + Math.cos(nd.ang) * 9 * DPR;
-        const gapY = CY + Math.sin(nd.ang) * 9 * DPR;
-        const x = gapX + (p.x - gapX) * ease;
-        const y = gapY + (p.y - gapY) * ease;
-        const fade = Math.min(1, t * 4) * Math.min(1, (1 - t) * 3.2);
-        ctx.fillStyle = rgba(c, (0.55 * fade).toFixed(3));
-        ctx.shadowColor = rgba(c, 0.7);
-        ctx.shadowBlur = 4 * DPR;
-        ctx.beginPath();
-        ctx.arc(x, y, 1.7 * DPR, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-      }
-    }
-
-    function spawnTraveler(now) {
-      const n = NetStore.all().length;
-      if (!n || travelers.length >= 2) return;
-      travelers.push({ idx: Math.floor(Math.random() * n), born: now });
-    }
-
-    function drawWash(now) {
-      if (!flourish) return;
-      if (now < flourish.start) return; // wait out the panel reveal fade
-      const t = (now - flourish.start) / WASH_MS;
-      if (t >= 1) {
-        flourish = null;
-        return;
-      }
-      const e = 1 - Math.pow(1 - t, 2.5);
-      // leading edge sweeping through the constellation
-      ctx.lineWidth = 2.4 * DPR;
-      ctx.strokeStyle = ACCENT((0.55 * (1 - t)).toFixed(3));
-      ellipse(CX, CY, Math.max(1, e * RX), Math.max(1, e * R));
-      // trailing soft fill behind the edge
-      const grd = ctx.createRadialGradient(
-        CX, CY, Math.max(0, e * Math.min(RX, R) - 44 * DPR),
-        CX, CY, Math.max(2, e * Math.max(RX, R) * 1.02)
-      );
-      grd.addColorStop(0, "rgba(124,108,240,0)");
-      grd.addColorStop(0.82, "rgba(124,108,240," + (0.08 * (1 - t)).toFixed(3) + ")");
-      grd.addColorStop(1, "rgba(124,108,240,0)");
-      ctx.fillStyle = grd;
-      ctx.fillRect(0, 0, W, H);
-      // inner echo ring
-      const e2 = Math.max(0, e - 0.16);
-      ctx.lineWidth = 1 * DPR;
-      ctx.strokeStyle = ACCENT((0.28 * (1 - t)).toFixed(3));
-      ellipse(CX, CY, Math.max(1, e2 * RX), Math.max(1, e2 * R));
-    }
-
-    function drawRakshak(now) {
-      const k = Math.min(1.2, Math.max(0.6, Math.min(RX, R) / 260));
-      const guarding = now < guardUntil;
-      let x = CX;
-      let y = CY;
-
-      if (!guarding) {
-        // figure-eight patrol drift around the core, slow enough to read as
-        // "watching over"; eases out of the guard pose instead of jumping
-        const pt = now / 1000;
-        const px = CX + Math.sin(pt * 0.42) * RX * 0.3;
-        const py = CY + Math.sin(pt * 0.84 + 1.2) * R * 0.2;
-        const relax = Math.min(Math.max((now - guardUntil) / GUARD_RELAX_MS, 0), 1);
-        const ease = 1 - Math.pow(1 - relax, 2);
-        x = CX + (px - CX) * ease;
-        y = CY + (py - CY) * ease;
-      }
-
-      const r = ((6.5 + 1.5 * k) * (guarding ? 1.08 : 1)) * DPR;
-      // guard rings ease in with the flourish, fade as patrol resumes
-      let ra;
-      if (guarding) {
-        ra = REDUCED ? 1 : Math.min((now - (guardUntil - GUARD_HOLD_MS)) / 600, 1);
-      } else {
-        ra = Math.max(0, 1 - (now - guardUntil) / 900);
-      }
-      if (ra > 0.01) {
-        const breathe = REDUCED ? 0 : 0.5 + 0.5 * Math.sin(now / 1300);
-        ctx.lineWidth = 1.4 * DPR;
-        ctx.strokeStyle = ACCENT((0.42 * ra * (0.8 + 0.2 * breathe)).toFixed(3));
-        ring(x, y, r * 1.9);
-        ctx.lineWidth = 1 * DPR;
-        ctx.strokeStyle = ACCENT((0.18 * ra * (0.8 + 0.2 * breathe)).toFixed(3));
-        ring(x, y, r * 2.7);
-      }
-
-      const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r);
-      g.addColorStop(0, "#d9d4ff");
-      g.addColorStop(0.5, "#7c6cf0");
-      g.addColorStop(1, "#453aa6");
-      ctx.shadowColor = "rgba(124,108,240,0.75)";
-      ctx.shadowBlur = 15 * DPR;
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      // face: two dot eyes with patrol-aware pupils
-      const eR = r * 0.27, pR = r * 0.11, eW = guarding ? 1.12 : 1;
-      ctx.fillStyle = "rgba(255,255,255,0.88)";
-      ctx.beginPath(); ctx.arc(x - r * 0.34, y - r * 0.12, eR * eW, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(x + r * 0.34, y - r * 0.12, eR * eW, 0, Math.PI * 2); ctx.fill();
-      let pdx = 0, pdy = 0;
-      if (!guarding) {
-        const _pt = now / 1000;
-        pdx = Math.cos(_pt * 0.42) * pR * 0.4;
-        pdy = Math.sin(_pt * 0.84 + 1.2) * pR * 0.3;
-      }
-      ctx.fillStyle = "#1a1a2e";
-      ctx.beginPath(); ctx.arc(x - r * 0.34 + pdx, y - r * 0.12 + pdy, pR, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(x + r * 0.34 + pdx, y - r * 0.12 + pdy, pR, 0, Math.PI * 2); ctx.fill();
-    }
-
-    function drawFrame(now) {
-      ctx.clearRect(0, 0, W, H);
-      drawBackdrop(now);
-      drawGraph(now);
-      drawWash(now);
-      if (!REDUCED) {
-        if (now - lastSpawn > 3400 + Math.random() * 1600) {
-          spawnTraveler(now);
-          lastSpawn = now;
-        }
-        drawTravelers(now);
-      } else {
-        travelers = [];
-      }
-      drawCore(now);
-      drawRakshak(now);
-    }
-
-    function loop(now) {
-      drawFrame(now);
-      rafId = requestAnimationFrame(loop);
-    }
-
-    return {
-      show(summaryTotal) {
-        if (countEl) countEl.textContent = summaryTotal + " nodes";
-        updateMapLegend();
-        travelers = [];
-        lastSpawn = performance.now() - 2400;
-        // any nodes Rakshak didn't reach (huge scans) settle into place here
-        for (const nd of NetStore.all()) nd.resolved = true;
-        // hold the wash until the map panel's entrance reveal has finished,
-        // so the flourish plays on the settled network, not under the fade
-        const t0 = performance.now();
-        const washStart = t0 + 750;
-        guardUntil = washStart + GUARD_HOLD_MS;
-        flourish = REDUCED ? null : { start: washStart };
-        if (REDUCED) {
-          if (rafId) cancelAnimationFrame(rafId);
-          rafId = null;
-          size();
-          drawFrame(performance.now());
-          return;
-        }
-        size();
-        if (!rafId) rafId = requestAnimationFrame(loop);
-      },
-      hide() {
-        if (rafId) cancelAnimationFrame(rafId);
-        rafId = null;
-        travelers = [];
-        flourish = null;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-      },
-    };
-  })();
-
-  const SOURCE_ICONS = {
-    StartupFolder:
-      '<svg viewBox="0 0 24 24"><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/></svg>',
-    ScheduledTask:
-      '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>',
-    RegistryRun:
-      '<svg viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M11 12L21 2"/><path d="M17 6l3 3"/><path d="M14 9l2.5 2.5"/></svg>',
-    WindowsService:
-      '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>',
-    WmiSubscription:
-      '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg>',
-    IfeoDebugger:
-      '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 5V2M12 22v-3M5 12H2M22 12h-3"/></svg>',
-    AppInitDlls:
-      '<svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg>',
-    ComHijack:
-      '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 12h6"/></svg>',
-  };
 
   const SOURCE_LABELS = {
     StartupFolder: "Startup folder",
@@ -1425,7 +256,10 @@
     RegistryRun: { id: "T1547.001", name: "Registry Run Keys" },
     WindowsService: { id: "T1543.003", name: "Windows Service" },
     WmiSubscription: { id: "T1546.003", name: "WMI Event Subscription" },
-    IfeoDebugger: { id: "T1546.012", name: "Image File Execution Options Injection" },
+    IfeoDebugger: {
+      id: "T1546.012",
+      name: "Image File Execution Options Injection",
+    },
     AppInitDlls: { id: "T1546.010", name: "AppInit DLLs" },
     ComHijack: { id: "T1546.015", name: "Component Object Model Hijacking" },
   };
@@ -1436,25 +270,6 @@
     }
     const raw = scored && scored.entry ? String(scored.entry.source) : "";
     return ATTACK_MAP[raw] || null;
-  }
-
-  function recommendedAction(scored) {
-    if (!scored) return "";
-    if (scored.risk === "HighRisk") {
-      const src = scored.entry ? String(scored.entry.source) : "";
-      if (src === "StartupFolder" || src === "ScheduledTask") {
-        return "Quarantine for review, then investigate before any deletion.";
-      }
-      return "Investigate before disabling. Back up the location first; removal is manual and must be reversible.";
-    }
-    if (scored.risk === "Suspicious") return "Investigate before disabling.";
-    return "No action needed.";
-  }
-
-  function findingsHeadline(n) {
-    return n === 1
-      ? "1 finding needs a decision"
-      : n + " findings need a decision";
   }
 
   // Evidence-based scope caption: what was actually checked, what was
@@ -1483,9 +298,11 @@
     if (lower.includes("user profile folder")) return ["Profile exe", "amber"];
     // Detection Engine v2 — note: "invalid signature" contains "valid
     // signature", so it must be matched first.
-    if (lower.includes("invalid signature")) return ["Invalid Signature", "red"];
+    if (lower.includes("invalid signature"))
+      return ["Invalid Signature", "red"];
     if (lower.includes("valid signature")) return ["Valid Signature", "teal"];
-    if (lower.includes("known malware hash")) return ["Known Malware Hash", "red"];
+    if (lower.includes("known malware hash"))
+      return ["Known Malware Hash", "red"];
     if (lower.includes("unsigned binary")) return ["Unsigned Binary", "amber"];
     if (lower.includes("missing from disk")) return ["Missing image", "red"];
     if (lower.includes("class redirection")) return ["COM redirect", "amber"];
@@ -1503,165 +320,379 @@
     return "low";
   }
 
-  function buildCard(entry, cleaned) {
+  const quarantinedIds = new Set();
+  const evidenceCache = new Map();
+  const fileBacked = (scored) =>
+    ["StartupFolder", "ScheduledTask"].includes(String(scored.entry.source));
+  const riskLabel = (risk) =>
+    risk === "HighRisk"
+      ? "High risk"
+      : risk === "Suspicious"
+        ? "Review required"
+        : "Safe score";
+  function coverageIncomplete(summary) {
+    const rows = (summary && summary.source_states) || [];
+    return (
+      !rows.length ||
+      rows.some((row) => !["Available", "Checked"].includes(row.state))
+    );
+  }
+  function makeText(tag, text, cls) {
+    const node = document.createElement(tag);
+    node.textContent = text;
+    if (cls) node.className = cls;
+    return node;
+  }
+  function buildCard(scored, cleaned) {
     const card = document.createElement("li");
-    card.className = "review-card reveal" + (cleaned ? " cleaned" : "") + " risk-" + scoreChipClass(entry.score);
-
-    const rawSource = String(entry.entry.source);
-    const iconClass =
-      rawSource === "ScheduledTask"
-        ? "icon-task"
-        : rawSource === "RegistryRun"
-          ? "icon-registry"
-          : "icon-startup";
-
-    const iconWrap = document.createElement("div");
-    iconWrap.className = "src-icon " + iconClass;
-    iconWrap.innerHTML = SOURCE_ICONS[rawSource] || SOURCE_ICONS.StartupFolder;
-    card.appendChild(iconWrap);
-
-    const main = document.createElement("div");
-    main.className = "rc-main";
-
-    const topRow = document.createElement("div");
-    topRow.className = "rc-top";
-
-    const name = document.createElement("span");
-    name.className = "rc-name";
-    name.textContent = entry.entry.name;
-    name.title = entry.entry.command;
-
-    const scoreEl = document.createElement("span");
-    scoreEl.className = "score-chip " + scoreChipClass(entry.score);
-    scoreEl.textContent = String(entry.score);
-    scoreEl.title = entry.risk + " · risk score " + entry.score;
-
-    topRow.append(name, scoreEl);
-    main.appendChild(topRow);
-
-    const chips = document.createElement("div");
-    chips.className = "chips";
-    const srcChip = document.createElement("span");
-    srcChip.className = "chip src";
-    srcChip.textContent = SOURCE_LABELS[rawSource] || "Persistence";
-    srcChip.title = entry.entry.location;
-    chips.appendChild(srcChip);
-    const atk = attackFor(entry);
-    if (atk) {
-      const atkChip = document.createElement("span");
-      atkChip.className = "chip attack";
-      atkChip.textContent = atk.id;
-      atkChip.title = "MITRE ATT&CK: " + atk.name;
-      chips.appendChild(atkChip);
-    }
-    const reasons = Array.isArray(entry.reasons) ? entry.reasons : [];
-    for (const reason of reasons.slice(0, 4)) {
-      const [label, tone] = reasonChipLabel(String(reason));
-      const chip = document.createElement("span");
-      chip.className = "chip" + (tone ? " " + tone : "");
-      chip.textContent = label;
-      chip.title = reason;
-      chips.appendChild(chip);
-    }
-    if (chips.children.length > 0) main.appendChild(chips);
-
-    const loc = document.createElement("div");
-    loc.className = "finding-loc selectable trunc";
-    loc.tabIndex = 0;
-    loc.textContent = "Location: " + (entry.entry.location || "Not collected");
-    loc.title = entry.entry.location || "Not collected";
-    main.appendChild(loc);
-
-    const detToggle = document.createElement("button");
-    detToggle.className = "detail-toggle finding-details-toggle";
-    detToggle.textContent = "View details";
-    detToggle.setAttribute("aria-expanded", "false");
-    const drawer = document.createElement("dl");
-    drawer.className = "detail-drawer hidden";
-    const dRows = [
-      ["Category", "Persistence"],
-      ["Source", rawSource + (atk ? " · MITRE " + atk.id + " " + atk.name : "")],
-      ["Severity / status", entry.risk + " · score " + entry.score],
-      ["Name", entry.entry.name],
-      ["Location", entry.entry.location || "Not collected"],
-      ["Command", entry.entry.command || "Not collected"],
-      ["Reasons", reasons.join(" · ") || "No scored signals — listed for context."],
-      ["Available evidence", reasons.join("; ") || "No scored signals — listed for context."],
-      ["Action", cleaned ? "Quarantined — restore from Quarantine with Undo." : (rawSource === "RegistryRun" ? "Manual removal required — registry values are not auto-disabled in this version." : "Quarantine available — asks for confirmation, reversible from Quarantine.")],
-    ];
-    for (const [k, v] of dRows) {
-      const dt = document.createElement("dt");
-      dt.textContent = k;
-      const dd = document.createElement("dd");
-      dd.className = "selectable";
-      dd.textContent = v;
-      if (String(v).length > 60) dd.title = v;
-      drawer.append(dt, dd);
-    }
-    detToggle.addEventListener("click", () => {
-      const open = drawer.classList.toggle("hidden");
-      detToggle.setAttribute("aria-expanded", String(!open));
-      detToggle.textContent = open ? "View details" : "Hide details";
-    });
-    main.appendChild(detToggle);
-    main.appendChild(drawer);
-
-    card.appendChild(main);
-
-    if (cleaned) {
-      const done = document.createElement("span");
-      done.className = "manual-note";
-      done.textContent = "Quarantined";
-      card.appendChild(done);
-    } else if (rawSource === "RegistryRun") {
-      const note = document.createElement("span");
-      note.className = "manual-note";
-      note.textContent = "Manual removal required";
-      note.title =
-        entry.entry.location +
-        " — registry values are not auto-disabled in this version";
-      card.appendChild(note);
-    } else {
-      const btn = document.createElement("button");
-      btn.className = "quarantine-btn";
-      btn.textContent = "Quarantine";
-      btn.addEventListener("click", async () => {
-        const ok = await requestConfirm({
-          kicker: "Confirm quarantine",
-          title: "Move this item to quarantine?",
-          facts: [
-            ["Item", entry.entry.name],
-            ["Location", entry.entry.location || "Not collected"],
-            ["Action", "Move this file to C.U.R.E. quarantine."],
-            ["Reversible", "Yes — it can be restored from Quarantine."],
-          ],
-          note: "This action changes the filesystem. The item will be listed under Quarantine with Undo.",
-          okLabel: "Quarantine item",
-        });
-        if (!ok) return;
-        btn.disabled = true;
-        try {
-          await invoke("quarantine_entry", {
-            id: entry.entry.id,
-            name: entry.entry.name,
-            command: entry.entry.command,
-          });
-          btn.textContent = "Quarantined ✓";
-          btn.classList.add("row-done");
-          sessionQuarantined += 1;
-          refreshQuarantinedTile();
-          showReceipt("Quarantined: " + entry.entry.name, "moved to quarantine · Undo in the Quarantine view", false);
-          logEvent("action", "quarantined: " + entry.entry.name);
-        } catch (err) {
-          btn.disabled = false;
-          setPill("error", String(err));
-          showReceipt("Quarantine failed", cleanErrText(err, "Quarantine failed"), true);
-        }
-      });
-      card.appendChild(btn);
-    }
+    card.className = "review-card risk-" + scoreChipClass(scored.score);
+    card.dataset.id = scored.entry.id;
+    /* The real score drives the row's risk meter — no invented severity. */
+    card.style.setProperty("--score", String(Math.max(0, Math.min(100, scored.score))));
+    const main = makeText("div", "", "rc-main");
+    const top = makeText("div", "", "rc-top");
+    const select = makeText("button", scored.entry.name, "finding-select");
+    select.type = "button";
+    select.setAttribute("aria-label", "Inspect evidence: " + scored.entry.name);
+    select.addEventListener("click", () => openEvidence(scored, select));
+    const severity = makeText(
+      "span",
+      riskLabel(scored.risk) + " · " + scored.score,
+      "score-chip " + scoreChipClass(scored.score),
+    );
+    const meter = makeText("div", "", "rc-meter");
+    meter.setAttribute("aria-hidden", "true");
+    meter.appendChild(makeText("i", "", "rc-meter-fill"));
+    top.append(select, severity, meter);
+    const meta = makeText("div", "", "chips");
+    meta.append(
+      makeText(
+        "span",
+        SOURCE_LABELS[scored.entry.source] || scored.entry.source,
+        "chip src",
+      ),
+    );
+    const attack = attackFor(scored);
+    if (attack) meta.append(makeText("span", attack.id, "chip"));
+    const signature = makeText(
+      "span",
+      "Signature: not collected",
+      "chip finding-signature",
+    );
+    meta.append(signature);
+    const loc = makeText(
+      "div",
+      scored.entry.command || scored.entry.location,
+      "finding-loc selectable",
+    );
+    loc.title = loc.textContent;
+    const reasons = makeText(
+      "div",
+      (scored.reasons || [])
+        .map((r) => String(r).replace(/^[+-]\d+\s*/, ""))
+        .join(" · "),
+      "finding-reasons",
+    );
+    main.append(top, meta, loc, reasons);
+    card.append(main);
+    card.append(actionButton(scored, cleaned));
     return card;
   }
+  function actionButton(scored, cleaned) {
+    const done = cleaned || quarantinedIds.has(scored.entry.id);
+    if (done)
+      return makeText("span", "Quarantined · Undo available", "manual-note");
+    if (!fileBacked(scored))
+      return makeText("span", "Guidance only", "manual-note");
+    const btn = makeText("button", "Quarantine", "quarantine-btn");
+    btn.type = "button";
+    btn.addEventListener("click", () => confirmQuarantine(scored, btn));
+    return btn;
+  }
+  async function confirmQuarantine(scored, btn) {
+    const ok = await requestConfirm({
+      kicker: "Operator action / reversible file move",
+      title: "Quarantine this file?",
+      facts: [
+        ["Item", scored.entry.name],
+        ["Original location", scored.entry.location],
+      ],
+      sections: [
+        [
+          "What will change",
+          "The persistence file moves to C.U.R.E quarantine. The engine records its original location, size, SHA-256 and available security metadata.",
+        ],
+        [
+          "What will not change",
+          "Quarantine does not delete the file, terminate its running process, or change registry, service or WMI settings. A referenced executable may remain elsewhere.",
+        ],
+        [
+          "How to undo",
+          "Open Quarantine and choose Undo. Restore is scoped to scanned roots and checks archived bytes before moving them back. ACL and timestamp fidelity is best effort.",
+        ],
+      ],
+      okLabel: "Quarantine file",
+    });
+    if (!ok) return;
+    btn.disabled = true;
+    btn.setAttribute("aria-busy", "true");
+    try {
+      await invoke("quarantine_entry", {
+        id: scored.entry.id,
+        name: scored.entry.name,
+        command: scored.entry.command,
+      });
+      quarantinedIds.add(scored.entry.id);
+      sessionQuarantined++;
+      refreshQuarantinedTile();
+      btn.textContent = "Quarantined";
+      btn.removeAttribute("aria-busy");
+      document.querySelectorAll("[data-id]").forEach((row) => {
+        if (row.dataset.id === scored.entry.id) {
+          const action = row.querySelector(".quarantine-btn");
+          if (action) {
+            action.textContent = "Quarantined";
+            action.disabled = true;
+          }
+        }
+      });
+      showReceipt(
+        "Quarantined: " + scored.entry.name,
+        "recorded move · Undo available in Quarantine",
+        false,
+      );
+      footFeedback(
+        "Quarantined: " + scored.entry.name + " · Undo available",
+        false,
+      );
+      logEvent("action", "Quarantined: " + scored.entry.name);
+      // Supporting state after a completed, confirmed action — never before.
+      window.CureCompanion.seal(
+        "Sealed: " + scored.entry.name + " · Undo available",
+      );
+      await refreshQuarantineCount();
+      if (evidenceSelected === scored)
+        renderEvidence(scored, evidenceCache.get(scored.entry.id));
+    } catch (err) {
+      btn.disabled = false;
+      btn.removeAttribute("aria-busy");
+      showReceipt(
+        "Quarantine failed",
+        cleanErrText(err, "Quarantine failed"),
+        true,
+      );
+      footFeedback(cleanErrText(err, "Quarantine failed"), true);
+    }
+  }
+  let evidenceSelected = null;
+  let evidenceInvoker = null;
+  let evidenceGeneration = 0;
+  function section(body, title, content, technical = false) {
+    const box = makeText("section", "", "inspector-section");
+    box.append(makeText("h3", title));
+    box.append(
+      makeText(
+        "p",
+        content || "Not collected",
+        technical ? "technical selectable" : "",
+      ),
+    );
+    body.append(box);
+    return box;
+  }
+  function renderEvidence(scored, details) {
+    const body = document.getElementById("evidence-body");
+    body.replaceChildren();
+    const done = quarantinedIds.has(scored.entry.id);
+    section(
+      body,
+      "Summary",
+      riskLabel(scored.risk) +
+        " · score " +
+        scored.score +
+        " · " +
+        (done ? "Quarantined" : "Awaiting operator decision"),
+    );
+    const reasons = section(body, "Why C.U.R.E flagged this", "");
+    reasons.querySelector("p").remove();
+    const ul = document.createElement("ul");
+    (scored.reasons || []).forEach((r) => ul.append(makeText("li", r)));
+    reasons.append(ul);
+    const attack = attackFor(scored);
+    section(
+      body,
+      "Persistence source",
+      (SOURCE_LABELS[scored.entry.source] || scored.entry.source) +
+        (attack ? " · " + attack.id : "") +
+        "\n" +
+        scored.entry.location,
+      true,
+    );
+    section(
+      body,
+      "Target",
+      (details && details.target_path) || scored.entry.command,
+      true,
+    );
+    section(
+      body,
+      "Signature / publisher",
+      details
+        ? details.signature +
+            " · " +
+            (details.publisher || "Publisher unavailable")
+        : "Collecting signature and publisher…",
+    );
+    section(
+      body,
+      "SHA-256 · resolved target",
+      (details && details.sha256_hex) ||
+        (details ? "Not available" : "Collecting…"),
+      true,
+    );
+    section(body, "Arguments / command line", scored.entry.command, true);
+    let times =
+      details && details.modified_unix_secs
+        ? "Target modified: " +
+          new Date(details.modified_unix_secs * 1000).toLocaleString()
+        : "Target timestamps not available";
+    times +=
+      "\nCollected in scan: " +
+      (lastScanAt ? lastScanAt.toLocaleString() : "Not recorded");
+    section(body, "Timestamps", times);
+    if (details && details.shortcut)
+      section(
+        body,
+        "Shortcut evidence",
+        JSON.stringify(details.shortcut, null, 2),
+        true,
+      );
+    if (details && details.task)
+      section(
+        body,
+        "Scheduled task evidence",
+        JSON.stringify(details.task, null, 2),
+        true,
+      );
+    section(
+      body,
+      "Coverage / collection limitations",
+      (coverageIncomplete(lastSummary) ? "Coverage incomplete. " : "") +
+        "Some collectors do not expose access coverage. Signature revocation is cache-only by default. A risk score is an investigation lead. " +
+        ((details && details.collection_error) || ""),
+    );
+    const actions = section(
+      body,
+      "Available actions",
+      fileBacked(scored)
+        ? "Quarantine moves the persistence file after confirmation."
+        : "Guidance only: investigate and back up this persistence source before manual changes.",
+    );
+    const row = makeText("div", "", "evidence-actions");
+    const copy = makeText("button", "Copy evidence", "copy-btn");
+    copy.addEventListener("click", () =>
+      copyEvidence(
+        evidenceText(scored) +
+          (details ? "\n" + JSON.stringify(details, null, 2) : ""),
+        copy,
+      ),
+    );
+    row.append(copy);
+    const reveal = makeText("button", "Open location", "copy-btn");
+    reveal.addEventListener("click", async () => {
+      try {
+        await invoke("reveal_location", { id: scored.entry.id });
+      } catch (err) {
+        footFeedback(cleanErrText(err, "Location unavailable"), true);
+      }
+    });
+    row.append(reveal);
+    row.append(actionButton(scored, done));
+    if (done) {
+      const q = makeText("button", "Open Quarantine / Undo", "btn");
+      q.addEventListener("click", () => {
+        closeEvidence();
+        navTo("view-quarantine");
+      });
+      row.append(q);
+    }
+    actions.append(row);
+    // Signature state belongs to every visible row for this finding; never inferred from risk reasons.
+    if (details)
+      document.querySelectorAll("[data-id]").forEach((row) => {
+        if (row.dataset.id === scored.entry.id) {
+          const sig = row.querySelector(".finding-signature");
+          if (sig) sig.textContent = "Signature: " + details.signature;
+        }
+      });
+  }
+  async function openEvidence(scored, invoker) {
+    evidenceSelected = scored;
+    evidenceInvoker = invoker;
+    const generation = ++evidenceGeneration;
+    document.getElementById("evidence-title").textContent = scored.entry.name;
+    document.getElementById("evidence-subtitle").textContent =
+      SOURCE_LABELS[scored.entry.source] || scored.entry.source;
+    document.getElementById("evidence-overlay").classList.remove("hidden");
+    document.getElementById("app").inert = true;
+    renderEvidence(scored, evidenceCache.get(scored.entry.id));
+    document.getElementById("evidence-close").focus();
+    if (evidenceCache.has(scored.entry.id)) return;
+    let details;
+    try {
+      details = await invoke("entry_details", { id: scored.entry.id });
+      evidenceCache.set(scored.entry.id, details);
+    } catch (err) {
+      details = {
+        signature: "Unavailable",
+        collection_error: cleanErrText(
+          err,
+          "Evidence enrichment unavailable. Rescan to refresh.",
+        ),
+      };
+    }
+    if (generation === evidenceGeneration && evidenceSelected === scored)
+      renderEvidence(scored, details);
+  }
+  function closeEvidence() {
+    evidenceGeneration++;
+    evidenceSelected = null;
+    document.getElementById("evidence-overlay").classList.add("hidden");
+    document.getElementById("app").inert = false;
+    if (evidenceInvoker && evidenceInvoker.isConnected) evidenceInvoker.focus();
+    if (canaryQueued) showCanaryAlert();
+  }
+  document
+    .getElementById("evidence-close")
+    .addEventListener("click", closeEvidence);
+  document
+    .getElementById("evidence-overlay")
+    .addEventListener("mousedown", (ev) => {
+      if (ev.target.id === "evidence-overlay") closeEvidence();
+    });
+  document.addEventListener("keydown", (ev) => {
+    if (!evidenceSelected || confirmOpen) return;
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      closeEvidence();
+    }
+    if (ev.key === "Tab") {
+      const buttons = [
+        ...document.querySelectorAll(
+          "#evidence-inspector button:not(:disabled)",
+        ),
+      ];
+      const first = buttons[0],
+        last = buttons[buttons.length - 1];
+      if (ev.shiftKey && document.activeElement === first) {
+        ev.preventDefault();
+        last.focus();
+      } else if (!ev.shiftKey && document.activeElement === last) {
+        ev.preventDefault();
+        first.focus();
+      }
+    }
+  });
 
   function fillCards(container, entries, cleaned, baseDelayMs) {
     container.innerHTML = "";
@@ -1681,7 +712,13 @@
     cov.innerHTML = "";
     const states = (summary && summary.source_states) || [];
     if (!states.length) {
-      cov.append(covRow("Coverage", "per-source states not reported for this scan", "idle"));
+      cov.append(
+        covRow(
+          "Coverage",
+          "per-source states not reported for this scan",
+          "idle",
+        ),
+      );
       return;
     }
     const levelOf = (st) => {
@@ -1690,10 +727,12 @@
       // {"Partial": {"skipped": N}}; the dev mock uses "Available".
       if (st === "Available" || st === "Checked") return "ok";
       if (st === "Unavailable" || st === "NotChecked") return "idle";
-      if (st === "CheckFailed" || st === "AccessDenied") return "bad";
+      if (st === "CheckFailed") return "bad";
+      if (st === "AccessDenied") return "warn";
       if (st && typeof st === "object") {
         if ("Partial" in st) return "warn";
-        if ("CheckFailed" in st || "AccessDenied" in st) return "bad";
+        if ("CheckFailed" in st) return "bad";
+        if ("AccessDenied" in st) return "warn";
         if ("Unavailable" in st || "NotChecked" in st) return "idle";
         if ("Available" in st || "Checked" in st) return "ok";
       }
@@ -1702,12 +741,21 @@
     for (const row of states) {
       const st = row.state;
       const info = sourceStatusInfo(st);
-      cov.append(covRow(row.area || "source", info.label + (info.detail && info.detail !== "fully enumerated" ? " — " + info.detail : "") + (row.detail ? " · " + row.detail : ""), levelOf(st)));
+      cov.append(
+        covRow(
+          row.area || "source",
+          info.label +
+            (info.detail && info.detail !== "fully enumerated"
+              ? " — " + info.detail
+              : "") +
+            (row.detail ? " · " + row.detail : ""),
+          levelOf(st),
+        ),
+      );
     }
   }
 
   function renderResults(summary) {
-    const badge = document.getElementById("badge");
     const headline = document.getElementById("headline");
     const reviewBlock = document.getElementById("review-block");
     const cleanedBlock = document.getElementById("cleaned-block");
@@ -1719,21 +767,27 @@
     const ransomCount = (summary.ransom_findings || []).length;
     const trouble = cleanedCount + reviewCount + procCount + ransomCount;
 
-    badge.className = "rakshak-sm reveal";
-    const dot = document.getElementById("badge-dot");
-    if (dot) {
-      dot.setAttribute("class", "badge-dot " + (trouble ? "warn" : "clean"));
-    }
-
     const subline = document.getElementById("subline");
     const scope = scopeLine(summary);
-    if (reviewCount > 0) {
-      headline.textContent = findingsHeadline(reviewCount);
+    if (trouble > 0) {
+      headline.textContent = "Review required";
       subline.textContent = scope;
     } else {
-      headline.textContent = "No findings detected in this scan";
+      headline.textContent = coverageIncomplete(summary)
+        ? "Coverage incomplete"
+        : "No findings in collected evidence";
       subline.textContent = scope;
     }
+    document
+      .getElementById("companion-result")
+      .classList.toggle("hidden", trouble > 0);
+    window.CureCompanion.result(
+      coverageIncomplete(summary) ? "review" : "success",
+      coverageIncomplete(summary) ? "Coverage incomplete" : "Collection ended",
+      coverageIncomplete(summary)
+        ? "Review the collection limitations below."
+        : "No findings in collected evidence.",
+    );
     renderResultsCoverage(summary);
 
     countUp(document.getElementById("stat-cleaned"), sessionQuarantined);
@@ -1744,16 +798,19 @@
       document.getElementById("review-cards"),
       summary.suspicious_for_review,
       false,
-      290
+      290,
     );
     fillCards(
       document.getElementById("cleaned-cards"),
       summary.high_risk_cleaned,
       true,
-      250
+      250,
     );
 
     reviewClear.classList.toggle("hidden", reviewCount > 0);
+    reviewClear.querySelector("span").textContent = coverageIncomplete(summary)
+      ? "No persistence findings in collected evidence. Coverage is incomplete; review the collection limits below."
+      : "No persistence findings in collected evidence. Review the reported coverage below.";
     reviewBlock.classList.toggle("hidden", false);
 
     const showCleanedPanel = cleanedCount > 0;
@@ -1770,21 +827,28 @@
       const procCards = document.getElementById("process-cards");
       if (procCards) {
         procCards.innerHTML = "";
-        procFindings.forEach(function(p) {
+        procFindings.forEach(function (p) {
           const card = document.createElement("li");
-          card.className = "review-card proc-entry risk-" + scoreChipClass(p.score);
+          card.className =
+            "review-card proc-entry risk-" + scoreChipClass(p.score);
           card.dataset.name = p.name;
           card.dataset.pid = String(p.pid);
           card.dataset.exe = p.exe_path || "";
           const box = document.createElement("input");
           box.type = "checkbox";
-          box.setAttribute("aria-label", "Select " + p.name + " (pid " + p.pid + ") for termination");
-          box.addEventListener("change", function() {
+          box.setAttribute(
+            "aria-label",
+            "Select " + p.name + " (pid " + p.pid + ") for termination",
+          );
+          box.addEventListener("change", function () {
             if (box.checked) sweepState.checked.add(p.pid);
             else sweepState.checked.delete(p.pid);
             updateKillButton();
             const killStatusEl = document.getElementById("kill-procs-status");
-            if (killStatusEl) { killStatusEl.textContent = ""; killStatusEl.classList.add("hidden"); }
+            if (killStatusEl) {
+              killStatusEl.textContent = "";
+              killStatusEl.classList.add("hidden");
+            }
             card.classList.toggle("proc-selected", box.checked);
           });
           const main = document.createElement("div");
@@ -1830,7 +894,10 @@
       }
       updateKillButton();
       var killStatus = document.getElementById("kill-procs-status");
-      if (killStatus) { killStatus.textContent = ""; killStatus.classList.add("hidden"); }
+      if (killStatus) {
+        killStatus.textContent = "";
+        killStatus.classList.add("hidden");
+      }
       processBlock.classList.toggle("hidden", procFindings.length === 0);
     }
 
@@ -1842,16 +909,24 @@
       if (ransomCards) {
         ransomCards.innerHTML = "";
         let hasFamily = false;
-        ransomFindings.forEach(function(r) {
+        ransomFindings.forEach(function (r) {
           const card = document.createElement("div");
           card.className = "entry-card";
           let html =
             '<div class="card-header"><span class="card-name">' +
-            escHtml(r.finding_type === "ransom-note" ? "Ransom note" : "Bulk encryption detected") +
-            '</span></div><div class="card-detail">' + escHtml(r.detail) + "</div>";
+            escHtml(
+              r.finding_type === "ransom-note"
+                ? "Ransom note"
+                : "Bulk encryption detected",
+            ) +
+            '</span></div><div class="card-detail">' +
+            escHtml(r.detail) +
+            "</div>";
           if (r.suspected_family) {
-            html += '<div class="card-detail" style="color:#c9a0ff">Suspected family: ' +
-              escHtml(r.suspected_family) + "</div>";
+            html +=
+              '<div class="card-detail" style="color:#c9a0ff">Suspected family: ' +
+              escHtml(r.suspected_family) +
+              "</div>";
             hasFamily = true;
           }
           card.innerHTML = html;
@@ -1865,55 +940,61 @@
     }
 
     if (trouble === 0) {
-      setPill("clean", "Scan complete — no findings");
+      setPill(
+        coverageIncomplete(summary) ? "warn" : "idle",
+        coverageIncomplete(summary)
+          ? "Coverage incomplete"
+          : "No findings in collected evidence",
+      );
     } else {
       const hasHighRiskInReview = summary.suspicious_for_review.some(
-        (s) => s.risk === "HighRisk"
+        (s) => s.risk === "HighRisk",
       );
       setPill(
         hasHighRiskInReview ? "danger" : "warn",
-        "Scan complete — review needed"
+        coverageIncomplete(summary)
+          ? "Review required · Coverage incomplete"
+          : "Review required",
       );
     }
 
-    // Rakshak's status line under the scan-map header
-    const rkStatus = document.getElementById("rakshak-status");
-    if (rkStatus) {
-      rkStatus.innerHTML = '<span class="rk-name">Rakshak</span> checked ' +
-        summary.total + " node" + (summary.total === 1 ? "" : "s");
-    }
-
-    const revealables = resultsView.querySelectorAll(".reveal");
-    if (!REDUCED && revealables.length > 0) {
-      void resultsView.offsetWidth;
-    }
-    netmap.show(summary.total);
     syncCanaryStatus();
     enablePostScanNav();
     renderOverview(summary);
     renderAudit(summary);
     renderProcesses(summary);
-    if (!resultsView.classList.contains("hidden")) focusViewHeading(resultsView);
+    if (!resultsView.classList.contains("hidden"))
+      focusViewHeading(resultsView);
   }
 
+  // A newer navigation always wins: a queued view change from an earlier
+  // click must never reveal a view the operator has already left.
+  let viewToken = 0;
+
   function switchView(fromEl, toEl) {
+    const token = ++viewToken;
     return new Promise((resolve) => {
-      if (REDUCED) {
+      if (REDUCED || fromEl === toEl) {
         fromEl.classList.add("hidden");
-        toEl.classList.remove("hidden");
+        toEl.classList.remove("hidden", "exiting", "pre-enter");
         resolve();
         return;
       }
       fromEl.classList.add("exiting");
       setTimeout(() => {
+        if (token !== viewToken) {
+          fromEl.classList.remove("exiting");
+          resolve();
+          return;
+        }
         fromEl.classList.add("hidden");
         fromEl.classList.remove("exiting");
         toEl.classList.remove("hidden");
         toEl.classList.add("pre-enter");
         void toEl.offsetWidth;
         toEl.classList.remove("pre-enter");
-        setTimeout(resolve, 330);
-      }, 290);
+        setTimeout(resolve, 180);
+      }, 180);
     });
   }
 
@@ -1927,16 +1008,16 @@
 
   const VIEW_TITLES = {
     "view-overview": "Overview",
-    "scan-center": "Scan Center",
-    "scan-view": "Scan Center",
-    "landing-view": "Scan Center",
-    "results-view": "Scan Results",
-    "view-audit": "Startup Audit",
-    "view-processes": "Process Sentinel",
+    "scan-center": "Rescue",
+    "scan-view": "Rescue",
+    "landing-view": "Rescue",
+    "results-view": "Investigate",
+    "view-audit": "Investigate / Persistence",
+    "view-processes": "Investigate / Processes",
     "view-quarantine": "Quarantine",
     "cleanup-view": "Disk Cleanup",
-    "view-eventlog": "Event Log",
-    "view-canary": "Canary Guard",
+    "view-eventlog": "Monitor",
+    "view-canary": "Monitor / Canary",
     "view-incident": "Incident Investigation",
   };
 
@@ -1946,14 +1027,24 @@
       const target = item.getAttribute("data-view");
       const active =
         target === viewId ||
-        (target === "scan-center" && (viewId === "scan-view" || viewId === "landing-view"));
+        (target === "results-view" &&
+          ["view-audit", "view-processes", "view-incident"].includes(viewId)) ||
+        (target === "view-eventlog" && viewId === "view-canary") ||
+        (target === "scan-center" &&
+          (viewId === "scan-view" || viewId === "landing-view"));
       item.setAttribute("aria-current", active ? "true" : "false");
     });
+    document
+      .querySelectorAll(".tool-nav [data-route]")
+      .forEach((btn) =>
+        btn.setAttribute("aria-current", String(btn.dataset.route === viewId)),
+      );
     const title = document.getElementById("view-title");
     if (title) title.textContent = VIEW_TITLES[viewId] || "C.U.R.E";
   }
 
   function showViewInstant(el) {
+    viewToken++;
     const views = document.querySelectorAll(".stage > .view");
     views.forEach((v) => {
       if (v === el) v.classList.remove("hidden", "exiting", "pre-enter");
@@ -1971,15 +1062,25 @@
     const h = viewEl.querySelector(".headline");
     if (!h) return;
     if (!h.hasAttribute("tabindex")) h.setAttribute("tabindex", "-1");
-    try { h.focus({ preventScroll: true }); } catch (_) { h.focus(); }
+    try {
+      h.focus({ preventScroll: true });
+    } catch (_) {
+      h.focus();
+    }
   }
 
   // Sidebar navigation. Cleanup entry/exit reuse the existing open/close
   // paths so pill save/restore and the armed-button state stay consistent.
   async function navTo(viewId) {
     if (viewId === "scan-center") {
-      if (cleanupState.open) closeCleanup(scanPhase === "running" ? scanView : landingView);
-      else showViewInstant(scanPhase === "running" ? scanView : landingView);
+      if (cleanupState.open)
+        closeCleanup(
+          ["running", "preparing"].includes(scanPhase) ? scanView : landingView,
+        );
+      else
+        showViewInstant(
+          ["running", "preparing"].includes(scanPhase) ? scanView : landingView,
+        );
       return;
     }
     if (viewId === "cleanup-view") {
@@ -1991,9 +1092,18 @@
     if (!el) return;
     if (cleanupState.open) closeCleanup(el);
     else showViewInstant(el);
+    if (viewId === "view-overview" && lastSummary) renderOverview(lastSummary);
     if (viewId === "view-quarantine") refreshQuarantine();
     if (viewId === "view-eventlog") renderEventLog();
-    if (viewId === "view-canary") { renderCanaryView(); syncCanaryStatus(); }
+    document
+      .querySelectorAll("[data-route]")
+      .forEach((btn) =>
+        btn.setAttribute("aria-current", String(btn.dataset.route === viewId)),
+      );
+    if (viewId === "view-canary") {
+      renderCanaryView();
+      syncCanaryStatus();
+    }
   }
 
   function enablePostScanNav() {
@@ -2004,12 +1114,13 @@
   }
 
   async function runScan(preLines = []) {
+    if (scanPhase === "running") return;
+    document.getElementById("scan-retry").classList.add("hidden");
+    evidenceCache.clear();
     const token = ++scanToken;
     scanPhase = "running";
     scanStartedAt = performance.now();
-    resultsView.classList.add("hidden");
-    netmap.hide();
-    scanView.classList.remove("hidden", "exiting", "pre-enter");
+    showViewInstant(scanView);
     setNav("scan-view");
     logList.innerHTML = "";
     itemFeedCount = 0;
@@ -2018,34 +1129,55 @@
     const elapsedEl = document.getElementById("scan-elapsed");
     if (elapsedEl) elapsedEl.textContent = "elapsed 0.0s";
     const elapsedTimer = setInterval(() => {
-      if (token !== scanToken) { clearInterval(elapsedTimer); return; }
-      if (elapsedEl) elapsedEl.textContent = "elapsed " + ((performance.now() - scanStartedAt) / 1000).toFixed(1) + "s";
+      if (token !== scanToken) {
+        clearInterval(elapsedTimer);
+        return;
+      }
+      if (elapsedEl)
+        elapsedEl.textContent =
+          "elapsed " +
+          ((performance.now() - scanStartedAt) / 1000).toFixed(1) +
+          "s";
     }, 500);
-    for (const line of preLines) {
+    for (const line of Array.isArray(preLines) ? preLines : []) {
       appendLog("overlay", line);
     }
-    setPill("scanning", "sweeping persistence locations…");
-    radar.start();
+    setPill("scanning", "Collecting evidence");
+    window.CureSweep.start();
     try {
       const summary = await invoke("run_auto_scan");
       if (token !== scanToken) return;
       scanDurationMs = Math.round(performance.now() - scanStartedAt);
       clearInterval(elapsedTimer);
-      if (elapsedEl) elapsedEl.textContent = "finished in " + fmtDuration(scanDurationMs) + " · " + summary.total + " entries checked";
+      if (elapsedEl)
+        elapsedEl.textContent =
+          "finished in " +
+          fmtDuration(scanDurationMs) +
+          " · " +
+          summary.total +
+          " entries checked";
       lastSummary = summary;
       lastScanAt = new Date();
       scanPhase = "done";
       renderSessionMeta(summary);
-      logEvent("info", "scan finished: " + summary.total + " checks in " + fmtDuration(scanDurationMs));
+      logEvent(
+        "info",
+        "scan finished: " +
+          summary.total +
+          " checks in " +
+          fmtDuration(scanDurationMs),
+      );
       appendLog("done", summary.total + " entries processed — scan finished");
-      radar.stop();
+      window.CureSweep.finish(summary);
+      renderResults(summary);
       await switchView(currentView(), resultsView);
       setNav("results-view");
       if (token !== scanToken) return;
-      renderResults(summary);
+      focusViewHeading(resultsView);
     } catch (err) {
       clearInterval(elapsedTimer);
-      radar.stop();
+      window.CureSweep.fail();
+      document.getElementById("scan-retry").classList.remove("hidden");
       scanPhase = "idle";
       setPill("error", String(err));
       appendLog("error", String(err));
@@ -2055,20 +1187,44 @@
 
   listen("scan-progress", (event) => {
     const payload = event.payload;
+    window.CureSweep.progress(payload);
+    if (payload.stage === "source-state") {
+      const info = sourceStatusInfo(payload.state);
+      appendLog(
+        "coverage",
+        payload.area + " · " + info.label + " · " + payload.detail,
+      );
+      return;
+    }
     if (payload.stage === "item-scanned") {
       appendItemLine(payload);
-      radar.addNode(payload.risk, payload.name);
       return;
     }
     if (payload.stage === "process-flagged") {
       appendProcessLine(payload);
-      radar.addNode(payload.risk, payload.name);
-      logEvent("info", "process flagged: " + payload.name + " (pid " + payload.pid + ", " + payload.risk + " " + payload.score + ")");
+      logEvent(
+        "info",
+        "process flagged: " +
+          payload.name +
+          " (pid " +
+          payload.pid +
+          ", " +
+          payload.risk +
+          " " +
+          payload.score +
+          ")",
+      );
       return;
     }
     if (payload.stage === "ransom-found") {
       appendRansomLine(payload);
-      logEvent("canary", "ransom indicator: " + (payload.finding_type || "unknown") + " — " + (payload.detail || payload.path || ""));
+      logEvent(
+        "canary",
+        "ransom indicator: " +
+          (payload.finding_type || "unknown") +
+          " — " +
+          (payload.detail || payload.path || ""),
+      );
       return;
     }
     setPill("scanning", payload.message);
@@ -2082,7 +1238,9 @@
   });
 
   document.getElementById("rescan-btn").addEventListener("click", runScan);
-  document.getElementById("action-receipt-x").addEventListener("click", hideReceipt);
+  document
+    .getElementById("action-receipt-x")
+    .addEventListener("click", hideReceipt);
 
   const footMsg = document.getElementById("footbar-msg");
   let footTimer = null;
@@ -2097,7 +1255,9 @@
   }
 
   function cleanErrText(err, fallback) {
-    const s = String(err == null ? "" : err).replace(/^Error:\s*/i, "").trim();
+    const s = String(err == null ? "" : err)
+      .replace(/^Error:\s*/i, "")
+      .trim();
     return s || fallback;
   }
 
@@ -2128,19 +1288,35 @@
       dd.textContent = value;
       facts.append(dt, dd);
     }
+    document
+      .querySelectorAll("#confirm-overlay .confirm-section")
+      .forEach((n) => n.remove());
+    for (const [label, text] of opts.sections || []) {
+      const box = makeText("section", "", "confirm-section");
+      box.append(makeText("h3", label), makeText("p", text));
+      note.before(box);
+    }
     note.textContent = opts.note || "";
     note.classList.toggle("hidden", !opts.note);
     okBtn.textContent = opts.okLabel || "Confirm";
     confirmOpen = true;
     overlay.classList.remove("hidden");
+    const inertTargets = [
+      document.getElementById("app"),
+      document.getElementById("evidence-inspector"),
+    ];
+    const priorInert = inertTargets.map((n) => n.inert);
+    inertTargets.forEach((n) => (n.inert = true));
     return new Promise((resolve) => {
       const done = (value) => {
         confirmOpen = false;
         overlay.classList.add("hidden");
+        inertTargets.forEach((n, i) => (n.inert = priorInert[i]));
         overlay.removeEventListener("mousedown", onBackdrop);
         document.removeEventListener("keydown", onKey, true);
         if (invoker && invoker.focus) invoker.focus();
         resolve(value);
+        if (canaryQueued) showCanaryAlert();
       };
       const onBackdrop = (ev) => {
         if (ev.target === overlay) done(false);
@@ -2172,7 +1348,7 @@
       } catch (err) {
         footFeedback(
           cleanErrText(err, "Could not open quarantine folder"),
-          true
+          true,
         );
       }
     });
@@ -2196,8 +1372,6 @@
 
   // ---- canary guard (ransomware decoy monitor) ----------------------------
 
-  const canaryToggle = document.getElementById("canary-toggle");
-  const canaryToggleText = canaryToggle ? canaryToggle.querySelector(".canary-toggle-text") : null;
   let canaryActive = false;
 
   async function syncCanaryStatus() {
@@ -2205,21 +1379,35 @@
       const st = await invoke("canary_status");
       canaryActive = !!st.active;
       updateCanaryUI();
-    } catch (_) { /* ignore */ }
+    } catch (err) {
+      const badge = document.getElementById("can-state");
+      if (badge) {
+        badge.textContent = "Unavailable";
+        badge.className = "severity-badge sev-warn";
+      }
+      footFeedback(
+        cleanErrText(
+          err,
+          "Canary status unavailable. Reopen Monitor to retry.",
+        ),
+        true,
+      );
+    }
   }
 
   function updateCanaryUI() {
-    if (canaryToggle) {
-      canaryToggle.setAttribute("aria-pressed", String(canaryActive));
-      canaryToggle.classList.toggle("on", canaryActive);
+    const toggle = document.getElementById("can-toggle");
+    if (toggle) {
+      toggle.setAttribute("aria-pressed", String(canaryActive));
+      toggle.classList.toggle("on", canaryActive);
+      toggle.textContent = canaryActive ? "Disable guard" : "Enable guard";
     }
-    if (canaryToggleText) canaryToggleText.textContent = canaryActive ? "ON" : "OFF";
-    const second = document.getElementById("can-toggle");
-    if (second) second.textContent = canaryActive ? "Disable guard" : "Enable guard";
     const badge = document.getElementById("can-state");
     if (badge) {
       if (canaryTriggered) {
-        badge.textContent = "TRIGGERED";
+        badge.textContent = canaryActive
+          ? "ACTIVE · ALERT RECORDED"
+          : "OFF · ALERT RECORDED";
         badge.className = "severity-badge sev-bad";
       } else if (canaryActive) {
         badge.textContent = "ACTIVE";
@@ -2250,10 +1438,6 @@
     updateCanaryUI();
   }
 
-  if (canaryToggle) {
-    canaryToggle.addEventListener("click", toggleCanary);
-  }
-
   // Listen for canary-alert events from backend
   const canaryOverlay = document.getElementById("canary-alert-overlay");
   const canaryDetail = document.getElementById("canary-alert-detail");
@@ -2263,6 +1447,7 @@
   // moves to Dismiss on open and returns to the invoker on close, and
   // Tab is kept on the dialog's single action while open.
   let canaryInvoker = null;
+  let canaryQueued = false;
   function canaryKeyTrap(ev) {
     if (ev.key === "Escape") {
       ev.stopPropagation();
@@ -2274,14 +1459,27 @@
   }
   function showCanaryAlert() {
     if (!canaryOverlay || !canaryOverlay.classList.contains("hidden")) return;
+    if (
+      confirmOpen ||
+      evidenceSelected ||
+      !document
+        .getElementById("inc-drawer-overlay")
+        .classList.contains("hidden")
+    ) {
+      canaryQueued = true;
+      return;
+    }
+    canaryQueued = false;
     canaryInvoker = document.activeElement;
     canaryOverlay.classList.remove("hidden");
+    document.getElementById("app").inert = true;
     document.addEventListener("keydown", canaryKeyTrap, true);
     if (canaryDismissBtn) canaryDismissBtn.focus();
   }
   function hideCanaryAlert() {
     if (!canaryOverlay) return;
     canaryOverlay.classList.add("hidden");
+    document.getElementById("app").inert = false;
     document.removeEventListener("keydown", canaryKeyTrap, true);
     if (canaryInvoker && canaryInvoker.focus) canaryInvoker.focus();
     canaryInvoker = null;
@@ -2292,14 +1490,17 @@
   }
 
   TAU.event.listen("canary-alert", (ev) => {
-    const payload = typeof ev.payload === "string" ? JSON.parse(ev.payload) : ev.payload;
+    const payload =
+      typeof ev.payload === "string" ? JSON.parse(ev.payload) : ev.payload;
     const kind = payload.kind || "unknown";
     const folder = payload.folder || "";
     const file = payload.file || "";
     const action = payload.action || "";
     const text =
-      kind.replace(/-/g, " ").toUpperCase() + " — " +
-      (folder ? folder + " " : "") + file +
+      kind.replace(/-/g, " ").toUpperCase() +
+      " — " +
+      (folder ? folder + " " : "") +
+      file +
       (action ? " (" + action + ")" : "");
     canaryTriggered = true;
     canarySessionAlerts.push({ at: new Date(), text });
@@ -2323,7 +1524,6 @@
   }
 
   const cleanupEls = {
-    openBtn: document.getElementById("open-cleanup"),
     backBtn: document.getElementById("cleanup-back"),
     statusLine: document.getElementById("cleanup-status-line"),
     statusText: document.getElementById("cleanup-status-text"),
@@ -2340,50 +1540,25 @@
     btnLabel: document.getElementById("cleanup-btn-label"),
     status: document.getElementById("cleanup-status"),
     failures: document.getElementById("cleanup-failures"),
-    stage: document.getElementById("toss-stage"),
-    liveCounter: document.getElementById("cleanup-live-counter"),
-    progWrap: document.getElementById("cleanup-progress-wrap"),
-    progBar: document.getElementById("cleanup-progress-bar"),
-    progPct: document.getElementById("cleanup-progress-pct"),
+    stage: document.getElementById("cleanup-operation"),
+    queue: document.getElementById("cleanup-queue"),
     panel: document.getElementById("cleanup-panel"),
   };
   function setCleanupBtnLabel(t) {
     if (cleanupEls.btnLabel) cleanupEls.btnLabel.textContent = t;
     else cleanupEls.btn.textContent = t;
   }
-  const CLEANUP_ICONS = {
-    temp: "🧹",
-    browser_cache: "🌐",
-    recycle_bin: "♻️",
-    windows_old: "🗂️",
-  };
-  function cleanupConfettiBurst() {
-    if (REDUCED || !cleanupEls.panel) return;
-    const host = cleanupEls.panel;
-    const prev = host.style.position;
-    if (!prev || prev === "static") host.style.position = "relative";
-    const colors = ["#7c6cf0", "#9be7f4", "#43b581", "#e8c476", "#e9ebf4"];
-    const r = host.getBoundingClientRect();
-    for (let i = 0; i < 22; i++) {
-      const s = document.createElement("span");
-      s.className = "cleanup-confetti";
-      s.style.left = (12 + Math.random() * 76) + "%";
-      s.style.top = "18%";
-      s.style.background = colors[i % colors.length];
-      s.style.animationDelay = (Math.random() * 0.25) + "s";
-      host.appendChild(s);
-      setTimeout(() => s.remove(), 1600);
-    }
-  }
-
   const cleanupState = {
     summary: null,
     selectedCats: new Set(),
     checkedDownloads: new Set(),
     running: false,
     open: false,
+    outcome: null,
     savedPill: null,
   };
+  /* Real session facts only. Overview never triggers a disk measurement. */
+  const sessionCleanup = { measured: false, last: null, freed: 0 };
 
   const sweepState = {
     findings: [],
@@ -2396,227 +1571,86 @@
     if (!btn) return;
     const enabled = sweepState.checked.size > 0 && !sweepState.running;
     btn.disabled = !enabled;
-    btn.textContent = "Kill selected (" + sweepState.checked.size + ")";
+    btn.textContent = "Terminate selected (" + sweepState.checked.size + ")";
   }
 
   function setCleanupPill(state, text) {
     cleanupEls.statusLine.className = "pill " + state;
     cleanupEls.statusText.textContent = text;
-  }
-
-  // ---- mascot toss animation (SVG, cleanup view) ---------------------------
-
-  const toss = {
-    raf: null,
-    start: 0,
-    expected: 0,
-    active: false,
-    settling: false,
-    svg: null,
-    orbG: null,
-    orb: null,
-    glyphs: null,
-    lid: null,
-    trailG: null,
-    trail: [],
-    flash: null,
-  };
-  const TOSS_CYCLE_MS = 520;
-  const GLYPH_BASE = [
-    [6, 30],
-    [27, 30],
-    [48, 30],
-  ];
-  const ORB_REST = [24, 16];
-  const TRASH_MOUTH = [124, 22];
-
-  function tossInit() {
-    if (toss.svg) return;
-    toss.svg = cleanupEls.stage.querySelector("svg");
-    toss.orbG = document.getElementById("mascot-g");
-    toss.orb = document.getElementById("mascot-orb");
-    toss.glyphs = Array.from(document.querySelectorAll("#file-glyphs .file-glyph"));
-    toss.lid = document.getElementById("trash-lid");
-    toss.trailG = document.getElementById("trail-g");
-    toss.orb.setAttribute("cx", "0");
-    toss.orb.setAttribute("cy", "0");
-    toss.orbG.setAttribute("transform", "translate(" + ORB_REST[0] + " " + ORB_REST[1] + ")");
-    const NS = "http://www.w3.org/2000/svg";
-    for (let i = 0; i < 3; i++) {
-      const c = document.createElementNS(NS, "circle");
-      c.setAttribute("r", "3");
-      c.setAttribute("fill", "rgba(124,108,240,0.3)");
-      c.setAttribute("opacity", "0");
-      toss.trailG.appendChild(c);
-    }
-    toss.flash = document.createElementNS(NS, "circle");
-    toss.flash.setAttribute("r", "0");
-    toss.flash.setAttribute("fill", "none");
-    toss.flash.setAttribute("stroke", "rgba(124,108,240,0.8)");
-    toss.flash.setAttribute("stroke-width", "1.6");
-    toss.flash.setAttribute("opacity", "0");
-    toss.svg.appendChild(toss.flash);
-  }
-
-  function tossSetOrb(x, y, sx, sy) {
-    toss.orbG.setAttribute(
-      "transform",
-      "translate(" + x + " " + y + ") scale(" + sx + " " + sy + ")"
+    const pose =
+      state === "error" || state === "warn"
+        ? "review"
+        : cleanupPhase === "done-ok"
+          ? "success"
+          : state === "scanning"
+            ? "scan"
+            : "idle";
+    window.CureCompanion.cleanup(
+      pose,
+      pose === "success"
+        ? "Cleanup ended"
+        : pose === "review"
+          ? "Review cleanup result"
+          : pose === "scan"
+            ? "Measuring candidates"
+            : cleanupPhase === "ready"
+              ? "Selection ready"
+              : "Ready to measure",
+      text,
     );
   }
 
-  function tossGlyphTransform(i, x, y, s, opacity) {
-    const g = toss.glyphs[i];
-    g.setAttribute("transform", "translate(" + x + " " + y + ") scale(" + s + ")");
-    g.setAttribute("opacity", String(opacity));
-  }
-
-  function easeInOut(t) {
-    return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-  }
-
-  function tossFrame(now) {
-    if (!toss.active) return;
-    const elapsed = now - toss.start;
-    const cycleT = (elapsed % TOSS_CYCLE_MS) / TOSS_CYCLE_MS;
-    const gi = Math.floor(elapsed / TOSS_CYCLE_MS) % toss.glyphs.length;
-    const [gx, gy] = GLYPH_BASE[gi];
-
-    let ox = ORB_REST[0];
-    let oy = ORB_REST[1];
-    let sx = 1;
-    let sy = 1;
-
-    if (cycleT < 0.32) {
-      const t = easeInOut(cycleT / 0.32);
-      ox = ORB_REST[0] + (gx + 6 - ORB_REST[0]) * t;
-      oy = ORB_REST[1] + (gy + 7 - ORB_REST[1]) * t;
-      const stretch = 1 + 0.22 * Math.sin(t * Math.PI);
-      sx = stretch;
-      sy = 1 / stretch;
-      tossGlyphTransform(gi, gx, gy, 1, 1);
-    } else if (cycleT < 0.4) {
-      const t = (cycleT - 0.32) / 0.08;
-      ox = gx + 6;
-      oy = gy + 7;
-      sx = 1 + 0.35 * Math.sin(t * Math.PI);
-      sy = 1 - 0.28 * Math.sin(t * Math.PI);
-      tossGlyphTransform(gi, gx, gy, 1 - 0.2 * t, 1 - 0.6 * t);
-    } else if (cycleT < 0.78) {
-      const t = easeInOut((cycleT - 0.4) / 0.38);
-      const tx = TRASH_MOUTH[0];
-      const ty = TRASH_MOUTH[1];
-      const cxp = (gx + 6 + tx) / 2;
-      const cyp = Math.min(gy, ty) - 26;
-      const gx2 = (1 - t) * (gx + 6) + 2 * (1 - t) * t * cxp + t * t * tx;
-      const gy2 = (1 - t) * (gy + 7) + 2 * (1 - t) * t * cyp + t * t * ty;
-      const ot = Math.max(0, t - 0.06);
-      ox = (1 - ot) * (gx + 6) + 2 * (1 - ot) * ot * cxp + ot * ot * tx;
-      oy = (1 - ot) * (gy + 7) + 2 * (1 - ot) * ot * (cyp + 6) + ot * ot * (ty + 3);
-      const stretch = 1 + 0.2 * Math.sin(t * Math.PI);
-      sx = stretch;
-      sy = 1 / stretch;
-      tossGlyphTransform(gi, gx2, gy2, 1 - 0.35 * t, 1 - 0.6 * t);
-    } else {
-      const t = (cycleT - 0.78) / 0.22;
-      ox = TRASH_MOUTH[0] + (ORB_REST[0] - TRASH_MOUTH[0]) * easeInOut(t);
-      oy = TRASH_MOUTH[1] + (ORB_REST[1] - TRASH_MOUTH[1]) * easeInOut(t);
-      const pop = Math.sin(Math.min(t * 2.2, 1) * Math.PI);
-      toss.lid.setAttribute("transform", "rotate(" + -34 * pop + " -9 -9) translate(0 " + -3 * pop + ")");
-      toss.flash.setAttribute("r", String(2 + pop * 9));
-      toss.flash.setAttribute("opacity", String((1 - t) * 0.8));
-      toss.flash.setAttribute("cx", String(TRASH_MOUTH[0]));
-      toss.flash.setAttribute("cy", String(TRASH_MOUTH[1]));
-      tossGlyphTransform(gi, gx, gy, 0.4, 0);
-    }
-
-    tossSetOrb(ox, oy, sx, sy);
-
-    const trailEls = toss.trailG.children;
-    for (let i = trailEls.length - 1; i >= 0; i--) {
-      const src = trailEls[i];
-      const behind = trailEls.length - i;
-      src.setAttribute("cx", String(ox - behind * 4));
-      src.setAttribute("cy", String(oy + behind * 1.2));
-      src.setAttribute("opacity", String(0.3 - behind * 0.08));
-    }
-
-    const ramp = Math.min(elapsed / 1400, 1);
-    cleanupEls.liveCounter.textContent =
-      "+" + fmtBytes(Math.round(toss.expected * ramp));
-    if (cleanupEls.progBar) {
-      const pct = Math.round(ramp * 92 + (cycleT * 8));
-      const clamped = Math.min(99, pct);
-      cleanupEls.progBar.style.width = clamped + "%";
-      if (cleanupEls.progPct) cleanupEls.progPct.textContent = clamped + "%";
-    }
-
-    toss.raf = requestAnimationFrame(tossFrame);
-  }
-
-  function startToss(expectedBytes) {
-    window.__cureTossSeen = true;
-    tossInit();
+  // Cleanup has no progress API: show an honest busy state, never estimated bytes.
+  function startCleanupOperation() {
     cleanupEls.stage.classList.remove("hidden");
-    cleanupEls.stage.classList.add("toss-active");
-    if (cleanupEls.progWrap) cleanupEls.progWrap.classList.remove("hidden");
-    if (cleanupEls.progBar) cleanupEls.progBar.style.width = "4%";
-    if (cleanupEls.progPct) cleanupEls.progPct.textContent = "4%";
-    if (cleanupEls.panel) cleanupEls.panel.classList.remove("cleanup-success");
-    if (REDUCED) {
-      tossSetOrb(ORB_REST[0], ORB_REST[1], 1, 1);
-      return;
-    }
-    toss.active = true;
-    toss.start = performance.now();
-    toss.expected = Math.max(expectedBytes, 1);
-    window.__cureTossActive = true;
-    cleanupEls.liveCounter.classList.remove("hidden");
-    toss.lid.setAttribute("transform", "");
-    toss.raf = requestAnimationFrame(tossFrame);
+    cleanupEls.queue.classList.remove("hidden");
+    renderCleanupQueue();
+    document.getElementById("stage-main").scrollTop = 0;
+    window.CureStorage.running();
+    window.CureCompanion.cleanup(
+      "cleanup",
+      "Cleanup in progress",
+      "Deleting confirmed selections. Waiting for the engine result.",
+    );
+  }
+  function finishCleanupOperation() {
+    cleanupEls.stage.classList.add("hidden");
+    cleanupEls.queue.classList.add("hidden");
+  }
+  function resetCleanupOperation() {
+    cleanupEls.stage.classList.add("hidden");
+    cleanupEls.queue.classList.add("hidden");
   }
 
-  function stopToss(freedBytes) {
-    if (cleanupEls.progBar) cleanupEls.progBar.style.width = "100%";
-    if (cleanupEls.progPct) cleanupEls.progPct.textContent = "100%";
-    if (cleanupEls.stage) cleanupEls.stage.classList.remove("toss-active");
-    setTimeout(() => { if (cleanupEls.progWrap) cleanupEls.progWrap.classList.add("hidden"); }, 900);
-    if (REDUCED || !toss.active) {
-      if (REDUCED) tossSetOrb(ORB_REST[0], ORB_REST[1], 1, 1);
-      if (cleanupEls.progWrap) cleanupEls.progWrap.classList.add("hidden");
-      return;
+  /* What is queued is exactly what the operator confirmed — real selections,
+     real byte totals from the measurement. No estimated progress. */
+  function renderCleanupQueue() {
+    const list = document.getElementById("cleanup-queue-list");
+    if (!list || !cleanupState.summary) return;
+    list.replaceChildren();
+    for (const cat of cleanupState.summary.categories) {
+      if (cat.item_count === 0 || !cleanupState.selectedCats.has(cat.key))
+        continue;
+      const row = document.createElement("div");
+      row.className = "cq-row";
+      const name = document.createElement("span");
+      name.textContent = cat.label;
+      const meta = document.createElement("b");
+      meta.textContent = "queued · " + fmtBytes(cat.total_bytes);
+      row.append(name, meta);
+      list.append(row);
     }
-    toss.active = false;
-    cancelAnimationFrame(toss.raf);
-    window.__cureTossActive = false;
-    toss.lid.setAttribute("transform", "");
-    toss.flash.setAttribute("opacity", "0");
-    for (let i = 0; i < toss.glyphs.length; i++) {
-      const [gx, gy] = GLYPH_BASE[i];
-      tossGlyphTransform(i, gx, gy, 1, 1);
+    for (const dl of cleanupState.summary.downloads) {
+      if (!cleanupState.checkedDownloads.has(dl.path)) continue;
+      const row = document.createElement("div");
+      row.className = "cq-row";
+      const name = document.createElement("span");
+      name.textContent = dl.name;
+      const meta = document.createElement("b");
+      meta.textContent = "queued · " + fmtBytes(dl.size_bytes);
+      row.append(name, meta);
+      list.append(row);
     }
-    tossSetOrb(ORB_REST[0], ORB_REST[1], 1, 1);
-    const trailEls = toss.trailG.children;
-    for (const tr of trailEls) tr.setAttribute("opacity", "0");
-    cleanupEls.liveCounter.classList.add("hidden");
-  }
-
-  function resetToss() {
-    if (toss.active) {
-      toss.active = false;
-      cancelAnimationFrame(toss.raf);
-    }
-    if (cleanupEls.stage) cleanupEls.stage.classList.remove("toss-active");
-    if (cleanupEls.progWrap) cleanupEls.progWrap.classList.add("hidden");
-    if (cleanupEls.progBar) cleanupEls.progBar.style.width = "0%";
-    if (toss.svg) {
-      tossSetOrb(ORB_REST[0], ORB_REST[1], 1, 1);
-      for (let i = 0; i < toss.glyphs.length; i++) {
-        const [gx, gy] = GLYPH_BASE[i];
-        tossGlyphTransform(i, gx, gy, 1, 1);
-      }
-    }
-    cleanupEls.liveCounter.classList.add("hidden");
   }
 
   // ---- cleanup state / rendering -------------------------------------------
@@ -2652,7 +1686,7 @@
     const anyCat =
       s &&
       s.categories.some(
-        (c) => c.item_count > 0 && cleanupState.selectedCats.has(c.key)
+        (c) => c.item_count > 0 && cleanupState.selectedCats.has(c.key),
       );
     const anyDl = cleanupState.checkedDownloads.size > 0;
     const enabled = (anyCat || anyDl) && !cleanupState.running;
@@ -2662,10 +1696,16 @@
     }
     if (!cleanupState.running && s) {
       const selB = cleanupSelectionBytes();
-      setCleanupBtnLabel(selB > 0 ? "Clean up • " + fmtBytes(selB) : "Clean up");
+      setCleanupBtnLabel(
+        selB > 0 ? "Clean up • " + fmtBytes(selB) : "Clean up",
+      );
     } else if (!cleanupState.running) {
       setCleanupBtnLabel("Clean up");
     }
+    window.CureStorage.selectionChanged(
+      cleanupState.selectedCats,
+      cleanupState.checkedDownloads,
+    );
     renderCleanupSummary();
   }
 
@@ -2685,18 +1725,31 @@
   function renderCleanupSummary() {
     const probe = document.getElementById("cs-total-items");
     if (!probe) return;
-    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const set = (id, v) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = v;
+    };
     const s = cleanupState.summary;
     if (!s) {
-      set("cs-total-items", "—"); set("cs-total-size", "—"); set("cs-selected", "—");
+      set("cs-total-items", "—");
+      set("cs-total-size", "—");
+      set("cs-selected", "—");
       const st0 = document.getElementById("cs-status");
-      if (st0) { st0.textContent = "Idle"; st0.classList.remove("on", "bad"); }
+      if (st0) {
+        st0.textContent = "Idle";
+        st0.classList.remove("on", "bad");
+      }
       return;
     }
-    const totalN = s.categories.reduce((n, c) => n + c.item_count, 0) + s.downloads.length;
-    let selN = 0, selB = 0;
+    const totalN =
+      s.categories.reduce((n, c) => n + c.item_count, 0) + s.downloads.length;
+    let selN = 0,
+      selB = 0;
     for (const c of s.categories) {
-      if (c.item_count > 0 && cleanupState.selectedCats.has(c.key)) { selN += c.item_count; selB += c.total_bytes; }
+      if (c.item_count > 0 && cleanupState.selectedCats.has(c.key)) {
+        selN += c.item_count;
+        selB += c.total_bytes;
+      }
     }
     selN += cleanupState.checkedDownloads.size;
     for (const dl of s.downloads) {
@@ -2705,7 +1758,23 @@
     set("cs-total-items", String(totalN));
     set("cs-total-size", fmtBytes(s.total_bytes));
     set("cs-selected", selN + " items · " + fmtBytes(selB));
-    const labels = { idle: "Idle", ready: "Ready", running: "Cleaning…", "done-ok": "Complete", "done-fail": "Attention" };
+    if (cleanupPhase === "ready")
+      window.CureCompanion.cleanup(
+        "idle",
+        "Selection ready",
+        "Selected: " +
+          selN +
+          " items · " +
+          fmtBytes(selB) +
+          ". Confirmation required.",
+      );
+    const labels = {
+      idle: "Idle",
+      ready: "Ready",
+      running: "Cleaning…",
+      "done-ok": "Complete",
+      "done-fail": "Attention",
+    };
     const st = document.getElementById("cs-status");
     if (st) {
       st.textContent = labels[cleanupPhase] || "—";
@@ -2735,14 +1804,28 @@
 
     const itemCount = summary.categories.reduce((n, c) => n + c.item_count, 0);
     cleanupEls.total.innerHTML =
-      '<span class="total-orb" aria-hidden="true"></span><span>≈ <b>' + fmtBytes(summary.total_bytes) + "</b> reclaimable across " +
-      (itemCount + summary.downloads.length) + " items</span>";
+      "<span>≈ <b>" +
+      fmtBytes(summary.total_bytes) +
+      "</b> reclaimable across " +
+      (itemCount + summary.downloads.length) +
+      " items</span>";
     cleanupEls.subline.textContent =
-      itemCount + summary.downloads.length + " cleanable items found on this machine";
+      (itemCount + summary.downloads.length) +
+      ((itemCount + summary.downloads.length) === 1
+        ? " cleanable item found on this machine"
+        : " cleanable items found on this machine");
+    if (!keepResult) {
+      sessionCleanup.measured = true;
+      sessionCleanup.last = summary;
+      updateOverviewReclaimable();
+    }
 
     cleanupEls.grid.innerHTML = "";
-    const maxCatBytes = Math.max(1, ...summary.categories.map((c) => c.total_bytes));
-    let catIdx = 0;
+    window.CureStorage.setDownloads(cleanupState.checkedDownloads);
+    const maxCatBytes = Math.max(
+      1,
+      ...summary.categories.map((c) => c.total_bytes),
+    );
     for (const cat of summary.categories) {
       const card = document.createElement("button");
       card.type = "button";
@@ -2753,10 +1836,16 @@
       if (on) cleanupState.selectedCats.add(cat.key);
       card.classList.toggle("on", on);
       card.classList.toggle("off", !on);
-      if (!REDUCED) card.style.animationDelay = (catIdx * 70) + "ms";
-      catIdx++;
       card.setAttribute("aria-pressed", String(on));
-      card.setAttribute("aria-label", cat.label + " — " + fmtBytes(cat.total_bytes) + ", " + cat.item_count + " items");
+      card.setAttribute(
+        "aria-label",
+        cat.label +
+          " — " +
+          fmtBytes(cat.total_bytes) +
+          ", " +
+          cat.item_count +
+          " items",
+      );
       card.title = on
         ? "Click to skip this category"
         : cat.item_count === 0
@@ -2764,14 +1853,13 @@
           : "Currently skipped — click to include";
       const top = document.createElement("span");
       top.className = "cc-top";
-      const icon = document.createElement("span");
-      icon.className = "cc-icon";
-      icon.setAttribute("aria-hidden", "true");
-      icon.textContent = CLEANUP_ICONS[cat.key] || "📦";
       const name = document.createElement("span");
       name.className = "cc-name";
       name.textContent = cat.label;
-      top.append(icon, name);
+      const included = document.createElement("span");
+      included.className = "cc-state";
+      included.textContent = on ? "Included" : "Skipped";
+      top.append(name, included);
       const size = document.createElement("span");
       size.className = "cc-size";
       size.textContent = fmtBytes(cat.total_bytes);
@@ -2783,7 +1871,11 @@
       bar.className = "cc-bar";
       bar.setAttribute("aria-hidden", "true");
       const fill = document.createElement("i");
-      fill.style.width = Math.max(cat.item_count === 0 ? 0 : 6, Math.round((cat.total_bytes / maxCatBytes) * 100)) + "%";
+      fill.style.width =
+        Math.max(
+          cat.item_count === 0 ? 0 : 6,
+          Math.round((cat.total_bytes / maxCatBytes) * 100),
+        ) + "%";
       bar.appendChild(fill);
       card.append(top, size, count, bar);
       card.addEventListener("click", () => {
@@ -2791,10 +1883,13 @@
         const nowOn = !cleanupState.selectedCats.has(cat.key);
         if (nowOn) cleanupState.selectedCats.add(cat.key);
         else cleanupState.selectedCats.delete(cat.key);
+        included.textContent = nowOn ? "Included" : "Skipped";
         card.classList.toggle("on", nowOn);
         card.classList.toggle("off", !nowOn);
         card.setAttribute("aria-pressed", String(nowOn));
-        card.title = nowOn ? "Click to skip this category" : "Currently skipped — click to include";
+        card.title = nowOn
+          ? "Click to skip this category"
+          : "Currently skipped — click to include";
         resetCleanupResult();
       });
       cleanupEls.grid.appendChild(card);
@@ -2802,7 +1897,7 @@
 
     cleanupEls.downloads.classList.toggle(
       "hidden",
-      summary.downloads.length === 0
+      summary.downloads.length === 0,
     );
     cleanupEls.dlList.innerHTML = "";
     for (const dl of summary.downloads) {
@@ -2811,7 +1906,10 @@
       const box = document.createElement("input");
       box.type = "checkbox";
       box.dataset.path = dl.path;
-      box.setAttribute("aria-label", "Delete " + dl.name + " (" + fmtBytes(dl.size_bytes) + ")");
+      box.setAttribute(
+        "aria-label",
+        "Delete " + dl.name + " (" + fmtBytes(dl.size_bytes) + ")",
+      );
       box.addEventListener("change", () => {
         if (box.checked) cleanupState.checkedDownloads.add(dl.path);
         else cleanupState.checkedDownloads.delete(dl.path);
@@ -2823,12 +1921,18 @@
       name.title = dl.path;
       const meta = document.createElement("span");
       meta.className = "dl-meta";
-      meta.textContent = fmtBytes(dl.size_bytes) + " · " + dl.age_days + "d old";
+      meta.textContent =
+        fmtBytes(dl.size_bytes) + " · " + dl.age_days + "d old";
       li.append(box, name, meta);
       cleanupEls.dlList.appendChild(li);
     }
 
     updateCleanupButton();
+    window.CureStorage.measured(
+      summary,
+      cleanupState.selectedCats,
+      cleanupState.checkedDownloads,
+    );
   }
 
   async function startCleanupScan(keepResult = false) {
@@ -2836,48 +1940,52 @@
     cleanupEls.body.classList.add("hidden");
     cleanupEls.loading.classList.remove("hidden");
     cleanupEls.loading.textContent = "measuring reclaimable space…";
-    // premium skeleton shimmer while measuring
-    if (cleanupEls.panel) cleanupEls.panel.classList.add("cleanup-scanning");
-    let skel = cleanupEls.panel ? cleanupEls.panel.querySelector(".cleanup-skeleton") : null;
-    if (!skel && cleanupEls.panel && !REDUCED) {
-      skel = document.createElement("div");
-      skel.className = "cleanup-skeleton";
-      skel.setAttribute("aria-hidden", "true");
-      skel.innerHTML = "<i></i><i></i><i></i><i></i>";
-      cleanupEls.loading.after(skel);
-    }
-    if (skel) skel.classList.remove("hidden");
     if (!keepResult) {
+      window.CureStorage.measuring();
       setCleanupPill("scanning", "measuring reclaimable space…");
     }
     try {
       const summary = await invoke("scan_cleanup");
-      if (skel) skel.remove();
-      if (cleanupEls.panel) cleanupEls.panel.classList.remove("cleanup-scanning");
       renderCleanup(summary, keepResult);
-      if (!keepResult) {
-        setCleanupPill(
-          "clean",
-          "Disk scan complete — " + fmtBytes(summary.total_bytes) + " reclaimable"
+      if (keepResult) {
+        // The engine's own rescan is the only source of the post-cleanup ring.
+        window.CureStorage.result(
+          cleanupState.outcome,
+          summary,
+          cleanupState.checkedDownloads,
         );
+        sessionCleanup.measured = true;
+        sessionCleanup.last = summary;
+        updateOverviewReclaimable();
+        return;
       }
+      setCleanupPill(
+        "clean",
+        "Disk scan complete — " +
+          fmtBytes(summary.total_bytes) +
+          " reclaimable",
+      );
     } catch (err) {
       cleanupEls.loading.textContent =
-        "disk cleanup unavailable: " + cleanErrText(err, String(err));
+        "disk cleanup unavailable: " + cleanErrText(err, "Collection failed");
       if (!keepResult) {
+        window.CureStorage.idle();
         setCleanupPill("error", "Disk cleanup unavailable");
       }
     }
   }
 
   function showCleanupIdle() {
-    resetToss();
+    resetCleanupOperation();
     cleanupPhase = "idle";
     setCleanupStep(1);
     cleanupEls.stage.classList.add("hidden");
     cleanupEls.body.classList.add("hidden");
     cleanupEls.loading.classList.add("hidden");
     cleanupEls.idle.classList.remove("hidden");
+    window.CureStorage.idle();
+    // A new cleanup session rotates Luma's cleanup variant.
+    window.CureCompanion.beginSession("cleanup");
     setCleanupPill("idle", "Disk cleanup — ready when you are");
   }
 
@@ -2897,7 +2005,7 @@
     if (!cleanupState.open) return;
     cleanupState.open = false;
     resetCleanupResult();
-    resetToss();
+    resetCleanupOperation();
     cleanupEls.stage.classList.add("hidden");
     if (cleanupState.savedPill) {
       statusPill.className = cleanupState.savedPill.cls;
@@ -2908,7 +2016,7 @@
     if (target.id) setNav(target.id);
   }
 
-  cleanupEls.openBtn.addEventListener("click", openCleanup);
+  cleanupEls.openBtn?.addEventListener("click", openCleanup);
   cleanupEls.backBtn.addEventListener("click", () => closeCleanup(resultsView));
   cleanupEls.scanBtn.addEventListener("click", () => startCleanupScan(false));
 
@@ -2919,7 +2027,9 @@
       .filter((c) => c.item_count > 0 && cleanupState.selectedCats.has(c.key))
       .map((c) => c.label || c.key);
     if (cleanupState.checkedDownloads.size > 0) {
-      selCats.push(cleanupState.checkedDownloads.size + " selected download(s)");
+      selCats.push(
+        cleanupState.checkedDownloads.size + " selected download(s)",
+      );
     }
     setCleanupStep(2);
     const ok = await requestConfirm({
@@ -2934,7 +2044,10 @@
       note: "Only the selected categories and checked downloads are deleted. Quarantined items are never touched.",
       okLabel: "Delete " + fmtBytes(selBytes),
     });
-    if (!ok) { setCleanupStep(1); return; }
+    if (!ok) {
+      setCleanupStep(1);
+      return;
+    }
     cleanupPhase = "running";
     setCleanupStep(3);
     renderCleanupSummary();
@@ -2943,33 +2056,60 @@
     cleanupEls.btn.classList.add("btn-active");
     setCleanupBtnLabel("Cleaning…");
     const expected = cleanupSelectionBytes();
-    startToss(expected);
+    startCleanupOperation(expected);
+    let outcome = null;
     try {
       const result = await invoke("run_cleanup", {
         categories: Array.from(cleanupState.selectedCats),
         downloadPaths: Array.from(cleanupState.checkedDownloads),
       });
-      stopToss(result.bytes_freed);
+      outcome = result;
+      finishCleanupOperation(result.bytes_freed);
       cleanupPhase = result.failed ? "done-fail" : "done-ok";
+      sessionCleanup.freed += result.bytes_freed;
       setCleanupStep(3, true);
       setCleanupPill(
         result.failed ? "warn" : "clean",
-        "Freed " + fmtBytes(result.bytes_freed) +
-          (result.failed ? " — " + result.failed + " item(s) locked or failed" : "")
+        "Freed " +
+          fmtBytes(result.bytes_freed) +
+          (result.failed
+            ? " — " + result.failed + " item(s) locked or failed"
+            : ""),
       );
       cleanupEls.status.textContent =
-        "Freed " + fmtBytes(result.bytes_freed) +
-        " — deleted " + result.deleted + " of " + result.attempted +
+        "Freed " +
+        fmtBytes(result.bytes_freed) +
+        " — deleted " +
+        result.deleted +
+        " of " +
+        result.attempted +
         (result.failed ? ", " + result.failed + " locked or failed" : "");
+      window.CureCompanion.cleanup(
+        result.failed ? "review" : "success",
+        result.failed ? "Cleanup needs review" : "Cleanup ended",
+        cleanupEls.status.textContent,
+      );
       cleanupEls.status.classList.remove("hidden");
       cleanupEls.status.classList.toggle("cleanup-ok", !result.failed);
       cleanupEls.status.classList.toggle("cleanup-fail", !!result.failed);
       if (!result.failed && cleanupEls.panel) {
         cleanupEls.panel.classList.add("cleanup-success");
-        cleanupConfettiBurst();
-        setTimeout(() => { if (cleanupEls.panel) cleanupEls.panel.classList.remove("cleanup-success"); }, 1400);
+
+        setTimeout(() => {
+          if (cleanupEls.panel)
+            cleanupEls.panel.classList.remove("cleanup-success");
+        }, 1400);
       }
-      logEvent("action", "cleanup: freed " + fmtBytes(result.bytes_freed) + ", deleted " + result.deleted + " of " + result.attempted + (result.failed ? ", " + result.failed + " failed" : ""));
+      logEvent(
+        "action",
+        "cleanup: freed " +
+          fmtBytes(result.bytes_freed) +
+          ", deleted " +
+          result.deleted +
+          " of " +
+          result.attempted +
+          (result.failed ? ", " + result.failed + " failed" : ""),
+      );
       if (result.failures.length > 0) {
         cleanupEls.failures.innerHTML = "";
         for (const failure of result.failures) {
@@ -2991,30 +2131,33 @@
         cleanupEls.failures.classList.remove("hidden");
       }
     } catch (err) {
-      stopToss(0);
+      outcome = { failed: 1, bytes_freed: 0, deleted: 0, attempted: 0, failures: [] };
+      finishCleanupOperation(0);
       cleanupPhase = "done-fail";
       setCleanupStep(3, true);
       setCleanupPill("error", "Disk cleanup failed");
       cleanupEls.status.textContent =
-        "cleanup failed: " + cleanErrText(err, String(err));
+        "cleanup failed: " + cleanErrText(err, "Collection failed");
       cleanupEls.status.classList.remove("hidden");
       cleanupEls.status.classList.remove("cleanup-ok");
       cleanupEls.status.classList.add("cleanup-fail");
+      updateOverviewReclaimable();
     } finally {
       cleanupState.running = false;
       cleanupEls.btn.classList.remove("btn-active");
-      updateCleanupButton();
-      startCleanupScan(true);
+      cleanupState.outcome = outcome;
+      // One engine rescan feeds both the category table and the storage ring.
+      await startCleanupScan(true);
     }
   });
 
   var killBtn = document.getElementById("kill-procs-btn");
   var killStatus = document.getElementById("kill-procs-status");
   if (killBtn) {
-    killBtn.addEventListener("click", async function() {
+    killBtn.addEventListener("click", async function () {
       if (sweepState.running || killBtn.disabled) return;
       var targets = [];
-      sweepState.findings.forEach(function(f) {
+      sweepState.findings.forEach(function (f) {
         if (sweepState.checked.has(f.pid)) targets.push([f.name, f.pid]);
       });
       if (targets.length === 0) return;
@@ -3022,9 +2165,19 @@
         kicker: "Confirm process termination",
         title: "Terminate " + targets.length + " selected process(es)?",
         facts: [
-          ["Targets", targets.map(function(t) { return t[0] + " (pid " + t[1] + ")"; }).join(", ")],
+          [
+            "Targets",
+            targets
+              .map(function (t) {
+                return t[0] + " (pid " + t[1] + ")";
+              })
+              .join(", "),
+          ],
           ["Action", "Terminate the selected processes immediately."],
-          ["Reversible", "No — termination cannot be undone, but nothing is deleted."],
+          [
+            "Reversible",
+            "No — termination cannot be undone, but nothing is deleted.",
+          ],
         ],
         note: "PIDs are re-validated before termination. Re-run a scan afterwards to verify.",
         okLabel: "Terminate " + targets.length + " process(es)",
@@ -3034,15 +2187,26 @@
       killBtn.disabled = true;
       killBtn.classList.add("btn-active");
       killBtn.textContent = "Killing…";
-      if (killStatus) { killStatus.textContent = ""; killStatus.classList.add("hidden"); }
+      if (killStatus) {
+        killStatus.textContent = "";
+        killStatus.classList.add("hidden");
+      }
       try {
-        var report = await invoke("kill_high_risk_processes", { processes: targets });
+        var report = await invoke("kill_high_risk_processes", {
+          processes: targets,
+        });
         var killed = report.killed || [];
         var failed = report.failed || [];
         if (killed.length > 0) {
-          var pidSet = new Set(killed.map(function(k) { return k.pid; }));
-          var cards = document.querySelectorAll("#process-cards .review-card.proc-entry");
-          cards.forEach(function(card) {
+          var pidSet = new Set(
+            killed.map(function (k) {
+              return k.pid;
+            }),
+          );
+          var cards = document.querySelectorAll(
+            "#process-cards .review-card.proc-entry",
+          );
+          cards.forEach(function (card) {
             if (pidSet.has(Number(card.dataset.pid))) {
               card.classList.add("proc-killed");
               var cb = card.querySelector('input[type="checkbox"]');
@@ -3052,15 +2216,30 @@
         }
         sweepState.checked.clear();
         var parts = [];
-        if (killed.length > 0) parts.push("Killed " + killed.length + " process(es)");
+        if (killed.length > 0)
+          parts.push("Killed " + killed.length + " process(es)");
         if (failed.length > 0) parts.push(failed.length + " failed");
         var msg = parts.join(", ") || "No processes were killed";
-        setPill(killed.length > 0 && failed.length === 0 ? "clean" : "warn", msg);
-        logEvent("action", "process kill: " + msg + (failed.length ? " — " + failed.join("; ") : ""));
-        if (killStatus) { killStatus.textContent = msg; killStatus.classList.remove("hidden"); }
+        setPill(
+          killed.length > 0 && failed.length === 0 ? "clean" : "warn",
+          msg,
+        );
+        logEvent(
+          "action",
+          "process kill: " +
+            msg +
+            (failed.length ? " — " + failed.join("; ") : ""),
+        );
+        if (killStatus) {
+          killStatus.textContent = msg;
+          killStatus.classList.remove("hidden");
+        }
       } catch (err) {
         setPill("error", "Kill failed: " + String(err));
-        if (killStatus) { killStatus.textContent = "Error: " + String(err); killStatus.classList.remove("hidden"); }
+        if (killStatus) {
+          killStatus.textContent = "Error: " + String(err);
+          killStatus.classList.remove("hidden");
+        }
       } finally {
         sweepState.running = false;
         killBtn.classList.remove("btn-active");
@@ -3168,8 +2347,12 @@
     const procHigh = procs.filter((p) => p.risk === "HighRisk").length;
     const procSusp = procs.filter((p) => p.risk === "Suspicious").length;
     return {
-      cleaned, review: review.length, proc: procs.length, ransom: ransom.length,
-      safe: s.safe, total: s.total,
+      cleaned,
+      review: review.length,
+      proc: procs.length,
+      ransom: ransom.length,
+      safe: s.safe,
+      total: s.total,
       critical: reviewHigh + procHigh + ransom.length,
       suspicious: reviewSusp + procSusp,
       findings: cleaned + review.length + procs.length + ransom.length,
@@ -3182,6 +2365,46 @@
     el.textContent = text;
     el.classList.remove("is-ok", "is-warn", "is-bad");
     if (tone) el.classList.add(tone);
+  }
+
+  /* Disk reclaimable on Overview reflects only what this session really
+   measured. The overview never triggers a disk walk of its own. */
+  function updateOverviewReclaimable() {
+    const el = document.getElementById("ov-reclaimable");
+    if (!el) return;
+    if (!sessionCleanup.measured || !sessionCleanup.last) {
+      el.textContent = "Not measured";
+      el.classList.remove("is-ok");
+      return;
+    }
+    el.textContent =
+      fmtBytes(sessionCleanup.last.total_bytes) +
+      (sessionCleanup.freed > 0 ? " · " + fmtBytes(sessionCleanup.freed) + " freed" : "");
+    el.classList.toggle("is-ok", sessionCleanup.freed > 0);
+  }
+
+  /* Overview dial: the share of the nine inspection layers that actually
+     reported coverage. Never an estimate — no collectors, no arc. */
+  const DIAL_R = 52;
+  function paintOverviewDial(ovStates, tone) {
+    const arc = document.getElementById("ov-dial-arc");
+    const value = document.getElementById("ov-dial-value");
+    if (!arc || !value) return;
+    const total = 9;
+    const checked = (ovStates || []).filter(function (row) {
+      const st = row.state;
+      const key = typeof st === "string" ? st : Object.keys(st || {})[0];
+      return key === "Checked" || key === "Available";
+    }).length;
+    const circumference = 2 * Math.PI * DIAL_R;
+    arc.style.strokeDasharray = String(circumference);
+    arc.style.strokeDashoffset = String(
+      circumference * (1 - (ovStates && ovStates.length ? checked / total : 0)),
+    );
+    arc.classList.remove("is-warn", "is-bad");
+    if (tone === "is-warn") arc.classList.add("is-warn");
+    if (tone === "is-bad") arc.classList.add("is-bad");
+    value.textContent = ovStates && ovStates.length ? checked + "/" + total : "—";
   }
 
   function covRow(name, detail, level) {
@@ -3203,62 +2426,181 @@
     if (!el) return;
     try {
       if (typeof lastIncident !== "undefined" && lastIncident) {
-        el.textContent = "Last observation " + (lastIncident.investigation_id || "") + ": " +
-          ((typeof VERDICT_TEXT !== "undefined" && VERDICT_TEXT[lastIncident.verdict]) || lastIncident.verdict || "") +
-          " — " + (lastIncident.processes || []).length + " processes, " +
-          (lastIncident.windows || []).length + " windows, " +
-          (lastIncident.correlations || []).length + " correlations. See the Incident view for the full timeline.";
+        el.textContent =
+          "Last observation " +
+          (lastIncident.investigation_id || "") +
+          ": " +
+          ((typeof VERDICT_TEXT !== "undefined" &&
+            VERDICT_TEXT[lastIncident.verdict]) ||
+            lastIncident.verdict ||
+            "") +
+          " — " +
+          (lastIncident.processes || []).length +
+          " processes, " +
+          (lastIncident.windows || []).length +
+          " windows, " +
+          (lastIncident.correlations || []).length +
+          " correlations. See the Incident view for the full timeline.";
         return;
       }
-    } catch (_) { /* TDZ-safe: fall through to default */ }
-    el.textContent = "No observation recorded — run a login investigation from the Incident view.";
+    } catch (_) {
+      /* TDZ-safe: fall through to default */
+    }
+    el.textContent = "No login observation recorded this session.";
   }
 
   function renderOverview(summary) {
     const t = troubleCounts(summary);
+    window.CureCompanion.overview(
+      t.findings > 0 || coverageIncomplete(summary) ? "review" : "success",
+      t.critical > 0
+        ? "High risk · Review evidence"
+        : t.findings > 0
+          ? "Review required"
+          : coverageIncomplete(summary)
+            ? "Coverage incomplete"
+            : "Collection ended",
+    );
     const posture = document.getElementById("ov-posture");
     const subline = document.getElementById("ov-subline");
+    const beacon = document.getElementById("ov-beacon");
+    if (beacon) {
+      beacon.className =
+        "ov-beacon" +
+        (t.critical > 0 ? " bad" : t.findings > 0 || coverageIncomplete(summary) ? " warn" : summary ? " ok" : "");
+    }
     if (t.critical > 0) {
-      posture.textContent = "Investigation required";
-      posture.classList.add("is-bad"); posture.classList.remove("is-warn", "is-ok");
-      subline.textContent = t.critical + " critical finding(s) need a decision — see Startup Audit and Process Sentinel.";
+      posture.textContent = "High risk";
+      posture.classList.add("is-bad");
+      posture.classList.remove("is-warn", "is-ok");
+      subline.textContent =
+        t.critical + " high-risk finding(s) need review in Investigate.";
     } else if (t.findings > 0) {
       posture.textContent = "Review required";
-      posture.classList.add("is-warn"); posture.classList.remove("is-bad", "is-ok");
-      subline.textContent = t.findings + " finding(s) recorded" +
-        (t.cleaned ? ", " + t.cleaned + " auto-quarantined" : "") + " — nothing was deleted.";
+      posture.classList.add("is-warn");
+      posture.classList.remove("is-bad", "is-ok");
+      subline.textContent =
+        t.findings +
+        " finding(s) recorded" +
+        (t.cleaned ? ", " + t.cleaned + " quarantined" : "") +
+        " — nothing was deleted.";
     } else {
-      posture.textContent = "No findings";
-      posture.classList.add("is-ok"); posture.classList.remove("is-bad", "is-warn");
-      subline.textContent = summary.total + " checks completed — no persistence, process, or ransom findings" +
+      posture.textContent = coverageIncomplete(summary)
+        ? "Coverage incomplete"
+        : "No findings in collected evidence";
+      posture.classList.remove("is-ok", "is-bad", "is-warn");
+      if (coverageIncomplete(summary)) posture.classList.add("is-warn");
+      subline.textContent =
+        summary.total +
+        " checks completed — no persistence, process, or ransom findings" +
         (lastScanAt ? " · last scan " + lastScanAt.toLocaleString() : "");
     }
-    setMetric("ov-last-scan", lastScanAt ? lastScanAt.toLocaleString() : "—", null);
+    setMetric(
+      "ov-last-scan",
+      lastScanAt ? lastScanAt.toLocaleString() : "—",
+      null,
+    );
     setMetric("ov-checks", String(summary.total), null);
     const ovStates = (summary && summary.source_states) || [];
+    paintOverviewDial(
+      ovStates,
+      t.critical > 0 ? "is-bad" : t.findings > 0 || coverageIncomplete(summary) ? "is-warn" : "is-ok",
+    );
     let skipped = 0;
-    let covState = "FULL";
+    let covState = "REPORTED CHECKS OK";
     let covTone = "is-ok";
     for (const row of ovStates) {
       const st = row.state;
-      if (st === "CheckFailed" || st === "AccessDenied") { covState = "FAILED"; covTone = "is-bad"; }
-      else if (st && typeof st === "object") {
-        if ("Partial" in st) { skipped += (st.Partial && st.Partial.skipped) || 0; if (covState !== "FAILED") { covState = "PARTIAL"; covTone = "is-warn"; } }
-        else if ("CheckFailed" in st || "AccessDenied" in st) { covState = "FAILED"; covTone = "is-bad"; }
-        else if (("Unavailable" in st || "NotChecked" in st) && covState === "FULL") { covState = "LIMITED"; covTone = null; }
+      if (st === "CheckFailed" || st === "AccessDenied") {
+        covState = "FAILED";
+        covTone = "is-bad";
+      } else if (st && typeof st === "object") {
+        if ("Partial" in st) {
+          skipped += (st.Partial && st.Partial.skipped) || 0;
+          if (covState !== "FAILED") {
+            covState = "PARTIAL";
+            covTone = "is-warn";
+          }
+        } else if ("CheckFailed" in st || "AccessDenied" in st) {
+          covState = "FAILED";
+          covTone = "is-bad";
+        } else if (
+          ("Unavailable" in st || "NotChecked" in st) &&
+          covState === "REPORTED CHECKS OK"
+        ) {
+          covState = "LIMITED";
+          covTone = null;
+        }
+      } else if (
+        (st === "Unavailable" || st === "NotChecked") &&
+        covState === "REPORTED CHECKS OK"
+      ) {
+        covState = "LIMITED";
+        covTone = null;
       }
-      else if ((st === "Unavailable" || st === "NotChecked") && covState === "FULL") { covState = "LIMITED"; covTone = null; }
     }
     setMetric("ov-skipped", String(skipped), skipped ? "is-warn" : null);
-    setMetric("ov-coverage-state", ovStates.length ? covState : "—", ovStates.length ? covTone : null);
-    setMetric("ov-findings", String(t.findings), t.findings ? "is-warn" : "is-ok");
-    setMetric("ov-critical", String(t.critical), t.critical ? "is-bad" : "is-ok");
-    setMetric("ov-suspicious", String(t.suspicious), t.suspicious ? "is-warn" : "is-ok");
+    setMetric(
+      "ov-coverage-state",
+      ovStates.length ? covState : "—",
+      ovStates.length ? covTone : null,
+    );
+    setMetric("ov-findings", String(t.findings), t.findings ? "is-warn" : null);
+    refreshQuarantineCount();
+    updateOverviewReclaimable();
+    const recent = document.getElementById("ov-recent");
+    recent.replaceChildren();
+    (summary.suspicious_for_review || []).slice(0, 4).forEach((scored) => {
+      const button = makeText(
+        "button",
+        scored.entry.name,
+        "finding-select recent-finding",
+      );
+      button.append(
+        makeText(
+          "small",
+          riskLabel(scored.risk) +
+            " · " +
+            (SOURCE_LABELS[scored.entry.source] || scored.entry.source),
+        ),
+      );
+      button.addEventListener("click", () => openEvidence(scored, button));
+      recent.append(button);
+    });
+    if (!recent.children.length)
+      recent.append(
+        makeText(
+          "div",
+          coverageIncomplete(summary)
+            ? "No findings recorded. Review collection limits before drawing conclusions."
+            : "No findings in the collected evidence. A scan is not a guarantee of detection.",
+          "empty-state",
+        ),
+      );
+    setMetric(
+      "ov-critical",
+      String(t.critical),
+      t.critical ? "is-bad" : "is-ok",
+    );
+    setMetric(
+      "ov-suspicious",
+      String(t.suspicious),
+      t.suspicious ? "is-warn" : "is-ok",
+    );
     setMetric("ov-duration", fmtDuration(scanDurationMs), null);
     const ovScope = document.getElementById("ov-scope");
     if (ovScope) {
-      const areas = ovStates.length ? ovStates.map((r) => r.area).join(" · ") : "Startup entries · Services · Tasks · WMI";
-      ovScope.textContent = "Scope: " + areas + " · " + summary.total + " checked · " + skipped + " skipped" +
+      const areas = ovStates.length
+        ? ovStates.map((r) => r.area).join(" · ")
+        : "Startup entries · Services · Tasks · WMI";
+      ovScope.textContent =
+        "Scope: " +
+        areas +
+        " · " +
+        summary.total +
+        " checked · " +
+        skipped +
+        " skipped" +
         (lastScanAt ? " · " + lastScanAt.toLocaleString() : "");
     }
     const ovActions = document.getElementById("ov-actions");
@@ -3270,7 +2612,11 @@
         const li = document.createElement("li");
         const time = document.createElement("span");
         time.className = "ev-time";
-        try { time.textContent = ev.at.toLocaleTimeString(); } catch (_) { time.textContent = ""; }
+        try {
+          time.textContent = ev.at.toLocaleTimeString();
+        } catch (_) {
+          time.textContent = "";
+        }
         const tag = document.createElement("b");
         tag.textContent = "[" + (ev.kind || "info") + "]";
         const body = document.createElement("span");
@@ -3279,21 +2625,25 @@
         li.append(time, tag, body);
         ovActions.appendChild(li);
       }
-      if (ovActionsEmpty) ovActionsEmpty.classList.toggle("hidden", recent.length > 0);
+      if (ovActionsEmpty)
+        ovActionsEmpty.classList.toggle("hidden", recent.length > 0);
     }
     updateOvIncident();
 
     const bySource = {};
-    summary.high_risk_cleaned.concat(summary.suspicious_for_review).forEach((e) => {
-      const src = e.entry.source;
-      bySource[src] = bySource[src] || { n: 0, high: 0 };
-      bySource[src].n += 1;
-      if (e.risk === "HighRisk") bySource[src].high += 1;
-    });
+    summary.high_risk_cleaned
+      .concat(summary.suspicious_for_review)
+      .forEach((e) => {
+        const src = e.entry.source;
+        bySource[src] = bySource[src] || { n: 0, high: 0 };
+        bySource[src].n += 1;
+        if (e.risk === "HighRisk") bySource[src].high += 1;
+      });
     const srcRow = (key, label) => {
       const info = bySource[key] || { n: 0, high: 0 };
-      const detail = info.n ? info.n + " flagged" : "checked — nothing flagged";
-      const level = info.high ? "bad" : info.n ? "warn" : "ok";
+      const detail =
+        (info.n ? info.n + " flagged · " : "") + "Coverage not reported";
+      const level = info.high ? "bad" : info.n ? "warn" : "idle";
       return covRow(label, detail, level);
     };
     const cov = document.getElementById("ov-coverage");
@@ -3307,18 +2657,25 @@
       // Same CoverageState shapes as renderResultsCoverage (see above).
       if (st === "Available" || st === "Checked") return "ok";
       if (st === "Unavailable" || st === "NotChecked") return "idle";
-      if (st === "CheckFailed" || st === "AccessDenied") return "bad";
+      if (st === "CheckFailed") return "bad";
+      if (st === "AccessDenied") return "warn";
       if (st && typeof st === "object") {
         if ("Partial" in st) return "warn";
-        if ("CheckFailed" in st || "AccessDenied" in st) return "bad";
+        if ("CheckFailed" in st) return "bad";
+        if ("AccessDenied" in st) return "warn";
         if ("Unavailable" in st || "NotChecked" in st) return "idle";
         if ("Available" in st || "Checked" in st) return "ok";
       }
       return "idle";
     };
     const stateDetail = (row) => {
-      let detail = row.detail || "";
-      if (row.state && typeof row.state === "object" && "Partial" in row.state) {
+      const info = sourceStatusInfo(row.state);
+      let detail = info.label + (row.detail ? " · " + row.detail : "");
+      if (
+        row.state &&
+        typeof row.state === "object" &&
+        "Partial" in row.state
+      ) {
         detail += " — " + row.state.Partial.skipped + " skipped";
       }
       return detail;
@@ -3338,13 +2695,25 @@
         srcRow("IfeoDebugger", "IFEO debuggers"),
         srcRow("AppInitDlls", "AppInit DLLs"),
         srcRow("ComHijack", "COM hijacks (HKCU)"),
-        covRow("Running processes", t.proc ? t.proc + " flagged" : "checked — none flagged", t.proc ? "warn" : "ok"),
-        covRow("Ransom indicators", t.ransom ? t.ransom + " found" : "none found", t.ransom ? "bad" : "ok"),
+        covRow(
+          "Running processes",
+          (t.proc ? t.proc + " flagged · " : "") + "Coverage not reported",
+          t.proc ? "warn" : "idle",
+        ),
+        covRow(
+          "Ransom indicators",
+          (t.ransom ? t.ransom + " found · " : "") + "Coverage not reported",
+          t.ransom ? "bad" : "idle",
+        ),
         covRow(
           "Canary guard",
-          canaryTriggered ? "TRIGGERED — see Canary Guard" : canaryActive ? "active — watching decoys" : "off",
-          canaryTriggered ? "bad" : canaryActive ? "ok" : "idle"
-        )
+          canaryTriggered
+            ? "TRIGGERED — see Canary Guard"
+            : canaryActive
+              ? "active — watching decoys"
+              : "off",
+          canaryTriggered ? "bad" : canaryActive ? "ok" : "idle",
+        ),
       );
     } else {
       cov.append(
@@ -3356,18 +2725,32 @@
         srcRow("IfeoDebugger", "IFEO debuggers"),
         srcRow("AppInitDlls", "AppInit DLLs"),
         srcRow("ComHijack", "COM hijacks (HKCU)"),
-        covRow("Running processes", t.proc ? t.proc + " flagged" : "checked — none flagged", t.proc ? "warn" : "ok"),
-        covRow("Ransom indicators", t.ransom ? t.ransom + " found" : "none found", t.ransom ? "bad" : "ok"),
+        covRow(
+          "Running processes",
+          (t.proc ? t.proc + " flagged · " : "") + "Coverage not reported",
+          t.proc ? "warn" : "idle",
+        ),
+        covRow(
+          "Ransom indicators",
+          (t.ransom ? t.ransom + " found · " : "") + "Coverage not reported",
+          t.ransom ? "bad" : "idle",
+        ),
         covRow(
           "Canary guard",
-          canaryTriggered ? "TRIGGERED — see Canary Guard" : canaryActive ? "active — watching decoys" : "off",
-          canaryTriggered ? "bad" : canaryActive ? "ok" : "idle"
-        )
+          canaryTriggered
+            ? "TRIGGERED — see Canary Guard"
+            : canaryActive
+              ? "active — watching decoys"
+              : "off",
+          canaryTriggered ? "bad" : canaryActive ? "ok" : "idle",
+        ),
       );
     }
     const ovSub = document.getElementById("ov-subline");
     if (ovSub && typeof summary.elevated === "boolean") {
-      ovSub.textContent += summary.elevated ? " · elevated scan" : " · standard-user scan";
+      ovSub.textContent += summary.elevated
+        ? " · elevated scan"
+        : " · standard-user scan";
     }
   }
 
@@ -3376,271 +2759,55 @@
   function evidenceText(scored) {
     const e = scored.entry;
     return (
-      "[CURE evidence] " + e.name + " | " + e.source + " | score " + scored.score + " (" + scored.risk + ")\n" +
-      "command: " + e.command + "\n" +
-      "location: " + e.location + "\n" +
-      "reasons: " + (scored.reasons || []).join("; ")
+      "[CURE evidence] " +
+      e.name +
+      " | " +
+      e.source +
+      " | score " +
+      scored.score +
+      " (" +
+      scored.risk +
+      ")\n" +
+      "command: " +
+      e.command +
+      "\n" +
+      "location: " +
+      e.location +
+      "\n" +
+      "reasons: " +
+      (scored.reasons || []).join("; ")
     );
   }
 
   function copyEvidence(text, btn) {
+    const originalLabel = btn.textContent;
     const done = () => {
       btn.textContent = "Copied ✓";
-      setTimeout(() => { btn.textContent = "Copy evidence"; }, 1800);
+      setTimeout(() => {
+        btn.textContent = originalLabel;
+      }, 1800);
     };
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(done, () => footFeedback("Copy failed", true));
+      navigator.clipboard
+        .writeText(text)
+        .then(done, () => footFeedback("Copy failed", true));
     } else {
       const ta = document.createElement("textarea");
       ta.value = text;
       document.body.appendChild(ta);
       ta.select();
-      try { document.execCommand("copy"); done(); }
-      catch (_) { footFeedback("Copy failed", true); }
+      try {
+        document.execCommand("copy");
+        done();
+      } catch (_) {
+        footFeedback("Copy failed", true);
+      }
       ta.remove();
     }
   }
 
   function buildAuditCard(scored, cleaned) {
-    const rawSource = String(scored.entry.source);
-    const card = document.createElement("li");
-    card.className = "review-card audit-card risk-" + scoreChipClass(scored.score);
-
-    const top = document.createElement("div");
-    top.className = "audit-top";
-    const iconWrap = document.createElement("div");
-    iconWrap.className = "src-icon " + (rawSource === "ScheduledTask" ? "icon-task" : rawSource === "RegistryRun" ? "icon-registry" : "icon-startup");
-    iconWrap.innerHTML = SOURCE_ICONS[rawSource] || SOURCE_ICONS.StartupFolder;
-    const main = document.createElement("div");
-    main.className = "rc-main";
-    const topRow = document.createElement("div");
-    topRow.className = "rc-top";
-    const name = document.createElement("span");
-    name.className = "rc-name";
-    name.textContent = scored.entry.name;
-    name.title = scored.entry.command;
-    const scoreEl = document.createElement("span");
-    scoreEl.className = "score-chip " + scoreChipClass(scored.score);
-    scoreEl.textContent = String(scored.score);
-    scoreEl.title = scored.risk + " · risk score " + scored.score;
-    topRow.append(name, scoreEl);
-    main.appendChild(topRow);
-    const chips = document.createElement("div");
-    chips.className = "chips";
-    const riskChip = document.createElement("span");
-    riskChip.className = "chip " + (scored.risk === "HighRisk" ? "red" : scored.risk === "Suspicious" ? "amber" : "teal");
-    riskChip.textContent = scored.risk === "HighRisk" ? "HIGH RISK" : scored.risk === "Suspicious" ? "SUSPICIOUS" : "SAFE";
-    chips.appendChild(riskChip);
-    const srcChip = document.createElement("span");
-    srcChip.className = "chip src";
-    srcChip.textContent = SOURCE_LABELS[rawSource] || "Persistence";
-    chips.appendChild(srcChip);
-    const atk = attackFor(scored);
-    if (atk) {
-      const atkChip = document.createElement("span");
-      atkChip.className = "chip attack";
-      atkChip.textContent = atk.id;
-      atkChip.title = "MITRE ATT&CK: " + atk.name;
-      chips.appendChild(atkChip);
-    }
-    const reasons = Array.isArray(scored.reasons) ? scored.reasons : [];
-    for (const reason of reasons.slice(0, 3)) {
-      const [label, tone] = reasonChipLabel(String(reason));
-      const chip = document.createElement("span");
-      chip.className = "chip" + (tone ? " " + tone : "");
-      chip.textContent = label;
-      chip.title = reason;
-      chips.appendChild(chip);
-    }
-    main.appendChild(chips);
-    top.append(iconWrap, main);
-
-    const actions = document.createElement("div");
-    actions.className = "audit-actions";
-    const toggle = document.createElement("button");
-    toggle.className = "detail-toggle";
-    toggle.textContent = "View details";
-    toggle.setAttribute("aria-expanded", "false");
-    const copy = document.createElement("button");
-    copy.className = "copy-btn";
-    copy.textContent = "Copy evidence";
-    copy.addEventListener("click", () => copyEvidence(evidenceText(scored), copy));
-    actions.append(toggle, copy);
-    // Open Location: strict id-based reveal (Explorer select, no shell).
-    // Offered only when something file-backed exists to reveal.
-    const reveal = document.createElement("button");
-    reveal.className = "copy-btn";
-    reveal.textContent = "Open location";
-    reveal.title = "Select this file in Explorer (opens nothing)";
-    reveal.addEventListener("click", async () => {
-      try {
-        await invoke("reveal_location", { id: scored.entry.id });
-      } catch (err) {
-        footFeedback(cleanErrText(err, "Nothing file-backed to reveal"), true);
-      }
-    });
-    actions.append(reveal);
-    if (cleaned) {
-      const undo = document.createElement("button");
-      undo.className = "quarantine-btn";
-      undo.textContent = "Undo";
-      undo.title = "Restore this file from quarantine";
-      undo.addEventListener("click", async () => {
-        undo.disabled = true;
-        try {
-          await invoke("undo_entry", { id: scored.entry.id });
-          undo.textContent = "Restored ✓";
-          undo.classList.add("row-done");
-          sessionQuarantined = Math.max(0, sessionQuarantined - 1);
-          refreshQuarantinedTile();
-          showReceipt("Restored: " + scored.entry.name, "returned to " + (scored.entry.location || "its original location"), false);
-          logEvent("action", "restored from quarantine: " + scored.entry.name);
-        } catch (err) {
-          undo.disabled = false;
-          footFeedback(cleanErrText(err, "Undo failed"), true);
-        }
-      });
-      actions.append(undo);
-    } else if (rawSource === "RegistryRun") {
-      const note = document.createElement("span");
-      note.className = "manual-note";
-      note.textContent = "Manual removal required";
-      actions.append(note);
-    } else {
-      const btn = document.createElement("button");
-      btn.className = "quarantine-btn";
-      btn.textContent = "Quarantine";
-      btn.addEventListener("click", async () => {
-        const ok = await requestConfirm({
-          kicker: "Confirm quarantine",
-          title: "Move this item to quarantine?",
-          facts: [
-            ["Item", scored.entry.name],
-            ["Location", scored.entry.location || "Not collected"],
-            ["Action", "Move this file to C.U.R.E. quarantine."],
-            ["Reversible", "Yes — it can be restored from Quarantine."],
-          ],
-          note: "This action changes the filesystem. The item will be listed under Quarantine with Undo.",
-          okLabel: "Quarantine item",
-        });
-        if (!ok) return;
-        btn.disabled = true;
-        try {
-          await invoke("quarantine_entry", { id: scored.entry.id, name: scored.entry.name, command: scored.entry.command });
-          btn.textContent = "Quarantined ✓";
-          btn.classList.add("row-done");
-          sessionQuarantined += 1;
-          refreshQuarantinedTile();
-          showReceipt("Quarantined: " + scored.entry.name, "moved to quarantine · Undo in the Quarantine view", false);
-          logEvent("action", "quarantined: " + scored.entry.name);
-        } catch (err) {
-          btn.disabled = false;
-          footFeedback(cleanErrText(err, "Quarantine failed"), true);
-          showReceipt("Quarantine failed", cleanErrText(err, "Quarantine failed"), true);
-        }
-      });
-      actions.append(btn);
-    }
-    top.append(actions);
-    card.append(top);
-
-    const drawer = document.createElement("dl");
-    drawer.className = "detail-drawer hidden";
-    const rows = [
-      ["Name", scored.entry.name],
-      ["Source", (SOURCE_LABELS[rawSource] || rawSource) + (atk ? " · MITRE " + atk.id + " " + atk.name : "")],
-      ["Command", scored.entry.command],
-      ["Path", scored.entry.location],
-      ["Score", String(scored.score) + " (" + scored.risk + ")"],
-      ["Reasons", reasons.join(" · ") || "—"],
-      ["Recommended action", recommendedAction(scored)],
-    ];
-    for (const [k, v] of rows) {
-      const dt = document.createElement("dt");
-      dt.textContent = k;
-      const dd = document.createElement("dd");
-      dd.textContent = v;
-      if (k === "Recommended action") dd.classList.add("rec-action");
-      drawer.append(dt, dd);
-    }
-    // Forensic rows, filled lazily on first expand (one backend round-trip
-    // per card): signature/publisher plus shortcut/task specifics.
-    const sigDt = document.createElement("dt");
-    sigDt.textContent = "Signature";
-    const sigDd = document.createElement("dd");
-    sigDd.textContent = "…";
-    const pubDt = document.createElement("dt");
-    pubDt.textContent = "Publisher";
-    const pubDd = document.createElement("dd");
-    pubDd.textContent = "…";
-    drawer.append(sigDt, sigDd, pubDt, pubDd);
-    const evDt = document.createElement("dt");
-    evDt.textContent = "Evidence";
-    const evDd = document.createElement("dd");
-    const evUl = document.createElement("ul");
-    evUl.className = "evidence-list";
-    for (const reason of reasons.length ? reasons : ["No scored signals — listed for context."]) {
-      const li = document.createElement("li");
-      li.textContent = reason;
-      evUl.appendChild(li);
-    }
-    evDd.appendChild(evUl);
-    drawer.append(evDt, evDd);
-    let detailsLoaded = false;
-    async function loadDetails() {
-      if (detailsLoaded) return;
-      detailsLoaded = true;
-      let details = null;
-      try {
-        details = await invoke("entry_details", { id: scored.entry.id });
-      } catch (_) {
-        sigDd.textContent = "Unavailable";
-        pubDd.textContent = "Unavailable";
-        return;
-      }
-      if (!details) {
-        sigDd.textContent = "Unavailable";
-        pubDd.textContent = "Unavailable";
-        return;
-      }
-      sigDd.textContent = details.signature || "UNKNOWN";
-      pubDd.textContent = details.publisher || "Unavailable (unsigned or verdict-only check)";
-      const extra = [];
-      if (details.shortcut) {
-        const sc = details.shortcut;
-        if (sc.expanded_target) extra.push(["Shortcut target", sc.expanded_target + (sc.target_exists ? "" : "  [MISSING]")]);
-        if (sc.info && sc.info.arguments) extra.push(["Shortcut arguments", sc.info.arguments]);
-        if (sc.info && sc.info.working_dir) extra.push(["Shortcut workdir", sc.info.working_dir]);
-      }
-      if (details.task) {
-        const t = details.task;
-        t.actions.forEach((a, i) => {
-          extra.push(["Action " + (i + 1), a.command + (a.arguments ? " " + a.arguments : "")]);
-          if (a.working_dir) extra.push(["Action " + (i + 1) + " workdir", a.working_dir]);
-        });
-        if (t.author) extra.push(["Task author", t.author]);
-        if (t.run_level) extra.push(["Run level", t.run_level]);
-        if (t.user_id) extra.push(["Runs as", t.user_id]);
-        if (t.triggers && t.triggers.length) extra.push(["Triggers", t.triggers.join(", ")]);
-        extra.push(["Task enabled", t.enabled === false ? "No" : "Yes"]);
-        if (t.hidden) extra.push(["Task hidden flag", "Yes"]);
-      }
-      for (const [k, v] of extra) {
-        const dt = document.createElement("dt");
-        dt.textContent = k;
-        const dd = document.createElement("dd");
-        dd.textContent = v;
-        drawer.append(dt, dd);
-      }
-    }
-    toggle.addEventListener("click", () => {
-      const open = drawer.classList.toggle("hidden");
-      toggle.setAttribute("aria-expanded", String(!open));
-      toggle.textContent = open ? "View details" : "Hide details";
-      if (!open) loadDetails();
-    });
-    card.append(drawer);
-    return card;
+    return buildCard(scored, cleaned);
   }
 
   function renderAudit(summary) {
@@ -3655,14 +2822,26 @@
     list.innerHTML = "";
     const entries = summary.high_risk_cleaned
       .map((e) => ({ e, cleaned: true }))
-      .concat(summary.suspicious_for_review.map((e) => ({ e, cleaned: false })));
+      .concat(
+        summary.suspicious_for_review.map((e) => ({ e, cleaned: false })),
+      );
     entries.sort((a, b) => b.e.score - a.e.score);
-    const shown = entries.filter(({ e }) => auditFilter === "all" || e.risk === auditFilter);
+    const shown = entries.filter(
+      ({ e }) => auditFilter === "all" || e.risk === auditFilter,
+    );
     for (const { e, cleaned } of shown) list.append(buildAuditCard(e, cleaned));
     const sub = document.getElementById("audit-subline");
-    if (sub) sub.textContent = entries.length + " persistence finding(s) in the last scan — showing " + shown.length + " — nothing is disabled automatically.";
+    if (sub)
+      sub.textContent =
+        entries.length +
+        " persistence finding(s) in the last scan — showing " +
+        shown.length +
+        " — nothing is disabled automatically.";
     const note = document.getElementById("audit-note");
-    if (note) note.textContent = summary.safe + " safe entries are not listed individually. Publisher data is unavailable (signature checks are verdict-only).";
+    if (note)
+      note.textContent =
+        summary.safe +
+        " safe-scored entries are not listed individually. Open evidence to collect signature and publisher details.";
   }
 
   // ---- process sentinel view ----
@@ -3691,8 +2870,15 @@
     scoreTd.textContent = String(p.score);
     const riskTd = document.createElement("td");
     const badge = document.createElement("span");
-    badge.className = "severity-badge " + (p.risk === "HighRisk" ? "sev-bad" : p.risk === "Suspicious" ? "sev-warn" : "sev-safe");
-    badge.textContent = p.risk === "HighRisk" ? "HIGH RISK" : (p.risk || "").toUpperCase();
+    badge.className =
+      "severity-badge " +
+      (p.risk === "HighRisk"
+        ? "sev-bad"
+        : p.risk === "Suspicious"
+          ? "sev-warn"
+          : "sev-safe");
+    badge.textContent =
+      p.risk === "HighRisk" ? "HIGH RISK" : (p.risk || "").toUpperCase();
     riskTd.append(badge);
     const rsnTd = document.createElement("td");
     rsnTd.className = "row-reasons selectable";
@@ -3703,7 +2889,8 @@
     const actTd = document.createElement("td");
     const kill = document.createElement("button");
     kill.className = "kill-one";
-    kill.textContent = "Kill";
+    kill.classList.add("btn");
+    kill.textContent = "Terminate";
     kill.title = "Terminate this process (asks for confirmation)";
     kill.addEventListener("click", async () => {
       if (kill.disabled) return;
@@ -3715,7 +2902,10 @@
           ["PID", String(p.pid)],
           ["Path", p.exe_path || "Not collected"],
           ["Action", "Terminate the process immediately."],
-          ["Reversible", "No — termination cannot be undone, but nothing is deleted."],
+          [
+            "Reversible",
+            "No — termination cannot be undone, but nothing is deleted.",
+          ],
         ],
         note: "The PID is re-validated before termination. Re-run a scan afterwards to verify.",
         okLabel: "Terminate process",
@@ -3724,16 +2914,21 @@
       kill.disabled = true;
       kill.textContent = "Killing…";
       try {
-        const report = await invoke("kill_high_risk_processes", { processes: [[p.name, p.pid]] });
+        const report = await invoke("kill_high_risk_processes", {
+          processes: [[p.name, p.pid]],
+        });
         const ok = (report.killed || []).length > 0;
         kill.textContent = ok ? "Killed" : "Failed";
         if (!ok) kill.disabled = false;
-        const msg = ok ? "Killed " + p.name + " (pid " + p.pid + ")" : "Kill failed: " + (report.failed || []).join("; ");
+        const msg = ok
+          ? "Killed " + p.name + " (pid " + p.pid + ")"
+          : "Kill failed: " + (report.failed || []).join("; ");
         footFeedback(msg, !ok);
         logEvent("action", msg);
       } catch (err) {
         kill.disabled = false;
-        kill.textContent = "Kill";
+        kill.classList.add("btn");
+        kill.textContent = "Terminate";
         footFeedback(cleanErrText(err, "Kill failed"), true);
       }
     });
@@ -3745,7 +2940,10 @@
   function renderProcesses(summary) {
     procCache = summary.process_findings || [];
     const sub = document.getElementById("proc-subline");
-    if (sub) sub.textContent = procCache.length + " flagged process(es) in the last scan. Killing requires confirmation per process — PIDs are re-validated before termination.";
+    if (sub)
+      sub.textContent =
+        procCache.length +
+        " flagged process(es) in the last scan. Killing requires confirmation per process — PIDs are re-validated before termination.";
     paintProcessRows();
   }
 
@@ -3753,78 +2951,140 @@
     const body = document.getElementById("proc-rows");
     if (!body) return;
     body.innerHTML = "";
-    const rows = procCache.filter((p) => procFilter === "all" || p.risk === procFilter);
+    const rows = procCache.filter(
+      (p) => procFilter === "all" || p.risk === procFilter,
+    );
     for (const p of rows) body.append(procRow(p));
     const empty = document.getElementById("proc-empty");
     if (empty) {
       empty.classList.toggle("hidden", rows.length > 0);
-      if (!rows.length) empty.textContent = procCache.length ? "No processes match this filter." : "No flagged processes in the last scan.";
+      if (!rows.length)
+        empty.textContent = procCache.length
+          ? "No processes match this filter."
+          : "No flagged processes in the last scan.";
     }
   }
 
   // ---- quarantine view (real backend data) ----
 
+  async function refreshQuarantineCount() {
+    try {
+      const records = await invoke("list_quarantine");
+      setMetric("ov-quarantined", String(records.length), null);
+    } catch (_) {
+      setMetric("ov-quarantined", "Unavailable", null);
+    }
+  }
   async function refreshQuarantine() {
-    const list = document.getElementById("q-list");
-    const empty = document.getElementById("q-empty");
-    if (!list) return;
-    let records = [];
+    const list = document.getElementById("q-list"),
+      empty = document.getElementById("q-empty");
+    const sub = document.getElementById("q-subline");
+    let records;
     try {
       records = await invoke("list_quarantine");
     } catch (err) {
-      footFeedback(cleanErrText(err, "Could not list quarantine"), true);
+      sub.textContent = cleanErrText(
+        err,
+        "Quarantine unavailable. Choose Refresh to retry.",
+      );
+      footFeedback(sub.textContent, true);
       return;
     }
-    list.innerHTML = "";
+    list.replaceChildren();
+    empty.classList.toggle("hidden", records.length > 0);
+    sub.textContent =
+      records.length +
+      " archived file" +
+      (records.length === 1 ? "" : "s") +
+      " · moves recorded · scoped undo";
     for (const r of records) {
-      const li = document.createElement("li");
-      li.className = "review-card q-row";
-      const top = document.createElement("div");
-      top.className = "q-top";
-      const name = document.createElement("span");
-      name.className = "rc-name";
-      name.textContent = r.name;
-      name.title = r.original_path;
-      const src = document.createElement("span");
-      src.className = "chip src";
-      src.textContent = r.source || "quarantine";
-      const when = document.createElement("span");
-      when.className = "q-archived";
-      try { when.textContent = new Date(r.archived_at).toLocaleString(); }
-      catch (_) { when.textContent = r.archived_at || ""; }
-      const undo = document.createElement("button");
-      undo.className = "copy-btn q-undo";
-      undo.textContent = "Undo";
+      const li = makeText("li", "", "review-card q-row");
+      const top = makeText("div", "", "q-top");
+      top.append(
+        makeText("span", r.name, "rc-name"),
+        makeText("span", r.source, "chip src"),
+      );
+      const undo = makeText("button", "Undo / Restore", "copy-btn q-undo");
       undo.title = "Restore this file to its original location";
+      const pending = r.state === "Pending";
+      if (pending) undo.textContent = "Reconcile / Undo";
       undo.addEventListener("click", async () => {
         undo.disabled = true;
+        undo.setAttribute("aria-busy", "true");
         try {
           await invoke("undo_entry", { id: r.id });
-          logEvent("action", "restored from quarantine: " + r.name);
+          quarantinedIds.delete(r.id);
+          evidenceCache.delete(r.id);
+          logEvent("action", "Restored: " + r.name);
           sessionQuarantined = Math.max(0, sessionQuarantined - 1);
           refreshQuarantinedTile();
-          showReceipt("Restored: " + r.name, "returned to " + (r.original_path || "its original location"), false);
+          showReceipt(
+            "Restored: " + r.name,
+            "returned to " + r.original_path,
+            false,
+          );
+          const receipt = document.getElementById("q-receipt");
+          receipt.textContent =
+            "Restored: " +
+            r.name +
+            " · " +
+            r.original_path +
+            " · byte integrity checked; ACL/timestamp restore is best effort.";
+          receipt.classList.remove("hidden");
+          footFeedback("Restored: " + r.name, false);
           await refreshQuarantine();
+          await refreshQuarantineCount();
+          if (lastSummary) {
+            renderResults(lastSummary);
+            paintAuditList();
+          }
         } catch (err) {
           undo.disabled = false;
+          undo.removeAttribute("aria-busy");
           footFeedback(cleanErrText(err, "Undo failed"), true);
         }
       });
-      top.append(name, src, when, undo);
-      const paths = document.createElement("div");
-      paths.className = "q-paths selectable";
-      paths.tabIndex = 0;
-      paths.textContent = r.original_path + "  →  " + r.quarantine_path;
-      paths.title = "Original: " + r.original_path + "\nQuarantine: " + r.quarantine_path;
-      const rev = document.createElement("div");
-      rev.className = "q-rev dim";
-      rev.textContent = "Reversible — restore with Undo. Quarantined items are never deleted.";
-      li.append(top, paths, rev);
+      top.append(undo);
+      li.append(top);
+      const dl = makeText("dl", "", "q-facts");
+      const facts = [
+        ["Original location", r.original_path],
+        ["Quarantine location", r.quarantine_path],
+        ["SHA-256", r.sha256_hex || "Not recorded (legacy record)"],
+        ["Size", r.file_size == null ? "Not recorded" : r.file_size + " bytes"],
+        ["Quarantined", r.archived_at],
+        [
+          "ACL / fidelity",
+          r.acl_captured
+            ? "ACL snapshot captured · restore is best effort"
+            : "ACL snapshot unavailable",
+        ],
+        ["Record state", r.state || "Committed"],
+        [
+          "Reason",
+          "Explicit operator-confirmed quarantine · source: " + r.source,
+        ],
+        [
+          "Undo",
+          pending
+            ? "Engine reconciles the pending record before scoped restore"
+            : "Available · scoped restore with integrity checks",
+        ],
+      ];
+      if ((r.security_notes || []).length)
+        facts.push(["Fidelity notes", r.security_notes.join("; ")]);
+      for (const [key, value] of facts)
+        dl.append(makeText("dt", key), makeText("dd", value));
+      li.append(dl);
+      li.append(
+        makeText(
+          "p",
+          "Quarantine does not terminate a running process. Undo never overwrites an existing original file.",
+          "q-rev dim",
+        ),
+      );
       list.append(li);
     }
-    if (empty) empty.classList.toggle("hidden", records.length > 0);
-    const sub = document.getElementById("q-subline");
-    if (sub && records.length) sub.textContent = records.length + " item(s) in quarantine — nothing is ever deleted by quarantine. Restore any item with Undo.";
   }
 
   // ══════════════ incident investigation view ══════
@@ -3849,18 +3109,31 @@
   };
 
   const VERDICT_WHY = {
-    CauseIdentified: "A startup entry's exact executable launched with a transient window on the same process.",
-    StrongCorrelation: "A startup entry matches an observed launch. Consistent — not proof of intent.",
-    ReviewRequired: "Only weak or partial relationships found — investigate manually.",
-    NoDirectEvidence: "Observation completed; nothing links activity to startup persistence.",
-    InsufficientObservation: "Observation failed or produced no usable data — not a clean bill of health.",
+    CauseIdentified:
+      "A startup entry's exact executable launched with a transient window on the same process.",
+    StrongCorrelation:
+      "A startup entry matches an observed launch. Consistent — not proof of intent.",
+    ReviewRequired:
+      "Only weak or partial relationships found — investigate manually.",
+    NoDirectEvidence:
+      "Observation completed; nothing links activity to startup persistence.",
+    InsufficientObservation:
+      "Observation failed or produced no usable data — not a clean bill of health.",
   };
 
-  const LEVEL_CLASS = { Direct: "sev-bad", Strong: "sev-warn", Partial: "", Weak: "", None: "" };
+  const LEVEL_CLASS = {
+    Direct: "sev-bad",
+    Strong: "sev-warn",
+    Partial: "",
+    Weak: "",
+    None: "",
+  };
   // Exact backend semantics (core/src/incident.rs module docs). Display only.
   const LEVEL_DEFS = {
-    Direct: "finding's executable path matches the observed executable path (normalized). Service entries additionally require the reported PID to match.",
-    Strong: "finding command and observed command line reference each other (executable substring either direction, or shared distinctive arguments ≥12 chars) with the launch inside the window.",
+    Direct:
+      "finding's executable path matches the observed executable path (normalized). Service entries additionally require the reported PID to match.",
+    Strong:
+      "finding command and observed command line reference each other (executable substring either direction, or shared distinctive arguments ≥12 chars) with the launch inside the window.",
     Partial: "same executable file name, different paths (both shown).",
     Weak: "same folder but different program, or a child of a correlated process. Proximity only.",
     None: "no observed relationship.",
@@ -3872,31 +3145,72 @@
   // CHECK FAILED / ACCESS DENIED. Uncertainty never renders as success.
   // (Scan CoverageState "Checked" is also accepted defensively.)
   function sourceStatusInfo(status) {
-    if (status === "Available" || status === "Checked" || (status && typeof status === "object" && ("Available" in status || "Checked" in status))) {
+    if (
+      status === "Available" ||
+      status === "Checked" ||
+      (status &&
+        typeof status === "object" &&
+        ("Available" in status || "Checked" in status))
+    ) {
       return { label: "CHECKED", level: "ok", detail: "fully enumerated" };
     }
     if (typeof status === "string") {
-      if (status === "Unavailable" || status === "NotChecked") return { label: status === "NotChecked" ? "NOT CHECKED" : "UNAVAILABLE", level: "idle", detail: "cannot run here" };
-      if (status === "CheckFailed") return { label: "CHECK FAILED", level: "bad", detail: "enumeration failed" };
-      if (status === "AccessDenied") return { label: "ACCESS DENIED", level: "bad", detail: "access denied (elevation may help)" };
+      if (status === "Unavailable" || status === "NotChecked")
+        return {
+          label: status === "NotChecked" ? "NOT CHECKED" : "UNAVAILABLE",
+          level: "idle",
+          detail: "cannot run here",
+        };
+      if (status === "CheckFailed")
+        return {
+          label: "CHECK FAILED",
+          level: "bad",
+          detail: "enumeration failed",
+        };
+      if (status === "AccessDenied")
+        return {
+          label: "ACCESS DENIED",
+          level: "bad",
+          detail: "access denied (elevation may help)",
+        };
       return { label: String(status).toUpperCase(), level: "idle", detail: "" };
     }
     if (status && typeof status === "object") {
       if ("Partial" in status) {
         const p = status.Partial || {};
-        return { label: "PARTIAL", level: "warn", detail: (p.skipped || 0) + " skipped" + (p.reason ? " — " + p.reason : "") };
+        return {
+          label: "PARTIAL",
+          level: "warn",
+          detail:
+            (p.skipped || 0) + " skipped" + (p.reason ? " — " + p.reason : ""),
+        };
       }
       if ("Unavailable" in status) {
         const u = status.Unavailable || {};
-        return { label: "UNAVAILABLE", level: "idle", detail: (typeof u === "string" ? u : u.reason) || "cannot run here" };
+        return {
+          label: "UNAVAILABLE",
+          level: "idle",
+          detail: (typeof u === "string" ? u : u.reason) || "cannot run here",
+        };
       }
       if ("CheckFailed" in status) {
         const f = status.CheckFailed || {};
-        return { label: "CHECK FAILED", level: "bad", detail: (typeof f === "string" ? f : f.reason) || "enumeration failed" };
+        return {
+          label: "CHECK FAILED",
+          level: "bad",
+          detail:
+            (typeof f === "string" ? f : f.reason) || "enumeration failed",
+        };
       }
       if ("AccessDenied" in status) {
         const a = status.AccessDenied || {};
-        return { label: "ACCESS DENIED", level: "bad", detail: (typeof a === "string" ? a : a.reason) || "access denied (elevation may help)" };
+        return {
+          label: "ACCESS DENIED",
+          level: "bad",
+          detail:
+            (typeof a === "string" ? a : a.reason) ||
+            "access denied (elevation may help)",
+        };
       }
     }
     return { label: "NOT COLLECTED", level: "idle", detail: "" };
@@ -3935,20 +3249,27 @@
         dt.textContent = k;
         const dd = document.createElement("dd");
         dd.className = "selectable";
-        dd.textContent = (v === undefined || v === null || v === "") ? "Not collected" : String(v);
-        if (v !== undefined && v !== null && String(v).length > 60) dd.title = String(v);
+        dd.textContent =
+          v === undefined || v === null || v === ""
+            ? "Not collected"
+            : String(v);
+        if (v !== undefined && v !== null && String(v).length > 60)
+          dd.title = String(v);
         body.appendChild(dt);
         body.appendChild(dd);
       }
     }
     overlay.classList.remove("hidden");
+    document.getElementById("app").inert = true;
     if (closeBtn) closeBtn.focus();
   }
   function closeIncDrawer() {
     const overlay = document.getElementById("inc-drawer-overlay");
     if (overlay) overlay.classList.add("hidden");
+    document.getElementById("app").inert = false;
     if (incDrawerInvoker && incDrawerInvoker.focus) incDrawerInvoker.focus();
     incDrawerInvoker = null;
+    if (canaryQueued) showCanaryAlert();
   }
 
   function incLifetime(ms) {
@@ -3966,8 +3287,10 @@
     topRow.className = "rc-top";
     const name = document.createElement("span");
     name.className = "rc-name selectable trunc";
-    name.textContent = (c.process_name || "Not collected") + " (pid " + c.process_pid + ")";
-    name.title = (c.process_name || "Not collected") + " (pid " + c.process_pid + ")";
+    name.textContent =
+      (c.process_name || "Not collected") + " (pid " + c.process_pid + ")";
+    name.title =
+      (c.process_name || "Not collected") + " (pid " + c.process_pid + ")";
     name.tabIndex = 0;
     const badgeEl = document.createElement("span");
     badgeEl.className = "severity-badge " + (LEVEL_CLASS[c.level] || "");
@@ -3979,7 +3302,9 @@
     chips.className = "chips";
     const fchip = document.createElement("span");
     fchip.className = "chip src selectable";
-    fchip.textContent = (c.finding_name || "no finding") + (c.finding_source ? " · " + c.finding_source : "");
+    fchip.textContent =
+      (c.finding_name || "no finding") +
+      (c.finding_source ? " · " + c.finding_source : "");
     fchip.title = "finding id: " + (c.finding_id || "Not collected");
     fchip.tabIndex = 0;
     chips.appendChild(fchip);
@@ -4015,14 +3340,41 @@
         ["Process", c.process_name || "Not collected"],
         ["PID", String(c.process_pid)],
         ["PPID", p ? String(p.ppid) : "Not collected"],
-        ["Path", p ? (p.exe_path || "Not collected") : "Not collected"],
-        ["Command line", p && p.command_line ? p.command_line : "Not collected"],
+        ["Path", p ? p.exe_path || "Not collected" : "Not collected"],
+        [
+          "Command line",
+          p && p.command_line ? p.command_line : "Not collected",
+        ],
       ];
-      openIncDrawer("Correlation · " + (c.level || "?"), (c.process_name || "?") + " ↔ " + (c.finding_name || "no finding"), [
-        { heading: "CORRELATION", rows: [["Classification", (c.level || "Not collected") + " — " + (LEVEL_DEFS[c.level] || "")], ["Finding", (c.finding_name || "Not collected") + (c.finding_source ? " · " + c.finding_source : "")], ["Finding id", c.finding_id || "Not collected"], ["Related evidence", (c.evidence || []).join("; ") || "Not collected"]] },
-        { heading: "EXECUTION", rows: rows.slice(3) },
-        { heading: "IDENTITY", rows: rows.slice(0, 3) },
-      ]);
+      openIncDrawer(
+        "Correlation · " + (c.level || "?"),
+        (c.process_name || "?") + " ↔ " + (c.finding_name || "no finding"),
+        [
+          {
+            heading: "CORRELATION",
+            rows: [
+              [
+                "Classification",
+                (c.level || "Not collected") +
+                  " — " +
+                  (LEVEL_DEFS[c.level] || ""),
+              ],
+              [
+                "Finding",
+                (c.finding_name || "Not collected") +
+                  (c.finding_source ? " · " + c.finding_source : ""),
+              ],
+              ["Finding id", c.finding_id || "Not collected"],
+              [
+                "Related evidence",
+                (c.evidence || []).join("; ") || "Not collected",
+              ],
+            ],
+          },
+          { heading: "EXECUTION", rows: rows.slice(3) },
+          { heading: "IDENTITY", rows: rows.slice(0, 3) },
+        ],
+      );
     });
     li.appendChild(inspect);
     return li;
@@ -4042,41 +3394,86 @@
     const badge = document.getElementById("inc-verdict");
     if (badge) {
       badge.textContent = VERDICT_TEXT[result.verdict] || result.verdict;
-      badge.className = "severity-badge " + (VERDICT_CLASS[result.verdict] || "");
+      badge.className =
+        "severity-badge " + (VERDICT_CLASS[result.verdict] || "");
     }
     const why = document.getElementById("inc-verdict-why");
     if (why) why.textContent = VERDICT_WHY[result.verdict] || "";
-    for (const id of ["inc-results", "inc-scope-panel", "inc-timeline-panel", "inc-review-panel", "inc-processes-panel", "inc-windows-panel", "inc-export-panel"]) {
+    for (const id of [
+      "inc-results",
+      "inc-scope-panel",
+      "inc-timeline-panel",
+      "inc-review-panel",
+      "inc-processes-panel",
+      "inc-windows-panel",
+      "inc-export-panel",
+    ]) {
       const el = document.getElementById(id);
       if (el) el.classList.remove("hidden");
     }
     const recPanel = document.getElementById("inc-recovery-panel");
-    if (recPanel) recPanel.classList.toggle("hidden", result.verdict !== "InsufficientObservation");
+    if (recPanel)
+      recPanel.classList.toggle(
+        "hidden",
+        result.verdict !== "InsufficientObservation",
+      );
     const meta = document.getElementById("inc-meta");
     if (meta) {
-      meta.textContent = (result.investigation_id || "unknown id") + " · started " + (result.started_at || "Not collected") +
-        " · observed " + (result.duration_secs !== undefined ? result.duration_secs + "s" : "Not collected") +
-        " · " + (result.elevated ? "elevated" : "standard-user") +
+      meta.textContent =
+        (result.investigation_id || "unknown id") +
+        " · started " +
+        (result.started_at || "Not collected") +
+        " · observed " +
+        (result.duration_secs !== undefined
+          ? result.duration_secs + "s"
+          : "Not collected") +
+        " · " +
+        (result.elevated ? "elevated" : "standard-user") +
         (result.truncated ? " · truncated — results capped" : " · complete");
     }
     const receipt = document.getElementById("inc-receipt");
     if (receipt) {
       receipt.classList.remove("hidden");
-      receipt.textContent = "Investigation " + (result.investigation_id || "") + " complete: " +
-        (VERDICT_TEXT[result.verdict] || result.verdict || "Not collected") + " — observed " +
-        (result.processes || []).length + " processes, " + (result.windows || []).length + " windows, " +
-        (result.correlations || []).length + " correlations.";
+      receipt.textContent =
+        "Investigation " +
+        (result.investigation_id || "") +
+        " complete: " +
+        (VERDICT_TEXT[result.verdict] || result.verdict || "Not collected") +
+        " — observed " +
+        (result.processes || []).length +
+        " processes, " +
+        (result.windows || []).length +
+        " windows, " +
+        (result.correlations || []).length +
+        " correlations.";
     }
     const scope = document.getElementById("inc-scope");
     if (scope) {
       scope.innerHTML = "";
       const winInfo = sourceStatusInfo(result.window_observation);
       const procInfo = sourceStatusInfo(result.process_observation);
-      const winRow = covRow("Window observation", winInfo.label + (winInfo.detail ? " — " + winInfo.detail : ""), winInfo.level);
-      winRow.title = "Titles + classes only — no screenshots, no keystrokes, no contents.";
-      const procRowEl = covRow("Process observation", procInfo.label + (procInfo.detail ? " — " + procInfo.detail : ""), procInfo.level);
-      procRowEl.title = "Command lines are fetched only for correlated processes (bounded).";
-      const durRow = covRow("Observation window", (result.duration_secs !== undefined ? result.duration_secs + "s" : "Not collected") + (result.elevated ? " · elevated" : " · standard-user"), "idle");
+      const winRow = covRow(
+        "Window observation",
+        winInfo.label + (winInfo.detail ? " — " + winInfo.detail : ""),
+        winInfo.level,
+      );
+      winRow.title =
+        "Titles + classes only — no screenshots, no keystrokes, no contents.";
+      const procRowEl = covRow(
+        "Process observation",
+        procInfo.label + (procInfo.detail ? " — " + procInfo.detail : ""),
+        procInfo.level,
+      );
+      procRowEl.title =
+        "Command lines are fetched only for correlated processes (bounded).";
+      const durRow = covRow(
+        "Observation window",
+        (result.duration_secs !== undefined
+          ? result.duration_secs + "s"
+          : "Not collected") +
+          (result.elevated ? " · elevated" : " · standard-user"),
+        "idle",
+      );
       scope.append(durRow, procRowEl, winRow);
     }
     const procOf = new Map((result.processes || []).map((p) => [p.pid, p]));
@@ -4116,19 +3513,57 @@
         fields.push(["process", proc ? proc.name : "Not collected"]);
         fields.push(["pid", pid !== null ? String(pid) : "Not collected"]);
         fields.push(["ppid", proc ? String(proc.ppid) : "Not collected"]);
-        fields.push(["path", proc ? (proc.exe_path || "Not collected") : "Not collected"]);
-        fields.push(["command line", proc && proc.command_line ? proc.command_line : "Not collected"]);
-        const corrs = pid !== null ? (corrByPid.get(pid) || []) : [];
-        fields.push(["correlation", corrs.length ? corrs.map((c) => c.level + ": " + (c.finding_name || "finding")).join("; ") : "Not collected"]);
+        fields.push([
+          "path",
+          proc ? proc.exe_path || "Not collected" : "Not collected",
+        ]);
+        fields.push([
+          "command line",
+          proc && proc.command_line ? proc.command_line : "Not collected",
+        ]);
+        const corrs = pid !== null ? corrByPid.get(pid) || [] : [];
+        fields.push([
+          "correlation",
+          corrs.length
+            ? corrs
+                .map((c) => c.level + ": " + (c.finding_name || "finding"))
+                .join("; ")
+            : "Not collected",
+        ]);
         let winText = "Not collected";
-        if (String(e.kind || "").toLowerCase().includes("window")) {
-          const match = (result.windows || []).find((w) => w.title && String(e.text || "").includes(w.title));
-          if (match) winText = "“" + match.title + "” · class " + (match.class_name || "Not collected") + " · pid " + match.pid;
+        if (
+          String(e.kind || "")
+            .toLowerCase()
+            .includes("window")
+        ) {
+          const match = (result.windows || []).find(
+            (w) => w.title && String(e.text || "").includes(w.title),
+          );
+          if (match)
+            winText =
+              "“" +
+              match.title +
+              "” · class " +
+              (match.class_name || "Not collected") +
+              " · pid " +
+              match.pid;
           else if (pid !== null && winsByPid.get(pid)) {
-            winText = winsByPid.get(pid).map((w) => "“" + (w.title || "(no title)") + "” · " + (w.class_name || "?")).join("; ");
+            winText = winsByPid
+              .get(pid)
+              .map(
+                (w) =>
+                  "“" +
+                  (w.title || "(no title)") +
+                  "” · " +
+                  (w.class_name || "?"),
+              )
+              .join("; ");
           }
         } else if (pid !== null && winsByPid.get(pid)) {
-          winText = winsByPid.get(pid).map((w) => "“" + (w.title || "(no title)") + "”").join("; ");
+          winText = winsByPid
+            .get(pid)
+            .map((w) => "“" + (w.title || "(no title)") + "”")
+            .join("; ");
         }
         fields.push(["window", winText]);
         for (const [k, v] of fields) {
@@ -4147,14 +3582,95 @@
           btn.addEventListener("click", () => {
             const pc = corrByPid.get(proc.pid) || [];
             const ws = winsByPid.get(proc.pid) || [];
-            openIncDrawer(proc.name || ("pid " + proc.pid), "pid " + proc.pid + " · ppid " + proc.ppid, [
-              { heading: "IDENTITY", rows: [["Name", proc.name || "Not collected"], ["PID", String(proc.pid)], ["PPID", String(proc.ppid)]] },
-              { heading: "EXECUTION", rows: [["Path", proc.exe_path || "Not collected"], ["Command line", proc.command_line || "Not collected"], ["Creation source", proc.via_events ? "WMI creation event" : "snapshot diff"], ["Publisher", "Not collected"], ["Signature", "Not collected"]] },
-              { heading: "OBSERVATION", rows: [["First seen", "+" + proc.first_seen_ms + " ms"], ["Last seen", "+" + proc.last_seen_ms + " ms"], ["Lifetime", incLifetime((proc.last_seen_ms || 0) - (proc.first_seen_ms || 0))], ["Exited", proc.exited ? "Yes" : "No"], ["Baseline context", proc.pre_existing ? "already running when observation started" : "created during the window"]] },
-              { heading: "WINDOW", rows: ws.length ? ws.map((w, i) => ["Window " + (i + 1), "“" + (w.title || "(no title)") + "” · " + (w.class_name || "?") + " · " + incLifetime((w.last_seen_ms || 0) - (w.first_seen_ms || 0))]) : [["Window", "No window observed for this PID"]] },
-              { heading: "CORRELATION", rows: pc.length ? pc.map((c, i) => ["Link " + (i + 1), c.level + ": " + (c.finding_name || "") + " — " + (LEVEL_DEFS[c.level] || "")]) : [["Classification", "No startup correlation"]] },
-              { heading: "SOURCE STATUS", rows: [["Process observation", sourceStatusInfo(result.process_observation).label], ["Window observation", sourceStatusInfo(result.window_observation).label]] },
-            ]);
+            openIncDrawer(
+              proc.name || "pid " + proc.pid,
+              "pid " + proc.pid + " · ppid " + proc.ppid,
+              [
+                {
+                  heading: "IDENTITY",
+                  rows: [
+                    ["Name", proc.name || "Not collected"],
+                    ["PID", String(proc.pid)],
+                    ["PPID", String(proc.ppid)],
+                  ],
+                },
+                {
+                  heading: "EXECUTION",
+                  rows: [
+                    ["Path", proc.exe_path || "Not collected"],
+                    ["Command line", proc.command_line || "Not collected"],
+                    [
+                      "Creation source",
+                      proc.via_events ? "WMI creation event" : "snapshot diff",
+                    ],
+                    ["Publisher", "Not collected"],
+                    ["Signature", "Not collected"],
+                  ],
+                },
+                {
+                  heading: "OBSERVATION",
+                  rows: [
+                    ["First seen", "+" + proc.first_seen_ms + " ms"],
+                    ["Last seen", "+" + proc.last_seen_ms + " ms"],
+                    [
+                      "Lifetime",
+                      incLifetime(
+                        (proc.last_seen_ms || 0) - (proc.first_seen_ms || 0),
+                      ),
+                    ],
+                    ["Exited", proc.exited ? "Yes" : "No"],
+                    [
+                      "Baseline context",
+                      proc.pre_existing
+                        ? "already running when observation started"
+                        : "created during the window",
+                    ],
+                  ],
+                },
+                {
+                  heading: "WINDOW",
+                  rows: ws.length
+                    ? ws.map((w, i) => [
+                        "Window " + (i + 1),
+                        "“" +
+                          (w.title || "(no title)") +
+                          "” · " +
+                          (w.class_name || "?") +
+                          " · " +
+                          incLifetime(
+                            (w.last_seen_ms || 0) - (w.first_seen_ms || 0),
+                          ),
+                      ])
+                    : [["Window", "No window observed for this PID"]],
+                },
+                {
+                  heading: "CORRELATION",
+                  rows: pc.length
+                    ? pc.map((c, i) => [
+                        "Link " + (i + 1),
+                        c.level +
+                          ": " +
+                          (c.finding_name || "") +
+                          " — " +
+                          (LEVEL_DEFS[c.level] || ""),
+                      ])
+                    : [["Classification", "No startup correlation"]],
+                },
+                {
+                  heading: "SOURCE STATUS",
+                  rows: [
+                    [
+                      "Process observation",
+                      sourceStatusInfo(result.process_observation).label,
+                    ],
+                    [
+                      "Window observation",
+                      sourceStatusInfo(result.window_observation).label,
+                    ],
+                  ],
+                },
+              ],
+            );
           });
           li.appendChild(btn);
         }
@@ -4172,29 +3688,40 @@
     if (corrStrong) corrStrong.innerHTML = "";
     if (corr) corr.innerHTML = "";
     {
-      const strong = (result.correlations || []).filter((c) => c.level === "Direct" || c.level === "Strong");
-      const weak = (result.correlations || []).filter((c) => c.level !== "Direct" && c.level !== "Strong");
-      for (const c of strong) if (corrStrong) corrStrong.appendChild(buildCorrCard(c, procOf));
-      for (const c of weak) if (corr) corr.appendChild(buildCorrCard(c, procOf));
+      const strong = (result.correlations || []).filter(
+        (c) => c.level === "Direct" || c.level === "Strong",
+      );
+      const weak = (result.correlations || []).filter(
+        (c) => c.level !== "Direct" && c.level !== "Strong",
+      );
+      for (const c of strong)
+        if (corrStrong) corrStrong.appendChild(buildCorrCard(c, procOf));
+      for (const c of weak)
+        if (corr) corr.appendChild(buildCorrCard(c, procOf));
       const total = (result.correlations || []).length;
       if (corrEmpty) corrEmpty.classList.toggle("hidden", total > 0);
       if (!strong.length && corrStrong) {
         const li = document.createElement("li");
         li.className = "review-card";
-        li.textContent = total ? "No supporting (DIRECT/STRONG) evidence in this observation." : "No supporting (DIRECT/STRONG) evidence in this observation.";
+        li.textContent = total
+          ? "No supporting (DIRECT/STRONG) evidence in this observation."
+          : "No supporting (DIRECT/STRONG) evidence in this observation.";
         corrStrong.appendChild(li);
       }
       if (!weak.length && corr) {
         const li = document.createElement("li");
         li.className = "review-card";
-        li.textContent = total ? "No weak or partial signals in this observation." : "No observed process relates to a startup finding.";
+        li.textContent = total
+          ? "No weak or partial signals in this observation."
+          : "No observed process relates to a startup finding.";
         corr.appendChild(li);
       }
       if (!total) {
         if (corrStrong && !corrStrong.children.length) {
           const li = document.createElement("li");
           li.className = "review-card";
-          li.textContent = "No supporting (DIRECT/STRONG) evidence in this observation.";
+          li.textContent =
+            "No supporting (DIRECT/STRONG) evidence in this observation.";
           corrStrong.appendChild(li);
         }
         if (corr && !corr.children.length) {
@@ -4209,7 +3736,9 @@
     const procEmpty = document.getElementById("inc-processes-empty");
     if (procList) {
       procList.innerHTML = "";
-      const procs = (result.processes || []).slice().sort((a, b) => (a.first_seen_ms || 0) - (b.first_seen_ms || 0));
+      const procs = (result.processes || [])
+        .slice()
+        .sort((a, b) => (a.first_seen_ms || 0) - (b.first_seen_ms || 0));
       for (const p of procs) {
         const li = document.createElement("li");
         li.className = "review-card";
@@ -4221,13 +3750,26 @@
         const name = document.createElement("span");
         name.className = "rc-name selectable trunc";
         name.tabIndex = 0;
-        name.textContent = (p.name || "Not collected") + " (pid " + p.pid + " · ppid " + p.ppid + ")";
-        name.title = (p.exe_path || "Not collected") + (p.command_line ? "\n" + p.command_line : "\ncommand line: Not collected");
+        name.textContent =
+          (p.name || "Not collected") +
+          " (pid " +
+          p.pid +
+          " · ppid " +
+          p.ppid +
+          ")";
+        name.title =
+          (p.exe_path || "Not collected") +
+          (p.command_line
+            ? "\n" + p.command_line
+            : "\ncommand line: Not collected");
         const corr0 = (corrByPid.get(p.pid) || [])[0];
         const badgeEl = document.createElement("span");
-        badgeEl.className = "severity-badge " + (corr0 ? (LEVEL_CLASS[corr0.level] || "") : "");
+        badgeEl.className =
+          "severity-badge " + (corr0 ? LEVEL_CLASS[corr0.level] || "" : "");
         badgeEl.textContent = corr0 ? corr0.level : "NO LINK";
-        badgeEl.title = corr0 ? (LEVEL_DEFS[corr0.level] || "") : "No startup correlation for this process.";
+        badgeEl.title = corr0
+          ? LEVEL_DEFS[corr0.level] || ""
+          : "No startup correlation for this process.";
         topRow.append(name, badgeEl);
         main.appendChild(topRow);
         const chips = document.createElement("div");
@@ -4241,8 +3783,19 @@
         const lifeChip = document.createElement("span");
         lifeChip.className = "chip";
         const lifeMs = (p.last_seen_ms || 0) - (p.first_seen_ms || 0);
-        lifeChip.textContent = (p.exited ? "exited · " : "running · ") + (lifeMs / 1000).toFixed(2) + "s";
-        lifeChip.title = "Lifetime " + incLifetime(lifeMs) + (p.pre_existing ? " · already running when observation started" : "") + (p.via_events ? " · first noticed via WMI creation event" : " · first noticed via snapshot diff");
+        lifeChip.textContent =
+          (p.exited ? "exited · " : "running · ") +
+          (lifeMs / 1000).toFixed(2) +
+          "s";
+        lifeChip.title =
+          "Lifetime " +
+          incLifetime(lifeMs) +
+          (p.pre_existing
+            ? " · already running when observation started"
+            : "") +
+          (p.via_events
+            ? " · first noticed via WMI creation event"
+            : " · first noticed via snapshot diff");
         chips.appendChild(lifeChip);
         main.appendChild(chips);
         const cmd = document.createElement("div");
@@ -4258,13 +3811,67 @@
         inspect.addEventListener("click", () => {
           const pc = corrByPid.get(p.pid) || [];
           const ws = winsByPid.get(p.pid) || [];
-          openIncDrawer(p.name || ("pid " + p.pid), "pid " + p.pid + " · ppid " + p.ppid, [
-            { heading: "IDENTITY", rows: [["Name", p.name || "Not collected"], ["PID", String(p.pid)], ["PPID", String(p.ppid)]] },
-            { heading: "EXECUTION", rows: [["Path", p.exe_path || "Not collected"], ["Command line", p.command_line || "Not collected"], ["Creation source", p.via_events ? "WMI creation event" : "snapshot diff"]] },
-            { heading: "OBSERVATION", rows: [["First seen", "+" + p.first_seen_ms + " ms"], ["Last seen", "+" + p.last_seen_ms + " ms"], ["Lifetime", incLifetime(lifeMs)], ["Exited", p.exited ? "Yes" : "No"], ["Baseline context", p.pre_existing ? "already running when observation started" : "created during the window"]] },
-            { heading: "WINDOW", rows: ws.length ? ws.map((w, i) => ["Window " + (i + 1), "“" + (w.title || "(no title)") + "” · " + (w.class_name || "?")]) : [["Window", "No window observed for this PID"]] },
-            { heading: "CORRELATION", rows: pc.length ? pc.map((c, i) => ["Link " + (i + 1), c.level + ": " + (c.finding_name || "")]) : [["Classification", "No startup correlation"]] },
-          ]);
+          openIncDrawer(
+            p.name || "pid " + p.pid,
+            "pid " + p.pid + " · ppid " + p.ppid,
+            [
+              {
+                heading: "IDENTITY",
+                rows: [
+                  ["Name", p.name || "Not collected"],
+                  ["PID", String(p.pid)],
+                  ["PPID", String(p.ppid)],
+                ],
+              },
+              {
+                heading: "EXECUTION",
+                rows: [
+                  ["Path", p.exe_path || "Not collected"],
+                  ["Command line", p.command_line || "Not collected"],
+                  [
+                    "Creation source",
+                    p.via_events ? "WMI creation event" : "snapshot diff",
+                  ],
+                ],
+              },
+              {
+                heading: "OBSERVATION",
+                rows: [
+                  ["First seen", "+" + p.first_seen_ms + " ms"],
+                  ["Last seen", "+" + p.last_seen_ms + " ms"],
+                  ["Lifetime", incLifetime(lifeMs)],
+                  ["Exited", p.exited ? "Yes" : "No"],
+                  [
+                    "Baseline context",
+                    p.pre_existing
+                      ? "already running when observation started"
+                      : "created during the window",
+                  ],
+                ],
+              },
+              {
+                heading: "WINDOW",
+                rows: ws.length
+                  ? ws.map((w, i) => [
+                      "Window " + (i + 1),
+                      "“" +
+                        (w.title || "(no title)") +
+                        "” · " +
+                        (w.class_name || "?"),
+                    ])
+                  : [["Window", "No window observed for this PID"]],
+              },
+              {
+                heading: "CORRELATION",
+                rows: pc.length
+                  ? pc.map((c, i) => [
+                      "Link " + (i + 1),
+                      c.level + ": " + (c.finding_name || ""),
+                    ])
+                  : [["Classification", "No startup correlation"]],
+              },
+            ],
+          );
         });
         li.appendChild(inspect);
         procList.appendChild(li);
@@ -4275,7 +3882,9 @@
     const winsEmpty = document.getElementById("inc-windows-empty");
     if (wins) {
       wins.innerHTML = "";
-      const all = (result.windows || []).slice().sort((a, b) => (a.first_seen_ms || 0) - (b.first_seen_ms || 0));
+      const all = (result.windows || [])
+        .slice()
+        .sort((a, b) => (a.first_seen_ms || 0) - (b.first_seen_ms || 0));
       for (const w of all) {
         const li = document.createElement("li");
         li.className = "review-card";
@@ -4288,13 +3897,22 @@
         name.className = "rc-name selectable trunc";
         name.tabIndex = 0;
         name.textContent = "“" + (w.title || "(no title)") + "”";
-        name.title = "class " + (w.class_name || "Not collected") + "\ntitle: " + (w.title || "(no title)");
+        name.title =
+          "class " +
+          (w.class_name || "Not collected") +
+          "\ntitle: " +
+          (w.title || "(no title)");
         const ms = (w.last_seen_ms || 0) - (w.first_seen_ms || 0);
         const transient = w.closed && ms < 5000;
         const life = document.createElement("span");
         life.className = "score-chip low";
-        life.textContent = (transient ? "TRANSIENT · " : w.closed ? "closed · " : "open · ") + (ms / 1000).toFixed(2) + "s";
-        life.title = "Visible lifetime (poll granularity ±0.5 s)" + (w.pre_existing ? " · already open when observation started" : "");
+        life.textContent =
+          (transient ? "TRANSIENT · " : w.closed ? "closed · " : "open · ") +
+          (ms / 1000).toFixed(2) +
+          "s";
+        life.title =
+          "Visible lifetime (poll granularity ±0.5 s)" +
+          (w.pre_existing ? " · already open when observation started" : "");
         topRow.append(name, life);
         main.appendChild(topRow);
         const chips = document.createElement("div");
@@ -4309,11 +3927,17 @@
         clsChip.textContent = "class " + (w.class_name || "Not collected");
         clsChip.title = w.class_name || "Not collected";
         chips.appendChild(clsChip);
-        const corr0 = (corrByPid.get(w.pid) || []).find((c) => c.level !== "None") || (corrByPid.get(w.pid) || [])[0];
+        const corr0 =
+          (corrByPid.get(w.pid) || []).find((c) => c.level !== "None") ||
+          (corrByPid.get(w.pid) || [])[0];
         const corrChip = document.createElement("span");
         corrChip.className = "chip" + (corr0 ? " amber" : "");
-        corrChip.textContent = corr0 ? (corr0.level + ": " + corr0.finding_name) : "no startup correlation";
-        corrChip.title = corr0 ? (LEVEL_DEFS[corr0.level] || "") : "No observed relationship for this window's process.";
+        corrChip.textContent = corr0
+          ? corr0.level + ": " + corr0.finding_name
+          : "no startup correlation";
+        corrChip.title = corr0
+          ? LEVEL_DEFS[corr0.level] || ""
+          : "No observed relationship for this window's process.";
         chips.appendChild(corrChip);
         const sigChip = document.createElement("span");
         sigChip.className = "chip";
@@ -4328,22 +3952,93 @@
         inspect.textContent = "Inspect";
         inspect.addEventListener("click", () => {
           const p = procOf.get(w.pid) || null;
-          openIncDrawer("“" + (w.title || "(no title)") + "”", "pid " + w.pid + " · " + (transient ? "transient" : w.closed ? "closed" : "open"), [
-            { heading: "IDENTITY", rows: [["Window title", w.title || "Not collected"], ["Window class", w.class_name || "Not collected"], ["PID", String(w.pid)], ["Process", p ? (p.name || "Not collected") : "Not collected"], ["PPID", p ? String(p.ppid) : "Not collected"]] },
-            { heading: "OBSERVATION", rows: [["First seen", "+" + w.first_seen_ms + " ms"], ["Last seen", "+" + w.last_seen_ms + " ms"], ["Lifetime", incLifetime(ms)], ["Closed", w.closed ? "Yes" : "No"], ["Transient status", transient ? "transient (closed after a brief life — short life alone means nothing about intent)" : "not transient"], ["Baseline context", w.pre_existing ? "already open when observation started" : "opened during the window"]] },
-            { heading: "EXECUTION", rows: [["Path", p ? (p.exe_path || "Not collected") : "Not collected"], ["Command line", p && p.command_line ? p.command_line : "Not collected"]] },
-            { heading: "CORRELATION", rows: corr0 ? [["Classification", corr0.level + " — " + (LEVEL_DEFS[corr0.level] || "")], ["Finding", (corr0.finding_name || "") + (corr0.finding_source ? " · " + corr0.finding_source : "")]] : [["Classification", "No startup correlation"]] },
-          ]);
+          openIncDrawer(
+            "“" + (w.title || "(no title)") + "”",
+            "pid " +
+              w.pid +
+              " · " +
+              (transient ? "transient" : w.closed ? "closed" : "open"),
+            [
+              {
+                heading: "IDENTITY",
+                rows: [
+                  ["Window title", w.title || "Not collected"],
+                  ["Window class", w.class_name || "Not collected"],
+                  ["PID", String(w.pid)],
+                  ["Process", p ? p.name || "Not collected" : "Not collected"],
+                  ["PPID", p ? String(p.ppid) : "Not collected"],
+                ],
+              },
+              {
+                heading: "OBSERVATION",
+                rows: [
+                  ["First seen", "+" + w.first_seen_ms + " ms"],
+                  ["Last seen", "+" + w.last_seen_ms + " ms"],
+                  ["Lifetime", incLifetime(ms)],
+                  ["Closed", w.closed ? "Yes" : "No"],
+                  [
+                    "Transient status",
+                    transient
+                      ? "transient (closed after a brief life — short life alone means nothing about intent)"
+                      : "not transient",
+                  ],
+                  [
+                    "Baseline context",
+                    w.pre_existing
+                      ? "already open when observation started"
+                      : "opened during the window",
+                  ],
+                ],
+              },
+              {
+                heading: "EXECUTION",
+                rows: [
+                  ["Path", p ? p.exe_path || "Not collected" : "Not collected"],
+                  [
+                    "Command line",
+                    p && p.command_line ? p.command_line : "Not collected",
+                  ],
+                ],
+              },
+              {
+                heading: "CORRELATION",
+                rows: corr0
+                  ? [
+                      [
+                        "Classification",
+                        corr0.level + " — " + (LEVEL_DEFS[corr0.level] || ""),
+                      ],
+                      [
+                        "Finding",
+                        (corr0.finding_name || "") +
+                          (corr0.finding_source
+                            ? " · " + corr0.finding_source
+                            : ""),
+                      ],
+                    ]
+                  : [["Classification", "No startup correlation"]],
+              },
+            ],
+          );
         });
         const copy = document.createElement("button");
         copy.className = "copy-btn";
         copy.textContent = "Copy evidence";
         copy.addEventListener("click", () => {
           copyEvidence(
-            "[CURE window] " + (w.title || "(no title)") + " | pid " + w.pid +
-            " | class " + (w.class_name || "Not collected") + " | lifetime " + ms + " ms" +
-            (corr0 ? " | " + corr0.level + ": " + corr0.finding_name : " | no startup correlation"),
-            copy
+            "[CURE window] " +
+              (w.title || "(no title)") +
+              " | pid " +
+              w.pid +
+              " | class " +
+              (w.class_name || "Not collected") +
+              " | lifetime " +
+              ms +
+              " ms" +
+              (corr0
+                ? " | " + corr0.level + ": " + corr0.finding_name
+                : " | no startup correlation"),
+            copy,
           );
         });
         row2.append(inspect, copy);
@@ -4351,14 +4046,27 @@
         wins.appendChild(li);
       }
       if (winsEmpty) {
-        const transientCount = all.filter((w) => w.closed && ((w.last_seen_ms || 0) - (w.first_seen_ms || 0)) < 5000).length;
+        const transientCount = all.filter(
+          (w) =>
+            w.closed && (w.last_seen_ms || 0) - (w.first_seen_ms || 0) < 5000,
+        ).length;
         winsEmpty.classList.toggle("hidden", all.length > 0);
-        winsEmpty.textContent = all.length ? (transientCount + " transient window(s) of " + all.length + " observed — all windows listed above with titles/classes only.") : "No windows observed in this window.";
+        winsEmpty.textContent = all.length
+          ? transientCount +
+            " transient window(s) of " +
+            all.length +
+            " observed — all windows listed above with titles/classes only."
+          : "No windows observed in this window.";
       }
     }
-    try { updateOvIncident(); } catch (_) { /* overview not ready */ }
+    try {
+      updateOvIncident();
+    } catch (_) {
+      /* overview not ready */
+    }
     const incView = document.getElementById("view-incident");
-    if (incView && !incView.classList.contains("hidden")) focusViewHeading(incView);
+    if (incView && !incView.classList.contains("hidden"))
+      focusViewHeading(incView);
   }
 
   async function exportIncident(format) {
@@ -4370,9 +4078,16 @@
     const redact = redactBox ? !!redactBox.checked : true;
     footFeedback("Exporting incident " + format.toUpperCase() + "…", false);
     try {
-      const path = await invoke("export_incident_report", { result: lastIncident, format, redact });
+      const path = await invoke("export_incident_report", {
+        result: lastIncident,
+        format,
+        redact,
+      });
       footFeedback("Incident report saved: " + path, false);
-      logEvent("action", "exported incident " + format.toUpperCase() + " to " + path);
+      logEvent(
+        "action",
+        "exported incident " + format.toUpperCase() + " to " + path,
+      );
     } catch (err) {
       footFeedback(cleanErrText(err, "Incident export failed"), true);
     }
@@ -4383,7 +4098,14 @@
     const el = document.getElementById("inc-progress");
     if (el) {
       el.classList.remove("hidden");
-      el.textContent = "Observing… " + (p.polls || 0) + " polls · " + (p.processes || 0) + " processes · " + (p.windows || 0) + " windows";
+      el.textContent =
+        "Observing… " +
+        (p.polls || 0) +
+        " polls · " +
+        (p.processes || 0) +
+        " processes · " +
+        (p.windows || 0) +
+        " windows";
     }
   });
 
@@ -4396,7 +4118,14 @@
     const done = new Set();
     function maybeFinish() {
       if (done.size === candidates.length) {
-        appendLog("overlay", "review complete: " + lines.filter(function (l) { return l.indexOf("overlay:") === 0; }).length + " action(s)");
+        appendLog(
+          "overlay",
+          "review complete: " +
+            lines.filter(function (l) {
+              return l.indexOf("overlay:") === 0;
+            }).length +
+            " action(s)",
+        );
         runScan(lines);
       }
     }
@@ -4405,14 +4134,31 @@
       li.className = "item-line fresh risk-high";
       const head = document.createElement("span");
       head.className = "iname";
-      head.textContent = "overlay candidate: " + c.process + " (pid " + c.pid + ")";
+      head.textContent =
+        "overlay candidate: " + c.process + " (pid " + c.pid + ")";
       const detail = document.createElement("span");
       detail.className = "isrc";
-      detail.textContent = c.path + " · " + c.signature + " · " + c.width + "x" + c.height + " (" + Math.round(c.coverage_pct) + "% of monitor) · " + c.title;
+      detail.textContent =
+        c.path +
+        " · " +
+        c.signature +
+        " · " +
+        c.width +
+        "x" +
+        c.height +
+        " (" +
+        Math.round(c.coverage_pct) +
+        "% of monitor) · " +
+        c.title;
       const btnRow = document.createElement("span");
       function markDone(label) {
         done.add(c.hwnd);
-        Array.prototype.forEach.call(btnRow.querySelectorAll("button"), function (b) { b.disabled = true; });
+        Array.prototype.forEach.call(
+          btnRow.querySelectorAll("button"),
+          function (b) {
+            b.disabled = true;
+          },
+        );
         lines.push(label);
         appendLog("overlay", label);
         maybeFinish();
@@ -4423,37 +4169,91 @@
       closeBtn.addEventListener("click", async () => {
         closeBtn.disabled = true;
         try {
-          const r = await invoke("close_overlay_window", { hwnd: c.hwnd, force: false });
-          if (r && r.closed) markDone("overlay: closed " + c.process + " (graceful)");
-          else { closeBtn.disabled = false; appendLog("overlay", "still open (use Force close to terminate): " + c.process); }
-        } catch (e) { closeBtn.disabled = false; appendLog("error", String(e)); }
+          const r = await invoke("close_overlay_window", {
+            hwnd: c.hwnd,
+            force: false,
+          });
+          if (r && r.closed)
+            markDone("overlay: closed " + c.process + " (graceful)");
+          else {
+            closeBtn.disabled = false;
+            appendLog(
+              "overlay",
+              "still open (use Force close to terminate): " + c.process,
+            );
+          }
+        } catch (e) {
+          closeBtn.disabled = false;
+          appendLog("error", String(e));
+        }
       });
       const forceBtn = document.createElement("button");
       forceBtn.className = "btn btn-danger";
       forceBtn.textContent = "Force close";
-      forceBtn.title = "Terminate the owning process. Use only for a window you have reviewed.";
+      forceBtn.title =
+        "Terminate the owning process. Use only for a window you have reviewed.";
       forceBtn.addEventListener("click", async () => {
-        if (!window.confirm("Terminate " + c.process + " (pid " + c.pid + ")? Unsaved work in that process will be lost.")) return;
+        const confirmed = await requestConfirm({
+          kicker: "Process termination",
+          title: "Force close this window?",
+          facts: [
+            ["Process", c.process + " (PID " + c.pid + ")"],
+            ["Executable", c.path],
+            [
+              "What will change",
+              "The owning process will be terminated. Unsaved work may be lost.",
+            ],
+          ],
+          note: "This action cannot be undone. Graceful Close window remains available.",
+          okLabel: "Terminate process",
+        });
+        if (!confirmed) return;
         forceBtn.disabled = true;
         try {
-          const r = await invoke("close_overlay_window", { hwnd: c.hwnd, force: true });
-          if (r && r.closed) markDone("overlay: force-closed " + c.process + " (terminated)");
-          else { forceBtn.disabled = false; appendLog("overlay", "force close failed: " + c.process); }
-        } catch (e) { forceBtn.disabled = false; appendLog("error", String(e)); }
+          const r = await invoke("close_overlay_window", {
+            hwnd: c.hwnd,
+            force: true,
+          });
+          if (r && r.closed)
+            markDone("overlay: force-closed " + c.process + " (terminated)");
+          else {
+            forceBtn.disabled = false;
+            appendLog("overlay", "force close failed: " + c.process);
+          }
+        } catch (e) {
+          forceBtn.disabled = false;
+          appendLog("error", String(e));
+        }
       });
       const allowBtn = document.createElement("button");
       allowBtn.className = "ghost-btn";
       allowBtn.textContent = "Don't ask again for this app";
-      allowBtn.title = "Allowlist this exact binary (path + hash). Future matches skip it.";
+      allowBtn.title =
+        "Allowlist this exact binary (path + hash). Future matches skip it.";
       allowBtn.addEventListener("click", async () => {
         allowBtn.disabled = true;
         try {
           const msg = await invoke("allowlist_overlay", { path: c.path });
           markDone("overlay: " + msg);
-        } catch (e) { allowBtn.disabled = false; appendLog("error", String(e)); }
+        } catch (e) {
+          allowBtn.disabled = false;
+          appendLog("error", String(e));
+        }
       });
-      btnRow.append(closeBtn, document.createTextNode(" "), forceBtn, document.createTextNode(" "), allowBtn);
-      li.append(head, document.createElement("br"), detail, document.createElement("br"), btnRow);
+      btnRow.append(
+        closeBtn,
+        document.createTextNode(" "),
+        forceBtn,
+        document.createTextNode(" "),
+        allowBtn,
+      );
+      li.append(
+        head,
+        document.createElement("br"),
+        detail,
+        document.createElement("br"),
+        btnRow,
+      );
       logList.appendChild(li);
     });
     const contLi = document.createElement("li");
@@ -4462,7 +4262,11 @@
     contBtn.textContent = "Continue scan without closing →";
     contBtn.addEventListener("click", () => {
       contBtn.disabled = true;
-      lines.push("overlay: review skipped by operator (" + (candidates.length - done.size) + " candidate(s) left open)");
+      lines.push(
+        "overlay: review skipped by operator (" +
+          (candidates.length - done.size) +
+          " candidate(s) left open)",
+      );
       runScan(lines);
     });
     contLi.appendChild(contBtn);
@@ -4472,47 +4276,78 @@
 
   (async () => {
     scanView.classList.add("hidden");
-    landingView.classList.remove("hidden");
-    setNav("scan-center");
-    document.getElementById("start-rescue-btn").addEventListener("click", async () => {
-      setPill("scanning", "checking for suspicious overlays…");
-      await switchView(landingView, scanView);
-      setNav("scan-view");
-      const lines = [];
-      let rep = null;
-      try {
-        rep = await invoke("list_overlay_candidates");
-      } catch (e) {
-        lines.push("Overlay check unavailable: " + e);
-        runScan(lines);
-        return;
-      }
-      const candidates = (rep && rep.candidates) || [];
-      appendLog("overlay", "checked " + (rep ? rep.checked : 0) + " windows, " + candidates.length + " candidate(s) need review");
-      if (candidates.length === 0) {
-        lines.push("No suspicious overlay windows found");
-        runScan(lines);
-        return;
-      }
-      // Matches are SHOWN, never closed here: each card carries its own
-      // Close / Force close / Don't-ask-again buttons, plus one button to
-      // continue the scan. Nothing closes without a per-window click.
-      renderOverlayReview(candidates, lines);
-    });
-    document.getElementById("start-cleanup-btn").addEventListener("click", async () => {
-      cleanupState.open = true;
-      cleanupState.savedPill = { cls: statusPill.className, text: statusText.textContent };
-      await switchView(currentView(), cleanupView);
-      setNav("cleanup-view");
-      showCleanupIdle();
-    });
+    showViewInstant(document.getElementById("view-overview"));
+    paintOverviewDial(null, null);
+    updateOverviewReclaimable();
+    setPill("idle", "Ready");
+    refreshQuarantineCount();
+    document
+      .getElementById("start-rescue-btn")
+      .addEventListener("click", async () => {
+        if (["running", "preparing"].includes(scanPhase)) return;
+        scanPhase = "preparing";
+        window.CureSweep.start();
+        setPill("scanning", "Reviewing overlay candidates");
+        await switchView(currentView(), scanView);
+        setNav("scan-view");
+        const lines = [];
+        let rep = null;
+        try {
+          rep = await invoke("list_overlay_candidates");
+        } catch (e) {
+          lines.push("Overlay check unavailable: " + e);
+          runScan(lines);
+          return;
+        }
+        const candidates = (rep && rep.candidates) || [];
+        appendLog(
+          "overlay",
+          "checked " +
+            (rep ? rep.checked : 0) +
+            " windows, " +
+            candidates.length +
+            " candidate(s) need review",
+        );
+        if (candidates.length === 0) {
+          lines.push("No suspicious overlay windows found");
+          runScan(lines);
+          return;
+        }
+        // Matches are SHOWN, never closed here: each card carries its own
+        // Close / Force close / Don't-ask-again buttons, plus one button to
+        // continue the scan. Nothing closes without a per-window click.
+        renderOverlayReview(candidates, lines);
+      });
+    document.querySelectorAll("[data-route]")
+      .forEach((btn) =>
+        btn.addEventListener("click", () => navTo(btn.dataset.route)),
+      );
+    document
+      .getElementById("scan-retry")
+      .addEventListener("click", () => runScan());
     document.querySelectorAll(".nav-item").forEach((btn) => {
       btn.addEventListener("click", () => {
         if (!btn.disabled) navTo(btn.getAttribute("data-view"));
       });
     });
-    const canToggle2 = document.getElementById("can-toggle");
+const canToggle2 = document.getElementById("can-toggle");
     if (canToggle2) canToggle2.addEventListener("click", toggleCanary);
+    document.querySelectorAll(".filter-btn").forEach((btn) => {
+      btn.setAttribute("aria-pressed", String(btn.classList.contains("on")));
+      btn.addEventListener("click", () =>
+        btn.parentElement
+          .querySelectorAll(".filter-btn")
+          .forEach((other) =>
+            other.setAttribute("aria-pressed", String(other === btn)),
+          ),
+      );
+    });
+    document
+      .getElementById("overview-rescue-btn")
+      .addEventListener("click", async () => {
+        await navTo("scan-center");
+        document.getElementById("start-rescue-btn").click();
+      });
     const qRefresh = document.getElementById("q-refresh");
     if (qRefresh) qRefresh.addEventListener("click", refreshQuarantine);
     async function exportReport(format) {
@@ -4522,7 +4357,10 @@
       try {
         const path = await invoke("export_report", { format, redact });
         footFeedback("Report saved: " + path, false);
-        logEvent("action", "exported " + format.toUpperCase() + " report to " + path);
+        logEvent(
+          "action",
+          "exported " + format.toUpperCase() + " report to " + path,
+        );
       } catch (err) {
         footFeedback(cleanErrText(err, "Report export failed"), true);
       }
@@ -4532,73 +4370,126 @@
     const expJson = document.getElementById("exp-json");
     if (expJson) expJson.addEventListener("click", () => exportReport("json"));
     const logClear = document.getElementById("log-clear");
-    if (logClear) logClear.addEventListener("click", () => {
-      eventLog.length = 0;
-      renderEventLog();
-    });
-    document.querySelectorAll("#view-processes .filter-btn[data-f]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        document.querySelectorAll("#view-processes .filter-btn[data-f]").forEach((b) => b.classList.remove("on"));
-        btn.classList.add("on");
-        procFilter = btn.getAttribute("data-f") || "all";
-        paintProcessRows();
+    if (logClear)
+      logClear.addEventListener("click", () => {
+        eventLog.length = 0;
+        renderEventLog();
       });
-    });
-    document.querySelectorAll("#view-audit .filter-btn[data-af]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        document.querySelectorAll("#view-audit .filter-btn[data-af]").forEach((b) => b.classList.remove("on"));
-        btn.classList.add("on");
-        auditFilter = btn.getAttribute("data-af") || "all";
-        paintAuditList();
+    document
+      .querySelectorAll("#view-processes .filter-btn[data-f]")
+      .forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document
+            .querySelectorAll("#view-processes .filter-btn[data-f]")
+            .forEach((b) => b.classList.remove("on"));
+          btn.classList.add("on");
+          procFilter = btn.getAttribute("data-f") || "all";
+          paintProcessRows();
+        });
       });
-    });
-    document.querySelectorAll("#view-incident .filter-btn[data-dur]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        document.querySelectorAll("#view-incident .filter-btn[data-dur]").forEach((b) => b.classList.remove("on"));
-        btn.classList.add("on");
-        incidentDuration = Number(btn.getAttribute("data-dur")) || 30;
+    document
+      .querySelectorAll("#view-audit .filter-btn[data-af]")
+      .forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document
+            .querySelectorAll("#view-audit .filter-btn[data-af]")
+            .forEach((b) => b.classList.remove("on"));
+          btn.classList.add("on");
+          auditFilter = btn.getAttribute("data-af") || "all";
+          paintAuditList();
+        });
       });
-    });
+    document
+      .querySelectorAll("#view-incident .filter-btn[data-dur]")
+      .forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document
+            .querySelectorAll("#view-incident .filter-btn[data-dur]")
+            .forEach((b) => b.classList.remove("on"));
+          btn.classList.add("on");
+          incidentDuration = Number(btn.getAttribute("data-dur")) || 30;
+        });
+      });
     const incDrawerOverlay = document.getElementById("inc-drawer-overlay");
     const incDrawerClose = document.getElementById("inc-drawer-close");
-    if (incDrawerClose) incDrawerClose.addEventListener("click", closeIncDrawer);
-    if (incDrawerOverlay) incDrawerOverlay.addEventListener("mousedown", (ev) => {
-      if (ev.target === incDrawerOverlay) closeIncDrawer();
-    });
-    document.addEventListener("keydown", (ev) => {
-      if (ev.key === "Escape") {
-        const ov = document.getElementById("inc-drawer-overlay");
-        if (ov && !ov.classList.contains("hidden")) {
-          ev.stopPropagation();
-          closeIncDrawer();
+    if (incDrawerClose)
+      incDrawerClose.addEventListener("click", closeIncDrawer);
+    if (incDrawerOverlay)
+      incDrawerOverlay.addEventListener("mousedown", (ev) => {
+        if (ev.target === incDrawerOverlay) closeIncDrawer();
+      });
+    document.addEventListener(
+      "keydown",
+      (ev) => {
+        const openDrawer = document.getElementById("inc-drawer-overlay");
+        if (
+          ev.key === "Tab" &&
+          openDrawer &&
+          !openDrawer.classList.contains("hidden")
+        ) {
+          ev.preventDefault();
+          document.getElementById("inc-drawer-close").focus();
         }
-      }
-    }, true);
+        if (ev.key === "Escape") {
+          const ov = document.getElementById("inc-drawer-overlay");
+          if (ov && !ov.classList.contains("hidden")) {
+            ev.stopPropagation();
+            closeIncDrawer();
+          }
+        }
+      },
+      true,
+    );
     const incStart = document.getElementById("btn-incident-start");
-    if (incStart) incStart.addEventListener("click", async () => {
-      if (incStart.disabled) return;
-      incStart.disabled = true;
-      setIncidentStatus("Observing startup activity for " + incidentDuration + " s — popups welcome, machine otherwise idle.", false);
-      const prog = document.getElementById("inc-progress");
-      if (prog) {
-        prog.classList.remove("hidden");
-        prog.textContent = "Observing…";
-      }
-      try {
-        const result = await invoke("start_incident_observation", { durationSecs: incidentDuration });
-        renderIncident(result);
-        const counts = "observed " + (result.processes || []).length + " processes, " + (result.windows || []).length + " windows, " + (result.correlations || []).length + " correlations.";
-        setIncidentStatus("Investigation " + (result.investigation_id || "") + " complete: " + ((result.verdict || "")).replace(/([A-Z])/g, " $1").trim() + ". " + counts, false);
-      } catch (err) {
-        setIncidentStatus(cleanErrText(err, "Investigation failed"), true);
-      } finally {
-        incStart.disabled = false;
-        if (prog) prog.classList.add("hidden");
-      }
-    });
+    if (incStart)
+      incStart.addEventListener("click", async () => {
+        if (incStart.disabled) return;
+        incStart.disabled = true;
+        setIncidentStatus(
+          "Observing startup activity for " +
+            incidentDuration +
+            " s — popups welcome, machine otherwise idle.",
+          false,
+        );
+        const prog = document.getElementById("inc-progress");
+        if (prog) {
+          prog.classList.remove("hidden");
+          prog.textContent = "Observing…";
+        }
+        try {
+          const result = await invoke("start_incident_observation", {
+            durationSecs: incidentDuration,
+          });
+          renderIncident(result);
+          const counts =
+            "observed " +
+            (result.processes || []).length +
+            " processes, " +
+            (result.windows || []).length +
+            " windows, " +
+            (result.correlations || []).length +
+            " correlations.";
+          setIncidentStatus(
+            "Investigation " +
+              (result.investigation_id || "") +
+              " complete: " +
+              (result.verdict || "").replace(/([A-Z])/g, " $1").trim() +
+              ". " +
+              counts,
+            false,
+          );
+        } catch (err) {
+          setIncidentStatus(cleanErrText(err, "Investigation failed"), true);
+        } finally {
+          incStart.disabled = false;
+          if (prog) prog.classList.add("hidden");
+        }
+      });
     const expIncTxt = document.getElementById("exp-inc-txt");
-    if (expIncTxt) expIncTxt.addEventListener("click", () => exportIncident("txt"));
+    if (expIncTxt)
+      expIncTxt.addEventListener("click", () => exportIncident("txt"));
     const expIncJson = document.getElementById("exp-inc-json");
-    if (expIncJson) expIncJson.addEventListener("click", () => exportIncident("json"));
+    if (expIncJson)
+      expIncJson.addEventListener("click", () => exportIncident("json"));
   })();
 })();

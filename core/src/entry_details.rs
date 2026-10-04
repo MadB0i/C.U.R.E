@@ -32,6 +32,11 @@ pub struct EntryDetails {
     pub shortcut: Option<ShortcutDetails>,
     /// Structured task metadata (scheduled-task entries only).
     pub task: Option<TaskDetails>,
+    /// Resolved executable metadata, collected on demand (never inferred).
+    pub target_path: Option<String>,
+    pub sha256_hex: Option<String>,
+    pub file_size: Option<u64>,
+    pub modified_unix_secs: Option<u64>,
 }
 
 /// Resolved shortcut: target and liveness.
@@ -76,6 +81,18 @@ pub fn for_entry(entry: &PersistenceEntry) -> EntryDetails {
         publisher,
         shortcut,
         task,
+        target_path: exe.as_deref().map(|p| p.to_string_lossy().into_owned()),
+        sha256_hex: exe.as_deref().and_then(crate::hash_intel::sha256_file_hex),
+        file_size: exe
+            .as_deref()
+            .and_then(|p| std::fs::metadata(p).ok())
+            .map(|m| m.len()),
+        modified_unix_secs: exe
+            .as_deref()
+            .and_then(|p| std::fs::metadata(p).ok())
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs()),
     }
 }
 
@@ -245,5 +262,29 @@ mod tests {
         // Unresolvable fixture path: UNKNOWN, no publisher.
         assert_eq!(details.signature, "UNKNOWN");
         assert_eq!(details.publisher, None);
+        assert_eq!(details.sha256_hex, None);
+        assert_eq!(details.file_size, None);
+        assert_eq!(details.modified_unix_secs, None);
+    }
+
+    #[test]
+    fn evidence_metadata_preserves_bytes_and_reports_known_digest() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("evidence.exe");
+        std::fs::write(&path, b"abc").unwrap();
+        let entry = PersistenceEntry::new(
+            PersistenceSource::StartupFolder,
+            "evidence.exe",
+            path.to_string_lossy().as_ref(),
+            path.to_string_lossy().as_ref(),
+        );
+        let details = for_entry(&entry);
+        assert_eq!(details.file_size, Some(3));
+        assert_eq!(
+            details.sha256_hex.as_deref(),
+            Some("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        );
+        assert!(details.modified_unix_secs.is_some());
+        assert_eq!(std::fs::read(path).unwrap(), b"abc");
     }
 }

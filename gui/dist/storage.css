@@ -1,0 +1,267 @@
+/* ==========================================================================
+   Disk Cleanup — segmented storage core, category ledger and receipts.
+   ========================================================================== */
+
+.cleanup-hero {
+  display: grid;
+  grid-template-columns: clamp(196px, 20%, 268px) minmax(0, 1fr);
+  gap: var(--s10);
+  align-items: center;
+  margin-bottom: var(--s6);
+  padding: var(--s6) var(--s8);
+  background:
+    var(--ambient-cool),
+    radial-gradient(70% 110% at 26% 46%, rgba(139, 111, 240, 0.08), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.028), transparent 48%),
+    var(--ink-150);
+  border: 1px solid var(--hair);
+  border-radius: var(--r3);
+  box-shadow: var(--edge-light), var(--shadow-2);
+}
+
+.cleanup-hero-figure {
+  min-width: 0;
+}
+
+.companion.hero-companion {
+}
+
+.cleanup-core {
+  display: grid;
+  /* The core floor is explicit rather than an accident of percentage maths:
+     a scrollbar appearing must not be able to shrink the reclaimable ring
+     below the size the ledger is designed to read against. */
+  grid-template-columns: clamp(184px, 34%, 224px) minmax(0, 1fr);
+  gap: var(--s8);
+  align-items: center;
+  min-width: 0;
+}
+
+.storage-core {
+  position: relative;
+  aspect-ratio: 1;
+  min-width: 0;
+}
+
+.storage-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.storage-legend {
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.st-row {
+  display: grid;
+  grid-template-columns: 10px minmax(140px, 300px) minmax(90px, 1fr) auto;
+  align-items: center;
+  gap: var(--s5);
+  padding: var(--s3) 0;
+  border-bottom: 1px solid var(--hair-soft);
+}
+
+.st-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
+
+.st-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--cure-600), var(--cure-400));
+  transition: width var(--slow) var(--ease-out);
+}
+
+.st-row.unmeasured .st-bar i {
+  background: var(--text-3);
+}
+
+.st-mark {
+  width: 10px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--cure-400);
+  opacity: 0.28;
+}
+
+.st-row.on .st-mark {
+  opacity: 1;
+  box-shadow: 0 0 8px rgba(167, 139, 250, 0.55);
+}
+
+.st-row.unmeasured .st-mark {
+  background: var(--text-3);
+  opacity: 0.5;
+}
+
+.st-name {
+  min-width: 0;
+  font-size: var(--sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.st-value {
+  font: var(--xs) "Cascadia Code", Consolas, monospace;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.storage-receipt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s3);
+  margin-top: var(--s5);
+  padding-top: var(--s4);
+  border-top: 1px solid var(--hair);
+}
+
+.storage-reclaimable {
+  font-size: var(--t-2xs);
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.storage-amount {
+  font: 620 var(--display) "Cascadia Code", Consolas, monospace;
+  letter-spacing: -0.035em;
+  color: var(--text);
+  line-height: 1;
+}
+
+.storage-caption {
+  font-size: var(--xs);
+  color: var(--text-2);
+}
+
+.storage-freed {
+  flex-basis: 100%;
+  font: var(--xs) "Cascadia Code", Consolas, monospace;
+  color: var(--ok);
+}
+
+.storage-freed.is-warn {
+  color: var(--warning);
+}
+
+.storage-measure-tag {
+  margin-top: var(--s5);
+  font: 650 10px/1 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.cleanup-queue {
+  display: grid;
+  gap: 2px;
+  margin-top: var(--s5);
+  padding-top: var(--s4);
+  border-top: 1px solid var(--hair);
+}
+
+.cleanup-queue-title {
+  font-size: var(--t-2xs);
+  font-weight: 650;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: var(--s2);
+}
+
+.cq-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: 5px 0;
+  font-size: var(--xs);
+  color: var(--text-2);
+  border-bottom: 1px solid var(--hair-soft);
+}
+
+.cq-row b {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--text-3);
+}
+
+/* ---------- responsive ---------- */
+
+@media (max-width: 1400px) {
+  .cleanup-hero {
+    grid-template-columns: clamp(180px, 22%, 232px) minmax(0, 1fr);
+    gap: var(--s8);
+    padding: var(--s5) var(--s6);
+  }
+  .cleanup-core {
+    grid-template-columns: clamp(184px, 38%, 224px) minmax(0, 320px);
+    gap: var(--s6);
+  }
+}
+
+@media (max-width: 1180px) {
+  .cleanup-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s6);
+  }
+  .st-row {
+    grid-template-columns: 10px minmax(0, 1fr) minmax(40px, 0.7fr) auto;
+    gap: var(--s3);
+  }
+  .cleanup-hero-figure {
+    display: flex;
+    justify-content: center;
+  }
+  .companion.hero-companion {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--s6);
+    text-align: left;
+  }
+  .companion.hero-companion .companion-copy {
+    text-align: left;
+  }
+  .companion.hero-companion .companion-motion {
+    align-self: flex-start;
+  }
+  .cleanup-core {
+    grid-template-columns: clamp(184px, 32%, 200px) minmax(0, 320px);
+  }
+}
+
+@media (max-width: 760px) {
+  .cleanup-hero {
+    padding: var(--s5);
+  }
+  .cleanup-core {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s5);
+  }
+  .storage-core {
+    max-width: 220px;
+    margin-inline: auto;
+  }
+  .st-row {
+    grid-template-columns: 10px minmax(0, 1fr) auto;
+    gap: var(--s3);
+  }
+  .st-bar {
+    display: none;
+  }
+}

@@ -1,19 +1,24 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, AtomicUsize, Ordering}};
+use std::sync::{
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    Arc, Mutex,
+};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Listener, Manager, State};
+#[cfg(feature = "desktop-e2e")]
+use tauri::Listener;
+use tauri::{AppHandle, Emitter, Manager, State};
 
-use cure_core::{baseline, quarantine, risk, scanners};
+use cure_core::canary::{shadow_wipe_reason, CanaryAlert};
 use cure_core::cleanup as disk_cleanup;
-use cure_core::overlay::{self, WindowDesc};
 use cure_core::model::{PersistenceEntry, PersistenceSource, RiskLevel, ScoredEntry};
-use cure_core::signature::SignatureStatus;
+use cure_core::overlay::{self, WindowDesc};
 use cure_core::process_scan::{self, ProcessInfo, ProcessScore};
 use cure_core::ransom_detect::{self, RansomFinding as RansomFindingCore};
-use cure_core::canary::{CanaryAlert, shadow_wipe_reason};
+use cure_core::signature::SignatureStatus;
+use cure_core::{baseline, quarantine, risk, scanners};
 
 #[derive(Debug, Clone, Serialize)]
 struct ProgressEvent {
@@ -158,8 +163,8 @@ fn read_dir_entries(folder: &Path) -> Vec<cure_core::ransom_detect::DirEntry> {
 fn kill_process_by_pid(pid: u32) -> Result<(), String> {
     use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
     unsafe {
-        let handle =
-            OpenProcess(PROCESS_TERMINATE, false, pid).map_err(|e| format!("OpenProcess failed: {e}"))?;
+        let handle = OpenProcess(PROCESS_TERMINATE, false, pid)
+            .map_err(|e| format!("OpenProcess failed: {e}"))?;
         let _ = TerminateProcess(handle, 1);
         let _ = windows::Win32::Foundation::CloseHandle(handle);
     }
@@ -213,7 +218,7 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     #[cfg(windows)]
     {
         let reg = scanners::registry::scan_report();
-        source_states.push(registry_state_row(&reg));
+        record_source_state(&app, &mut source_states, registry_state_row(&reg));
         entries.extend(reg.entries);
     }
     #[cfg(not(windows))]
@@ -224,17 +229,25 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
 
     emit_stage(&app, "startup", "Walking the per-user Startup folder");
     entries.extend(scanners::startup::scan(&startup_root()));
-    emit_stage(&app, "startup-common", "Walking the machine-wide Startup folder");
+    emit_stage(
+        &app,
+        "startup-common",
+        "Walking the machine-wide Startup folder",
+    );
     entries.extend(scanners::startup::scan_common());
 
     emit_stage(&app, "tasks", "Parsing scheduled task definitions");
     let task_report = scanners::scheduled_tasks::scan_report(&tasks_root());
-    source_states.push(tasks_state_row(&task_report));
+    record_source_state(&app, &mut source_states, tasks_state_row(&task_report));
     entries.extend(task_report.entries);
 
     emit_stage(&app, "services", "Enumerating auto-start services");
     let service_report = scanners::services::scan_report();
-    source_states.push(services_state_row(&service_report));
+    record_source_state(
+        &app,
+        &mut source_states,
+        services_state_row(&service_report),
+    );
     let service_records = service_report.records;
     entries.extend(service_records.iter().map(|r| r.entry.clone()));
 
@@ -242,7 +255,7 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     {
         emit_stage(&app, "wmi", "Querying WMI event subscriptions");
         let wmi_report = scanners::wmi::scan_report();
-        source_states.push(wmi_state_row(&wmi_report));
+        record_source_state(&app, &mut source_states, wmi_state_row(&wmi_report));
         entries.extend(wmi_report.entries);
         emit_stage(&app, "ifeo", "Checking IFEO debuggers and AppInit DLLs");
         entries.extend(scanners::ifeo::scan());
@@ -288,7 +301,12 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
             emit_stage(
                 &app,
                 "services",
-                format!("Scoring auto-start services {}–{} of {}", done + 1, done + chunk.len(), total),
+                format!(
+                    "Scoring auto-start services {}–{} of {}",
+                    done + 1,
+                    done + chunk.len(),
+                    total
+                ),
             );
             let batch = tokio::task::spawn_blocking(move || {
                 chunk
@@ -302,18 +320,13 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
                             }
                             _ => None,
                         };
-                        let missing = status
-                            == cure_core::scanners::services::ImageStatus::Missing;
+                        let missing = status == cure_core::scanners::services::ImageStatus::Missing;
                         let signature = match &exe {
                             Some(path) => cure_core::signature::check_signature(path),
                             None => cure_core::signature::SignatureStatus::Unknown,
                         };
-                        let hash = if risk::service_needs_hash(
-                            &record.image_path,
-                            exe.as_deref(),
-                        ) {
-                            exe.as_deref()
-                                .and_then(cure_core::hash_intel::check_hash)
+                        let hash = if risk::service_needs_hash(&record.image_path, exe.as_deref()) {
+                            exe.as_deref().and_then(cure_core::hash_intel::check_hash)
                         } else {
                             None
                         };
@@ -363,9 +376,7 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         // `high_risk_cleaned` therefore stays empty; the field is kept so
         // the ScanSummary shape (and its consumers) remains stable.
         match s.risk {
-            RiskLevel::HighRisk | RiskLevel::Suspicious => {
-                suspicious_for_review.push(s.clone())
-            }
+            RiskLevel::HighRisk | RiskLevel::Suspicious => suspicious_for_review.push(s.clone()),
             RiskLevel::Safe => safe += 1,
         }
     }
@@ -395,14 +406,20 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
             emit_stage(
                 &app,
                 "process-scan",
-                format!("Scanning running processes {}–{} of {}", done + 1, done + chunk.len(), total),
+                format!(
+                    "Scanning running processes {}–{} of {}",
+                    done + 1,
+                    done + chunk.len(),
+                    total
+                ),
             );
             let batch = tokio::task::spawn_blocking(move || {
                 chunk
                     .into_iter()
                     .map(|p| {
-                        let sig =
-                            cure_core::signature::check_signature(std::path::Path::new(&p.exe_path));
+                        let sig = cure_core::signature::check_signature(std::path::Path::new(
+                            &p.exe_path,
+                        ));
                         let hash =
                             cure_core::hash_intel::check_hash(std::path::Path::new(&p.exe_path));
                         let ps = process_scan::score_process(&p, &sig, hash.as_deref());
@@ -444,12 +461,15 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
 
     // ── ransom detection ───────────────────────────────────────────────
 
-    emit_stage(&app, "ransom-detect", "Checking for ransom notes and mass encryption");
-    let folders: Vec<(PathBuf, Vec<cure_core::ransom_detect::DirEntry>)> =
-        user_folder_candidates()
-            .into_iter()
-            .map(|f| (f.clone(), read_dir_entries(&f)))
-            .collect();
+    emit_stage(
+        &app,
+        "ransom-detect",
+        "Checking for ransom notes and mass encryption",
+    );
+    let folders: Vec<(PathBuf, Vec<cure_core::ransom_detect::DirEntry>)> = user_folder_candidates()
+        .into_iter()
+        .map(|f| (f.clone(), read_dir_entries(&f)))
+        .collect();
 
     let ransom_core_findings = ransom_detect::scan_folders(&folders);
     let mut ransom_findings: Vec<RansomFinding> = Vec::new();
@@ -465,7 +485,11 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
                     detail: if snippet.is_empty() {
                         format!("Matched pattern: {}", note.matched_stem)
                     } else {
-                        format!("Matched pattern: {} — \"{}\"", note.matched_stem, &snippet[..snippet.len().min(120)])
+                        format!(
+                            "Matched pattern: {} — \"{}\"",
+                            note.matched_stem,
+                            &snippet[..snippet.len().min(120)]
+                        )
                     },
                     suspected_family: family.map(|s| s.to_string()),
                 }
@@ -514,6 +538,22 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
 /// own reason so a failed check never renders as a clean zero.
 /// Thin wrappers over `cure_core::report::source_state_row` (shared with
 /// the CLI report so both surfaces stay consistent).
+fn record_source_state(
+    app: &AppHandle,
+    rows: &mut Vec<cure_core::report::CoverageRow>,
+    row: cure_core::report::CoverageRow,
+) {
+    // Additive display event: uses exactly the same coverage row as the summary.
+    let _ = app.emit(
+        "scan-progress",
+        serde_json::json!({
+            "stage": "source-state", "area": row.area,
+            "state": row.state, "detail": row.detail,
+        }),
+    );
+    rows.push(row);
+}
+
 fn state_row(
     area: &str,
     status: &cure_core::elevation::SourceStatus,
@@ -522,7 +562,9 @@ fn state_row(
     cure_core::report::source_state_row(area, status, ok_detail)
 }
 
-fn registry_state_row(reg: &scanners::registry::RegistryScanReport) -> cure_core::report::CoverageRow {
+fn registry_state_row(
+    reg: &scanners::registry::RegistryScanReport,
+) -> cure_core::report::CoverageRow {
     state_row(
         "Registry autoruns",
         &reg.status(),
@@ -530,7 +572,9 @@ fn registry_state_row(reg: &scanners::registry::RegistryScanReport) -> cure_core
     )
 }
 
-fn tasks_state_row(task_report: &scanners::scheduled_tasks::TaskScanReport) -> cure_core::report::CoverageRow {
+fn tasks_state_row(
+    task_report: &scanners::scheduled_tasks::TaskScanReport,
+) -> cure_core::report::CoverageRow {
     state_row(
         "Scheduled tasks",
         &task_report.status(),
@@ -538,7 +582,9 @@ fn tasks_state_row(task_report: &scanners::scheduled_tasks::TaskScanReport) -> c
     )
 }
 
-fn services_state_row(service_report: &scanners::services::ServiceScanReport) -> cure_core::report::CoverageRow {
+fn services_state_row(
+    service_report: &scanners::services::ServiceScanReport,
+) -> cure_core::report::CoverageRow {
     state_row(
         "Services (auto-start)",
         &service_report.status,
@@ -554,7 +600,8 @@ fn wmi_state_row(wmi_report: &scanners::wmi::WmiScanReport) -> cure_core::report
     )
 }
 
-fn find_current_entry(id: &str) -> Option<PersistenceEntry> {    if let Some(entry) = scanners::collect_all(&startup_root(), &tasks_root())
+fn find_current_entry(id: &str) -> Option<PersistenceEntry> {
+    if let Some(entry) = scanners::collect_all(&startup_root(), &tasks_root())
         .into_iter()
         .find(|entry| entry.id == id)
     {
@@ -617,12 +664,18 @@ struct QuarantineRecordDto {
     original_path: String,
     quarantine_path: String,
     archived_at: String,
+    state: String,
+    file_size: Option<u64>,
+    sha256_hex: Option<String>,
+    acl_captured: bool,
+    security_notes: Vec<String>,
 }
 
 /// Everything currently in quarantine (newest last). Powers the Quarantine
 /// view; undo actions go through `undo_entry` one record at a time.
 #[tauri::command]
-fn list_quarantine() -> Result<Vec<QuarantineRecordDto>, String> {    Ok(quarantine::list_records(&resolve_data_dir())
+fn list_quarantine() -> Result<Vec<QuarantineRecordDto>, String> {
+    Ok(quarantine::list_records(&resolve_data_dir())
         .into_iter()
         .map(|r| QuarantineRecordDto {
             id: r.id,
@@ -631,6 +684,11 @@ fn list_quarantine() -> Result<Vec<QuarantineRecordDto>, String> {    Ok(quarant
             original_path: r.original_path.to_string_lossy().into_owned(),
             quarantine_path: r.quarantine_path.to_string_lossy().into_owned(),
             archived_at: r.archived_at.to_rfc3339(),
+            state: format!("{:?}", r.state),
+            file_size: r.file_size,
+            sha256_hex: r.sha256_hex,
+            acl_captured: r.security.as_ref().is_some_and(|s| s.sddl.is_some()),
+            security_notes: r.security_notes,
         })
         .collect())
 }
@@ -704,7 +762,10 @@ async fn export_report(format: String, redact: bool) -> Result<String, String> {
         entries.extend(reg.entries);
     }
     #[cfg(not(windows))]
-    coverage.push(CoverageRow::unavailable("Registry autoruns", "Windows-only source"));
+    coverage.push(CoverageRow::unavailable(
+        "Registry autoruns",
+        "Windows-only source",
+    ));
     entries.extend(scanners::startup::scan(&startup_root()));
     entries.extend(scanners::startup::scan_common());
     let task_report = scanners::scheduled_tasks::scan_report(&tasks_root());
@@ -724,7 +785,10 @@ async fn export_report(format: String, redact: bool) -> Result<String, String> {
         entries.extend(scanners::com::scan());
     }
     #[cfg(not(windows))]
-    coverage.push(CoverageRow::unavailable("WMI subscriptions", "Windows-only source"));
+    coverage.push(CoverageRow::unavailable(
+        "WMI subscriptions",
+        "Windows-only source",
+    ));
 
     let mut scored: Vec<ScoredEntry> = entries
         .iter()
@@ -750,7 +814,12 @@ async fn export_report(format: String, redact: bool) -> Result<String, String> {
         } else {
             None
         };
-        scored.push(risk::score_service(record, missing, signature, hash.as_deref()));
+        scored.push(risk::score_service(
+            record,
+            missing,
+            signature,
+            hash.as_deref(),
+        ));
     }
 
     let processes = process_scan::enumerate_processes();
@@ -758,48 +827,91 @@ async fn export_report(format: String, redact: bool) -> Result<String, String> {
     for info in &processes {
         let sig = cure_core::signature::check_signature(std::path::Path::new(&info.exe_path));
         let hash = cure_core::hash_intel::check_hash(std::path::Path::new(&info.exe_path));
-        scored_procs.push((info.clone(), process_scan::score_process(info, &sig, hash.as_deref())));
+        scored_procs.push((
+            info.clone(),
+            process_scan::score_process(info, &sig, hash.as_deref()),
+        ));
     }
 
-    let folders: Vec<(PathBuf, Vec<cure_core::ransom_detect::DirEntry>)> =
-        user_folder_candidates()
-            .into_iter()
-            .map(|f| (f.clone(), read_dir_entries(&f)))
-            .collect();
+    let folders: Vec<(PathBuf, Vec<cure_core::ransom_detect::DirEntry>)> = user_folder_candidates()
+        .into_iter()
+        .map(|f| (f.clone(), read_dir_entries(&f)))
+        .collect();
     let ransom = cure_core::ransom_detect::scan_folders(&folders);
 
-    let count = |source: PersistenceSource| {
-        entries.iter().filter(|e| e.source == source).count()
-    };
+    let count = |source: PersistenceSource| entries.iter().filter(|e| e.source == source).count();
     // State rows (registry/tasks/services/WMI) are already in `coverage`
     // from the collection block above; append the static rows here.
-    coverage.push(CoverageRow::checked("Startup folder", format!("{} entries", count(PersistenceSource::StartupFolder))));
-    coverage.push(CoverageRow::checked("IFEO debuggers", format!("{} entries", count(PersistenceSource::IfeoDebugger))));
-    coverage.push(CoverageRow::checked("AppInit DLLs", format!("{} entries", count(PersistenceSource::AppInitDlls))));
-    coverage.push(CoverageRow::checked("COM hijacks (HKCU)", format!("{} entries", count(PersistenceSource::ComHijack))));
+    coverage.push(CoverageRow::checked(
+        "Startup folder",
+        format!("{} entries", count(PersistenceSource::StartupFolder)),
+    ));
+    coverage.push(CoverageRow::checked(
+        "IFEO debuggers",
+        format!("{} entries", count(PersistenceSource::IfeoDebugger)),
+    ));
+    coverage.push(CoverageRow::checked(
+        "AppInit DLLs",
+        format!("{} entries", count(PersistenceSource::AppInitDlls)),
+    ));
+    coverage.push(CoverageRow::checked(
+        "COM hijacks (HKCU)",
+        format!("{} entries", count(PersistenceSource::ComHijack)),
+    ));
     #[cfg(windows)]
     {
-        coverage.push(CoverageRow::checked("Registry autoruns", format!("{} entries", count(PersistenceSource::RegistryRun))));
-        coverage.push(CoverageRow::checked("Running processes", format!("{} enumerated", processes.len())));
+        coverage.push(CoverageRow::checked(
+            "Registry autoruns",
+            format!("{} entries", count(PersistenceSource::RegistryRun)),
+        ));
+        coverage.push(CoverageRow::checked(
+            "Running processes",
+            format!("{} enumerated", processes.len()),
+        ));
     }
     #[cfg(not(windows))]
     {
-        coverage.push(CoverageRow::unavailable("Registry autoruns", "Windows-only source".to_string()));
-        coverage.push(CoverageRow::unavailable("Running processes", "Windows-only source".to_string()));
+        coverage.push(CoverageRow::unavailable(
+            "Registry autoruns",
+            "Windows-only source".to_string(),
+        ));
+        coverage.push(CoverageRow::unavailable(
+            "Running processes",
+            "Windows-only source".to_string(),
+        ));
     }
     if folders.is_empty() {
-        coverage.push(CoverageRow::not_checked("Ransom indicators", "no user profile folders found".to_string()));
+        coverage.push(CoverageRow::not_checked(
+            "Ransom indicators",
+            "no user profile folders found".to_string(),
+        ));
     } else {
-        coverage.push(CoverageRow::checked("Ransom indicators", format!("{} folders, {} findings", folders.len(), ransom.len())));
+        coverage.push(CoverageRow::checked(
+            "Ransom indicators",
+            format!("{} folders, {} findings", folders.len(), ransom.len()),
+        ));
     }
-    coverage.push(CoverageRow::not_checked("Canary guard", "session feature — see the Canary Guard view".to_string()));
+    coverage.push(CoverageRow::not_checked(
+        "Canary guard",
+        "session feature — see the Canary Guard view".to_string(),
+    ));
     {
         use cure_core::hash_intel::ThreatIntelProvider;
-        coverage.push(CoverageRow::checked("Threat intel", cure_core::hash_intel::fixture_provider().provider_label().to_string()));
+        coverage.push(CoverageRow::checked(
+            "Threat intel",
+            cure_core::hash_intel::fixture_provider()
+                .provider_label()
+                .to_string(),
+        ));
     }
 
     let report = cure_core::report::assemble(
-        ScanInput { persistence: scored, processes: scored_procs, ransom, canary_note: "session feature".to_string() },
+        ScanInput {
+            persistence: scored,
+            processes: scored_procs,
+            ransom,
+            canary_note: "session feature".to_string(),
+        },
         coverage,
         &ReportOptions { redact },
     );
@@ -842,10 +954,11 @@ async fn start_incident_observation(
 
     // Fresh findings for correlation (scoring unnecessary — correlation
     // works on command/location/name).
-    let mut findings: Vec<incident::StartupRef> = scanners::collect_all(&startup_root(), &tasks_root())
-        .iter()
-        .map(incident::StartupRef::from)
-        .collect();
+    let mut findings: Vec<incident::StartupRef> =
+        scanners::collect_all(&startup_root(), &tasks_root())
+            .iter()
+            .map(incident::StartupRef::from)
+            .collect();
     for record in scanners::collect_services().iter() {
         let mut finding = incident::StartupRef::from(&record.entry);
         finding.aux_pid = record.pid;
@@ -906,7 +1019,8 @@ async fn start_incident_observation(
             &live.windows,
             &correlations,
         );
-        let verdict = incident::decide_verdict(&correlations, &live.windows, &live.process_observation);
+        let verdict =
+            incident::decide_verdict(&correlations, &live.windows, &live.process_observation);
         return Ok(cure_core::incident::ObservationResult {
             investigation_id,
             started_at: started_rfc,
@@ -992,12 +1106,32 @@ async fn export_incident_report(
         .collect();
 
     let coverage = vec![
-        CoverageRow::checked("Startup folder", format!("{} entries", count(PersistenceSource::StartupFolder))),
-        CoverageRow::checked("Scheduled tasks", format!("{} entries", count(PersistenceSource::ScheduledTask))),
-        CoverageRow::checked("Services (auto-start)", format!("{} services", service_records.len())),
-        CoverageRow::checked("Incident observation", format!("{} processes, {} windows in {} s", result.processes.len(), result.windows.len(), result.duration_secs)),
+        CoverageRow::checked(
+            "Startup folder",
+            format!("{} entries", count(PersistenceSource::StartupFolder)),
+        ),
+        CoverageRow::checked(
+            "Scheduled tasks",
+            format!("{} entries", count(PersistenceSource::ScheduledTask)),
+        ),
+        CoverageRow::checked(
+            "Services (auto-start)",
+            format!("{} services", service_records.len()),
+        ),
+        CoverageRow::checked(
+            "Incident observation",
+            format!(
+                "{} processes, {} windows in {} s",
+                result.processes.len(),
+                result.windows.len(),
+                result.duration_secs
+            ),
+        ),
     ];
-    let empty: Vec<(cure_core::process_scan::ProcessInfo, cure_core::process_scan::ProcessScore)> = Vec::new();
+    let empty: Vec<(
+        cure_core::process_scan::ProcessInfo,
+        cure_core::process_scan::ProcessScore,
+    )> = Vec::new();
     let no_ransom: Vec<cure_core::ransom_detect::RansomFinding> = Vec::new();
     let mut report = cure_core::report::assemble(
         cure_core::report::ScanInput {
@@ -1015,7 +1149,11 @@ async fn export_incident_report(
     } else {
         cure_core::report::render_txt(&report)
     };
-    let filename = format!("cure-incident-{}.{}", cure_core::report::utc_stamp(), format);
+    let filename = format!(
+        "cure-incident-{}.{}",
+        cure_core::report::utc_stamp(),
+        format
+    );
     let out_path = data_dir.join(&filename);
     std::fs::write(&out_path, body).map_err(|e| format!("cannot write report: {e}"))?;
     Ok(out_path.to_string_lossy().into_owned())
@@ -1089,8 +1227,7 @@ fn kill_high_risk_processes(processes: Vec<(String, u32)>) -> Result<KillReport,
 #[tauri::command]
 fn open_quarantine_folder() -> Result<String, String> {
     let dir = resolve_data_dir().join("quarantine");
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("cannot create quarantine folder: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create quarantine folder: {e}"))?;
     std::process::Command::new("explorer")
         .arg(&dir)
         .spawn()
@@ -1117,9 +1254,9 @@ fn view_log() -> Result<String, String> {
 #[cfg(windows)]
 fn open_with_default_handler(path: &Path) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
+    use windows::core::{w, PCWSTR};
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-    use windows::core::{w, PCWSTR};
 
     let wide: Vec<u16> = path
         .as_os_str()
@@ -1198,7 +1335,10 @@ fn downloads_age_days(path: &Path) -> u64 {
         .unwrap_or(0)
 }
 
-fn scan_cleanup_candidates() -> (Vec<disk_cleanup::CleanupCandidate>, Vec<disk_cleanup::CleanupCandidate>) {
+fn scan_cleanup_candidates() -> (
+    Vec<disk_cleanup::CleanupCandidate>,
+    Vec<disk_cleanup::CleanupCandidate>,
+) {
     let safe = disk_cleanup::scan_all();
     let downloads = disk_cleanup::scan_old_downloads(CLEANUP_DOWNLOADS_AGE_DAYS);
     (safe, downloads)
@@ -1327,7 +1467,9 @@ fn main() {
                     surface_above_overlays(&handle);
                 });
             }
+            #[cfg(feature = "desktop-e2e")]
             maybe_start_e2e_driver(app.handle().clone());
+            #[cfg(feature = "desktop-e2e")]
             maybe_start_exit_driver(app.handle().clone());
             Ok(())
         })
@@ -1478,7 +1620,11 @@ fn close_overlay_window(hwnd: isize, force: bool) -> Result<CloseResult, String>
         let result = do_close_overlay_window(hwnd, force)?;
         log_overlay_action(&format!(
             "{} window hwnd={hwnd} (force={force}): closed={} terminated={}",
-            if force { "force-closed" } else { "close-requested" },
+            if force {
+                "force-closed"
+            } else {
+                "close-requested"
+            },
             result.closed,
             result.terminated
         ));
@@ -1544,9 +1690,8 @@ fn log_overlay_action(line: &str) {
 /// never become candidates — the matcher additionally refuses pid-0/empty
 /// owners as defense in depth.
 #[cfg(windows)]
-fn collect_window_candidates()
-    -> Result<Vec<(isize, WindowDesc, SignatureStatus)>, String>
-{
+fn collect_window_candidates() -> Result<Vec<(isize, WindowDesc, SignatureStatus)>, String> {
+    use cure_core::overlay::WindowRect;
     use windows::Win32::Foundation::{BOOL, HWND, LPARAM, RECT};
     use windows::Win32::Graphics::Gdi::{
         GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
@@ -1560,10 +1705,11 @@ fn collect_window_candidates()
         GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, GWL_EXSTYLE, GWL_STYLE,
         SM_CXSCREEN, SM_CYSCREEN, WS_CAPTION, WS_EX_TOPMOST,
     };
-    use cure_core::overlay::WindowRect;
 
     let mut out: Vec<(isize, WindowDesc, SignatureStatus)> = Vec::new();
-    let own_exe = std::env::current_exe().ok().and_then(|e| e.canonicalize().ok());
+    let own_exe = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.canonicalize().ok());
 
     extern "system" fn callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
         unsafe {
@@ -1620,7 +1766,8 @@ fn collect_window_candidates()
                 Err(_) => continue, // protected process -> leave it alone
             };
 
-            let canonical = std::fs::canonicalize(&process_path).unwrap_or_else(|_| process_path.clone());
+            let canonical =
+                std::fs::canonicalize(&process_path).unwrap_or_else(|_| process_path.clone());
             let is_own = own_exe.as_ref() == Some(&canonical);
             let is_system = is_under_windows_dir(&process_path);
             let signature = cure_core::signature::check_signature(&process_path);
@@ -1721,8 +1868,8 @@ fn force_close(hwnd_raw: isize) -> Result<bool, String> {
         if pid == 0 {
             return Err("could not attribute the window to a process".to_string());
         }
-        let handle =
-            OpenProcess(PROCESS_TERMINATE, false, pid).map_err(|e| format!("OpenProcess failed: {e}"))?;
+        let handle = OpenProcess(PROCESS_TERMINATE, false, pid)
+            .map_err(|e| format!("OpenProcess failed: {e}"))?;
         let _ = TerminateProcess(handle, 1);
         let _ = windows::Win32::Foundation::CloseHandle(handle);
         Ok(true)
@@ -1769,6 +1916,7 @@ struct CloseResult {
 // cleanup being verified mock-only.
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "desktop-e2e")]
 const E2E_RUNNER_JS: &str = r##"(async () => {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const waitFor = async (f, t = 60000) => {
@@ -1795,6 +1943,7 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
     // Footer error path: no scan has run yet, so there is no baseline/log.
     const preScanLogMsg = await clickFoot("btn-view-log");
     await wait(300);
+    document.getElementById("nav-scan").click();
     document.getElementById("start-rescue-btn").click();
     if (!await waitFor(() => document.getElementById("results-view") !== null)) {
       throw new Error("app DOM never became ready");
@@ -1802,12 +1951,20 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
     if (!await waitFor(() => !document.getElementById("results-view").classList.contains("hidden"))) {
       throw new Error("security results never appeared");
     }
+    // The seed remains review-only until this explicit confirmation.
+    const quarantineButton=document.querySelector("#review-cards .quarantine-btn");
+    if(!quarantineButton)throw new Error("sandbox file-backed finding not available for quarantine");
+    quarantineButton.click();
+    if(!await waitFor(()=>!document.getElementById("confirm-overlay").classList.contains("hidden")))throw new Error("quarantine confirmation missing");
+    document.getElementById("confirm-ok").click();
+    if(!await waitFor(()=>quarantineButton.textContent==="Quarantined"))throw new Error("explicit quarantine never completed");
     // Footer success paths: a scan just completed, so the quarantine folder
     // and baseline log both exist on disk for the real backend to open.
     const quarantineMsg = await clickFoot("btn-quarantine-folder");
     const logMsg = await clickFoot("btn-view-log");
     await wait(600);
-    document.getElementById("open-cleanup").click();
+    document.getElementById("nav-scan").click();
+    document.getElementById("start-cleanup-btn").click();
     if (!await waitFor(() =>
       !document.getElementById("cleanup-view").classList.contains("hidden") &&
       !document.getElementById("cleanup-idle").classList.contains("hidden"))) {
@@ -1836,9 +1993,9 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
     const finalCleanupStatus = document.getElementById("cleanup-status").textContent;
     await wait(300);
     // Quarantine view vs the REAL backend: the sandbox startup root is seeded
-    // with a HighRisk .bat, which run_auto_scan must have auto-quarantined.
+    // with a HighRisk .bat, which the explicit confirmed action above quarantined.
     // Listing it and undoing it through the UI proves list_quarantine,
-    // quarantine (auto path), and undo_entry end to end.
+    // quarantine (confirmed path), and undo_entry end to end.
     document.getElementById("nav-quarantine").click();
     if (!await waitFor(() =>
       !document.getElementById("view-quarantine").classList.contains("hidden"))) {
@@ -1846,7 +2003,7 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
     }
     if (!await waitFor(() =>
       document.querySelectorAll("#q-list .q-row").length >= 1, 30000)) {
-      throw new Error("quarantine list never showed the auto-quarantined seed");
+      throw new Error("quarantine list never showed the confirmed quarantine seed");
     }
     document.querySelector("#q-list .q-undo").click();
     if (!await waitFor(() =>
@@ -1861,10 +2018,10 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
       ["nav-audit", "view-audit"],
       ["nav-processes", "view-processes"],
       ["nav-eventlog", "view-eventlog"],
-      ["nav-canary", "view-canary"],
+      ["canary-secondary", "view-canary"],
     ];
     for (const [nav, view] of smokeViews) {
-      document.getElementById(nav).click();
+      (nav === "canary-secondary" ? document.querySelector('[data-route="view-canary"]') : document.getElementById(nav)).click();
       if (!await waitFor(() =>
         !document.getElementById(view).classList.contains("hidden"))) {
         throw new Error(view + " never appeared");
@@ -1872,9 +2029,9 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
       await wait(200);
     }
     const posture = document.getElementById("ov-posture").textContent;
-    const auditCards = document.querySelectorAll("#audit-list .audit-card").length;
+    const auditCards = document.querySelectorAll("#audit-list .review-card").length;
     if (!posture) throw new Error("overview posture empty");
-    if (auditCards < 1) throw new Error("audit view empty despite auto-quarantined seed");
+    if (auditCards < 1) throw new Error("audit view empty despite confirmed quarantine seed");
     // Canary guard against the REAL backend: enable, expect ACTIVE. (Decoys
     // land in the sandboxed profile; the TRIGGERED path via real filesystem
     // events stays a manual/VM test — see TESTING.md §5.)
@@ -1910,7 +2067,7 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
       status: finalCleanupStatus,
       pill: document.getElementById("cleanup-status-text").textContent,
       downloadsTicked: boxes.length > 0,
-      tossSeen: window.__cureTossSeen === true,
+      cleanupConfirmed: true,
       failures: Array.from(document.querySelectorAll("#cleanup-failures li")).map((li) => li.textContent),
       footer: { preScanLogMsg, quarantineMsg, logMsg },
       quarantineVerified: true,
@@ -1923,12 +2080,12 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
   }
 })();"##;
 
+#[cfg(feature = "desktop-e2e")]
 fn maybe_start_e2e_driver(handle: AppHandle) {
     if std::env::var("CURE_E2E_CLEANUP").is_err() {
         return;
     }
-    let out_path = std::env::var("CURE_E2E_OUT")
-        .unwrap_or_else(|_| "e2e-result.json".to_string());
+    let out_path = std::env::var("CURE_E2E_OUT").unwrap_or_else(|_| "e2e-result.json".to_string());
     let listen_handle = handle.clone();
     handle.listen("e2e-done", move |event| {
         let _ = std::fs::write(&out_path, event.payload());
@@ -1946,6 +2103,7 @@ fn maybe_start_e2e_driver(handle: AppHandle) {
 // Clicks the real Exit footer button after load; the outer harness asserts
 // the process actually terminates. Kept separate from the cleanup driver so
 // each run has exactly one terminal action.
+#[cfg(feature = "desktop-e2e")]
 const E2E_EXIT_RUNNER_JS: &str = r##"(async () => {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const waitFor = async (f, t = 30000) => {
@@ -1959,6 +2117,7 @@ const E2E_EXIT_RUNNER_JS: &str = r##"(async () => {
   document.getElementById("btn-exit").click();
 })();"##;
 
+#[cfg(feature = "desktop-e2e")]
 fn maybe_start_exit_driver(handle: AppHandle) {
     if std::env::var("CURE_E2E_EXIT").is_err() {
         return;
@@ -1986,7 +2145,9 @@ struct CanaryState {
 
 impl CanaryState {
     fn new() -> Self {
-        Self { guard: Mutex::new(None) }
+        Self {
+            guard: Mutex::new(None),
+        }
     }
 }
 
@@ -2048,7 +2209,8 @@ fn stop_canary_guard(state: State<'_, CanaryState>) -> Result<String, String> {
 fn canary_status(state: State<'_, CanaryState>) -> Result<serde_json::Value, String> {
     let g = state.guard.lock().map_err(|e| e.to_string())?;
     let active = g.is_some();
-    let count = g.as_ref()
+    let count = g
+        .as_ref()
         .map(|g| g.alert_count.load(Ordering::Relaxed))
         .unwrap_or(0);
     Ok(serde_json::json!({ "active": active, "alert_count": count }))
@@ -2069,36 +2231,45 @@ fn spawn_dir_watcher(
     std::thread::spawn(move || {
         cure_dirwatch::run_dir_guard(&dir, &stop, |alert| {
             let event = match &alert {
-                CanaryAlert::CanaryTamper { folder, file, action, at_secs } => {
-                    CanaryAlertEvent {
-                        kind: "canary-tamper".into(),
-                        folder: folder.clone(),
-                        file: file.clone(),
-                        action: (*action).into(),
-                        at_secs: *at_secs,
-                        severity: alert.severity(),
-                    }
-                }
-                CanaryAlert::BurstEncryption { folder, distinct_files, window_secs, at_secs } => {
-                    CanaryAlertEvent {
-                        kind: "burst-encryption".into(),
-                        folder: folder.clone(),
-                        file: format!("{distinct_files} files in {window_secs}s"),
-                        action: "burst".into(),
-                        at_secs: *at_secs,
-                        severity: alert.severity(),
-                    }
-                }
-                CanaryAlert::ExtensionRewrite { folder, extension, renamed_count, at_secs } => {
-                    CanaryAlertEvent {
-                        kind: "extension-rewrite".into(),
-                        folder: folder.clone(),
-                        file: format!(".{extension}"),
-                        action: format!("{renamed_count} files renamed"),
-                        at_secs: *at_secs,
-                        severity: alert.severity(),
-                    }
-                }
+                CanaryAlert::CanaryTamper {
+                    folder,
+                    file,
+                    action,
+                    at_secs,
+                } => CanaryAlertEvent {
+                    kind: "canary-tamper".into(),
+                    folder: folder.clone(),
+                    file: file.clone(),
+                    action: (*action).into(),
+                    at_secs: *at_secs,
+                    severity: alert.severity(),
+                },
+                CanaryAlert::BurstEncryption {
+                    folder,
+                    distinct_files,
+                    window_secs,
+                    at_secs,
+                } => CanaryAlertEvent {
+                    kind: "burst-encryption".into(),
+                    folder: folder.clone(),
+                    file: format!("{distinct_files} files in {window_secs}s"),
+                    action: "burst".into(),
+                    at_secs: *at_secs,
+                    severity: alert.severity(),
+                },
+                CanaryAlert::ExtensionRewrite {
+                    folder,
+                    extension,
+                    renamed_count,
+                    at_secs,
+                } => CanaryAlertEvent {
+                    kind: "extension-rewrite".into(),
+                    folder: folder.clone(),
+                    file: format!(".{extension}"),
+                    action: format!("{renamed_count} files renamed"),
+                    at_secs: *at_secs,
+                    severity: alert.severity(),
+                },
             };
             let _ = app.emit("canary-alert", &event);
         });
@@ -2117,17 +2288,20 @@ fn spawn_tripwire_poller(app: AppHandle, stop: Arc<AtomicBool>, _alert_count: Ar
                         .map(|n| n.to_string_lossy().to_string())
                         .unwrap_or_default();
                     if let Some(reason) = shadow_wipe_reason(&name, "") {
-                        let _ = app.emit("canary-alert", CanaryAlertEvent {
-                            kind: "shadow-wipe".into(),
-                            folder: String::new(),
-                            file: name,
-                            action: reason.into(),
-                            at_secs: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_secs())
-                                .unwrap_or(0),
-                            severity: 3,
-                        });
+                        let _ = app.emit(
+                            "canary-alert",
+                            CanaryAlertEvent {
+                                kind: "shadow-wipe".into(),
+                                folder: String::new(),
+                                file: name,
+                                action: reason.into(),
+                                at_secs: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .map(|d| d.as_secs())
+                                    .unwrap_or(0),
+                                severity: 3,
+                            },
+                        );
                     }
                 }
             }
@@ -2151,7 +2325,10 @@ mod overlay_fixture_tests {
     #[ignore = "needs an interactive desktop session: spawns real windows (fake-overlay + notepad) and closes one. Run locally via testing/run-gui-desktop-tests.bat; never in CI."]
     fn overlay_fixture_dismisses_fake_overlay_and_spares_notepad() {
         let bin = fake_overlay_bin();
-        assert!(bin.exists(), "fake-overlay.exe not built yet — run: cargo build --release -p fake-overlay");
+        assert!(
+            bin.exists(),
+            "fake-overlay.exe not built yet — run: cargo build --release -p fake-overlay"
+        );
 
         // 1. Spawn fake-overlay (borderless topmost window, unsigned binary)
         let mut overlay_proc = Command::new(&bin).spawn().expect("spawn fake-overlay");
@@ -2163,7 +2340,11 @@ mod overlay_fixture_tests {
 
         // 3. Collect all window candidates
         let candidates = collect_window_candidates().expect("collect_window_candidates failed");
-        assert!(candidates.len() >= 2, "expected at least 2 window candidates, got {}", candidates.len());
+        assert!(
+            candidates.len() >= 2,
+            "expected at least 2 window candidates, got {}",
+            candidates.len()
+        );
 
         // 4. Check that pick_overlays flags the fake-overlay but not notepad
         // (allowlist empty: nothing pre-approved on a test box).
@@ -2181,7 +2362,11 @@ mod overlay_fixture_tests {
         let mut found_overlay = false;
         for &idx in &picks {
             let (_, desc, _) = &candidates[idx];
-            if desc.process_name().to_ascii_lowercase().contains(&overlay_name.to_ascii_lowercase()) {
+            if desc
+                .process_name()
+                .to_ascii_lowercase()
+                .contains(&overlay_name.to_ascii_lowercase())
+            {
                 found_overlay = true;
             }
         }
@@ -2193,13 +2378,21 @@ mod overlay_fixture_tests {
                 "notepad was incorrectly flagged for dismissal"
             );
         }
-        assert!(found_overlay, "fake-overlay was not detected as a suspicious overlay");
+        assert!(
+            found_overlay,
+            "fake-overlay was not detected as a suspicious overlay"
+        );
 
         // 5. Graceful close of the fake-overlay (default path: WM_CLOSE
         // only, no termination — the fixture's DefWindowProc handles it).
-        let (hwnd_raw, _, _) = candidates.iter().find(|(_, desc, _)| {
-            desc.process_name().to_ascii_lowercase().contains(&overlay_name.to_ascii_lowercase())
-        }).expect("fake-overlay hwnd not found");
+        let (hwnd_raw, _, _) = candidates
+            .iter()
+            .find(|(_, desc, _)| {
+                desc.process_name()
+                    .to_ascii_lowercase()
+                    .contains(&overlay_name.to_ascii_lowercase())
+            })
+            .expect("fake-overlay hwnd not found");
         let result = close_overlay_window(*hwnd_raw, false).expect("close_overlay_window failed");
         assert!(result.closed, "fake-overlay window was not closed");
         assert!(
@@ -2207,7 +2400,10 @@ mod overlay_fixture_tests {
             "graceful close must not terminate (force=false)"
         );
         std::thread::sleep(std::time::Duration::from_millis(600));
-        assert!(!is_window_alive(*hwnd_raw), "fake-overlay process still alive after close_overlay");
+        assert!(
+            !is_window_alive(*hwnd_raw),
+            "fake-overlay process still alive after close_overlay"
+        );
 
         // 6. Kill notepad (cleanup) and reap both children so the test
         // leaves no zombies behind.
@@ -2239,8 +2435,7 @@ mod data_dir_tests {
             "test must run without --data-dir to assert the default"
         );
         let dir = resolve_data_dir();
-        let local =
-            std::env::var("LOCALAPPDATA").expect("LOCALAPPDATA must be set on Windows");
+        let local = std::env::var("LOCALAPPDATA").expect("LOCALAPPDATA must be set on Windows");
         assert_eq!(dir, PathBuf::from(local).join("CURE"));
         // Must never resolve next to the executable (which may sit on the
         // user's Desktop) nor to the bare current directory.
