@@ -328,49 +328,46 @@
   function runCleanupMock(args) {
     window.__CURE_LAST_CLEANUP_CALL = JSON.parse(JSON.stringify(args || {}));
     return delay(window.__CURE_MOCK_CLEANUP_DELAY_MS).then(() => {
-      // real tauri maps camelCase JS keys to snake_case rust params; accept both
-      const catSel = args.categories || [];
-      const dlSel = args.download_paths || args.downloadPaths || [];
-      if (window.__CURE_MOCK_CLEANUP_FAILURES) {
-        const freed =
-          catSel.reduce((sum, key) => {
-            const cat = CLEANUP_CATEGORIES.find((c) => c.key === key);
-            return sum + (cat ? Math.round(cat.total_bytes * 0.9) : 0);
-          }, 0) +
-          dlSel.reduce((sum, p) => {
-            const dl = CLEANUP_DOWNLOADS.find((d) => d.path === p);
-            return sum + (dl ? dl.size_bytes : 0);
-          }, 0);
-        return {
-          attempted: catSel.length + dlSel.length,
-          deleted: Math.max(0, catSel.length - 1) + dlSel.length,
-          failed: 1,
-          bytes_freed: freed,
-          failures: [
-            {
-              path: "C:\\Windows\\Temp\\locked-by-running-process.tmp",
-              reason:
-                "The process cannot access the file because it is being used by another process. (os error 32)",
-            },
-          ],
-        };
-      }
-      const freed =
-        catSel.reduce((sum, key) => {
-          const cat = CLEANUP_CATEGORIES.find((c) => c.key === key);
-          return sum + (cat ? cat.total_bytes : 0);
-        }, 0) +
-        dlSel.reduce((sum, p) => {
-          const dl = CLEANUP_DOWNLOADS.find((d) => d.path === p);
-          return sum + (dl ? dl.size_bytes : 0);
-        }, 0);
-      return {
-        attempted: catSel.length + dlSel.length,
-        deleted: catSel.length + dlSel.length,
+      const categories = args.categories || [];
+      const downloads = args.download_paths || args.downloadPaths || [];
+      const result = {
+        attempted: 0,
+        deleted: 0,
         failed: 0,
-        bytes_freed: freed,
+        bytes_freed: 0,
         failures: [],
       };
+      // Model actual file counts and the subsequent rescan, not category counts.
+      for (const cat of CLEANUP_CATEGORIES) {
+        if (!categories.includes(cat.key) || !cat.item_count) continue;
+        result.attempted += cat.item_count;
+        const locked =
+          window.__CURE_MOCK_CLEANUP_FAILURES && result.failed === 0;
+        const remainingBytes = locked
+          ? Math.ceil(cat.total_bytes / cat.item_count)
+          : 0;
+        result.deleted += cat.item_count - (locked ? 1 : 0);
+        result.bytes_freed += cat.total_bytes - remainingBytes;
+        cat.item_count = locked ? 1 : 0;
+        cat.total_bytes = remainingBytes;
+        if (locked) {
+          result.failed = 1;
+          result.failures.push({
+            path: "C:\\Windows\\Temp\\locked-by-running-process.tmp",
+            reason:
+              "The process cannot access the file because it is being used by another process. (os error 32)",
+          });
+        }
+      }
+      for (let i = CLEANUP_DOWNLOADS.length - 1; i >= 0; i--) {
+        if (!downloads.includes(CLEANUP_DOWNLOADS[i].path)) continue;
+        result.attempted++;
+        result.deleted++;
+        result.bytes_freed += CLEANUP_DOWNLOADS[i].size_bytes;
+        CLEANUP_DOWNLOADS.splice(i, 1);
+      }
+      window.__CURE_LAST_CLEANUP_RESULT = { ...result };
+      return result;
     });
   }
 

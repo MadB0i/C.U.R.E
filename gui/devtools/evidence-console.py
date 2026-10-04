@@ -133,7 +133,7 @@ def core_flow(browser, size=(900, 600), reduced=False, capture=False, video=Fals
     if capture:
         shot(page, DOCS / "03-review-required.png")
         page.locator("#nav-overview").click()
-        shot(page, DOCS / "01-overview.png")
+        shot(page, SHOTS / "overview-review.png")
         page.locator("#nav-results").click()
     select = page.locator("#review-cards .finding-select").first
     select.click()
@@ -220,6 +220,8 @@ def states(browser, capture=False):
                 page.locator("#nav-overview").click()
                 expect(page.locator("#ov-posture")).to_have_text("Coverage incomplete")
                 check("ACCESS DENIED" in page.locator("#ov-coverage").inner_text(), "access denied communicated in text")
+            if name in ("partial", "partial-findings"):
+                check(page.locator('[data-companion="overview"]').get_attribute('data-state') == 'review', 'incomplete collection never gives satisfied companion')
             if name == "partial-findings":
                 expect(page.locator("#status-text")).to_have_text("Review required · Coverage incomplete")
                 check("complete" not in page.locator("#status-text").inner_text().lower().replace("incomplete", ""), "partial coverage with findings never claims scan complete")
@@ -291,8 +293,8 @@ def responsive(browser):
 
 
 def demo_flow(browser):
-    ctx,page,errors=open_page(browser,(1440,900),video=True)
-    page.wait_for_timeout(900)  # Intentional presentation beats, not test synchronization.
+    ctx,page,errors=open_page(browser,(1440,900),video=True,cleanup_delay_ms=1800)
+    page.wait_for_timeout(1800)  # Intentional presentation beats, not test synchronization.
     start_scan(page);finish_scan(page)
     page.wait_for_timeout(900)
     page.locator('#review-cards .finding-select').first.click()
@@ -309,9 +311,68 @@ def demo_flow(browser):
     page.locator('#q-list .q-undo').click()
     expect(page.locator('#q-receipt')).to_contain_text('Restored:')
     page.wait_for_timeout(1200)
+    # Cleanup is a separate, explicitly confirmed action; all video data is labelled mock data.
+    page.locator('#nav-scan').click();page.locator('#start-cleanup-btn').click()
+    page.locator('#cleanup-scan-btn').click();expect(page.locator('#cleanup-body')).to_be_visible()
+    page.locator('.cleanup-cat.on').filter(has_text='Browser caches').click()
+    page.locator('.cleanup-cat.on').filter(has_text='Windows.old').click()
+    page.locator('#cleanup-btn').click();expect(page.locator('#confirm-overlay')).to_be_visible()
+    page.wait_for_timeout(1200);page.locator('#confirm-ok').click()
+    expect(page.locator('[data-companion="cleanup"]')).to_have_attribute('data-state','cleanup')
+    page.wait_for_timeout(1000)
+    expect(page.locator('[data-companion="cleanup"]')).to_have_attribute('data-state','success')
+    page.wait_for_timeout(1200)
     path=page.video.path();ctx.close()
     Path(path).replace(ROOT/'docs/media/demo.webm')
     check(not errors,'demo runtime: '+str(errors))
+
+
+def companion_flow(browser, capture=False):
+    # The character is presentation only: pause/reduced motion and backend truth matter.
+    for failed in [False, True]:
+        ctx,page,errors=open_page(browser,(1440,900) if capture else (900,600),cleanup_failures=failed,cleanup_delay_ms=2400)
+        stage=page.locator('[data-companion="overview"]')
+        check(stage.get_attribute('data-state')=='idle','welcome pose before any scan')
+        check(page.locator('.companion-art').evaluate_all('(es)=>es.every(e=>e.getAttribute("aria-hidden")==="true" && e.getAttribute("focusable")==="false")'),'art does not enter accessibility or focus trees')
+        stage.get_by_role('button',name='Pause motion for Luma').click()
+        check(page.locator('.companion').evaluate_all('(es)=>es.every(e=>e.dataset.paused==="true")'),'pause applies to every companion stage')
+        page.reload();expect(page.locator('#view-overview')).to_be_visible()
+        check(stage.get_attribute('data-paused')=='true','motion preference survives reload')
+        stage.get_by_role('button',name='Resume motion for Luma').click()
+        page.emulate_media(reduced_motion='reduce')
+        expect(stage.locator('.companion-reduced')).to_be_visible()
+        check(page.locator('.companion').evaluate_all('(es)=>es.every(e=>e.dataset.paused==="true")'),'live reduced-motion preference stops companion')
+        check(page.evaluate('document.getAnimations().filter(a=>a.playState==="running").length')==0,'reduced motion has no ongoing loops')
+        page.emulate_media(reduced_motion='no-preference')
+        page.locator('#nav-scan').click();page.locator('#start-cleanup-btn').click()
+        clean=page.locator('[data-companion="cleanup"]')
+        check(clean.get_attribute('data-state')=='idle','cleanup idle never starts brush activity')
+        page.locator('#cleanup-scan-btn').click();expect(page.locator('#cleanup-body')).to_be_visible()
+        page.locator('#cleanup-btn').click();expect(page.locator('#confirm-overlay')).to_be_visible()
+        check(page.locator('#confirm-overlay .companion').count()==0,'serious confirmation contains no assistant artwork')
+        check(page.evaluate('window.__CURE_LAST_CLEANUP_CALL===undefined'),'confirmation does not execute cleanup')
+        page.keyboard.press('Escape')
+        check(page.evaluate('window.__CURE_LAST_CLEANUP_CALL===undefined'),'cancel leaves cleanup uninvoked')
+        page.locator('#cleanup-btn').click();page.locator('#confirm-ok').click()
+        expect(clean).to_have_attribute('data-state','cleanup')
+        expect(clean.locator('.companion-detail')).to_contain_text('Waiting for the engine result')
+        check('Freed' not in clean.inner_text(),'busy pose never fabricates reclaimed bytes')
+        check(page.locator('.cleanup-cat .cc-state').evaluate_all('(es)=>es.every(e=>["Included","Skipped"].includes(e.textContent))'),'cleanup category selection is explicit in text')
+        check(page.locator('.cleanup-summary').is_visible(),'actual cleanup summary stays available at minimum window')
+        layout(page,'companion cleanup running');axe(page,'companion cleanup running')
+        if capture and not failed:
+            page.locator('#stage-main').evaluate('e=>e.scrollTop=0');shot(page,DOCS/'08-cleanup.png')
+        expect(page.locator('#cleanup-status')).to_be_visible(timeout=15000)
+        expect(clean).to_have_attribute('data-state','review' if failed else 'success')
+        check(clean.locator('.companion-detail').inner_text()==page.locator('#cleanup-status').inner_text(),'companion result uses exact engine receipt')
+        # Wait for the normal post-action measurement to resolve before public capture.
+        expect(page.locator('#cleanup-body')).to_be_visible()
+        page.wait_for_function('document.querySelector("#cleanup-subline").textContent.startsWith('+repr('4' if failed else '3')+')')
+        check(page.evaluate('window.__CURE_LAST_CLEANUP_RESULT.attempted')==1245,'cleanup fixture reports files rather than category count')
+        if capture and not failed:shot(page,DOCS/'09-cleanup-result.png')
+        page.locator('#nav-quarantine').click()
+        check(page.locator('#view-quarantine .companion,#evidence-body .companion').count()==0,'evidence and archive remain free of assistant artwork')
+        check(not errors,'companion flow has no runtime or remote errors: '+str(errors));ctx.close()
 
 
 def pixel():
@@ -320,7 +381,7 @@ def pixel():
     check(len(colors)>100, "render contains topology, text and hairline detail")
     violet=sum(n for n,(r,g,b) in colors if b>r and r>g and b-g>25)
     check(20<violet<pic.width*pic.height*.1, "violet is visible and restrained")
-    check(not any(word in (ROOT / "gui/dist/style.css").read_text().lower() for word in ["radial-gradient", "linear-gradient", "pulse", "glow"]), "no decorative gradient or pulse system")
+    check(not any(word in ((ROOT / "gui/dist/style.css").read_text()+(ROOT / "gui/dist/companion.css").read_text()).lower() for word in ["radial-gradient", "linear-gradient", "pulse", "glow"]), "no decorative gradient or pulse system")
 
 
 def main():
@@ -341,6 +402,7 @@ def main():
         if mode in ("all","verify"):
             core_flow(browser,reduced=True);states(browser);secondary(browser);responsive(browser)
         if mode=="capture":states(browser,capture=True)
+        if mode in ("all","verify","capture"):companion_flow(browser,capture=mode=="capture")
         if mode=="layout":responsive(browser)
         if mode=="pixel":core_flow(browser);pixel()
         if mode=="all":pixel()

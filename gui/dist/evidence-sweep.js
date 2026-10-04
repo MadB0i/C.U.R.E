@@ -168,6 +168,7 @@
   window.CureSweep = {
     start() {
       active = null;
+      window.CureCompanion.scan("scan", "Awaiting collection");
       items = 0;
       states = new Map();
       counts = new Map();
@@ -217,6 +218,14 @@
         (p.stage === "item-scanned"
           ? "Inspecting: " + p.name
           : "Collecting evidence");
+      window.CureCompanion.scan(
+        "scan",
+        document.getElementById("sweep-current").textContent,
+        Math.max(
+          0,
+          sources.findIndex((s) => s[0] === active),
+        ),
+      );
       paint();
     },
     finish(summary) {
@@ -250,6 +259,7 @@
         });
       });
       document.getElementById("sweep-current").textContent = "Collection ended";
+      window.CureCompanion.scan("idle", "Collection ended");
       paint();
     },
     fail() {
@@ -257,6 +267,10 @@
       active = null;
       document.getElementById("sweep-current").textContent =
         "Collection interrupted — retry available";
+      window.CureCompanion.scan(
+        "review",
+        "Collection interrupted — retry available",
+      );
       paint();
     },
   };

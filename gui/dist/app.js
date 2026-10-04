@@ -753,6 +753,16 @@
         : "No findings in collected evidence";
       subline.textContent = scope;
     }
+    document
+      .getElementById("companion-result")
+      .classList.toggle("hidden", trouble > 0);
+    window.CureCompanion.result(
+      coverageIncomplete(summary) ? "review" : "success",
+      coverageIncomplete(summary) ? "Coverage incomplete" : "Collection ended",
+      coverageIncomplete(summary)
+        ? "Review the collection limitations below."
+        : "No findings in collected evidence.",
+    );
     renderResultsCoverage(summary);
 
     countUp(document.getElementById("stat-cleaned"), sessionQuarantined);
@@ -1515,12 +1525,6 @@
     if (cleanupEls.btnLabel) cleanupEls.btnLabel.textContent = t;
     else cleanupEls.btn.textContent = t;
   }
-  const CLEANUP_ICONS = {
-    temp: "🧹",
-    browser_cache: "🌐",
-    recycle_bin: "♻️",
-    windows_old: "🗂️",
-  };
   const cleanupState = {
     summary: null,
     selectedCats: new Set(),
@@ -1547,11 +1551,38 @@
   function setCleanupPill(state, text) {
     cleanupEls.statusLine.className = "pill " + state;
     cleanupEls.statusText.textContent = text;
+    const pose =
+      state === "error" || state === "warn"
+        ? "review"
+        : cleanupPhase === "done-ok"
+          ? "success"
+          : state === "scanning"
+            ? "scan"
+            : "idle";
+    window.CureCompanion.cleanup(
+      pose,
+      pose === "success"
+        ? "Cleanup ended"
+        : pose === "review"
+          ? "Review cleanup result"
+          : pose === "scan"
+            ? "Measuring candidates"
+            : cleanupPhase === "ready"
+              ? "Selection ready"
+              : "Ready to measure",
+      text,
+    );
   }
 
   // Cleanup has no progress API: show an honest busy state, never estimated bytes.
   function startCleanupOperation() {
     cleanupEls.stage.classList.remove("hidden");
+    document.getElementById("stage-main").scrollTop = 0;
+    window.CureCompanion.cleanup(
+      "cleanup",
+      "Cleanup in progress",
+      "Deleting confirmed selections. Waiting for the engine result.",
+    );
   }
   function finishCleanupOperation() {
     cleanupEls.stage.classList.add("hidden");
@@ -1661,6 +1692,16 @@
     set("cs-total-items", String(totalN));
     set("cs-total-size", fmtBytes(s.total_bytes));
     set("cs-selected", selN + " items · " + fmtBytes(selB));
+    if (cleanupPhase === "ready")
+      window.CureCompanion.cleanup(
+        "idle",
+        "Selection ready",
+        "Selected: " +
+          selN +
+          " items · " +
+          fmtBytes(selB) +
+          ". Confirmation required.",
+      );
     const labels = {
       idle: "Idle",
       ready: "Ready",
@@ -1739,14 +1780,13 @@
           : "Currently skipped — click to include";
       const top = document.createElement("span");
       top.className = "cc-top";
-      const icon = document.createElement("span");
-      icon.className = "cc-icon";
-      icon.setAttribute("aria-hidden", "true");
-      icon.textContent = CLEANUP_ICONS[cat.key] || "📦";
       const name = document.createElement("span");
       name.className = "cc-name";
       name.textContent = cat.label;
-      top.append(icon, name);
+      const included = document.createElement("span");
+      included.className = "cc-state";
+      included.textContent = on ? "Included" : "Skipped";
+      top.append(name, included);
       const size = document.createElement("span");
       size.className = "cc-size";
       size.textContent = fmtBytes(cat.total_bytes);
@@ -1770,6 +1810,7 @@
         const nowOn = !cleanupState.selectedCats.has(cat.key);
         if (nowOn) cleanupState.selectedCats.add(cat.key);
         else cleanupState.selectedCats.delete(cat.key);
+        included.textContent = nowOn ? "Included" : "Skipped";
         card.classList.toggle("on", nowOn);
         card.classList.toggle("off", !nowOn);
         card.setAttribute("aria-pressed", String(nowOn));
@@ -1947,6 +1988,11 @@
         " of " +
         result.attempted +
         (result.failed ? ", " + result.failed + " locked or failed" : "");
+      window.CureCompanion.cleanup(
+        result.failed ? "review" : "success",
+        result.failed ? "Cleanup needs review" : "Cleanup ended",
+        cleanupEls.status.textContent,
+      );
       cleanupEls.status.classList.remove("hidden");
       cleanupEls.status.classList.toggle("cleanup-ok", !result.failed);
       cleanupEls.status.classList.toggle("cleanup-fail", !!result.failed);
@@ -2266,6 +2312,16 @@
 
   function renderOverview(summary) {
     const t = troubleCounts(summary);
+    window.CureCompanion.overview(
+      t.findings > 0 || coverageIncomplete(summary) ? "review" : "success",
+      t.critical > 0
+        ? "High risk · Review evidence"
+        : t.findings > 0
+          ? "Review required"
+          : coverageIncomplete(summary)
+            ? "Coverage incomplete"
+            : "Collection ended",
+    );
     const posture = document.getElementById("ov-posture");
     const subline = document.getElementById("ov-subline");
     if (t.critical > 0) {

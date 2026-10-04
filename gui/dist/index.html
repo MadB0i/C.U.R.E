@@ -8,6 +8,7 @@
     <!-- No remote fonts or assets: system font stack only (see style.css
        --font-ui). The app must work fully offline; see README threat model. -->
     <link href="style.css" rel="stylesheet" />
+    <link href="companion.css" rel="stylesheet" />
   </head>
   <body>
     <div class="fallback hidden" id="fallback">
@@ -173,11 +174,18 @@
                   ><span id="sweep-items">0 entries inspected</span>
                 </div>
               </div>
-              <ul
-                aria-label="Collection source states"
-                class="sweep-sources"
-                id="sweep-sources"
-              ></ul>
+              <div class="sweep-side">
+                <div
+                  class="companion scan-companion"
+                  data-companion="scan"
+                  aria-label="Scan companion"
+                ></div>
+                <ul
+                  aria-label="Collection source states"
+                  class="sweep-sources"
+                  id="sweep-sources"
+                ></ul>
+              </div>
             </div>
             <div class="feed-card">
               <div class="feed-head">
@@ -214,6 +222,11 @@
                 Disk cleanup
               </button>
             </div>
+            <div
+              class="companion"
+              data-companion="rescue"
+              aria-label="Rescue companion"
+            ></div>
             <div class="rescue-preflight">
               <section>
                 <h2 class="section-title">Collection sources</h2>
@@ -344,6 +357,12 @@
                     >
                   </div>
                 </div>
+                <div
+                  class="companion companion-success hidden"
+                  id="companion-result"
+                  data-companion="result"
+                  aria-label="Collection companion"
+                ></div>
                 <div class="panel" id="cleaned-block">
                   <h2 class="section-title">Quarantined after confirmation</h2>
                   <ul class="entry-cards cleaned" id="cleaned-cards"></ul>
@@ -432,6 +451,11 @@
                     Back to results
                   </button>
                 </div>
+                <div
+                  class="companion"
+                  data-companion="cleanup"
+                  aria-label="Cleanup companion"
+                ></div>
                 <div class="pill scanning" id="cleanup-status-line">
                   <span class="pill-dot"></span>
                   <span id="cleanup-status-text"
@@ -557,6 +581,11 @@
                     No scan has run this session.
                   </div>
                 </div>
+                <div
+                  class="companion compact"
+                  data-companion="overview"
+                  aria-label="Overview companion"
+                ></div>
                 <button
                   class="btn btn-primary"
                   id="overview-rescue-btn"
@@ -1304,6 +1333,7 @@
         <div class="drawer-body" id="evidence-body"></div>
       </section>
     </div>
+    <script src="companion.js"></script>
     <script src="evidence-sweep.js"></script>
     <script src="app.js"></script>
     <div class="drawer-overlay hidden" id="inc-drawer-overlay">

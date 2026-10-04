@@ -15,7 +15,7 @@ expected = {"cure-gui.exe", "cure.exe", "cure-watch.exe", "README.md", "LICENSE"
             "docs/media/demo.gif"}
 expected.update("docs/screenshots/" + name + ".png" for name in
                 ["01-overview", "02-scan", "03-review-required", "04-evidence-inspector",
-                 "05-quarantine-confirm", "06-quarantine", "07-all-clear"])
+                 "05-quarantine-confirm", "06-quarantine", "07-all-clear", "08-cleanup", "09-cleanup-result"])
 actual = {p.relative_to(portable).as_posix() for p in portable.rglob("*") if p.is_file()}
 assert actual == expected, ("Unexpected portable files", actual ^ expected)
 zips = list(root.glob("cure-v*.zip"))
@@ -52,4 +52,4 @@ for name in exes:
 info = (portable / "BUILD-INFO.txt").read_text()
 assert re.search(r"Source commit: [0-9a-f]{40}", info), "Missing source SHA"
 assert "Unsigned" in info, "Missing unsigned disclosure"
-print("PASS: 17 intended files; ZIP/staging byte identity; 7 exact manifest hashes; no builder paths, test drivers or credential markers in EXEs")
+print("PASS: 19 intended files; ZIP/staging byte identity; 7 exact manifest hashes; no builder paths, test drivers or credential markers in EXEs")

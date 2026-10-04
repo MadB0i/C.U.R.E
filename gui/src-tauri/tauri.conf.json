@@ -7,6 +7,8 @@
     "frontendDist": [
       "../dist/index.html",
       "../dist/style.css",
+      "../dist/companion.css",
+      "../dist/companion.js",
       "../dist/app.js",
       "../dist/evidence-sweep.js"
     ]
