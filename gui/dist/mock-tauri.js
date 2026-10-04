@@ -206,14 +206,14 @@
 
   // ---- quarantine mock (small in-memory store so the Quarantine view,
   //      quarantine buttons, and undo can be exercised in the harness) ----
-  const __mockQuarantine = [
+  const __mockQuarantine = window.__CURE_MOCK_EMPTY_QUARANTINE ? [] : [
     {
       id: "mock-q-seed-1",
       name: "acmetray0.bat",
       source: "startup-folder",
       original_path: STARTUP_DIR + "acmetray0.bat",
       quarantine_path: "C:\\cure-mock\\data\\quarantine\\mock-q-seed-1_acmetray0.bat",
-      archived_at: new Date(Date.now() - 3600000).toISOString(),
+      archived_at: "2026-10-04T03:00:00Z",
     },
   ];
 
@@ -328,6 +328,7 @@
 
   async function runAutoScan() {
     scanRuns += 1;
+    if(window.__CURE_MOCK_SCAN_ERROR) throw new Error("Collection failed. Retry the scan; no remediation was performed.");
     window.__CURE_SCAN_DONE = false;
     await delay(300);
     emit("scan-progress", { stage: "registry", message: "Reading Run / RunOnce autoruns" });
@@ -336,8 +337,11 @@
     await delay(500);
     emit("scan-progress", { stage: "tasks", message: "Parsing scheduled task definitions" });
 
+    for(const [stage,message] of [["startup-common","Walking common Startup"],["services","Enumerating services"],["wmi","Querying WMI subscriptions"],["ifeo","Checking IFEO / AppInit"],["com","Inspecting COM registrations"]]) { emit("scan-progress",{stage,message}); await delay(120); }
     const n = Math.max(1, Number(window.__CURE_MOCK_ITEM_COUNT) || 8);
     const items = makeMockItems(n);
+    if(window.__CURE_MOCK_GUIDANCE_SOURCE)items[0].source=window.__CURE_MOCK_GUIDANCE_SOURCE;
+    if(window.__CURE_MOCK_LONG_VALUES){items[0].name="<img src=x onerror=alert(1)>";items[0].command="C:\\Evidence\\"+"long-folder-name\\".repeat(30)+"target.exe --inspect";items[0].location=items[0].command;}
     emit("scan-progress", {
       stage: "scoring",
       message: "Risk-scoring " + n + " persistence entr" + (n === 1 ? "y" : "ies"),
@@ -370,7 +374,10 @@
       }
     }
 
-    await delay(500);
+    emit("scan-progress",{stage:"process-scan",message:"Inspecting running processes"});
+    await delay(200);
+    emit("scan-progress",{stage:"ransom-detect",message:"Inspecting ransom indicators"});
+    await delay(200);
     emit("scan-progress", { stage: "done", message: "Scan complete" });
     window.__CURE_SCAN_DONE = true;
     console.info("[mock-tauri] run #" + scanRuns + ": " + n + " items @ " + perItem + "ms/item");
@@ -381,14 +388,15 @@
       suspicious_for_review: review.map(toScored),
       safe,
       source_states: [
-        { area: "Registry autoruns", state: "Available", detail: "3 values" },
-        { area: "Scheduled tasks", state: "Available", detail: "8 files" },
-        { area: "Services (auto-start)", state: "Available", detail: "0 services" },
-        { area: "WMI subscriptions", state: "Available", detail: "0 entries" },
+        { area: "Registry autoruns", state: "Checked", detail: "3 values" },
+        { area: "Scheduled tasks", state: "Checked", detail: "8 files" },
+        { area: "Services (auto-start)", state: "Checked", detail: "0 services" },
+        { area: "WMI subscriptions", state: "Checked", detail: "0 entries" },
       ],
       elevated: false,
     };
 
+    if(window.__CURE_MOCK_COVERAGE) result.source_states = window.__CURE_MOCK_COVERAGE;
     if (window.__CURE_MOCK_SWEEP) {
       var sweepProcs = [
         { name: "suspicious_loader.exe", pid: 4242, exe_path: "C:\\Users\\test\\AppData\\Local\\Temp\\suspicious_loader.exe", score: 62, risk: "HighRisk", reasons: ["Unsigned binary", "Random name"] },
@@ -443,6 +451,8 @@
           case "run_auto_scan":
             return runAutoScan();
           case "quarantine_entry": {
+            window.__CURE_MOCK_QUARANTINE_CALLS=(window.__CURE_MOCK_QUARANTINE_CALLS||0)+1;
+            if(window.__CURE_MOCK_ACTION_ERROR) return Promise.reject(new Error("File move refused. Original remains available."));
             const qid = String(args && args.id ? args.id : "mock-q-" + Date.now());
             const qname = String(args && args.name ? args.name : "entry");
             if (!__mockQuarantine.some((r) => r.id === qid)) {
@@ -452,7 +462,10 @@
                 source: "startup-folder",
                 original_path: STARTUP_DIR + qname,
                 quarantine_path: "C:\\cure-mock\\data\\quarantine\\" + qid + "_" + qname,
-                archived_at: new Date().toISOString(),
+                archived_at: "2026-10-04T03:30:00Z",
+                state: "Committed", file_size: 18304,
+                sha256_hex: "bd5b914a3b5d21dc498e99fc5f766f4a56b4afcb03e482fd931a21c5b24c91da",
+                acl_captured: true, security_notes: [],
               });
             }
             return delay(450).then(() => "moved C:\\" + qname + " -> quarantine (mock)");
@@ -464,13 +477,18 @@
               if (qi !== -1) __mockQuarantine.splice(qi, 1);
             });
           case "list_quarantine":
+            if(window.__CURE_MOCK_QUARANTINE_ERROR)return Promise.reject(new Error("Quarantine records unavailable. Choose Refresh to retry."));
             return delay(200).then(snapshotQuarantine);
           case "entry_details":
             return delay(200).then(() => ({
-              signature: "UNKNOWN",
+              signature: "UNSIGNED",
               publisher: null,
               shortcut: null,
               task: null,
+              target_path: "C:\\Users\\bob\\AppData\\Local\\Temp\\acmetray0.exe",
+              sha256_hex: "bd5b914a3b5d21dc498e99fc5f766f4a56b4afcb03e482fd931a21c5b24c91da",
+              file_size: 18304,
+              modified_unix_secs: 1791077400,
             }));
           case "reveal_location":
             return delay(200).then(() => "C:\\cure-mock\\revealed");

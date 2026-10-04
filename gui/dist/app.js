@@ -64,7 +64,7 @@
     const el = document.getElementById("session-meta");
     if (!el) return;
     if (!summary) {
-      el.textContent = "STANDBY — NO ACTIVE SESSION";
+      el.textContent = "NO SCAN THIS SESSION";
       return;
     }
     const review = (summary.suspicious_for_review || []).length;
@@ -96,45 +96,10 @@
     if (box) box.classList.add("hidden");
   }
 
-  let typeChain = Promise.resolve();
   function appendLog(stage, message) {
-    const li = document.createElement("li");
-    const tag = document.createElement("b");
-    tag.textContent = "[" + stage + "]";
-    const body = document.createElement("span");
-    li.append(tag, body);
-    logList.appendChild(li);
-    while (logList.children.length > 200) logList.removeChild(logList.firstChild);
-
-    if (REDUCED) {
-      body.textContent = message;
-      logList.scrollTop = logList.scrollHeight;
-      return;
-    }
-
-    const caret = document.createElement("span");
-    caret.className = "caret";
-    const prev = typeChain;
-    typeChain = prev.then(
-      () =>
-        new Promise((typed) => {
-          li.appendChild(caret);
-          let shown = 0;
-          const step = Math.max(1, Math.round(message.length / 60));
-          const tick = () => {
-            shown += step;
-            body.textContent = message.slice(0, shown);
-            logList.scrollTop = logList.scrollHeight;
-            if (shown < message.length) {
-              setTimeout(tick, 13);
-            } else {
-              caret.remove();
-              typed();
-            }
-          };
-          tick();
-        })
-    );
+    const li=document.createElement("li");const tag=document.createElement("b");tag.textContent=stage;
+    const body=document.createElement("span");body.textContent=String(message);li.append(tag,body);logList.append(li);
+    while(logList.children.length>200)logList.firstChild.remove();logList.scrollTop=logList.scrollHeight;
   }
 
   function appendItemLine(p) {
@@ -222,1170 +187,8 @@
   }
 
   // ---- shared network model ----
-  // One node/edge data source; the scan-view radar renders it live while the
-  // results-view map re-renders it settled at its own scale.
-  const TRAVEL = 360;
-  const RGB = {
-    Safe: [79, 174, 125],
-    Suspicious: [209, 161, 63],
-    HighRisk: [225, 89, 79],
-  };
-
-  const NetStore = (() => {
-    const GOLDEN = 2.399963229728653;
-    let nodes = [];
-    let nodeSeq = 0;
-    return {
-      reset() {
-        nodes.length = 0;
-        nodeSeq = Math.floor(Math.random() * 100);
-      },
-      add(risk, name) {
-        const nd = {
-          ang: (nodeSeq++ * GOLDEN) % (Math.PI * 2),
-          rf: 0.58 + Math.random() * 0.34,
-          born: performance.now() - (REDUCED ? TRAVEL : 0),
-          risk,
-          name: String(name || "?"),
-          resolved: true,
-        };
-        nodes.push(nd);
-        window.__cureNodeCount = (window.__cureNodeCount || 0) + 1;
-        return nd;
-      },
-      all() {
-        return nodes;
-      },
-    };
-  })();
-
-  const radar = (() => {
-    const stage = document.getElementById("net-stage");
-    const canvas = document.getElementById("radar");
-    const ctx = canvas.getContext("2d");
-    const DPR = Math.min(window.devicePixelRatio || 1, 2);
-    const ACCENT = (a) => "rgba(124, 108, 240, " + a + ")";
-
-    let rafId = null;
-    let pings = [];
-    let pulses = [];
-    let lastPulse = 0;
-    let mascot = null;
-    let visit = null;
-    let visitQueue = [];
-    let visitsDone = 0;
-    let W = 0;
-    let H = 0;
-    let CX = 0;
-    let CY = 0;
-    let R = 0;
-    let RX = 0;
-
-    const motes = [];
-    for (let i = 0; i < 10; i++) {
-      motes.push({
-        rf: 0.16 + Math.random() * 0.3,
-        sp: (0.0004 + Math.random() * 0.0008) * (i % 2 ? 1 : -1),
-        ph: Math.random() * Math.PI * 2,
-        a: 0.12 + Math.random() * 0.16,
-      });
-    }
-
-    function size() {
-      const rect = stage.getBoundingClientRect();
-      W = Math.max(1, Math.round(rect.width * DPR));
-      H = Math.max(1, Math.round(rect.height * DPR));
-      canvas.width = W;
-      canvas.height = H;
-      CX = W / 2;
-      CY = H / 2;
-      R = Math.max(12, (Math.min(W, H) / 2) * 0.9);
-      RX = Math.max(R, Math.min(W / 2 - 24 * DPR, R * 1.9));
-    }
-    if (window.ResizeObserver) {
-      new ResizeObserver(() => {
-        size();
-        if (REDUCED && !rafId) drawStaticFrame();
-      }).observe(stage);
-    } else {
-      window.addEventListener("resize", () => {
-        size();
-        if (REDUCED && !rafId) drawStaticFrame();
-      });
-    }
-
-    function ring(x, y, r) {
-      ctx.beginPath();
-      ctx.arc(x, y, Math.max(r, 0.01), 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    function rgba(c, a) {
-      return "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + a + ")";
-    }
-
-    function nodeXY(nd) {
-      return {
-        x: CX + Math.cos(nd.ang) * nd.rf * RX,
-        y: CY + Math.sin(nd.ang) * nd.rf * R,
-      };
-    }
-
-    function ellipse(x, y, rx, ry) {
-      ctx.beginPath();
-      ctx.ellipse(x, y, Math.max(rx, 0.01), Math.max(ry, 0.01), 0, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    function drawBackdrop(now) {
-      const M = Math.max(RX, R);
-      const vg = ctx.createRadialGradient(CX, CY, R * 0.15, CX, CY, M * 1.35);
-      vg.addColorStop(0, "rgba(10,10,11,0)");
-      vg.addColorStop(1, "rgba(10,10,11,0.62)");
-      ctx.fillStyle = vg;
-      ctx.fillRect(0, 0, W, H);
-
-      const glow = ctx.createRadialGradient(CX, CY, 0, CX, CY, M);
-      glow.addColorStop(0, "rgba(124,108,240,0.05)");
-      glow.addColorStop(0.45, "rgba(124,108,240,0.018)");
-      glow.addColorStop(1, "rgba(124,108,240,0)");
-      ctx.fillStyle = glow;
-      ctx.fillRect(0, 0, W, H);
-
-      ctx.lineWidth = 1 * DPR;
-      ctx.strokeStyle = ACCENT(0.08);
-      ellipse(CX, CY, RX, R);
-      ctx.strokeStyle = ACCENT(0.055);
-      ellipse(CX, CY, RX * 0.66, R * 0.66);
-      ctx.strokeStyle = ACCENT(0.038);
-      ellipse(CX, CY, RX * 0.33, R * 0.33);
-
-      ctx.strokeStyle = ACCENT(0.03);
-      ctx.beginPath();
-      ctx.moveTo(CX - RX, CY);
-      ctx.lineTo(CX + RX, CY);
-      ctx.moveTo(CX, CY - R);
-      ctx.lineTo(CX, CY + R);
-      ctx.stroke();
-
-      for (const m of motes) {
-        const a = m.ph + m.sp * now;
-        const x = CX + Math.cos(a) * RX * m.rf;
-        const y = CY + Math.sin(a) * R * m.rf;
-        ctx.fillStyle = ACCENT(m.a.toFixed(2));
-        ctx.beginPath();
-        ctx.arc(x, y, 1.3 * DPR, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    function drawCore(now) {
-      const k = Math.min(1.5, Math.max(0.85, Math.min(RX, R) / 300));
-      const breathe = REDUCED ? 0.5 : 0.5 + 0.5 * Math.sin(now / 850);
-      const haloR = (16 + 14 * breathe) * k * DPR;
-      const halo = ctx.createRadialGradient(CX, CY, 0, CX, CY, haloR);
-      halo.addColorStop(0, ACCENT((0.22 + 0.12 * breathe).toFixed(3)));
-      halo.addColorStop(1, ACCENT(0));
-      ctx.fillStyle = halo;
-      ctx.beginPath();
-      ctx.arc(CX, CY, haloR, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.lineWidth = 1.2 * DPR;
-      if (!REDUCED) {
-        ctx.strokeStyle = ACCENT(0.5);
-        ctx.beginPath();
-        ctx.arc(CX, CY, 15 * k * DPR, now / 2400, now / 2400 + 1.15);
-        ctx.stroke();
-        ctx.strokeStyle = ACCENT(0.26);
-        ctx.beginPath();
-        ctx.arc(CX, CY, 20 * k * DPR, -now / 3600, -now / 3600 + 0.7);
-        ctx.stroke();
-      } else {
-        ctx.strokeStyle = ACCENT(0.36);
-        ring(CX, CY, 15 * k * DPR);
-      }
-
-      ctx.fillStyle = "#7c6cf0";
-      ctx.shadowColor = "rgba(124, 108, 240, 0.5)";
-      ctx.shadowBlur = (4 + 3 * breathe) * DPR;
-      ctx.beginPath();
-      ctx.arc(CX, CY, (3.4 + 1.1 * breathe) * k * DPR, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    }
-
-    function edgeAlpha(risk) {
-      // uniform violet connectors — risk color lives on the node dots
-      return 0.22;
-    }
-
-    function labelAlphaFor(risk) {
-      if (risk === "HighRisk") return 0.7;
-      if (risk === "Suspicious") return 0.55;
-      return 0.34;
-    }
-
-    function dotRadius(risk) {
-      if (risk === "HighRisk") return 3.1;
-      if (risk === "Suspicious") return 2.6;
-      return 2.2;
-    }
-
-    function shortName(nd) {
-      let s = nd.name || "";
-      if (s.includes("\\")) {
-        const parts = s.split("\\");
-        s = parts[parts.length - 1];
-      }
-      if (s.length > 22) s = s.slice(0, 21) + "…";
-      return s;
-    }
-
-    function showLabel(nd) {
-      return NetStore.all().length <= 60 || nd.risk !== "Safe";
-    }
-
-    function drawNetwork(now) {
-      ctx.textBaseline = "middle";
-      for (const nd of NetStore.all()) {
-        const t = Math.min((now - nd.born) / TRAVEL, 1);
-        const ease = 1 - Math.pow(1 - t, 3);
-        const p = nodeXY(nd);
-        const pending = nd.resolved === false;
-        const c = pending ? [222, 220, 240] : (RGB[nd.risk] || RGB.Safe);
-        const gapX = CX + Math.cos(nd.ang) * 12 * DPR;
-        const gapY = CY + Math.sin(nd.ang) * 12 * DPR;
-        const hx = gapX + (p.x - gapX) * ease;
-        const hy = gapY + (p.y - gapY) * ease;
-
-        if (t < 1) {
-          ctx.strokeStyle = ACCENT((0.3 * (0.35 + 0.65 * t)).toFixed(3));
-          ctx.lineWidth = 1.3 * DPR;
-          ctx.beginPath();
-          ctx.moveTo(gapX, gapY);
-          ctx.lineTo(hx, hy);
-          ctx.stroke();
-          ctx.fillStyle = "rgba(237,237,239,0.9)";
-          ctx.shadowColor = rgba(c, 0.9);
-          ctx.shadowBlur = 4 * DPR;
-          ctx.beginPath();
-          ctx.arc(hx, hy, 2.4 * DPR, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.shadowBlur = 0;
-        } else {
-          ctx.strokeStyle = ACCENT(edgeAlpha(nd.risk));
-          ctx.lineWidth = 1 * DPR;
-          ctx.beginPath();
-          ctx.moveTo(gapX, gapY);
-          ctx.lineTo(p.x, p.y);
-          ctx.stroke();
-        }
-
-        const na = t >= 1 ? 1 : Math.max(0, (t - 0.6) / 0.4);
-        if (na > 0) {
-          const flashAt = nd.resolvedAt != null ? nd.resolvedAt : nd.born + TRAVEL;
-          const flash =
-            t >= 1 && !pending ? Math.max(0, 1 - (now - flashAt) / 480) : 0;
-          ctx.fillStyle = rgba(c, na.toFixed(2));
-          ctx.shadowColor = rgba(c, 0.9);
-          ctx.shadowBlur = (2 + flash * 5) * DPR;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, (pending ? 2.4 : dotRadius(nd.risk)) * (1 + flash * 0.35) * DPR, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.shadowBlur = 0;
-        }
-
-        if (t >= 1 && showLabel(nd)) {
-          const la =
-            Math.min((now - (nd.born + TRAVEL)) / 420, 1) *
-            labelAlphaFor(nd.risk);
-          if (la > 0.01) {
-            const right = Math.cos(nd.ang) >= 0;
-            ctx.font =
-              10 * DPR + 'px ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace';
-            ctx.textAlign = right ? "left" : "right";
-            ctx.fillStyle = "rgba(139,139,147," + la.toFixed(2) + ")";
-            ctx.shadowColor = "rgba(10,10,11,0.9)";
-            ctx.shadowBlur = 4 * DPR;
-            ctx.fillText(shortName(nd), p.x + (right ? 1 : -1) * 9 * DPR, p.y);
-            ctx.shadowBlur = 0;
-          }
-        }
-      }
-    }
-
-    function drawPings(now) {
-      pings = pings.filter((p) => now - p.born < 1300);
-      for (const p of pings) {
-        const pos = nodeXY(p);
-        const t = (now - p.born) / 1300;
-        ctx.lineWidth = 2.2 * DPR;
-        ctx.strokeStyle =
-          "rgba(225,89,79," + ((1 - t) * 0.55).toFixed(3) + ")";
-        ring(pos.x, pos.y, t * 46 * DPR);
-        ctx.lineWidth = 1 * DPR;
-        ctx.strokeStyle =
-          "rgba(225,89,79," + ((1 - t) * 0.26).toFixed(3) + ")";
-        ring(pos.x, pos.y, t * 26 * DPR);
-      }
-    }
-
-    // ---- mascot: violet orb that darts core -> node and knocks threats out
-    const MASCOT_TRAVEL_MS = 340;
-    const MASCOT_IMPACT_MS = 220;
-    // Rakshak's per-node patrol: travel to each new node, pause a beat to
-    // "check" it (node resolves to its risk color), then move on. Speeds
-    // adapt to backlog so a normal scan shows a real visit per node.
-    const VISIT_TRAVEL_MS = 420;
-    const VISIT_TRAVEL_MIN_MS = 150;
-    const CHECK_MS = 340;
-    const CHECK_MIN_MS = 0;
-    const VISIT_QUEUE_CAP = 10;
-    const MAX_VISITS = 48;
-
-    // ---- Rakshak's patrol visits: travel to each pending node, check it,
-    // resolve its color, escalate to the fight gesture on threats.
-
-    function drawOrbAt(x, y, r, sx, sy) {
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.scale(sx, sy);
-      const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
-      g.addColorStop(0, "#d9d4ff");
-      g.addColorStop(0.5, "#7c6cf0");
-      g.addColorStop(1, "#453aa6");
-      ctx.shadowColor = "rgba(124,108,240,0.65)";
-      ctx.shadowBlur = 10 * DPR;
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(0, 0, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      ctx.restore();
-    }
-
-    function startNextVisit(now) {
-      if (visit || !visitQueue.length) return;
-      const entry = visitQueue.shift();
-      visit = { nd: entry.nd, fight: entry.fight, start: now, phase: "travel", trail: [] };
-      window.__cureVisitActive = true;
-    }
-
-    function drawVisit(now) {
-      if (!visit) return;
-      const p = nodeXY(visit.nd);
-
-      if (visit.phase === "travel") {
-        // hustle when nodes are backing up — calm when the scan is light
-        const load = Math.min(visitQueue.length, 6);
-        const dur = Math.max(VISIT_TRAVEL_MIN_MS, VISIT_TRAVEL_MS - load * 55);
-        const t = Math.min((now - visit.start) / dur, 1);
-        const e = 1 - Math.pow(1 - t, 2.2);
-        const x = CX + (p.x - CX) * e;
-        const y = CY + (p.y - CY) * e;
-
-        visit.trail.push({ x, y });
-        if (visit.trail.length > 7) visit.trail.shift();
-        for (let i = 0; i < visit.trail.length; i++) {
-          const tr = visit.trail[i];
-          ctx.fillStyle = ACCENT((((i + 1) / visit.trail.length) * 0.2).toFixed(3));
-          ctx.beginPath();
-          ctx.arc(tr.x, tr.y, Math.max(0.6, 2.1 - i * 0.18) * DPR, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        const stretch = 1 + 0.22 * Math.sin(t * Math.PI);
-        const ang = Math.atan2(p.y - CY, p.x - CX);
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(ang);
-        drawOrbAt(0, 0, 6.2 * DPR, stretch, 1 / stretch);
-        ctx.restore();
-
-        if (t >= 1) {
-          visit.phase = "check";
-          visit.start = now;
-        }
-        return;
-      }
-
-      // check phase: a quick pause + glow pulse while the node resolves
-      const load = Math.min(visitQueue.length, 6);
-      const dur = Math.max(CHECK_MIN_MS, CHECK_MS - load * 55);
-      const ct = (now - visit.start) / dur;
-      const pulse = Math.sin(Math.min(ct, 1) * Math.PI);
-      drawOrbAt(p.x, p.y, (6.2 + 0.6 * pulse) * DPR, 1, 1);
-      if (dur > 0 && ct < 1) {
-        ctx.lineWidth = 1.6 * DPR;
-        ctx.strokeStyle = ACCENT((0.5 * (1 - ct)).toFixed(3));
-        ring(p.x, p.y, (6 + ct * 17) * DPR);
-      }
-      if (ct >= 1) {
-        visit.nd.resolved = true;
-        visit.nd.resolvedAt = now;
-        visitsDone += 1;
-        window.__cureResolvedCount = (window.__cureResolvedCount || 0) + 1;
-        if (visit.fight) {
-          // fight gesture plays in place: pre-complete the legacy travel so
-          // only the existing impact rings/squash animate at the node
-          mascot = { nd: visit.nd, start: now - MASCOT_TRAVEL_MS, trail: [] };
-          window.__cureMascotActive = true;
-        }
-        visit = null;
-        window.__cureVisitActive = visitQueue.length > 0;
-      }
-    }
-
-    function drawMascot(now) {
-      if (!mascot) return;
-      const p = nodeXY(mascot.nd);
-      const t = Math.min((now - mascot.start) / MASCOT_TRAVEL_MS, 1);
-      const e = 1 - Math.pow(1 - t, 2.4);
-      const x = CX + (p.x - CX) * e;
-      const y = CY + (p.y - CY) * e;
-
-      mascot.trail.push({ x, y });
-      if (mascot.trail.length > 7) mascot.trail.shift();
-      for (let i = 0; i < mascot.trail.length; i++) {
-        const tr = mascot.trail[i];
-        ctx.fillStyle = ACCENT((((i + 1) / mascot.trail.length) * 0.2).toFixed(3));
-        ctx.beginPath();
-        ctx.arc(tr.x, tr.y, Math.max(0.6, 2.1 - i * 0.18) * DPR, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      const stretch = 1 + 0.26 * Math.sin(t * Math.PI);
-      let sx = stretch;
-      let sy = 1 / stretch;
-      let r = 6.2 * DPR;
-
-      if (t >= 1) {
-        const it = Math.min((now - mascot.start - MASCOT_TRAVEL_MS) / MASCOT_IMPACT_MS, 1);
-        const pulse = Math.sin(it * Math.PI);
-        sx = 1 + 0.42 * pulse;
-        sy = 1 - 0.34 * pulse;
-        ctx.lineWidth = 2 * DPR;
-        ctx.strokeStyle = ACCENT(((1 - it) * 0.75).toFixed(3));
-        ring(p.x, p.y, (4 + it * 26) * DPR);
-        ctx.lineWidth = 1 * DPR;
-        ctx.strokeStyle = "rgba(237,237,239," + ((1 - it) * 0.5).toFixed(3) + ")";
-        ring(p.x, p.y, (2 + it * 14) * DPR);
-        r *= 1 + 0.22 * (1 - it);
-        if (it >= 1) {
-          mascot = null;
-          window.__cureMascotActive = false;
-          return;
-        }
-      }
-
-      const ang = Math.atan2(p.y - CY, p.x - CX);
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(ang);
-      ctx.scale(sx, sy);
-      const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
-      g.addColorStop(0, "#d9d4ff");
-      g.addColorStop(0.5, "#7c6cf0");
-      g.addColorStop(1, "#453aa6");
-      ctx.shadowColor = "rgba(124,108,240,0.65)";
-      ctx.shadowBlur = 10 * DPR;
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(0, 0, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      // face: two dot eyes with pupils (eyes widen on impact)
-      const eR = r * 0.27, pR = r * 0.11, eW = t >= 1 ? 1.12 : 1;
-      ctx.fillStyle = "rgba(255,255,255,0.88)";
-      ctx.beginPath(); ctx.arc(-r * 0.34, -r * 0.12, eR * eW, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc( r * 0.34, -r * 0.12, eR * eW, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = "#1a1a2e";
-      ctx.beginPath(); ctx.arc(-r * 0.34, -r * 0.12, pR, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc( r * 0.34, -r * 0.12, pR, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
-    }
-
-    function frame(now) {
-      if (!pulses.length || now - lastPulse > 2800) {
-        pulses.push({ born: now });
-        lastPulse = now;
-      }
-      pulses = pulses.filter((p) => now - p.born < 2600);
-      ctx.clearRect(0, 0, W, H);
-      drawBackdrop(now);
-      ctx.lineWidth = 1 * DPR;
-      for (const p of pulses) {
-        const t = (now - p.born) / 2600;
-        ctx.strokeStyle = ACCENT((0.1 * (1 - t)).toFixed(3));
-        ellipse(CX, CY, 8 * DPR + (RX - 8 * DPR) * t, 8 * DPR + (R - 8 * DPR) * t);
-      }
-      drawNetwork(now);
-      drawPings(now);
-      drawCore(now);
-      drawMascot(now);
-      startNextVisit(now);
-      drawVisit(now);
-      rafId = requestAnimationFrame(frame);
-    }
-
-    function drawStaticFrame() {
-      const now = performance.now();
-      ctx.clearRect(0, 0, W, H);
-      drawBackdrop(now);
-      drawNetwork(now);
-      for (const p of pings) {
-        const pos = nodeXY(p);
-        ctx.fillStyle = "rgba(225,89,79,0.55)";
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 3 * DPR, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      drawCore(now);
-    }
-
-    return {
-      start() {
-        size();
-        pings = [];
-        pulses = [];
-        mascot = null;
-        visit = null;
-        visitQueue = [];
-        visitsDone = 0;
-        window.__cureMascotActive = false;
-        window.__cureVisitActive = false;
-        window.__cureResolvedCount = 0;
-        NetStore.reset();
-        lastPulse = performance.now();
-        if (REDUCED) {
-          if (rafId) cancelAnimationFrame(rafId);
-          rafId = null;
-          drawStaticFrame();
-          return;
-        }
-        if (!rafId) rafId = requestAnimationFrame(frame);
-      },
-      stop() {
-        if (rafId) cancelAnimationFrame(rafId);
-        rafId = null;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-      },
-      addNode(risk, name) {
-        const nd = NetStore.add(RGB[risk] ? risk : "Safe", name);
-        // Rakshak personally visits new nodes while there's budget; once the
-        // queue saturates (huge scans) nodes resolve instantly via the
-        // existing pulse-only birth animation.
-        if (!REDUCED && visitsDone < MAX_VISITS && visitQueue.length < VISIT_QUEUE_CAP) {
-          nd.resolved = false;
-          visitQueue.push({ nd, fight: false });
-        } else {
-          window.__cureResolvedCount = (window.__cureResolvedCount || 0) + 1;
-        }
-        if (REDUCED && !rafId) drawStaticFrame();
-        return nd;
-      },
-    };
-  })();
-
-  function countUp(el, target) {
-    if (REDUCED || target === 0) {
-      el.textContent = String(target);
-      return;
-    }
-    const started = performance.now();
-    const tick = (now) => {
-      const t = Math.min((now - started) / 800, 1);
-      const eased = 1 - Math.pow(1 - t, 3);
-      el.textContent = String(Math.round(target * eased));
-      if (t < 1) requestAnimationFrame(tick);
-      else if (!REDUCED) {
-        el.style.transition = "color 0.4s ease";
-        el.style.color = "var(--accent)";
-        requestAnimationFrame(() => { el.style.color = ""; });
-      }
-    };
-    requestAnimationFrame(tick);
-  }
-
-  // ---- results-view scan map ----
-  // Renders the same NetStore data as a settled, ambient "dormant but alive"
-  // constellation: slow core breathing + an occasional faint edge traveler.
-  const netmap = (() => {
-    const stageEl = document.getElementById("map-stage");
-    const canvas = document.getElementById("map-canvas");
-    const countEl = document.getElementById("map-count");
-    if (!stageEl || !canvas || !canvas.getContext) {
-      return { show() {}, hide() {} };
-    }
-    const ctx = canvas.getContext("2d");
-    const DPR = Math.min(window.devicePixelRatio || 1, 2);
-    const ACCENT = (a) => "rgba(124, 108, 240, " + a + ")";
-    const TRAVELER_MS = 1500;
-    // Rakshak's results-view life: a one-time "secured" wash sweeps outward
-    // from the core while he holds a guard pose, then he relaxes into a slow
-    // figure-eight patrol around the core.
-    const WASH_MS = 850;
-    const GUARD_HOLD_MS = 2600;
-    const GUARD_RELAX_MS = 1400;
-
-    let rafId = null;
-    let travelers = [];
-    let lastSpawn = 0;
-    let flourish = null;
-    let guardUntil = 0;
-    let W = 0;
-    let H = 0;
-    let CX = 0;
-    let CY = 0;
-    let R = 0;
-    let RX = 0;
-
-    const motes = [];
-    for (let i = 0; i < 16; i++) {
-      motes.push({
-        rf: 0.14 + Math.random() * 0.42,
-        sp: (0.0003 + Math.random() * 0.0007) * (i % 2 ? 1 : -1),
-        ph: Math.random() * Math.PI * 2,
-        a: 0.07 + Math.random() * 0.14,
-        tw: 0.6 + Math.random() * 1.8,
-        sz: 0.8 + Math.random() * 0.9,
-      });
-    }
-    // premium hover probe (tooltip) — purely visual, never affects counts
-    let hovered = null;
-    const tooltipEl = document.getElementById("map-tooltip");
-    function updateMapLegend() {
-      try {
-        const all = NetStore.all();
-        let hi = 0, su = 0, sa = 0;
-        for (const n of all) {
-          if (n.risk === "HighRisk") hi++;
-          else if (n.risk === "Suspicious") su++;
-          else sa++;
-        }
-        const eH = document.getElementById("map-n-high");
-        const eS = document.getElementById("map-n-susp");
-        const eF = document.getElementById("map-n-safe");
-        if (eH) eH.textContent = String(hi);
-        if (eS) eS.textContent = String(su);
-        if (eF) eF.textContent = String(sa);
-        const fill = document.getElementById("map-threat-fill");
-        const txt = document.getElementById("map-threat-text");
-        const total = all.length || 1;
-        const score = Math.min(100, Math.round(((hi * 1 + su * 0.45) / total) * 100));
-        if (fill) fill.style.width = score + "%";
-        if (txt) {
-          txt.textContent = all.length === 0 ? "—" : hi > 0 ? "HIGH " + score + "%" : su > 0 ? "WATCH " + score + "%" : "SECURE";
-          txt.style.color = hi > 0 ? "#f4928a" : su > 0 ? "#e8c476" : "#7fd8ab";
-        }
-      } catch (_) { /* legend is decorative */ }
-    }
-    if (stageEl && !stageEl.__cureMapHoverWired) {
-      stageEl.__cureMapHoverWired = true;
-      stageEl.addEventListener("mousemove", (ev) => {
-        if (!W || !H) return;
-        const rect = canvas.getBoundingClientRect();
-        const mx = ((ev.clientX - rect.left) / Math.max(rect.width, 1)) * W;
-        const my = ((ev.clientY - rect.top) / Math.max(rect.height, 1)) * H;
-        let best = null, bestD = 16 * DPR;
-        for (const nd of NetStore.all()) {
-          const p = nodeXY(nd);
-          const d = Math.hypot(p.x - mx, p.y - my);
-          if (d < bestD) { bestD = d; best = { nd, x: p.x, y: p.y }; }
-        }
-        hovered = best;
-        if (tooltipEl) {
-          if (best) {
-            const rk = best.nd.risk === "HighRisk" ? "high" : best.nd.risk === "Suspicious" ? "suspicious" : "safe";
-            tooltipEl.innerHTML = "";
-            const nm = document.createElement("div");
-            nm.textContent = String(best.nd.name || "?").slice(0, 60);
-            const rs = document.createElement("div");
-            rs.innerHTML = '<span class="tt-risk-' + rk + '">' + String(best.nd.risk || "?") + "</span>";
-            tooltipEl.append(nm, rs);
-            tooltipEl.classList.remove("hidden");
-            const sx = (best.x / W) * rect.width;
-            const sy = (best.y / H) * rect.height;
-            tooltipEl.style.left = Math.min(Math.max(sx + 12, 4), Math.max(rect.width - 170, 4)) + "px";
-            tooltipEl.style.top = Math.min(Math.max(sy - 10, 4), Math.max(rect.height - 60, 4)) + "px";
-          } else {
-            tooltipEl.classList.add("hidden");
-          }
-        }
-        stageEl.style.cursor = best ? "crosshair" : "";
-      });
-      stageEl.addEventListener("mouseleave", () => {
-        hovered = null;
-        if (tooltipEl) tooltipEl.classList.add("hidden");
-        if (stageEl) stageEl.style.cursor = "";
-      });
-    }
-
-    function size() {
-      const rect = stageEl.getBoundingClientRect();
-      if (rect.width < 8 || rect.height < 8) return false;
-      W = Math.max(1, Math.round(rect.width * DPR));
-      H = Math.max(1, Math.round(rect.height * DPR));
-      canvas.width = W;
-      canvas.height = H;
-      CX = W / 2;
-      CY = H / 2;
-      // the results rail is portrait — derive the vertical radius from the
-      // available height so the constellation fills the panel instead of
-      // floating as a landscape-biased blob mid-card
-      R = Math.max(10, (H / 2 - 8 * DPR) * 0.92);
-      RX = Math.max(30, Math.min(W / 2 - 12 * DPR, R * 2.2));
-      return true;
-    }
-    function onResize() {
-      if (size()) {
-        if (REDUCED || !rafId) drawFrame(performance.now());
-      }
-    }
-    if (window.ResizeObserver) {
-      new ResizeObserver(onResize).observe(stageEl);
-    } else {
-      window.addEventListener("resize", onResize);
-    }
-
-    function ring(x, y, r) {
-      ctx.beginPath();
-      ctx.arc(x, y, Math.max(r, 0.01), 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    function ellipse(x, y, rx, ry) {
-      ctx.beginPath();
-      ctx.ellipse(x, y, Math.max(rx, 0.01), Math.max(ry, 0.01), 0, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    function rgba(c, a) {
-      return "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + a + ")";
-    }
-    function nodeXY(nd) {
-      // spread nodes toward the panel edges: rf [0.58..0.92] -> [0.6..0.975]
-      const rm = 0.6 + (nd.rf - 0.58) * 1.1;
-      return {
-        x: CX + Math.cos(nd.ang) * rm * RX,
-        y: CY + Math.sin(nd.ang) * rm * R,
-      };
-    }
-    function edgeAlpha(risk) {
-      // uniform violet connectors — risk color lives on the node dots
-      return 0.22;
-    }
-    function labelAlphaFor(risk) {
-      if (risk === "HighRisk") return 0.66;
-      if (risk === "Suspicious") return 0.52;
-      return 0.32;
-    }
-    function dotRadius(risk) {
-      if (risk === "HighRisk") return 2.9;
-      if (risk === "Suspicious") return 2.4;
-      return 2.0;
-    }
-    function shortName(nd) {
-      let s = nd.name || "";
-      if (s.includes("\\")) {
-        const parts = s.split("\\");
-        s = parts[parts.length - 1];
-      }
-      const max = W < 340 * DPR ? 13 : 18;
-      if (s.length > max) s = s.slice(0, max - 1) + "…";
-      return s;
-    }
-    function showLabel(nd) {
-      const n = NetStore.all().length;
-      if (nd.risk !== "Safe") return true;
-      // narrow rail: risky nodes only, or labels turn to mush
-      if (W < 340 * DPR) return false;
-      return n <= 24;
-    }
-
-    function drawBackdrop(now) {
-      const M = Math.max(RX, R);
-      const vg = ctx.createRadialGradient(CX, CY, R * 0.2, CX, CY, M * 1.25);
-      vg.addColorStop(0, "rgba(10,10,11,0)");
-      vg.addColorStop(1, "rgba(10,10,11,0.5)");
-      ctx.fillStyle = vg;
-      ctx.fillRect(0, 0, W, H);
-
-      // futuristic nebula wash: violet core + cyan off-axis + faint red depth
-      const neb = ctx.createRadialGradient(CX, CY, 0, CX, CY, M * 1.05);
-      neb.addColorStop(0, "rgba(139,124,246,0.075)");
-      neb.addColorStop(0.45, "rgba(139,124,246,0.022)");
-      neb.addColorStop(0.7, "rgba(80,200,220,0.018)");
-      neb.addColorStop(1, "rgba(139,124,246,0)");
-      ctx.fillStyle = neb;
-      ctx.fillRect(0, 0, W, H);
-      const neb2 = ctx.createRadialGradient(CX + RX * 0.45, CY - R * 0.4, 0, CX + RX * 0.45, CY - R * 0.4, M * 0.55);
-      neb2.addColorStop(0, "rgba(80,200,220,0.05)");
-      neb2.addColorStop(1, "rgba(80,200,220,0)");
-      ctx.fillStyle = neb2;
-      ctx.fillRect(0, 0, W, H);
-
-      const glow = ctx.createRadialGradient(CX, CY, 0, CX, CY, M);
-      glow.addColorStop(0, "rgba(124,108,240,0.05)");
-      glow.addColorStop(0.5, "rgba(124,108,240,0.016)");
-      glow.addColorStop(1, "rgba(124,108,240,0)");
-      ctx.fillStyle = glow;
-      ctx.fillRect(0, 0, W, H);
-
-      ctx.lineWidth = 1 * DPR;
-      // rotating dashed orbit rings — holographic depth
-      const rot = REDUCED ? 0 : now / 9000;
-      ctx.save();
-      ctx.translate(CX, CY);
-      ctx.rotate(rot * 0.35);
-      ctx.strokeStyle = ACCENT(0.10);
-      ctx.setLineDash([5 * DPR, 7 * DPR]);
-      ellipse(0, 0, RX, R);
-      ctx.restore();
-      ctx.save();
-      ctx.translate(CX, CY);
-      ctx.rotate(-rot * 0.5);
-      ctx.strokeStyle = ACCENT(0.07);
-      ctx.setLineDash([2.5 * DPR, 6 * DPR]);
-      ellipse(0, 0, RX * 0.62, R * 0.62);
-      ctx.restore();
-      ctx.setLineDash([]);
-      ctx.strokeStyle = ACCENT(0.05);
-      ellipse(CX, CY, RX * 0.34, R * 0.34);
-      // faint crosshair ticks
-      ctx.strokeStyle = ACCENT(0.05);
-      ctx.beginPath();
-      for (let k = 0; k < 4; k++) {
-        const a = (k / 4) * Math.PI * 2 + (REDUCED ? 0 : now / 14000);
-        ctx.moveTo(CX + Math.cos(a) * RX * 0.34, CY + Math.sin(a) * R * 0.34);
-        ctx.lineTo(CX + Math.cos(a) * RX * 0.38, CY + Math.sin(a) * R * 0.38);
-      }
-      ctx.stroke();
-
-      for (const m of motes) {
-        const a = m.ph + m.sp * now;
-        const x = CX + Math.cos(a) * RX * m.rf;
-        const y = CY + Math.sin(a) * R * m.rf;
-        const tw = REDUCED ? 1 : 0.55 + 0.45 * Math.sin(now / (700 * m.tw) + m.ph * 3);
-        ctx.fillStyle = ACCENT((m.a * tw).toFixed(3));
-        ctx.beginPath();
-        ctx.arc(x, y, m.sz * DPR, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    function drawCore(now) {
-      const k = Math.min(1.2, Math.max(0.6, Math.min(RX, R) / 260));
-      const breathe =
-        REDUCED ? 0.5 : 0.5 + 0.5 * Math.sin(now / 2100);
-      const haloR = (14 + 10 * breathe) * k * DPR;
-      const halo = ctx.createRadialGradient(CX, CY, 0, CX, CY, haloR);
-      halo.addColorStop(0, ACCENT((0.24 + 0.12 * breathe).toFixed(3)));
-      halo.addColorStop(0.6, ACCENT((0.08 + 0.05 * breathe).toFixed(3)));
-      halo.addColorStop(1, ACCENT(0));
-      ctx.fillStyle = halo;
-      ctx.beginPath();
-      ctx.arc(CX, CY, haloR, 0, Math.PI * 2);
-      ctx.fill();
-
-      // holographic double ring
-      ctx.lineWidth = 1.2 * DPR;
-      ctx.strokeStyle = ACCENT(REDUCED ? 0.38 : 0.38 + 0.14 * breathe);
-      ring(CX, CY, 12.5 * k * DPR);
-      if (!REDUCED) {
-        ctx.save();
-        ctx.strokeStyle = ACCENT(0.5);
-        ctx.setLineDash([6 * DPR, 5 * DPR]);
-        ctx.lineDashOffset = -now / 60;
-        ring(CX, CY, 17 * k * DPR);
-        ctx.restore();
-        ctx.strokeStyle = "rgba(155,231,244," + (0.22 + 0.12 * breathe).toFixed(3) + ")";
-        ctx.lineWidth = 1 * DPR;
-        ring(CX, CY, 8 * k * DPR);
-      } else {
-        ctx.strokeStyle = ACCENT(0.3);
-        ring(CX, CY, 17 * k * DPR);
-      }
-
-      const cg = ctx.createRadialGradient(CX - 1 * DPR, CY - 1 * DPR, 0, CX, CY, 4 * k * DPR);
-      cg.addColorStop(0, "#e6e1ff");
-      cg.addColorStop(0.5, "#7c6cf0");
-      cg.addColorStop(1, "#4a3fa0");
-      ctx.fillStyle = cg;
-      ctx.shadowColor = "rgba(124, 108, 240, 0.6)";
-      ctx.shadowBlur = (5 + 3 * breathe) * DPR;
-      ctx.beginPath();
-      ctx.arc(CX, CY, (2.8 + 0.8 * breathe) * k * DPR, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    }
-
-    function drawGraph(now) {
-      const nodes = NetStore.all();
-      ctx.textBaseline = "middle";
-      for (let ni = 0; ni < nodes.length; ni++) {
-        const nd = nodes[ni];
-        const p = nodeXY(nd);
-        const c = RGB[nd.risk] || RGB.Safe;
-        const gapX = CX + Math.cos(nd.ang) * 9 * DPR;
-        const gapY = CY + Math.sin(nd.ang) * 9 * DPR;
-        const isHover = hovered && hovered.nd === nd;
-        const isThreat = nd.risk === "HighRisk";
-        const isSusp = nd.risk === "Suspicious";
-        const pulse = REDUCED ? 0 : 0.5 + 0.5 * Math.sin(now / 620 + ni * 1.7);
-
-        // premium connector: gradient beam with soft glow
-        const beam = ctx.createLinearGradient(gapX, gapY, p.x, p.y);
-        beam.addColorStop(0, ACCENT(0.05));
-        beam.addColorStop(1, rgba(c, isThreat ? 0.42 : isSusp ? 0.32 : 0.20));
-        ctx.strokeStyle = beam;
-        ctx.lineWidth = (isHover ? 1.8 : isThreat ? 1.4 : 1) * DPR;
-        ctx.shadowColor = rgba(c, 0.35);
-        ctx.shadowBlur = (isThreat ? 5 : 2) * DPR;
-        ctx.beginPath();
-        ctx.moveTo(gapX, gapY);
-        ctx.lineTo(p.x, p.y);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-
-        // threat echo rings on high-risk nodes
-        if (isThreat && !REDUCED) {
-          const ph = ((now / 1400) + ni * 0.23) % 1;
-          ctx.lineWidth = 1 * DPR;
-          ctx.strokeStyle = rgba(c, ((1 - ph) * 0.4).toFixed(3));
-          ring(p.x, p.y, (dotRadius(nd.risk) + ph * 11) * DPR);
-        }
-        // hover halo
-        if (isHover) {
-          ctx.lineWidth = 1.4 * DPR;
-          ctx.strokeStyle = rgba(c, 0.65);
-          ring(p.x, p.y, (dotRadius(nd.risk) + 5.5) * DPR);
-        }
-
-        const baseR = dotRadius(nd.risk) * (isHover ? 1.35 : 1) * (isThreat && !REDUCED ? 1 + 0.14 * pulse : 1);
-        // outer aura
-        const aura = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, baseR * 3.2 * DPR);
-        aura.addColorStop(0, rgba(c, isThreat ? 0.5 : 0.32));
-        aura.addColorStop(1, rgba(c, 0));
-        ctx.fillStyle = aura;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, baseR * 3.2 * DPR, 0, Math.PI * 2);
-        ctx.fill();
-        // core dot
-        ctx.fillStyle = rgba(c, 0.95);
-        ctx.shadowColor = rgba(c, 0.85);
-        ctx.shadowBlur = (isThreat ? 7 : 4) * DPR;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, baseR * DPR, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        // specular highlight
-        ctx.fillStyle = "rgba(255,255,255,0.85)";
-        ctx.beginPath();
-        ctx.arc(p.x - baseR * 0.3 * DPR, p.y - baseR * 0.3 * DPR, Math.max(0.7 * DPR, baseR * 0.28 * DPR), 0, Math.PI * 2);
-        ctx.fill();
-
-        if (showLabel(nd)) {
-          ctx.font =
-            9 * DPR + 'px ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace';
-          const label = shortName(nd);
-          // default: extend away from the core; flip whenever the label
-          // would run off-canvas on its chosen side (measured, not guessed)
-          let align = Math.cos(nd.ang) >= 0 ? "left" : "right";
-          const lw = ctx.measureText(label).width;
-          if (align === "left" && p.x + 8 * DPR + lw > W - 2) {
-            align = "right";
-          } else if (align === "right" && p.x - 8 * DPR - lw < 2) {
-            align = "left";
-          }
-          ctx.textAlign = align;
-          ctx.fillStyle = "rgba(139,139,147," + labelAlphaFor(nd.risk).toFixed(2) + ")";
-          ctx.shadowColor = "rgba(10,10,11,0.9)";
-          ctx.shadowBlur = 4 * DPR;
-          ctx.fillText(label, p.x + (align === "left" ? 1 : -1) * 8 * DPR, p.y);
-          ctx.shadowBlur = 0;
-        }
-      }
-    }
-
-    function drawTravelers(now) {
-      travelers = travelers.filter((tr) => now - tr.born < TRAVELER_MS);
-      for (const tr of travelers) {
-        const nd = NetStore.all()[tr.idx];
-        if (!nd) continue;
-        const t = (now - tr.born) / TRAVELER_MS;
-        const ease = 1 - Math.pow(1 - t, 2.2);
-        const p = nodeXY(nd);
-        const c = RGB[nd.risk] || RGB.Safe;
-        const gapX = CX + Math.cos(nd.ang) * 9 * DPR;
-        const gapY = CY + Math.sin(nd.ang) * 9 * DPR;
-        const x = gapX + (p.x - gapX) * ease;
-        const y = gapY + (p.y - gapY) * ease;
-        const fade = Math.min(1, t * 4) * Math.min(1, (1 - t) * 3.2);
-        ctx.fillStyle = rgba(c, (0.55 * fade).toFixed(3));
-        ctx.shadowColor = rgba(c, 0.7);
-        ctx.shadowBlur = 4 * DPR;
-        ctx.beginPath();
-        ctx.arc(x, y, 1.7 * DPR, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-      }
-    }
-
-    function spawnTraveler(now) {
-      const n = NetStore.all().length;
-      if (!n || travelers.length >= 2) return;
-      travelers.push({ idx: Math.floor(Math.random() * n), born: now });
-    }
-
-    function drawWash(now) {
-      if (!flourish) return;
-      if (now < flourish.start) return; // wait out the panel reveal fade
-      const t = (now - flourish.start) / WASH_MS;
-      if (t >= 1) {
-        flourish = null;
-        return;
-      }
-      const e = 1 - Math.pow(1 - t, 2.5);
-      // leading edge sweeping through the constellation
-      ctx.lineWidth = 2.4 * DPR;
-      ctx.strokeStyle = ACCENT((0.55 * (1 - t)).toFixed(3));
-      ellipse(CX, CY, Math.max(1, e * RX), Math.max(1, e * R));
-      // trailing soft fill behind the edge
-      const grd = ctx.createRadialGradient(
-        CX, CY, Math.max(0, e * Math.min(RX, R) - 44 * DPR),
-        CX, CY, Math.max(2, e * Math.max(RX, R) * 1.02)
-      );
-      grd.addColorStop(0, "rgba(124,108,240,0)");
-      grd.addColorStop(0.82, "rgba(124,108,240," + (0.08 * (1 - t)).toFixed(3) + ")");
-      grd.addColorStop(1, "rgba(124,108,240,0)");
-      ctx.fillStyle = grd;
-      ctx.fillRect(0, 0, W, H);
-      // inner echo ring
-      const e2 = Math.max(0, e - 0.16);
-      ctx.lineWidth = 1 * DPR;
-      ctx.strokeStyle = ACCENT((0.28 * (1 - t)).toFixed(3));
-      ellipse(CX, CY, Math.max(1, e2 * RX), Math.max(1, e2 * R));
-    }
-
-    function drawRakshak(now) {
-      const k = Math.min(1.2, Math.max(0.6, Math.min(RX, R) / 260));
-      const guarding = now < guardUntil;
-      let x = CX;
-      let y = CY;
-
-      if (!guarding) {
-        // figure-eight patrol drift around the core, slow enough to read as
-        // "watching over"; eases out of the guard pose instead of jumping
-        const pt = now / 1000;
-        const px = CX + Math.sin(pt * 0.42) * RX * 0.3;
-        const py = CY + Math.sin(pt * 0.84 + 1.2) * R * 0.2;
-        const relax = Math.min(Math.max((now - guardUntil) / GUARD_RELAX_MS, 0), 1);
-        const ease = 1 - Math.pow(1 - relax, 2);
-        x = CX + (px - CX) * ease;
-        y = CY + (py - CY) * ease;
-      }
-
-      const r = ((6.5 + 1.5 * k) * (guarding ? 1.08 : 1)) * DPR;
-      // guard rings ease in with the flourish, fade as patrol resumes
-      let ra;
-      if (guarding) {
-        ra = REDUCED ? 1 : Math.min((now - (guardUntil - GUARD_HOLD_MS)) / 600, 1);
-      } else {
-        ra = Math.max(0, 1 - (now - guardUntil) / 900);
-      }
-      if (ra > 0.01) {
-        const breathe = REDUCED ? 0 : 0.5 + 0.5 * Math.sin(now / 1300);
-        ctx.lineWidth = 1.4 * DPR;
-        ctx.strokeStyle = ACCENT((0.42 * ra * (0.8 + 0.2 * breathe)).toFixed(3));
-        ring(x, y, r * 1.9);
-        ctx.lineWidth = 1 * DPR;
-        ctx.strokeStyle = ACCENT((0.18 * ra * (0.8 + 0.2 * breathe)).toFixed(3));
-        ring(x, y, r * 2.7);
-      }
-
-      const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r);
-      g.addColorStop(0, "#d9d4ff");
-      g.addColorStop(0.5, "#7c6cf0");
-      g.addColorStop(1, "#453aa6");
-      ctx.shadowColor = "rgba(124,108,240,0.75)";
-      ctx.shadowBlur = 15 * DPR;
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      // face: two dot eyes with patrol-aware pupils
-      const eR = r * 0.27, pR = r * 0.11, eW = guarding ? 1.12 : 1;
-      ctx.fillStyle = "rgba(255,255,255,0.88)";
-      ctx.beginPath(); ctx.arc(x - r * 0.34, y - r * 0.12, eR * eW, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(x + r * 0.34, y - r * 0.12, eR * eW, 0, Math.PI * 2); ctx.fill();
-      let pdx = 0, pdy = 0;
-      if (!guarding) {
-        const _pt = now / 1000;
-        pdx = Math.cos(_pt * 0.42) * pR * 0.4;
-        pdy = Math.sin(_pt * 0.84 + 1.2) * pR * 0.3;
-      }
-      ctx.fillStyle = "#1a1a2e";
-      ctx.beginPath(); ctx.arc(x - r * 0.34 + pdx, y - r * 0.12 + pdy, pR, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(x + r * 0.34 + pdx, y - r * 0.12 + pdy, pR, 0, Math.PI * 2); ctx.fill();
-    }
-
-    function drawFrame(now) {
-      ctx.clearRect(0, 0, W, H);
-      drawBackdrop(now);
-      drawGraph(now);
-      drawWash(now);
-      if (!REDUCED) {
-        if (now - lastSpawn > 3400 + Math.random() * 1600) {
-          spawnTraveler(now);
-          lastSpawn = now;
-        }
-        drawTravelers(now);
-      } else {
-        travelers = [];
-      }
-      drawCore(now);
-      drawRakshak(now);
-    }
-
-    function loop(now) {
-      drawFrame(now);
-      rafId = requestAnimationFrame(loop);
-    }
-
-    return {
-      show(summaryTotal) {
-        if (countEl) countEl.textContent = summaryTotal + " nodes";
-        updateMapLegend();
-        travelers = [];
-        lastSpawn = performance.now() - 2400;
-        // any nodes Rakshak didn't reach (huge scans) settle into place here
-        for (const nd of NetStore.all()) nd.resolved = true;
-        // hold the wash until the map panel's entrance reveal has finished,
-        // so the flourish plays on the settled network, not under the fade
-        const t0 = performance.now();
-        const washStart = t0 + 750;
-        guardUntil = washStart + GUARD_HOLD_MS;
-        flourish = REDUCED ? null : { start: washStart };
-        if (REDUCED) {
-          if (rafId) cancelAnimationFrame(rafId);
-          rafId = null;
-          size();
-          drawFrame(performance.now());
-          return;
-        }
-        size();
-        if (!rafId) rafId = requestAnimationFrame(loop);
-      },
-      hide() {
-        if (rafId) cancelAnimationFrame(rafId);
-        rafId = null;
-        travelers = [];
-        flourish = null;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-      },
-    };
-  })();
+  // Presentation-only topology is isolated from scan/action state.
+  function countUp(el, target) { if (el) el.textContent = String(target); }
 
   const SOURCE_ICONS = {
     StartupFolder:
@@ -1503,165 +306,135 @@
     return "low";
   }
 
-  function buildCard(entry, cleaned) {
+  const quarantinedIds = new Set();
+  const evidenceCache = new Map();
+  const fileBacked = scored => ["StartupFolder", "ScheduledTask"].includes(String(scored.entry.source));
+  const riskLabel = risk => risk === "HighRisk" ? "High risk" : risk === "Suspicious" ? "Review required" : "Safe score";
+  function coverageIncomplete(summary) {
+    const rows = summary && summary.source_states || [];
+    return !rows.length || rows.some(row => !["Available", "Checked"].includes(row.state));
+  }
+  function makeText(tag, text, cls) {
+    const node = document.createElement(tag); node.textContent = text;
+    if (cls) node.className = cls; return node;
+  }
+  function buildCard(scored, cleaned) {
     const card = document.createElement("li");
-    card.className = "review-card reveal" + (cleaned ? " cleaned" : "") + " risk-" + scoreChipClass(entry.score);
-
-    const rawSource = String(entry.entry.source);
-    const iconClass =
-      rawSource === "ScheduledTask"
-        ? "icon-task"
-        : rawSource === "RegistryRun"
-          ? "icon-registry"
-          : "icon-startup";
-
-    const iconWrap = document.createElement("div");
-    iconWrap.className = "src-icon " + iconClass;
-    iconWrap.innerHTML = SOURCE_ICONS[rawSource] || SOURCE_ICONS.StartupFolder;
-    card.appendChild(iconWrap);
-
-    const main = document.createElement("div");
-    main.className = "rc-main";
-
-    const topRow = document.createElement("div");
-    topRow.className = "rc-top";
-
-    const name = document.createElement("span");
-    name.className = "rc-name";
-    name.textContent = entry.entry.name;
-    name.title = entry.entry.command;
-
-    const scoreEl = document.createElement("span");
-    scoreEl.className = "score-chip " + scoreChipClass(entry.score);
-    scoreEl.textContent = String(entry.score);
-    scoreEl.title = entry.risk + " · risk score " + entry.score;
-
-    topRow.append(name, scoreEl);
-    main.appendChild(topRow);
-
-    const chips = document.createElement("div");
-    chips.className = "chips";
-    const srcChip = document.createElement("span");
-    srcChip.className = "chip src";
-    srcChip.textContent = SOURCE_LABELS[rawSource] || "Persistence";
-    srcChip.title = entry.entry.location;
-    chips.appendChild(srcChip);
-    const atk = attackFor(entry);
-    if (atk) {
-      const atkChip = document.createElement("span");
-      atkChip.className = "chip attack";
-      atkChip.textContent = atk.id;
-      atkChip.title = "MITRE ATT&CK: " + atk.name;
-      chips.appendChild(atkChip);
-    }
-    const reasons = Array.isArray(entry.reasons) ? entry.reasons : [];
-    for (const reason of reasons.slice(0, 4)) {
-      const [label, tone] = reasonChipLabel(String(reason));
-      const chip = document.createElement("span");
-      chip.className = "chip" + (tone ? " " + tone : "");
-      chip.textContent = label;
-      chip.title = reason;
-      chips.appendChild(chip);
-    }
-    if (chips.children.length > 0) main.appendChild(chips);
-
-    const loc = document.createElement("div");
-    loc.className = "finding-loc selectable trunc";
-    loc.tabIndex = 0;
-    loc.textContent = "Location: " + (entry.entry.location || "Not collected");
-    loc.title = entry.entry.location || "Not collected";
-    main.appendChild(loc);
-
-    const detToggle = document.createElement("button");
-    detToggle.className = "detail-toggle finding-details-toggle";
-    detToggle.textContent = "View details";
-    detToggle.setAttribute("aria-expanded", "false");
-    const drawer = document.createElement("dl");
-    drawer.className = "detail-drawer hidden";
-    const dRows = [
-      ["Category", "Persistence"],
-      ["Source", rawSource + (atk ? " · MITRE " + atk.id + " " + atk.name : "")],
-      ["Severity / status", entry.risk + " · score " + entry.score],
-      ["Name", entry.entry.name],
-      ["Location", entry.entry.location || "Not collected"],
-      ["Command", entry.entry.command || "Not collected"],
-      ["Reasons", reasons.join(" · ") || "No scored signals — listed for context."],
-      ["Available evidence", reasons.join("; ") || "No scored signals — listed for context."],
-      ["Action", cleaned ? "Quarantined — restore from Quarantine with Undo." : (rawSource === "RegistryRun" ? "Manual removal required — registry values are not auto-disabled in this version." : "Quarantine available — asks for confirmation, reversible from Quarantine.")],
-    ];
-    for (const [k, v] of dRows) {
-      const dt = document.createElement("dt");
-      dt.textContent = k;
-      const dd = document.createElement("dd");
-      dd.className = "selectable";
-      dd.textContent = v;
-      if (String(v).length > 60) dd.title = v;
-      drawer.append(dt, dd);
-    }
-    detToggle.addEventListener("click", () => {
-      const open = drawer.classList.toggle("hidden");
-      detToggle.setAttribute("aria-expanded", String(!open));
-      detToggle.textContent = open ? "View details" : "Hide details";
-    });
-    main.appendChild(detToggle);
-    main.appendChild(drawer);
-
-    card.appendChild(main);
-
-    if (cleaned) {
-      const done = document.createElement("span");
-      done.className = "manual-note";
-      done.textContent = "Quarantined";
-      card.appendChild(done);
-    } else if (rawSource === "RegistryRun") {
-      const note = document.createElement("span");
-      note.className = "manual-note";
-      note.textContent = "Manual removal required";
-      note.title =
-        entry.entry.location +
-        " — registry values are not auto-disabled in this version";
-      card.appendChild(note);
-    } else {
-      const btn = document.createElement("button");
-      btn.className = "quarantine-btn";
-      btn.textContent = "Quarantine";
-      btn.addEventListener("click", async () => {
-        const ok = await requestConfirm({
-          kicker: "Confirm quarantine",
-          title: "Move this item to quarantine?",
-          facts: [
-            ["Item", entry.entry.name],
-            ["Location", entry.entry.location || "Not collected"],
-            ["Action", "Move this file to C.U.R.E. quarantine."],
-            ["Reversible", "Yes — it can be restored from Quarantine."],
-          ],
-          note: "This action changes the filesystem. The item will be listed under Quarantine with Undo.",
-          okLabel: "Quarantine item",
-        });
-        if (!ok) return;
-        btn.disabled = true;
-        try {
-          await invoke("quarantine_entry", {
-            id: entry.entry.id,
-            name: entry.entry.name,
-            command: entry.entry.command,
-          });
-          btn.textContent = "Quarantined ✓";
-          btn.classList.add("row-done");
-          sessionQuarantined += 1;
-          refreshQuarantinedTile();
-          showReceipt("Quarantined: " + entry.entry.name, "moved to quarantine · Undo in the Quarantine view", false);
-          logEvent("action", "quarantined: " + entry.entry.name);
-        } catch (err) {
-          btn.disabled = false;
-          setPill("error", String(err));
-          showReceipt("Quarantine failed", cleanErrText(err, "Quarantine failed"), true);
-        }
-      });
-      card.appendChild(btn);
-    }
+    card.className = "review-card risk-" + scoreChipClass(scored.score);
+    card.dataset.id = scored.entry.id;
+    const main = makeText("div", "", "rc-main");
+    const top = makeText("div", "", "rc-top");
+    const select = makeText("button", scored.entry.name, "finding-select");
+    select.type = "button"; select.setAttribute("aria-label", "Inspect evidence: " + scored.entry.name);
+    select.addEventListener("click", () => openEvidence(scored, select));
+    const severity = makeText("span", riskLabel(scored.risk) + " · " + scored.score, "score-chip " + scoreChipClass(scored.score));
+    top.append(select, severity);
+    const meta = makeText("div", "", "chips");
+    meta.append(makeText("span", SOURCE_LABELS[scored.entry.source] || scored.entry.source, "chip src"));
+    const attack = attackFor(scored); if (attack) meta.append(makeText("span", attack.id, "chip"));
+    const signature = makeText("span", "Signature: not collected", "chip finding-signature"); meta.append(signature);
+    const loc = makeText("div", scored.entry.command || scored.entry.location, "finding-loc selectable");
+    loc.title = loc.textContent;
+    const reasons = makeText("div", (scored.reasons || []).map(r => String(r).replace(/^[+-]\d+\s*/, "")).join(" · "), "finding-reasons");
+    main.append(top,meta,loc,reasons);card.append(main);
+    card.append(actionButton(scored, cleaned));
     return card;
   }
+  function actionButton(scored, cleaned) {
+    const done = cleaned || quarantinedIds.has(scored.entry.id);
+    if (done) return makeText("span", "Quarantined · Undo available", "manual-note");
+    if (!fileBacked(scored)) return makeText("span", "Guidance only", "manual-note");
+    const btn = makeText("button", "Quarantine", "quarantine-btn");btn.type="button";
+    btn.addEventListener("click", () => confirmQuarantine(scored, btn));return btn;
+  }
+  async function confirmQuarantine(scored, btn) {
+    const ok = await requestConfirm({
+      kicker: "Operator action / reversible file move", title: "Quarantine this file?",
+      facts: [["Item", scored.entry.name], ["Original location", scored.entry.location]],
+      sections: [
+        ["What will change", "The persistence file moves to C.U.R.E quarantine. The engine records its original location, size, SHA-256 and available security metadata."],
+        ["What will not change", "Quarantine does not delete the file, terminate its running process, or change registry, service or WMI settings. A referenced executable may remain elsewhere."],
+        ["How to undo", "Open Quarantine and choose Undo. Restore is scoped to scanned roots and checks archived bytes before moving them back. ACL and timestamp fidelity is best effort."],
+      ], okLabel: "Quarantine file",
+    });
+    if (!ok) return;
+    btn.disabled = true;btn.setAttribute("aria-busy", "true");
+    try {
+      await invoke("quarantine_entry", {id:scored.entry.id,name:scored.entry.name,command:scored.entry.command});
+      quarantinedIds.add(scored.entry.id);sessionQuarantined++;refreshQuarantinedTile();
+      btn.textContent="Quarantined";btn.removeAttribute("aria-busy");
+      document.querySelectorAll('[data-id]').forEach(row => {
+        if(row.dataset.id===scored.entry.id) { const action=row.querySelector(".quarantine-btn");if(action){action.textContent="Quarantined";action.disabled=true;} }
+      });
+      showReceipt("Quarantined: " + scored.entry.name, "recorded move · Undo available in Quarantine", false);
+      footFeedback("Quarantined: " + scored.entry.name + " · Undo available", false);
+      logEvent("action", "Quarantined: " + scored.entry.name);await refreshQuarantineCount();
+      if(evidenceSelected===scored) renderEvidence(scored,evidenceCache.get(scored.entry.id));
+    } catch(err) {btn.disabled=false;btn.removeAttribute("aria-busy");showReceipt("Quarantine failed",cleanErrText(err,"Quarantine failed"),true);footFeedback(cleanErrText(err,"Quarantine failed"),true);}
+  }
+  let evidenceSelected = null;
+  let evidenceInvoker = null;
+  let evidenceGeneration = 0;
+  function section(body, title, content, technical=false) {
+    const box=makeText("section", "", "inspector-section");box.append(makeText("h3", title));
+    box.append(makeText("p", content || "Not collected", technical ? "technical selectable" : ""));body.append(box);return box;
+  }
+  function renderEvidence(scored, details) {
+    const body=document.getElementById("evidence-body");body.replaceChildren();
+    const done=quarantinedIds.has(scored.entry.id);
+    section(body,"Summary",riskLabel(scored.risk)+" · score "+scored.score+" · "+(done?"Quarantined":"Awaiting operator decision"));
+    const reasons=section(body,"Why C.U.R.E flagged this","");reasons.querySelector("p").remove();
+    const ul=document.createElement("ul");(scored.reasons||[]).forEach(r=>ul.append(makeText("li",r)));reasons.append(ul);
+    const attack=attackFor(scored);
+    section(body,"Persistence source",(SOURCE_LABELS[scored.entry.source]||scored.entry.source)+(attack?" · "+attack.id:"")+"\n"+scored.entry.location,true);
+    section(body,"Target",details && details.target_path || scored.entry.command,true);
+    section(body,"Signature / publisher",details ? details.signature+" · "+(details.publisher||"Publisher unavailable") : "Collecting signature and publisher…");
+    section(body,"SHA-256 · resolved target",details && details.sha256_hex || (details?"Not available":"Collecting…"),true);
+    section(body,"Arguments / command line",scored.entry.command,true);
+    let times=details && details.modified_unix_secs ? "Target modified: "+new Date(details.modified_unix_secs*1000).toLocaleString() : "Target timestamps not available";
+    times+="\nCollected in scan: "+(lastScanAt?lastScanAt.toLocaleString():"Not recorded");
+    section(body,"Timestamps",times);
+    if(details && details.shortcut) section(body,"Shortcut evidence",JSON.stringify(details.shortcut,null,2),true);
+    if(details && details.task) section(body,"Scheduled task evidence",JSON.stringify(details.task,null,2),true);
+    section(body,"Coverage / collection limitations",(coverageIncomplete(lastSummary)?"Coverage incomplete. ":"")+"Some collectors do not expose access coverage. Signature revocation is cache-only by default. A risk score is an investigation lead. "+(details && details.collection_error || ""));
+    const actions=section(body,"Available actions",fileBacked(scored)?"Quarantine moves the persistence file after confirmation.":"Guidance only: investigate and back up this persistence source before manual changes.");
+    const row=makeText("div","","evidence-actions");
+    const copy=makeText("button","Copy evidence","copy-btn");copy.addEventListener("click",()=>copyEvidence(evidenceText(scored)+(details?"\n"+JSON.stringify(details,null,2):""),copy));row.append(copy);
+    const reveal=makeText("button","Open location","copy-btn");reveal.addEventListener("click",async()=>{try{await invoke("reveal_location",{id:scored.entry.id});}catch(err){footFeedback(cleanErrText(err,"Location unavailable"),true);}});row.append(reveal);
+    row.append(actionButton(scored,done));
+    if(done){const q=makeText("button","Open Quarantine / Undo","btn");q.addEventListener("click",()=>{closeEvidence();navTo("view-quarantine");});row.append(q);}
+    actions.append(row);
+    // Signature state belongs to every visible row for this finding; never inferred from risk reasons.
+    if(details) document.querySelectorAll('[data-id]').forEach(row=>{if(row.dataset.id===scored.entry.id){const sig=row.querySelector('.finding-signature');if(sig)sig.textContent="Signature: "+details.signature;}});
+  }
+  async function openEvidence(scored, invoker) {
+    evidenceSelected=scored;evidenceInvoker=invoker;const generation=++evidenceGeneration;
+    document.getElementById("evidence-title").textContent=scored.entry.name;
+    document.getElementById("evidence-subtitle").textContent=SOURCE_LABELS[scored.entry.source]||scored.entry.source;
+    document.getElementById("evidence-overlay").classList.remove("hidden");document.getElementById("app").inert=true;
+    renderEvidence(scored,evidenceCache.get(scored.entry.id));document.getElementById("evidence-close").focus();
+    if(evidenceCache.has(scored.entry.id)) return;
+    let details;
+    try {details=await invoke("entry_details",{id:scored.entry.id});evidenceCache.set(scored.entry.id,details);}
+    catch(err){details={signature:"Unavailable",collection_error:cleanErrText(err,"Evidence enrichment unavailable. Rescan to refresh." )};}
+    if(generation===evidenceGeneration && evidenceSelected===scored) renderEvidence(scored,details);
+  }
+  function closeEvidence() {
+    evidenceGeneration++;evidenceSelected=null;document.getElementById("evidence-overlay").classList.add("hidden");document.getElementById("app").inert=false;
+    if(evidenceInvoker && evidenceInvoker.isConnected)evidenceInvoker.focus();
+  }
+  document.getElementById("evidence-close").addEventListener("click",closeEvidence);
+  document.getElementById("evidence-overlay").addEventListener("mousedown",ev=>{if(ev.target.id==="evidence-overlay")closeEvidence();});
+  document.addEventListener("keydown",ev=>{
+    if(!evidenceSelected || confirmOpen)return;
+    if(ev.key==="Escape"){ev.preventDefault();closeEvidence();}
+    if(ev.key==="Tab"){
+      const buttons=[...document.querySelectorAll('#evidence-inspector button:not(:disabled)')];
+      const first=buttons[0],last=buttons[buttons.length-1];
+      if(ev.shiftKey && document.activeElement===first){ev.preventDefault();last.focus();}
+      else if(!ev.shiftKey && document.activeElement===last){ev.preventDefault();first.focus();}
+    }
+  });
 
   function fillCards(container, entries, cleaned, baseDelayMs) {
     container.innerHTML = "";
@@ -1707,7 +480,7 @@
   }
 
   function renderResults(summary) {
-    const badge = document.getElementById("badge");
+    
     const headline = document.getElementById("headline");
     const reviewBlock = document.getElementById("review-block");
     const cleanedBlock = document.getElementById("cleaned-block");
@@ -1719,19 +492,13 @@
     const ransomCount = (summary.ransom_findings || []).length;
     const trouble = cleanedCount + reviewCount + procCount + ransomCount;
 
-    badge.className = "rakshak-sm reveal";
-    const dot = document.getElementById("badge-dot");
-    if (dot) {
-      dot.setAttribute("class", "badge-dot " + (trouble ? "warn" : "clean"));
-    }
-
     const subline = document.getElementById("subline");
     const scope = scopeLine(summary);
     if (reviewCount > 0) {
       headline.textContent = findingsHeadline(reviewCount);
       subline.textContent = scope;
     } else {
-      headline.textContent = "No findings detected in this scan";
+      headline.textContent = coverageIncomplete(summary) ? "Coverage incomplete" : "No findings in collected evidence";
       subline.textContent = scope;
     }
     renderResultsCoverage(summary);
@@ -1865,7 +632,7 @@
     }
 
     if (trouble === 0) {
-      setPill("clean", "Scan complete — no findings");
+      setPill(coverageIncomplete(summary) ? "warn" : "idle", coverageIncomplete(summary) ? "Coverage incomplete" : "No findings in collected evidence");
     } else {
       const hasHighRiskInReview = summary.suspicious_for_review.some(
         (s) => s.risk === "HighRisk"
@@ -1876,18 +643,6 @@
       );
     }
 
-    // Rakshak's status line under the scan-map header
-    const rkStatus = document.getElementById("rakshak-status");
-    if (rkStatus) {
-      rkStatus.innerHTML = '<span class="rk-name">Rakshak</span> checked ' +
-        summary.total + " node" + (summary.total === 1 ? "" : "s");
-    }
-
-    const revealables = resultsView.querySelectorAll(".reveal");
-    if (!REDUCED && revealables.length > 0) {
-      void resultsView.offsetWidth;
-    }
-    netmap.show(summary.total);
     syncCanaryStatus();
     enablePostScanNav();
     renderOverview(summary);
@@ -1912,8 +667,8 @@
         toEl.classList.add("pre-enter");
         void toEl.offsetWidth;
         toEl.classList.remove("pre-enter");
-        setTimeout(resolve, 330);
-      }, 290);
+        setTimeout(resolve, 180);
+      }, 180);
     });
   }
 
@@ -1927,16 +682,16 @@
 
   const VIEW_TITLES = {
     "view-overview": "Overview",
-    "scan-center": "Scan Center",
-    "scan-view": "Scan Center",
-    "landing-view": "Scan Center",
-    "results-view": "Scan Results",
-    "view-audit": "Startup Audit",
-    "view-processes": "Process Sentinel",
+    "scan-center": "Rescue",
+    "scan-view": "Rescue",
+    "landing-view": "Rescue",
+    "results-view": "Investigate",
+    "view-audit": "Investigate / Persistence",
+    "view-processes": "Investigate / Processes",
     "view-quarantine": "Quarantine",
     "cleanup-view": "Disk Cleanup",
-    "view-eventlog": "Event Log",
-    "view-canary": "Canary Guard",
+    "view-eventlog": "Monitor",
+    "view-canary": "Monitor / Canary",
     "view-incident": "Incident Investigation",
   };
 
@@ -1946,6 +701,8 @@
       const target = item.getAttribute("data-view");
       const active =
         target === viewId ||
+        (target === "results-view" && ["view-audit", "view-processes", "view-incident"].includes(viewId)) ||
+        (target === "view-eventlog" && viewId === "view-canary") ||
         (target === "scan-center" && (viewId === "scan-view" || viewId === "landing-view"));
       item.setAttribute("aria-current", active ? "true" : "false");
     });
@@ -1991,8 +748,10 @@
     if (!el) return;
     if (cleanupState.open) closeCleanup(el);
     else showViewInstant(el);
+    if (viewId === "view-overview" && lastSummary) renderOverview(lastSummary);
     if (viewId === "view-quarantine") refreshQuarantine();
     if (viewId === "view-eventlog") renderEventLog();
+    document.querySelectorAll("[data-route]").forEach(btn=>btn.setAttribute("aria-current",String(btn.dataset.route===viewId)));
     if (viewId === "view-canary") { renderCanaryView(); syncCanaryStatus(); }
   }
 
@@ -2004,12 +763,13 @@
   }
 
   async function runScan(preLines = []) {
+    if (scanPhase === "running") return;
+    document.getElementById("scan-retry").classList.add("hidden");
+    evidenceCache.clear();
     const token = ++scanToken;
     scanPhase = "running";
     scanStartedAt = performance.now();
-    resultsView.classList.add("hidden");
-    netmap.hide();
-    scanView.classList.remove("hidden", "exiting", "pre-enter");
+    showViewInstant(scanView);
     setNav("scan-view");
     logList.innerHTML = "";
     itemFeedCount = 0;
@@ -2021,11 +781,11 @@
       if (token !== scanToken) { clearInterval(elapsedTimer); return; }
       if (elapsedEl) elapsedEl.textContent = "elapsed " + ((performance.now() - scanStartedAt) / 1000).toFixed(1) + "s";
     }, 500);
-    for (const line of preLines) {
+    for (const line of Array.isArray(preLines) ? preLines : []) {
       appendLog("overlay", line);
     }
-    setPill("scanning", "sweeping persistence locations…");
-    radar.start();
+    setPill("scanning", "Collecting evidence");
+    window.CureSweep.start();
     try {
       const summary = await invoke("run_auto_scan");
       if (token !== scanToken) return;
@@ -2038,14 +798,15 @@
       renderSessionMeta(summary);
       logEvent("info", "scan finished: " + summary.total + " checks in " + fmtDuration(scanDurationMs));
       appendLog("done", summary.total + " entries processed — scan finished");
-      radar.stop();
+      window.CureSweep.finish(summary);
       await switchView(currentView(), resultsView);
       setNav("results-view");
       if (token !== scanToken) return;
       renderResults(summary);
     } catch (err) {
       clearInterval(elapsedTimer);
-      radar.stop();
+      window.CureSweep.fail();
+      document.getElementById("scan-retry").classList.remove("hidden");
       scanPhase = "idle";
       setPill("error", String(err));
       appendLog("error", String(err));
@@ -2055,14 +816,13 @@
 
   listen("scan-progress", (event) => {
     const payload = event.payload;
+    window.CureSweep.progress(payload);
     if (payload.stage === "item-scanned") {
       appendItemLine(payload);
-      radar.addNode(payload.risk, payload.name);
       return;
     }
     if (payload.stage === "process-flagged") {
       appendProcessLine(payload);
-      radar.addNode(payload.risk, payload.name);
       logEvent("info", "process flagged: " + payload.name + " (pid " + payload.pid + ", " + payload.risk + " " + payload.score + ")");
       return;
     }
@@ -2128,15 +888,20 @@
       dd.textContent = value;
       facts.append(dt, dd);
     }
+    document.querySelectorAll("#confirm-overlay .confirm-section").forEach(n=>n.remove());
+    for(const [label,text] of opts.sections||[]){const box=makeText("section","","confirm-section");box.append(makeText("h3",label),makeText("p",text));note.before(box);}
     note.textContent = opts.note || "";
     note.classList.toggle("hidden", !opts.note);
     okBtn.textContent = opts.okLabel || "Confirm";
     confirmOpen = true;
     overlay.classList.remove("hidden");
+    const inertTargets=[document.getElementById("app"),document.getElementById("evidence-inspector")];
+    const priorInert=inertTargets.map(n=>n.inert);inertTargets.forEach(n=>n.inert=true);
     return new Promise((resolve) => {
       const done = (value) => {
         confirmOpen = false;
         overlay.classList.add("hidden");
+        inertTargets.forEach((n,i)=>n.inert=priorInert[i]);
         overlay.removeEventListener("mousedown", onBackdrop);
         document.removeEventListener("keydown", onKey, true);
         if (invoker && invoker.focus) invoker.focus();
@@ -2276,12 +1041,14 @@
     if (!canaryOverlay || !canaryOverlay.classList.contains("hidden")) return;
     canaryInvoker = document.activeElement;
     canaryOverlay.classList.remove("hidden");
+    document.getElementById("app").inert=true;
     document.addEventListener("keydown", canaryKeyTrap, true);
     if (canaryDismissBtn) canaryDismissBtn.focus();
   }
   function hideCanaryAlert() {
     if (!canaryOverlay) return;
     canaryOverlay.classList.add("hidden");
+    document.getElementById("app").inert=false;
     document.removeEventListener("keydown", canaryKeyTrap, true);
     if (canaryInvoker && canaryInvoker.focus) canaryInvoker.focus();
     canaryInvoker = null;
@@ -2340,7 +1107,7 @@
     btnLabel: document.getElementById("cleanup-btn-label"),
     status: document.getElementById("cleanup-status"),
     failures: document.getElementById("cleanup-failures"),
-    stage: document.getElementById("toss-stage"),
+    stage: document.getElementById("cleanup-operation"),
     liveCounter: document.getElementById("cleanup-live-counter"),
     progWrap: document.getElementById("cleanup-progress-wrap"),
     progBar: document.getElementById("cleanup-progress-bar"),
@@ -2357,25 +1124,6 @@
     recycle_bin: "♻️",
     windows_old: "🗂️",
   };
-  function cleanupConfettiBurst() {
-    if (REDUCED || !cleanupEls.panel) return;
-    const host = cleanupEls.panel;
-    const prev = host.style.position;
-    if (!prev || prev === "static") host.style.position = "relative";
-    const colors = ["#7c6cf0", "#9be7f4", "#43b581", "#e8c476", "#e9ebf4"];
-    const r = host.getBoundingClientRect();
-    for (let i = 0; i < 22; i++) {
-      const s = document.createElement("span");
-      s.className = "cleanup-confetti";
-      s.style.left = (12 + Math.random() * 76) + "%";
-      s.style.top = "18%";
-      s.style.background = colors[i % colors.length];
-      s.style.animationDelay = (Math.random() * 0.25) + "s";
-      host.appendChild(s);
-      setTimeout(() => s.remove(), 1600);
-    }
-  }
-
   const cleanupState = {
     summary: null,
     selectedCats: new Set(),
@@ -2404,220 +1152,10 @@
     cleanupEls.statusText.textContent = text;
   }
 
-  // ---- mascot toss animation (SVG, cleanup view) ---------------------------
-
-  const toss = {
-    raf: null,
-    start: 0,
-    expected: 0,
-    active: false,
-    settling: false,
-    svg: null,
-    orbG: null,
-    orb: null,
-    glyphs: null,
-    lid: null,
-    trailG: null,
-    trail: [],
-    flash: null,
-  };
-  const TOSS_CYCLE_MS = 520;
-  const GLYPH_BASE = [
-    [6, 30],
-    [27, 30],
-    [48, 30],
-  ];
-  const ORB_REST = [24, 16];
-  const TRASH_MOUTH = [124, 22];
-
-  function tossInit() {
-    if (toss.svg) return;
-    toss.svg = cleanupEls.stage.querySelector("svg");
-    toss.orbG = document.getElementById("mascot-g");
-    toss.orb = document.getElementById("mascot-orb");
-    toss.glyphs = Array.from(document.querySelectorAll("#file-glyphs .file-glyph"));
-    toss.lid = document.getElementById("trash-lid");
-    toss.trailG = document.getElementById("trail-g");
-    toss.orb.setAttribute("cx", "0");
-    toss.orb.setAttribute("cy", "0");
-    toss.orbG.setAttribute("transform", "translate(" + ORB_REST[0] + " " + ORB_REST[1] + ")");
-    const NS = "http://www.w3.org/2000/svg";
-    for (let i = 0; i < 3; i++) {
-      const c = document.createElementNS(NS, "circle");
-      c.setAttribute("r", "3");
-      c.setAttribute("fill", "rgba(124,108,240,0.3)");
-      c.setAttribute("opacity", "0");
-      toss.trailG.appendChild(c);
-    }
-    toss.flash = document.createElementNS(NS, "circle");
-    toss.flash.setAttribute("r", "0");
-    toss.flash.setAttribute("fill", "none");
-    toss.flash.setAttribute("stroke", "rgba(124,108,240,0.8)");
-    toss.flash.setAttribute("stroke-width", "1.6");
-    toss.flash.setAttribute("opacity", "0");
-    toss.svg.appendChild(toss.flash);
-  }
-
-  function tossSetOrb(x, y, sx, sy) {
-    toss.orbG.setAttribute(
-      "transform",
-      "translate(" + x + " " + y + ") scale(" + sx + " " + sy + ")"
-    );
-  }
-
-  function tossGlyphTransform(i, x, y, s, opacity) {
-    const g = toss.glyphs[i];
-    g.setAttribute("transform", "translate(" + x + " " + y + ") scale(" + s + ")");
-    g.setAttribute("opacity", String(opacity));
-  }
-
-  function easeInOut(t) {
-    return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-  }
-
-  function tossFrame(now) {
-    if (!toss.active) return;
-    const elapsed = now - toss.start;
-    const cycleT = (elapsed % TOSS_CYCLE_MS) / TOSS_CYCLE_MS;
-    const gi = Math.floor(elapsed / TOSS_CYCLE_MS) % toss.glyphs.length;
-    const [gx, gy] = GLYPH_BASE[gi];
-
-    let ox = ORB_REST[0];
-    let oy = ORB_REST[1];
-    let sx = 1;
-    let sy = 1;
-
-    if (cycleT < 0.32) {
-      const t = easeInOut(cycleT / 0.32);
-      ox = ORB_REST[0] + (gx + 6 - ORB_REST[0]) * t;
-      oy = ORB_REST[1] + (gy + 7 - ORB_REST[1]) * t;
-      const stretch = 1 + 0.22 * Math.sin(t * Math.PI);
-      sx = stretch;
-      sy = 1 / stretch;
-      tossGlyphTransform(gi, gx, gy, 1, 1);
-    } else if (cycleT < 0.4) {
-      const t = (cycleT - 0.32) / 0.08;
-      ox = gx + 6;
-      oy = gy + 7;
-      sx = 1 + 0.35 * Math.sin(t * Math.PI);
-      sy = 1 - 0.28 * Math.sin(t * Math.PI);
-      tossGlyphTransform(gi, gx, gy, 1 - 0.2 * t, 1 - 0.6 * t);
-    } else if (cycleT < 0.78) {
-      const t = easeInOut((cycleT - 0.4) / 0.38);
-      const tx = TRASH_MOUTH[0];
-      const ty = TRASH_MOUTH[1];
-      const cxp = (gx + 6 + tx) / 2;
-      const cyp = Math.min(gy, ty) - 26;
-      const gx2 = (1 - t) * (gx + 6) + 2 * (1 - t) * t * cxp + t * t * tx;
-      const gy2 = (1 - t) * (gy + 7) + 2 * (1 - t) * t * cyp + t * t * ty;
-      const ot = Math.max(0, t - 0.06);
-      ox = (1 - ot) * (gx + 6) + 2 * (1 - ot) * ot * cxp + ot * ot * tx;
-      oy = (1 - ot) * (gy + 7) + 2 * (1 - ot) * ot * (cyp + 6) + ot * ot * (ty + 3);
-      const stretch = 1 + 0.2 * Math.sin(t * Math.PI);
-      sx = stretch;
-      sy = 1 / stretch;
-      tossGlyphTransform(gi, gx2, gy2, 1 - 0.35 * t, 1 - 0.6 * t);
-    } else {
-      const t = (cycleT - 0.78) / 0.22;
-      ox = TRASH_MOUTH[0] + (ORB_REST[0] - TRASH_MOUTH[0]) * easeInOut(t);
-      oy = TRASH_MOUTH[1] + (ORB_REST[1] - TRASH_MOUTH[1]) * easeInOut(t);
-      const pop = Math.sin(Math.min(t * 2.2, 1) * Math.PI);
-      toss.lid.setAttribute("transform", "rotate(" + -34 * pop + " -9 -9) translate(0 " + -3 * pop + ")");
-      toss.flash.setAttribute("r", String(2 + pop * 9));
-      toss.flash.setAttribute("opacity", String((1 - t) * 0.8));
-      toss.flash.setAttribute("cx", String(TRASH_MOUTH[0]));
-      toss.flash.setAttribute("cy", String(TRASH_MOUTH[1]));
-      tossGlyphTransform(gi, gx, gy, 0.4, 0);
-    }
-
-    tossSetOrb(ox, oy, sx, sy);
-
-    const trailEls = toss.trailG.children;
-    for (let i = trailEls.length - 1; i >= 0; i--) {
-      const src = trailEls[i];
-      const behind = trailEls.length - i;
-      src.setAttribute("cx", String(ox - behind * 4));
-      src.setAttribute("cy", String(oy + behind * 1.2));
-      src.setAttribute("opacity", String(0.3 - behind * 0.08));
-    }
-
-    const ramp = Math.min(elapsed / 1400, 1);
-    cleanupEls.liveCounter.textContent =
-      "+" + fmtBytes(Math.round(toss.expected * ramp));
-    if (cleanupEls.progBar) {
-      const pct = Math.round(ramp * 92 + (cycleT * 8));
-      const clamped = Math.min(99, pct);
-      cleanupEls.progBar.style.width = clamped + "%";
-      if (cleanupEls.progPct) cleanupEls.progPct.textContent = clamped + "%";
-    }
-
-    toss.raf = requestAnimationFrame(tossFrame);
-  }
-
-  function startToss(expectedBytes) {
-    window.__cureTossSeen = true;
-    tossInit();
-    cleanupEls.stage.classList.remove("hidden");
-    cleanupEls.stage.classList.add("toss-active");
-    if (cleanupEls.progWrap) cleanupEls.progWrap.classList.remove("hidden");
-    if (cleanupEls.progBar) cleanupEls.progBar.style.width = "4%";
-    if (cleanupEls.progPct) cleanupEls.progPct.textContent = "4%";
-    if (cleanupEls.panel) cleanupEls.panel.classList.remove("cleanup-success");
-    if (REDUCED) {
-      tossSetOrb(ORB_REST[0], ORB_REST[1], 1, 1);
-      return;
-    }
-    toss.active = true;
-    toss.start = performance.now();
-    toss.expected = Math.max(expectedBytes, 1);
-    window.__cureTossActive = true;
-    cleanupEls.liveCounter.classList.remove("hidden");
-    toss.lid.setAttribute("transform", "");
-    toss.raf = requestAnimationFrame(tossFrame);
-  }
-
-  function stopToss(freedBytes) {
-    if (cleanupEls.progBar) cleanupEls.progBar.style.width = "100%";
-    if (cleanupEls.progPct) cleanupEls.progPct.textContent = "100%";
-    if (cleanupEls.stage) cleanupEls.stage.classList.remove("toss-active");
-    setTimeout(() => { if (cleanupEls.progWrap) cleanupEls.progWrap.classList.add("hidden"); }, 900);
-    if (REDUCED || !toss.active) {
-      if (REDUCED) tossSetOrb(ORB_REST[0], ORB_REST[1], 1, 1);
-      if (cleanupEls.progWrap) cleanupEls.progWrap.classList.add("hidden");
-      return;
-    }
-    toss.active = false;
-    cancelAnimationFrame(toss.raf);
-    window.__cureTossActive = false;
-    toss.lid.setAttribute("transform", "");
-    toss.flash.setAttribute("opacity", "0");
-    for (let i = 0; i < toss.glyphs.length; i++) {
-      const [gx, gy] = GLYPH_BASE[i];
-      tossGlyphTransform(i, gx, gy, 1, 1);
-    }
-    tossSetOrb(ORB_REST[0], ORB_REST[1], 1, 1);
-    const trailEls = toss.trailG.children;
-    for (const tr of trailEls) tr.setAttribute("opacity", "0");
-    cleanupEls.liveCounter.classList.add("hidden");
-  }
-
-  function resetToss() {
-    if (toss.active) {
-      toss.active = false;
-      cancelAnimationFrame(toss.raf);
-    }
-    if (cleanupEls.stage) cleanupEls.stage.classList.remove("toss-active");
-    if (cleanupEls.progWrap) cleanupEls.progWrap.classList.add("hidden");
-    if (cleanupEls.progBar) cleanupEls.progBar.style.width = "0%";
-    if (toss.svg) {
-      tossSetOrb(ORB_REST[0], ORB_REST[1], 1, 1);
-      for (let i = 0; i < toss.glyphs.length; i++) {
-        const [gx, gy] = GLYPH_BASE[i];
-        tossGlyphTransform(i, gx, gy, 1, 1);
-      }
-    }
-    cleanupEls.liveCounter.classList.add("hidden");
-  }
+  // Cleanup has no progress API: show an honest busy state, never estimated bytes.
+  function startCleanupOperation() { cleanupEls.stage.classList.remove("hidden"); }
+  function finishCleanupOperation() { cleanupEls.stage.classList.add("hidden"); }
+  function resetCleanupOperation() { cleanupEls.stage.classList.add("hidden"); }
 
   // ---- cleanup state / rendering -------------------------------------------
 
@@ -2735,7 +1273,7 @@
 
     const itemCount = summary.categories.reduce((n, c) => n + c.item_count, 0);
     cleanupEls.total.innerHTML =
-      '<span class="total-orb" aria-hidden="true"></span><span>≈ <b>' + fmtBytes(summary.total_bytes) + "</b> reclaimable across " +
+      '<span>≈ <b>' + fmtBytes(summary.total_bytes) + "</b> reclaimable across " +
       (itemCount + summary.downloads.length) + " items</span>";
     cleanupEls.subline.textContent =
       itemCount + summary.downloads.length + " cleanable items found on this machine";
@@ -2863,7 +1401,7 @@
       }
     } catch (err) {
       cleanupEls.loading.textContent =
-        "disk cleanup unavailable: " + cleanErrText(err, String(err));
+        "disk cleanup unavailable: " + cleanErrText(err, "Collection failed");
       if (!keepResult) {
         setCleanupPill("error", "Disk cleanup unavailable");
       }
@@ -2871,7 +1409,7 @@
   }
 
   function showCleanupIdle() {
-    resetToss();
+    resetCleanupOperation();
     cleanupPhase = "idle";
     setCleanupStep(1);
     cleanupEls.stage.classList.add("hidden");
@@ -2897,7 +1435,7 @@
     if (!cleanupState.open) return;
     cleanupState.open = false;
     resetCleanupResult();
-    resetToss();
+    resetCleanupOperation();
     cleanupEls.stage.classList.add("hidden");
     if (cleanupState.savedPill) {
       statusPill.className = cleanupState.savedPill.cls;
@@ -2908,7 +1446,7 @@
     if (target.id) setNav(target.id);
   }
 
-  cleanupEls.openBtn.addEventListener("click", openCleanup);
+  cleanupEls.openBtn?.addEventListener("click", openCleanup);
   cleanupEls.backBtn.addEventListener("click", () => closeCleanup(resultsView));
   cleanupEls.scanBtn.addEventListener("click", () => startCleanupScan(false));
 
@@ -2943,13 +1481,13 @@
     cleanupEls.btn.classList.add("btn-active");
     setCleanupBtnLabel("Cleaning…");
     const expected = cleanupSelectionBytes();
-    startToss(expected);
+    startCleanupOperation(expected);
     try {
       const result = await invoke("run_cleanup", {
         categories: Array.from(cleanupState.selectedCats),
         downloadPaths: Array.from(cleanupState.checkedDownloads),
       });
-      stopToss(result.bytes_freed);
+      finishCleanupOperation(result.bytes_freed);
       cleanupPhase = result.failed ? "done-fail" : "done-ok";
       setCleanupStep(3, true);
       setCleanupPill(
@@ -2966,7 +1504,7 @@
       cleanupEls.status.classList.toggle("cleanup-fail", !!result.failed);
       if (!result.failed && cleanupEls.panel) {
         cleanupEls.panel.classList.add("cleanup-success");
-        cleanupConfettiBurst();
+        
         setTimeout(() => { if (cleanupEls.panel) cleanupEls.panel.classList.remove("cleanup-success"); }, 1400);
       }
       logEvent("action", "cleanup: freed " + fmtBytes(result.bytes_freed) + ", deleted " + result.deleted + " of " + result.attempted + (result.failed ? ", " + result.failed + " failed" : ""));
@@ -2991,12 +1529,12 @@
         cleanupEls.failures.classList.remove("hidden");
       }
     } catch (err) {
-      stopToss(0);
+      finishCleanupOperation(0);
       cleanupPhase = "done-fail";
       setCleanupStep(3, true);
       setCleanupPill("error", "Disk cleanup failed");
       cleanupEls.status.textContent =
-        "cleanup failed: " + cleanErrText(err, String(err));
+        "cleanup failed: " + cleanErrText(err, "Collection failed");
       cleanupEls.status.classList.remove("hidden");
       cleanupEls.status.classList.remove("cleanup-ok");
       cleanupEls.status.classList.add("cleanup-fail");
@@ -3211,7 +1749,7 @@
         return;
       }
     } catch (_) { /* TDZ-safe: fall through to default */ }
-    el.textContent = "No observation recorded — run a login investigation from the Incident view.";
+    el.textContent = "No login observation recorded this session.";
   }
 
   function renderOverview(summary) {
@@ -3219,17 +1757,17 @@
     const posture = document.getElementById("ov-posture");
     const subline = document.getElementById("ov-subline");
     if (t.critical > 0) {
-      posture.textContent = "Investigation required";
+      posture.textContent = "High risk";
       posture.classList.add("is-bad"); posture.classList.remove("is-warn", "is-ok");
-      subline.textContent = t.critical + " critical finding(s) need a decision — see Startup Audit and Process Sentinel.";
+      subline.textContent = t.critical + " high-risk finding(s) need review in Investigate.";
     } else if (t.findings > 0) {
       posture.textContent = "Review required";
       posture.classList.add("is-warn"); posture.classList.remove("is-bad", "is-ok");
       subline.textContent = t.findings + " finding(s) recorded" +
-        (t.cleaned ? ", " + t.cleaned + " auto-quarantined" : "") + " — nothing was deleted.";
+        (t.cleaned ? ", " + t.cleaned + " quarantined" : "") + " — nothing was deleted.";
     } else {
-      posture.textContent = "No findings";
-      posture.classList.add("is-ok"); posture.classList.remove("is-bad", "is-warn");
+      posture.textContent = coverageIncomplete(summary) ? "Coverage incomplete" : "No findings in collected evidence";
+      posture.classList.remove("is-ok", "is-bad", "is-warn");if(coverageIncomplete(summary))posture.classList.add("is-warn");
       subline.textContent = summary.total + " checks completed — no persistence, process, or ransom findings" +
         (lastScanAt ? " · last scan " + lastScanAt.toLocaleString() : "");
     }
@@ -3237,7 +1775,7 @@
     setMetric("ov-checks", String(summary.total), null);
     const ovStates = (summary && summary.source_states) || [];
     let skipped = 0;
-    let covState = "FULL";
+    let covState = "REPORTED CHECKS OK";
     let covTone = "is-ok";
     for (const row of ovStates) {
       const st = row.state;
@@ -3245,13 +1783,17 @@
       else if (st && typeof st === "object") {
         if ("Partial" in st) { skipped += (st.Partial && st.Partial.skipped) || 0; if (covState !== "FAILED") { covState = "PARTIAL"; covTone = "is-warn"; } }
         else if ("CheckFailed" in st || "AccessDenied" in st) { covState = "FAILED"; covTone = "is-bad"; }
-        else if (("Unavailable" in st || "NotChecked" in st) && covState === "FULL") { covState = "LIMITED"; covTone = null; }
+        else if (("Unavailable" in st || "NotChecked" in st) && covState === "REPORTED CHECKS OK") { covState = "LIMITED"; covTone = null; }
       }
-      else if ((st === "Unavailable" || st === "NotChecked") && covState === "FULL") { covState = "LIMITED"; covTone = null; }
+      else if ((st === "Unavailable" || st === "NotChecked") && covState === "REPORTED CHECKS OK") { covState = "LIMITED"; covTone = null; }
     }
     setMetric("ov-skipped", String(skipped), skipped ? "is-warn" : null);
     setMetric("ov-coverage-state", ovStates.length ? covState : "—", ovStates.length ? covTone : null);
-    setMetric("ov-findings", String(t.findings), t.findings ? "is-warn" : "is-ok");
+    setMetric("ov-findings", String(t.findings), t.findings ? "is-warn" : null);
+    refreshQuarantineCount();
+    const recent=document.getElementById("ov-recent");recent.replaceChildren();
+    (summary.suspicious_for_review||[]).slice(0,4).forEach(scored=>{const button=makeText("button",scored.entry.name,"finding-select recent-finding");button.append(makeText("small",riskLabel(scored.risk)+" · "+(SOURCE_LABELS[scored.entry.source]||scored.entry.source)));button.addEventListener("click",()=>openEvidence(scored,button));recent.append(button);});
+    if(!recent.children.length)recent.append(makeText("div",coverageIncomplete(summary)?"No findings recorded. Review collection limits before drawing conclusions.":"No findings in the collected evidence. A scan is not a guarantee of detection.","empty-state"));
     setMetric("ov-critical", String(t.critical), t.critical ? "is-bad" : "is-ok");
     setMetric("ov-suspicious", String(t.suspicious), t.suspicious ? "is-warn" : "is-ok");
     setMetric("ov-duration", fmtDuration(scanDurationMs), null);
@@ -3292,8 +1834,8 @@
     });
     const srcRow = (key, label) => {
       const info = bySource[key] || { n: 0, high: 0 };
-      const detail = info.n ? info.n + " flagged" : "checked — nothing flagged";
-      const level = info.high ? "bad" : info.n ? "warn" : "ok";
+      const detail = (info.n ? info.n + " flagged · " : "") + "Coverage not reported";
+      const level = info.high ? "bad" : info.n ? "warn" : "idle";
       return covRow(label, detail, level);
     };
     const cov = document.getElementById("ov-coverage");
@@ -3384,9 +1926,10 @@
   }
 
   function copyEvidence(text, btn) {
+    const originalLabel=btn.textContent;
     const done = () => {
       btn.textContent = "Copied ✓";
-      setTimeout(() => { btn.textContent = "Copy evidence"; }, 1800);
+      setTimeout(() => { btn.textContent = originalLabel; }, 1800);
     };
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(done, () => footFeedback("Copy failed", true));
@@ -3401,247 +1944,7 @@
     }
   }
 
-  function buildAuditCard(scored, cleaned) {
-    const rawSource = String(scored.entry.source);
-    const card = document.createElement("li");
-    card.className = "review-card audit-card risk-" + scoreChipClass(scored.score);
-
-    const top = document.createElement("div");
-    top.className = "audit-top";
-    const iconWrap = document.createElement("div");
-    iconWrap.className = "src-icon " + (rawSource === "ScheduledTask" ? "icon-task" : rawSource === "RegistryRun" ? "icon-registry" : "icon-startup");
-    iconWrap.innerHTML = SOURCE_ICONS[rawSource] || SOURCE_ICONS.StartupFolder;
-    const main = document.createElement("div");
-    main.className = "rc-main";
-    const topRow = document.createElement("div");
-    topRow.className = "rc-top";
-    const name = document.createElement("span");
-    name.className = "rc-name";
-    name.textContent = scored.entry.name;
-    name.title = scored.entry.command;
-    const scoreEl = document.createElement("span");
-    scoreEl.className = "score-chip " + scoreChipClass(scored.score);
-    scoreEl.textContent = String(scored.score);
-    scoreEl.title = scored.risk + " · risk score " + scored.score;
-    topRow.append(name, scoreEl);
-    main.appendChild(topRow);
-    const chips = document.createElement("div");
-    chips.className = "chips";
-    const riskChip = document.createElement("span");
-    riskChip.className = "chip " + (scored.risk === "HighRisk" ? "red" : scored.risk === "Suspicious" ? "amber" : "teal");
-    riskChip.textContent = scored.risk === "HighRisk" ? "HIGH RISK" : scored.risk === "Suspicious" ? "SUSPICIOUS" : "SAFE";
-    chips.appendChild(riskChip);
-    const srcChip = document.createElement("span");
-    srcChip.className = "chip src";
-    srcChip.textContent = SOURCE_LABELS[rawSource] || "Persistence";
-    chips.appendChild(srcChip);
-    const atk = attackFor(scored);
-    if (atk) {
-      const atkChip = document.createElement("span");
-      atkChip.className = "chip attack";
-      atkChip.textContent = atk.id;
-      atkChip.title = "MITRE ATT&CK: " + atk.name;
-      chips.appendChild(atkChip);
-    }
-    const reasons = Array.isArray(scored.reasons) ? scored.reasons : [];
-    for (const reason of reasons.slice(0, 3)) {
-      const [label, tone] = reasonChipLabel(String(reason));
-      const chip = document.createElement("span");
-      chip.className = "chip" + (tone ? " " + tone : "");
-      chip.textContent = label;
-      chip.title = reason;
-      chips.appendChild(chip);
-    }
-    main.appendChild(chips);
-    top.append(iconWrap, main);
-
-    const actions = document.createElement("div");
-    actions.className = "audit-actions";
-    const toggle = document.createElement("button");
-    toggle.className = "detail-toggle";
-    toggle.textContent = "View details";
-    toggle.setAttribute("aria-expanded", "false");
-    const copy = document.createElement("button");
-    copy.className = "copy-btn";
-    copy.textContent = "Copy evidence";
-    copy.addEventListener("click", () => copyEvidence(evidenceText(scored), copy));
-    actions.append(toggle, copy);
-    // Open Location: strict id-based reveal (Explorer select, no shell).
-    // Offered only when something file-backed exists to reveal.
-    const reveal = document.createElement("button");
-    reveal.className = "copy-btn";
-    reveal.textContent = "Open location";
-    reveal.title = "Select this file in Explorer (opens nothing)";
-    reveal.addEventListener("click", async () => {
-      try {
-        await invoke("reveal_location", { id: scored.entry.id });
-      } catch (err) {
-        footFeedback(cleanErrText(err, "Nothing file-backed to reveal"), true);
-      }
-    });
-    actions.append(reveal);
-    if (cleaned) {
-      const undo = document.createElement("button");
-      undo.className = "quarantine-btn";
-      undo.textContent = "Undo";
-      undo.title = "Restore this file from quarantine";
-      undo.addEventListener("click", async () => {
-        undo.disabled = true;
-        try {
-          await invoke("undo_entry", { id: scored.entry.id });
-          undo.textContent = "Restored ✓";
-          undo.classList.add("row-done");
-          sessionQuarantined = Math.max(0, sessionQuarantined - 1);
-          refreshQuarantinedTile();
-          showReceipt("Restored: " + scored.entry.name, "returned to " + (scored.entry.location || "its original location"), false);
-          logEvent("action", "restored from quarantine: " + scored.entry.name);
-        } catch (err) {
-          undo.disabled = false;
-          footFeedback(cleanErrText(err, "Undo failed"), true);
-        }
-      });
-      actions.append(undo);
-    } else if (rawSource === "RegistryRun") {
-      const note = document.createElement("span");
-      note.className = "manual-note";
-      note.textContent = "Manual removal required";
-      actions.append(note);
-    } else {
-      const btn = document.createElement("button");
-      btn.className = "quarantine-btn";
-      btn.textContent = "Quarantine";
-      btn.addEventListener("click", async () => {
-        const ok = await requestConfirm({
-          kicker: "Confirm quarantine",
-          title: "Move this item to quarantine?",
-          facts: [
-            ["Item", scored.entry.name],
-            ["Location", scored.entry.location || "Not collected"],
-            ["Action", "Move this file to C.U.R.E. quarantine."],
-            ["Reversible", "Yes — it can be restored from Quarantine."],
-          ],
-          note: "This action changes the filesystem. The item will be listed under Quarantine with Undo.",
-          okLabel: "Quarantine item",
-        });
-        if (!ok) return;
-        btn.disabled = true;
-        try {
-          await invoke("quarantine_entry", { id: scored.entry.id, name: scored.entry.name, command: scored.entry.command });
-          btn.textContent = "Quarantined ✓";
-          btn.classList.add("row-done");
-          sessionQuarantined += 1;
-          refreshQuarantinedTile();
-          showReceipt("Quarantined: " + scored.entry.name, "moved to quarantine · Undo in the Quarantine view", false);
-          logEvent("action", "quarantined: " + scored.entry.name);
-        } catch (err) {
-          btn.disabled = false;
-          footFeedback(cleanErrText(err, "Quarantine failed"), true);
-          showReceipt("Quarantine failed", cleanErrText(err, "Quarantine failed"), true);
-        }
-      });
-      actions.append(btn);
-    }
-    top.append(actions);
-    card.append(top);
-
-    const drawer = document.createElement("dl");
-    drawer.className = "detail-drawer hidden";
-    const rows = [
-      ["Name", scored.entry.name],
-      ["Source", (SOURCE_LABELS[rawSource] || rawSource) + (atk ? " · MITRE " + atk.id + " " + atk.name : "")],
-      ["Command", scored.entry.command],
-      ["Path", scored.entry.location],
-      ["Score", String(scored.score) + " (" + scored.risk + ")"],
-      ["Reasons", reasons.join(" · ") || "—"],
-      ["Recommended action", recommendedAction(scored)],
-    ];
-    for (const [k, v] of rows) {
-      const dt = document.createElement("dt");
-      dt.textContent = k;
-      const dd = document.createElement("dd");
-      dd.textContent = v;
-      if (k === "Recommended action") dd.classList.add("rec-action");
-      drawer.append(dt, dd);
-    }
-    // Forensic rows, filled lazily on first expand (one backend round-trip
-    // per card): signature/publisher plus shortcut/task specifics.
-    const sigDt = document.createElement("dt");
-    sigDt.textContent = "Signature";
-    const sigDd = document.createElement("dd");
-    sigDd.textContent = "…";
-    const pubDt = document.createElement("dt");
-    pubDt.textContent = "Publisher";
-    const pubDd = document.createElement("dd");
-    pubDd.textContent = "…";
-    drawer.append(sigDt, sigDd, pubDt, pubDd);
-    const evDt = document.createElement("dt");
-    evDt.textContent = "Evidence";
-    const evDd = document.createElement("dd");
-    const evUl = document.createElement("ul");
-    evUl.className = "evidence-list";
-    for (const reason of reasons.length ? reasons : ["No scored signals — listed for context."]) {
-      const li = document.createElement("li");
-      li.textContent = reason;
-      evUl.appendChild(li);
-    }
-    evDd.appendChild(evUl);
-    drawer.append(evDt, evDd);
-    let detailsLoaded = false;
-    async function loadDetails() {
-      if (detailsLoaded) return;
-      detailsLoaded = true;
-      let details = null;
-      try {
-        details = await invoke("entry_details", { id: scored.entry.id });
-      } catch (_) {
-        sigDd.textContent = "Unavailable";
-        pubDd.textContent = "Unavailable";
-        return;
-      }
-      if (!details) {
-        sigDd.textContent = "Unavailable";
-        pubDd.textContent = "Unavailable";
-        return;
-      }
-      sigDd.textContent = details.signature || "UNKNOWN";
-      pubDd.textContent = details.publisher || "Unavailable (unsigned or verdict-only check)";
-      const extra = [];
-      if (details.shortcut) {
-        const sc = details.shortcut;
-        if (sc.expanded_target) extra.push(["Shortcut target", sc.expanded_target + (sc.target_exists ? "" : "  [MISSING]")]);
-        if (sc.info && sc.info.arguments) extra.push(["Shortcut arguments", sc.info.arguments]);
-        if (sc.info && sc.info.working_dir) extra.push(["Shortcut workdir", sc.info.working_dir]);
-      }
-      if (details.task) {
-        const t = details.task;
-        t.actions.forEach((a, i) => {
-          extra.push(["Action " + (i + 1), a.command + (a.arguments ? " " + a.arguments : "")]);
-          if (a.working_dir) extra.push(["Action " + (i + 1) + " workdir", a.working_dir]);
-        });
-        if (t.author) extra.push(["Task author", t.author]);
-        if (t.run_level) extra.push(["Run level", t.run_level]);
-        if (t.user_id) extra.push(["Runs as", t.user_id]);
-        if (t.triggers && t.triggers.length) extra.push(["Triggers", t.triggers.join(", ")]);
-        extra.push(["Task enabled", t.enabled === false ? "No" : "Yes"]);
-        if (t.hidden) extra.push(["Task hidden flag", "Yes"]);
-      }
-      for (const [k, v] of extra) {
-        const dt = document.createElement("dt");
-        dt.textContent = k;
-        const dd = document.createElement("dd");
-        dd.textContent = v;
-        drawer.append(dt, dd);
-      }
-    }
-    toggle.addEventListener("click", () => {
-      const open = drawer.classList.toggle("hidden");
-      toggle.setAttribute("aria-expanded", String(!open));
-      toggle.textContent = open ? "View details" : "Hide details";
-      if (!open) loadDetails();
-    });
-    card.append(drawer);
-    return card;
-  }
+  function buildAuditCard(scored, cleaned) { return buildCard(scored, cleaned); }
 
   function renderAudit(summary) {
     lastAuditSummary = summary;
@@ -3662,7 +1965,7 @@
     const sub = document.getElementById("audit-subline");
     if (sub) sub.textContent = entries.length + " persistence finding(s) in the last scan — showing " + shown.length + " — nothing is disabled automatically.";
     const note = document.getElementById("audit-note");
-    if (note) note.textContent = summary.safe + " safe entries are not listed individually. Publisher data is unavailable (signature checks are verdict-only).";
+    if (note) note.textContent = summary.safe + " safe-scored entries are not listed individually. Open evidence to collect signature and publisher details.";
   }
 
   // ---- process sentinel view ----
@@ -3764,67 +2067,40 @@
 
   // ---- quarantine view (real backend data) ----
 
+  async function refreshQuarantineCount() {
+    try {const records=await invoke("list_quarantine");setMetric("ov-quarantined",String(records.length),null);}
+    catch(_){setMetric("ov-quarantined","Unavailable",null);}
+  }
   async function refreshQuarantine() {
-    const list = document.getElementById("q-list");
-    const empty = document.getElementById("q-empty");
-    if (!list) return;
-    let records = [];
-    try {
-      records = await invoke("list_quarantine");
-    } catch (err) {
-      footFeedback(cleanErrText(err, "Could not list quarantine"), true);
-      return;
-    }
-    list.innerHTML = "";
-    for (const r of records) {
-      const li = document.createElement("li");
-      li.className = "review-card q-row";
-      const top = document.createElement("div");
-      top.className = "q-top";
-      const name = document.createElement("span");
-      name.className = "rc-name";
-      name.textContent = r.name;
-      name.title = r.original_path;
-      const src = document.createElement("span");
-      src.className = "chip src";
-      src.textContent = r.source || "quarantine";
-      const when = document.createElement("span");
-      when.className = "q-archived";
-      try { when.textContent = new Date(r.archived_at).toLocaleString(); }
-      catch (_) { when.textContent = r.archived_at || ""; }
-      const undo = document.createElement("button");
-      undo.className = "copy-btn q-undo";
-      undo.textContent = "Undo";
-      undo.title = "Restore this file to its original location";
-      undo.addEventListener("click", async () => {
-        undo.disabled = true;
+    const list=document.getElementById("q-list"), empty=document.getElementById("q-empty");
+    const sub=document.getElementById("q-subline");
+    let records;
+    try {records=await invoke("list_quarantine");}
+    catch(err){sub.textContent=cleanErrText(err,"Quarantine unavailable. Choose Refresh to retry.");footFeedback(sub.textContent,true);return;}
+    list.replaceChildren();empty.classList.toggle("hidden",records.length>0);
+    sub.textContent=records.length+" archived file"+(records.length===1?"":"s")+" · moves recorded · scoped undo";
+    for(const r of records){
+      const li=makeText("li","","review-card q-row");
+      const top=makeText("div","","q-top");top.append(makeText("span",r.name,"rc-name"),makeText("span",r.source,"chip src"));
+      const undo=makeText("button","Undo / Restore","copy-btn q-undo");undo.title="Restore this file to its original location";
+      const pending=r.state==="Pending";undo.disabled=pending;
+      undo.addEventListener("click",async()=>{
+        undo.disabled=true;undo.setAttribute("aria-busy","true");
         try {
-          await invoke("undo_entry", { id: r.id });
-          logEvent("action", "restored from quarantine: " + r.name);
-          sessionQuarantined = Math.max(0, sessionQuarantined - 1);
-          refreshQuarantinedTile();
-          showReceipt("Restored: " + r.name, "returned to " + (r.original_path || "its original location"), false);
-          await refreshQuarantine();
-        } catch (err) {
-          undo.disabled = false;
-          footFeedback(cleanErrText(err, "Undo failed"), true);
-        }
-      });
-      top.append(name, src, when, undo);
-      const paths = document.createElement("div");
-      paths.className = "q-paths selectable";
-      paths.tabIndex = 0;
-      paths.textContent = r.original_path + "  →  " + r.quarantine_path;
-      paths.title = "Original: " + r.original_path + "\nQuarantine: " + r.quarantine_path;
-      const rev = document.createElement("div");
-      rev.className = "q-rev dim";
-      rev.textContent = "Reversible — restore with Undo. Quarantined items are never deleted.";
-      li.append(top, paths, rev);
-      list.append(li);
+          await invoke("undo_entry",{id:r.id});quarantinedIds.delete(r.id);evidenceCache.delete(r.id);
+          logEvent("action","Restored: "+r.name);sessionQuarantined=Math.max(0,sessionQuarantined-1);refreshQuarantinedTile();
+          showReceipt("Restored: "+r.name,"returned to "+r.original_path,false);
+          const receipt=document.getElementById("q-receipt");receipt.textContent="Restored: "+r.name+" · "+r.original_path+" · byte integrity checked; ACL/timestamp restore is best effort.";receipt.classList.remove("hidden");
+          footFeedback("Restored: "+r.name,false);await refreshQuarantine();await refreshQuarantineCount();
+          if(lastSummary){renderResults(lastSummary);paintAuditList();}
+        }catch(err){undo.disabled=false;undo.removeAttribute("aria-busy");footFeedback(cleanErrText(err,"Undo failed"),true);}
+      });top.append(undo);li.append(top);
+      const dl=makeText("dl","","q-facts");
+      const facts=[["Original location",r.original_path],["Quarantine location",r.quarantine_path],["SHA-256",r.sha256_hex||"Not recorded (legacy record)"],["Size",r.file_size==null?"Not recorded":r.file_size+" bytes"],["Quarantined",r.archived_at],["ACL / fidelity",r.acl_captured?"ACL snapshot captured · restore is best effort":"ACL snapshot unavailable"],["Record state",r.state||"Committed"],["Reason","Explicit operator-confirmed quarantine · source: "+r.source],["Undo",pending?"Pending record · reconciliation required":"Available · scoped restore with integrity checks"]];
+      if((r.security_notes||[]).length)facts.push(["Fidelity notes",r.security_notes.join("; ")]);
+      for(const [key,value] of facts)dl.append(makeText("dt",key),makeText("dd",value));li.append(dl);
+      li.append(makeText("p","Quarantine does not terminate a running process. Undo never overwrites an existing original file.","q-rev dim"));list.append(li);
     }
-    if (empty) empty.classList.toggle("hidden", records.length > 0);
-    const sub = document.getElementById("q-subline");
-    if (sub && records.length) sub.textContent = records.length + " item(s) in quarantine — nothing is ever deleted by quarantine. Restore any item with Undo.";
   }
 
   // ══════════════ incident investigation view ══════
@@ -3942,11 +2218,13 @@
       }
     }
     overlay.classList.remove("hidden");
+    document.getElementById("app").inert=true;
     if (closeBtn) closeBtn.focus();
   }
   function closeIncDrawer() {
     const overlay = document.getElementById("inc-drawer-overlay");
     if (overlay) overlay.classList.add("hidden");
+    document.getElementById("app").inert=false;
     if (incDrawerInvoker && incDrawerInvoker.focus) incDrawerInvoker.focus();
     incDrawerInvoker = null;
   }
@@ -4472,11 +2750,12 @@
 
   (async () => {
     scanView.classList.add("hidden");
-    landingView.classList.remove("hidden");
-    setNav("scan-center");
+    showViewInstant(document.getElementById("view-overview"));
+    setPill("idle", "Ready");
+    refreshQuarantineCount();
     document.getElementById("start-rescue-btn").addEventListener("click", async () => {
       setPill("scanning", "checking for suspicious overlays…");
-      await switchView(landingView, scanView);
+      await switchView(currentView(), scanView);
       setNav("scan-view");
       const lines = [];
       let rep = null;
@@ -4506,6 +2785,8 @@
       setNav("cleanup-view");
       showCleanupIdle();
     });
+    document.querySelectorAll("[data-route]").forEach(btn => btn.addEventListener("click", () => navTo(btn.dataset.route)));
+    document.getElementById("scan-retry").addEventListener("click", () => runScan());
     document.querySelectorAll(".nav-item").forEach((btn) => {
       btn.addEventListener("click", () => {
         if (!btn.disabled) navTo(btn.getAttribute("data-view"));
@@ -4566,6 +2847,8 @@
       if (ev.target === incDrawerOverlay) closeIncDrawer();
     });
     document.addEventListener("keydown", (ev) => {
+      const openDrawer=document.getElementById("inc-drawer-overlay");
+      if(ev.key==="Tab" && openDrawer && !openDrawer.classList.contains("hidden")){ev.preventDefault();document.getElementById("inc-drawer-close").focus();}
       if (ev.key === "Escape") {
         const ov = document.getElementById("inc-drawer-overlay");
         if (ov && !ov.classList.contains("hidden")) {
