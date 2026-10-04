@@ -10,6 +10,7 @@ if (Test-Path -LiteralPath $destination) { throw "Output already exists: $destin
 $candidateSha = git -C $repo rev-parse HEAD
 if ($LASTEXITCODE) { throw 'Cannot resolve source commit' }
 if (git -C $repo status --porcelain) { throw 'Commit tracked source changes before packaging a candidate.' }
+& (Join-Path $PSScriptRoot 'build-release.ps1')
 $stage = Join-Path $destination 'portable'
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $repo 'gui/src-tauri/target/release/cure-gui.exe') -Destination $stage

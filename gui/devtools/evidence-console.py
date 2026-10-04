@@ -199,6 +199,7 @@ def states(browser, capture=False):
                 {"area": "WMI subscriptions", "state": "CheckFailed", "detail": "Collection failed"}]
     for name, knobs in [("all-clear", {"all_safe": True}), ("partial", {"all_safe": True, "coverage": coverage}),
                         ("error", {"scan_error": True}), ("guidance", {"guidance_source": "windows-service"}),
+                        ("partial-findings", {"coverage": coverage}),
                         ("long-values", {"long_values": True}), ("quarantine-error", {"quarantine_error": True})]:
         ctx, page, errors = open_page(browser, (1440, 900) if capture else (900, 600), **knobs)
         if name == "quarantine-error":
@@ -219,6 +220,9 @@ def states(browser, capture=False):
                 page.locator("#nav-overview").click()
                 expect(page.locator("#ov-posture")).to_have_text("Coverage incomplete")
                 check("ACCESS DENIED" in page.locator("#ov-coverage").inner_text(), "access denied communicated in text")
+            if name == "partial-findings":
+                expect(page.locator("#status-text")).to_have_text("Review required · Coverage incomplete")
+                check("complete" not in page.locator("#status-text").inner_text().lower().replace("incomplete", ""), "partial coverage with findings never claims scan complete")
             if name == "all-clear":
                 expect(page.locator("#review-clear")).to_be_visible()
                 check("No persistence findings" in page.locator("#review-clear").inner_text(), "completed empty result uses collected-evidence wording")

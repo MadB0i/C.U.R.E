@@ -249,8 +249,7 @@
                     : "Not checked",
         });
       });
-      document.getElementById("sweep-current").textContent =
-        "Collection complete";
+      document.getElementById("sweep-current").textContent = "Collection ended";
       paint();
     },
     fail() {

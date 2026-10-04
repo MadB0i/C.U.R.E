@@ -6,6 +6,11 @@ description = "C.U.R.E Evidence Console GUI (Tauri v2)"
 
 [workspace]
 
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+desktop-e2e = []
+
 [[bin]]
 name = "cure-gui"
 path = "src/main.rs"

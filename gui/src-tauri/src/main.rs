@@ -7,7 +7,9 @@ use std::sync::{
 };
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Listener, Manager, State};
+#[cfg(feature = "desktop-e2e")]
+use tauri::Listener;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use cure_core::canary::{shadow_wipe_reason, CanaryAlert};
 use cure_core::cleanup as disk_cleanup;
@@ -1465,7 +1467,9 @@ fn main() {
                     surface_above_overlays(&handle);
                 });
             }
+            #[cfg(feature = "desktop-e2e")]
             maybe_start_e2e_driver(app.handle().clone());
+            #[cfg(feature = "desktop-e2e")]
             maybe_start_exit_driver(app.handle().clone());
             Ok(())
         })
@@ -1912,6 +1916,7 @@ struct CloseResult {
 // cleanup being verified mock-only.
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "desktop-e2e")]
 const E2E_RUNNER_JS: &str = r##"(async () => {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const waitFor = async (f, t = 60000) => {
@@ -2075,6 +2080,7 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
   }
 })();"##;
 
+#[cfg(feature = "desktop-e2e")]
 fn maybe_start_e2e_driver(handle: AppHandle) {
     if std::env::var("CURE_E2E_CLEANUP").is_err() {
         return;
@@ -2097,6 +2103,7 @@ fn maybe_start_e2e_driver(handle: AppHandle) {
 // Clicks the real Exit footer button after load; the outer harness asserts
 // the process actually terminates. Kept separate from the cleanup driver so
 // each run has exactly one terminal action.
+#[cfg(feature = "desktop-e2e")]
 const E2E_EXIT_RUNNER_JS: &str = r##"(async () => {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const waitFor = async (f, t = 30000) => {
@@ -2110,6 +2117,7 @@ const E2E_EXIT_RUNNER_JS: &str = r##"(async () => {
   document.getElementById("btn-exit").click();
 })();"##;
 
+#[cfg(feature = "desktop-e2e")]
 fn maybe_start_exit_driver(handle: AppHandle) {
     if std::env::var("CURE_E2E_EXIT").is_err() {
         return;

@@ -917,7 +917,9 @@
       );
       setPill(
         hasHighRiskInReview ? "danger" : "warn",
-        "Scan complete — review needed",
+        coverageIncomplete(summary)
+          ? "Review required · Coverage incomplete"
+          : "Review required",
       );
     }
 

@@ -42,12 +42,9 @@ jobs:
           cargo test --manifest-path gui/src-tauri/Cargo.toml
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
-      - name: Build GUI (release)
-        run: cargo build --release
-        working-directory: gui/src-tauri
-
-      - name: Build CLI + Watch (release)
-        run: cargo build --release
+      - name: Build production binaries with private build paths remapped
+        shell: pwsh
+        run: ./tools/build-release.ps1
 
       - name: Stage binaries
         shell: pwsh
