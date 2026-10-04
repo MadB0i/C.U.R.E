@@ -1,121 +1,115 @@
 # C.U.R.E 0.2.0 release readiness
 
-Prepared 2026-10-04. **Recommended version: v0.2.0.** The redesign is a
-substantial pre-1.0 GUI update with additive evidence/coverage metadata.
+Prepared 2026-10-04. **Recommended version: v0.2.0. READY TO PUSH for PR CI;
+publication still requires successful remote CI and the human screen-reader gate.**
 The public v0.1.0 release and its tag remain untouched.
 
-**Exact implementation/media/package candidate commit:**
-`267cbf9d42835763297f55e6119269413441c75a`
+**Exact tested source/media/package commit:** `ee44f787749175fb50fd6069b1669314a08f309b`
 
 Branch: `codex/evidence-console`. This report is a subsequent documentation
-commit; it does not change the tested application or candidate artifacts.
-No branch was pushed, tag created, or release published by this task.
+commit. It does not change the tested executable bytes. No push, merge, tag
+or publication was performed. See [the final audit](FINAL-RELEASE-AUDIT-0.2.0.md).
+
+## Candidate replacement
+
+The original `release-candidate/v0.2.0/` from
+`267cbf9d42835763297f55e6119269413441c75a` is **REJECTED / SUPERSEDED**.
+The final audit found embedded development assets/test drivers and builder
+paths. That directory is preserved, not overwritten; do not distribute it.
+Use only `release-candidate/v0.2.0-final/` for this locally verified candidate.
 
 ## Required release assets
 
 | Asset | Local candidate SHA-256 |
 | --- | --- |
-| `cure-gui.exe` | `ba007e5d7f2616693c3258ed0cdf5118c5341b9f2de2f958045b57ee63993de4` |
-| `cure.exe` | `54d4c6847a25b5024061005f7fd482dc3fd3d9429c3dcd2323fa5ebb2d034beb` |
-| `cure-watch.exe` | `ed06ec5cdfa366be737c4890679cb1aa1a5a59aec807f65650ced9eacc6a0c88` |
-| `cure-v0.2.0.zip` | `86d4c82d5040b7ac7b76765363c1728f831dac5ef50fa2072aff4eceafe1c805` |
-| `SHA256SUMS.txt` | External manifest covering all three EXEs and the ZIP |
+| `cure-gui.exe` | `9b5a868617b1cc82b3096b65d6e8d19add055f161cbe8b58394022941fff0bc6` |
+| `cure-watch.exe` | `7fe70d4d3c7b252a1f4c2f348f5ef98bf9866facbe594bc4a8eca03143912589` |
+| `cure.exe` | `9338c30e85f9e4c3fc1e900ce33a9194f3dcf11bf8e461dc0b6c423e5210d28e` |
+| `cure-v0.2.0.zip` | `2811ec75dc7f2e29786b08a42fc5ec8e9aad59eccd42eeebcbe73ec19d1ad3cb` |
+| `SHA256SUMS.txt` | External manifest covering three EXEs and the ZIP |
 
-The locally prepared ZIP is **11,879,615 bytes** at
-`release-candidate/v0.2.0/cure-v0.2.0.zip`. The directory is intentionally
-ignored by Git. EXEs are in its `portable/` directory; the external manifest
-is beside the ZIP. ZIP entries and hashes of archived EXEs were verified
-against the manifest, as were all four external hashes.
+ZIP: **12,720,749 bytes**. The ignored candidate directory contains the ZIP,
+external manifest and `portable/` staging directory. The GUI is byte-identical
+to the production executable used for 45 native checks. All 17 ZIP entries
+match staging byte-for-byte. All four external and three internal hashes pass
+`python tools/audit-candidate.py release-candidate/v0.2.0-final`.
 
-These hashes describe this local build. Release-runner builds may differ;
-publish the checksums generated from the actual uploaded artifacts.
+These are local build hashes. Release-runner bytes may differ; publish
+checksums generated from the actual uploaded artifacts, never reuse this
+manifest for a different build.
 
 ## Portable ZIP contents
 
-17 files, no installer or external frontend runtime dependency:
+Exactly 17 files:
 
 - `cure-gui.exe`, `cure.exe`, `cure-watch.exe`
 - `README.md`, `LICENSE`, `SECURITY.md`, `RELEASE-NOTES.md`
-- `BUILD-INFO.txt`: version, exact source commit and unsigned disclosure
+- `BUILD-INFO.txt`: version, full source commit, unsigned disclosure
 - `SHA256SUMS.txt`: three executable hashes
-- `docs/screenshots/01-overview.png` through `07-all-clear.png`
+- `docs/screenshots/01-overview.png`
+- `docs/screenshots/02-scan.png`
+- `docs/screenshots/03-review-required.png`
+- `docs/screenshots/04-evidence-inspector.png`
+- `docs/screenshots/05-quarantine-confirm.png`
+- `docs/screenshots/06-quarantine.png`
+- `docs/screenshots/07-all-clear.png`
 - `docs/media/demo.gif`
 
-Windows 10/11 and the host's WebView2 runtime are required. GUI data defaults
-to `%LOCALAPPDATA%\CURE`, not the rescue drive or executable directory.
-Watcher installation/pairing remains separately consented.
+No source, mocks, test drivers, PDBs, temporary captures or installers are
+packaged. Production Tauri embeds an explicit four-file frontend allowlist.
+Artifact checks find no current builder workspace/profile paths or common
+credential markers in EXEs. Windows 10/11 and host WebView2 are required.
+Data defaults to `%LOCALAPPDATA%\CURE`. Watcher consent/pairing is separate.
 
 ## Integrity and unsigned disclosure
 
-All three local EXEs were inspected with `Get-AuthenticodeSignature` and
-reported **NotSigned**. The GUI PE file/product version reports 0.2.0;
-`cure --version` reports 0.2.0. The watcher has no `--version` handler;
-its version is checked from workspace Cargo metadata.
+All three EXEs report **NotSigned**. GUI PE file/product version: 0.2.0.
+`cure --version`: 0.2.0. CLI/watcher have no embedded PE version resource;
+watcher version comes from workspace metadata and has no `--version` handler.
+README and release notes disclose unsigned binaries and SmartScreen prompts.
+SHA-256 verifies bytes against a trusted manifest; it does not authenticate
+the publisher. Verify full values with `Get-FileHash -Algorithm SHA256`.
 
-README and release notes disclose unsigned binaries, possible SmartScreen
-prompts and the WebView2 requirement. SHA-256 validates bytes against a
-trusted checksum source; it does not authenticate a publisher. The external
-manifest covers the ZIP as well as independent EXE downloads; the internal
-manifest covers the EXEs only. Verify full values with
-`Get-FileHash -Algorithm SHA256`.
+`tools/package-candidate.ps1` requires clean committed source, builds using
+`tools/build-release.ps1` with path remapping, and refuses an existing output
+directory. The release workflow uses the same production build script and
+refuses an existing published release; only an explicit 404 permits creation.
+**Do not overwrite v0.1.0.**
 
-`tools/package-candidate.ps1` stages committed source and refuses an existing
-output directory. The release workflow generates equivalent assets,
-includes source metadata, and refuses an existing published release; lookup
-errors other than an explicit 404 fail closed. **Do not overwrite v0.1.0.**
+## Presentation and verification
 
-## Presentation status
+README retains the evidence-first title/subtitle, Overview hero, three factual
+values, release link and labelled sample workflow. Seven 1440×900 PNGs were
+reviewed individually. GIF: **1100×688, 122 frames, 15.26 seconds, 8 fps**;
+MP4 refreshed. Blank recording lead-in removed. The sequence covers launch,
+scan, sweep, finding, inspector, confirmation, quarantine and undo.
 
-README opens with C.U.R.E, the evidence-first subtitle, Overview screenshot,
-three factual values, latest-release link and short demo. It explicitly
-distinguishes the prepared candidate from the existing public v0.1.0.
+Local final gates: **364 Rust tests; 4 Tauri tests (1 ignored); formatting;
+strict Clippy (GUI all features); production release builds; JS syntax;
+268 browser checks; 80 layout; 68 pixel; 108 capture; demo capture;
+real CLI baseline and quarantine/undo regressions; 45 production native
+checks; six native axe scans with zero violations; exact package audit.**
+These browser/layout/pixel counts overlap and are not summed.
 
-Seven refreshed PNGs are 1440×900 and visually reviewed: Overview, live
-Evidence Sweep, review required, evidence inspector, quarantine confirmation,
-quarantine and no findings. The demo GIF is 1100×688, 113 frames, about 14
-seconds; the MP4 is also refreshed. Both use labelled sample data and show
-launch → scan → sweep → finding → inspector → confirmation → quarantine →
-undo. The social preview now uses the Overview screen.
+Remote CI for this branch is **NOT RUN / pending push and PR**. Workflow source
+was reviewed; the release publishing job was not executed. Merge only after
+successful CI on the PR head and the human accessibility pass below.
 
-## Verification and CI status
+## Release-relevant limitations
 
-See [the verification report](EVIDENCE-CONSOLE-VERIFICATION.md) for commands,
-coverage and limits. Local results: 364 Rust workspace tests; four
-headless-safe Tauri tests; formatting and strict Clippy in both workspaces;
-release builds; JavaScript syntax and offline checks; 262 browser checks;
-80 layout, 68 pixel and 102 capture checks; real isolated CLI baseline and
-quarantine/undo regressions. Existing verification command also passed 259
-checks (the full suite adds three pixel checks).
-
-Baseline CI at `4bcdbf85ab52c2027397aa365d4c8081dc9b578d`
-[completed successfully](https://github.com/MadB0i/C.U.R.E/actions/runs/36026040878).
-**Remote CI for this candidate is pending:** the branch has not been pushed.
-The updated CI adds the Python Playwright accessibility/layout/state/pixel
-gate and GUI formatting/Clippy. The updated release workflow has been
-inspected but not executed; no publishing operation was performed.
-
-Before publishing, require successful remote CI on the chosen release
-commit and native Windows/WebView2 plus human screen-reader validation.
-If code changes during that validation, rebuild and regenerate checksums;
-do not reuse this manifest for different artifacts.
-
-## Known limitations
-
-- Mock Chromium tests cannot prove native WebView2 behavior, elevated access,
-  real collector results, or a human NVDA experience. The opt-in real desktop
-  overlay fixture and native E2E driver were not run on this host.
-- Only Registry, Tasks, Services and WMI expose explicit coverage rows. Other
-  completed collectors are labelled “Coverage not reported”. Watcher/USB
-  connectivity has no GUI status API and is shown as unavailable.
-- Signature/publisher/hash/target metadata is on demand and can be absent.
-  Legacy quarantine records may lack integrity/security metadata; that
-  absence is visible. ACL/timestamp restore remains best effort.
-- Quarantine moves supported file-backed Startup/Task artifacts only after
-  confirmation. It does not terminate a process or automatically remove
-  Registry/Service/WMI/IFEO/AppInit/COM persistence. Cleanup is a separate,
-  explicitly confirmed permanent deletion action.
-- Findings are heuristic evidence, not proof of malware. Canary is an
-  experimental tripwire; the local IOC provider remains a demo fixture.
-- Session timeline is not a persistent forensic audit log. Report export
-  performs a fresh read-only scan rather than exporting a frozen snapshot.
-- Binaries are unsigned and the public release is still v0.1.0.
+- Human NVDA, live overlay close/force, elevated comparison, real OS
+  reduced-motion toggle, and other physical monitor DPIs: **NOT VALIDATED**.
+  Actual host 125% DPI and emulated 200% scaling were tested.
+- Only Registry, Tasks, Services and WMI report explicit coverage. Other
+  collectors show coverage not reported. Watcher/USB status has no GUI API.
+- Evidence metadata may be unavailable; legacy quarantine records can lack
+  fidelity metadata. ACL/timestamp restoration remains best effort.
+- Quarantine moves supported Startup/Task files after confirmation; it does
+  not stop running malware or change Registry/Service/WMI persistence.
+  Cleanup is a separate confirmed permanent deletion action.
+- Heuristic findings are not proof of malware. Canary is experimental; local
+  IOC provider remains a demo fixture. Same-user compromise is outside the
+  enforcement model. Session timeline is not a persistent forensic log;
+  export performs a fresh scan rather than freezing the last scan.
+- Binaries are unsigned. Public release remains v0.1.0 until explicitly
+  authorized publication of a new tag.
