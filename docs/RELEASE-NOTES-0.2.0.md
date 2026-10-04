@@ -2,6 +2,8 @@
 
 Evidence-first Windows persistence inspection and reversible quarantine.
 
+- Original offline SVG companion with welcome, scan, cleanup, completed and
+  review poses; motion can be paused and respects reduced-motion preferences.
 - Five destinations: Overview, Rescue, Investigate, Quarantine and Monitor.
 - Evidence Sweep follows actual collection events and reported coverage.
 - Dedicated finding inspection, full selectable technical values, signature,

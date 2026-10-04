@@ -16,7 +16,10 @@ Binaries are unsigned. Windows 10/11 with WebView2 is required. The Evidence
 Console shown here is the prepared **0.2.0 candidate**; the current public
 release is still v0.1.0. No new tag or release has been published.
 
-![Sample workflow: launch → Rescue Scan → Evidence Sweep → finding → evidence → confirmed quarantine → undo](docs/media/demo.gif)
+![Sample workflow: launch → Rescue Scan → Evidence Sweep → finding → evidence → confirmed quarantine → undo → separately confirmed cleanup](docs/media/demo.gif)
+
+The local SVG companion follows collection and confirmed cleanup state.
+Evidence, coverage limits and operator controls remain central.
 
 ## Why it exists
 

@@ -22,7 +22,8 @@ assets over an ephemeral loopback port so axe can inspect stylesheets.
 Coverage: five primary destinations; 390px fallback through 1920px; 900×600
 supported minimum; scan counts and source states; reduced motion; explicit
 confirmation, cancel, Escape and focus return; quarantine metadata and undo;
-partial, denied, unavailable and failed collectors; all-clear/no findings;
+companion pause persistence, live reduced-motion changes, cleanup state and
+result fidelity; partial, denied, unavailable and failed collectors; all-clear/no findings;
 long hostile names/paths; cleanup, Canary and login observation; axe WCAG AA;
 keyboard focus; no remote requests; pixel detail and restrained accent use.
 
@@ -48,7 +49,7 @@ ffmpeg -y -ss 0.75 -i docs/media/demo.webm -vf "fps=8,scale=1100:-1:flags=lanczo
 
 Screenshots fix time/timezone, disable entrance motion, and wait on actual
 mock events. The sweep layout has no randomness. Local outputs are ignored;
-the seven deliberate documentation assets are committed under `docs/`.
+the nine deliberate documentation screenshots are committed under `docs/`.
 
 The current recording has a 0.75-second browser initialization lead-in; the
 encoding commands trim it so the public loop opens on the loaded Overview.
