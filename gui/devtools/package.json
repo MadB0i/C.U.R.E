@@ -1,11 +1,13 @@
 {
   "name": "devtools",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Evidence Console verification and deterministic documentation capture",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "verify": "node verify.mjs"
+    "test": "node verify.mjs",
+    "verify": "node verify.mjs",
+    "layout": "node layout-check.mjs",
+    "pixel": "node pixelcheck.mjs",
+    "capture": "node shots.mjs"
   },
   "keywords": [],
   "author": "",
@@ -13,5 +15,9 @@
   "type": "module",
   "dependencies": {
     "playwright": "^1.62.1"
+  },
+  "devDependencies": {
+    "axe-core": "^4.13.0",
+    "prettier": "^3.9.9"
   }
 }

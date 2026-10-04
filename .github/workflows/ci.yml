@@ -45,6 +45,31 @@ jobs:
       - name: Check formatting
         run: cargo fmt --check
 
+  gui-quality:
+    name: Evidence Console states, accessibility and pixels
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+        working-directory: gui/devtools
+      - run: python -m pip install -r gui/devtools/requirements.txt
+      - run: python -m playwright install chromium
+      - name: JavaScript syntax
+        shell: pwsh
+        run: Get-ChildItem gui/dist/*.js | ForEach-Object { node --check $_.FullName; if ($LASTEXITCODE) { exit $LASTEXITCODE } }
+      - run: python gui/devtools/evidence-console.py all
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-console-quality
+          path: gui/dev-screenshots/
+
   build-gui:
     name: Build GUI
     runs-on: windows-latest
@@ -60,6 +85,12 @@ jobs:
         working-directory: gui/src-tauri
       - name: Run headless-safe GUI tests (desktop tests are #[ignore]d)
         run: cargo test
+        working-directory: gui/src-tauri
+      - name: GUI formatting
+        run: cargo fmt --check
+        working-directory: gui/src-tauri
+      - name: GUI clippy
+        run: cargo clippy --all-targets -- -D warnings
         working-directory: gui/src-tauri
       - name: Upload cure-gui artifact
         uses: actions/upload-artifact@v4

@@ -41,7 +41,6 @@ const run = (args) => execFileSync(cure, args, { encoding: "utf8", cwd: box, tim
 try {
   // 1. SCAN — detection only; the file must still be in place afterwards.
   const scanOut = run(["scan", "--data-dir", data, "--startup-root", startup, "--tasks-root", tasks]);
-  const idMatch = scanOut.split("\n").map((l) => l.match(/id=([0-9a-f]{16})/)).find(Boolean);
   // find the id on the line mentioning our seed file
   let id = null;
   for (const line of scanOut.split("\n")) {
@@ -56,8 +55,15 @@ try {
   check("baseline.json written inside --data-dir", existsSync(path.join(data, "baseline.json")));
   check("no quarantine/ created by scan alone", !existsSync(path.join(data, "quarantine")));
 
+  // Non-interactive callers must explicitly authorize a move.
+  let refused = false;
+  try { run(["quarantine", id, "--data-dir", data, "--startup-root", startup, "--tasks-root", tasks]); }
+  catch (e) { refused = String(e.stderr || "").includes("without confirmation"); }
+  check("non-interactive quarantine refuses without --yes", refused);
+  check("refused quarantine leaves source unchanged", existsSync(seedPath) && readFileSync(seedPath).equals(payload));
+
   // 2. Explicit QUARANTINE.
-  const qOut = run(["quarantine", id, "--data-dir", data, "--startup-root", startup, "--tasks-root", tasks]);
+  const qOut = run(["quarantine", id, "--yes", "--data-dir", data, "--startup-root", startup, "--tasks-root", tasks]);
   check("quarantine command succeeds", /moved:/.test(qOut), qOut.split("\n")[0]);
   check("source file moved away", !existsSync(seedPath));
   const qdir = path.join(data, "quarantine");
@@ -75,7 +81,7 @@ try {
   // (CLI reports "already in quarantine", exit 0) — must not duplicate.
   let doubleOut = "";
   try {
-    doubleOut = run(["quarantine", id, "--data-dir", data, "--startup-root", startup, "--tasks-root", tasks]);
+    doubleOut = run(["quarantine", id, "--yes", "--data-dir", data, "--startup-root", startup, "--tasks-root", tasks]);
   } catch (e) {
     doubleOut = "";
   }
