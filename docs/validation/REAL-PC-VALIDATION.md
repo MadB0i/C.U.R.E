@@ -56,7 +56,7 @@ restore-point state by itself.
 | 8-usb | USB restore + listing diff | PASS | All 4 E: files restored hash-identical; top-level listing diff empty; personal folders untouched. |
 | 8-residue | Final diff vs Phase 0 | PASS¹ | `hkcu-run`, `localappdata-cure` IDENTICAL; no `CURE_TEST` task rows. One explained delta: pre-existing stale `Startup\cure-watch.exe` (2026-08-26) was replaced by the consented self-install, then removed by the authorized uninstall. ¹Restore possible from USB backup (same 342,016 B); left removed as the validated end-state — human call. |
 | 3-mock | Mock backend loads clean | PASS | `index.dev.html` + `mock-tauri.js`: zero page errors; all 20+ mocked commands present incl. new overlay trio. |
-| 3-shots | 7 screenshots @1440x900 | PASS | `docs/screenshots/01-idle,02-scanning,03-results,04-quarantine-confirm,05-undo,06-overlay-card,07-overview.png`. All sample data (mock wordmark visible). |
+| 3-shots | 7 screenshots @1440x900 | PASS | Historical capture set, superseded by the Evidence Console screenshots linked from README. This row records the earlier validation; it does not validate the redesign. |
 | 3-demo | ≤60s demo video | PASS | 15.6 s webm → `docs/media/demo.mp4` (650 KB) + `docs/media/demo.gif` (4.87 MB ≤ 5 MB) via local ffmpeg 9.0. Zero page errors during recording. |
 
 | LOLBIN-live | Live FP check (114-entry zero-diff) | PASS | Pre-fix vs post-fix release scans (`--data-dir` temp): 114 entries both, **0 verdict changes**. New paths fired on 0 live entries (no LOLBin-with-heuristic findings on this box); behavior covered by unit tests. Temp scan dirs removed afterwards. |

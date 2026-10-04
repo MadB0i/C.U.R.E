@@ -20,6 +20,28 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
+      - name: Refuse an existing published release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $lookup = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:GITHUB_REF_NAME" 2>&1
+          if ($LASTEXITCODE -eq 0) { throw 'Release already exists; never overwrite published assets.' }
+          if (($lookup -join "`n") -notmatch 'HTTP 404') { throw "Cannot establish whether release exists: $lookup" }
+          $global:LASTEXITCODE = 0
+
+      - name: Verify Rust before packaging
+        shell: pwsh
+        run: |
+          cargo test --workspace
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo fmt --check
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo clippy --workspace --all-targets -- -D warnings
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo test --manifest-path gui/src-tauri/Cargo.toml
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
       - name: Build GUI (release)
         run: cargo build --release
         working-directory: gui/src-tauri
@@ -34,7 +56,20 @@ jobs:
           Copy-Item gui/src-tauri/target/release/cure-gui.exe staging/
           Copy-Item target/release/cure.exe staging/
           Copy-Item target/release/cure-watch.exe staging/
+          Copy-Item README.md, LICENSE, SECURITY.md staging/
+          Copy-Item docs/RELEASE-NOTES-0.2.0.md staging/RELEASE-NOTES.md
+          New-Item -ItemType Directory -Path staging/docs/media -Force
+          Copy-Item docs/screenshots staging/docs/ -Recurse
+          Copy-Item docs/media/demo.gif staging/docs/media/
+          @("Version: $env:GITHUB_REF_NAME", "Source commit: $env:GITHUB_SHA", 'Unsigned binaries.') | Set-Content -Encoding ascii staging/BUILD-INFO.txt
+          $binarySums = Get-ChildItem staging/*.exe | Sort-Object Name | ForEach-Object {
+            "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)"
+          }
+          $binarySums | Set-Content -Encoding ascii staging/SHA256SUMS.txt
           Compress-Archive -Path staging/* -DestinationPath cure-$env:GITHUB_REF_NAME.zip
+          $zip = Get-Item "cure-$env:GITHUB_REF_NAME.zip"
+          $allSums = @($binarySums) + "$((Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($zip.Name)"
+          $allSums | Set-Content -Encoding ascii SHA256SUMS.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -44,4 +79,6 @@ jobs:
             staging/cure-gui.exe
             staging/cure.exe
             staging/cure-watch.exe
+            SHA256SUMS.txt
+          body_path: docs/RELEASE-NOTES-0.2.0.md
           generate_release_notes: true

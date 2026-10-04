@@ -2,13 +2,10 @@
   "name": "cure-docs-capture",
   "version": "1.0.0",
   "private": true,
-  "description": "Docs-only screenshot/demo capture for C.U.R.E (mock GUI backend). Isolated from app dependencies.",
+  "description": "Documentation capture through the shared native Python Playwright quality harness.",
   "type": "module",
   "scripts": {
     "capture": "node capture.mjs",
     "demo": "node demo.mjs"
-  },
-  "devDependencies": {
-    "playwright": "1.49.1"
   }
 }
