@@ -1,468 +1,1330 @@
-﻿<!DOCTYPE html>
+﻿<!doctype html>
 
 <html lang="en">
-<head>
-<meta charset="utf-8"/>
-<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>C.U.R.E — Evidence Console</title>
-<!-- No remote fonts or assets: system font stack only (see style.css
+  <head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>C.U.R.E — Evidence Console</title>
+    <!-- No remote fonts or assets: system font stack only (see style.css
        --font-ui). The app must work fully offline; see README threat model. -->
-<link href="style.css" rel="stylesheet"/>
-</head>
-<body>
-<div class="fallback hidden" id="fallback">
-<h1>C.U.R.E</h1>
-<p>This interface must run inside the C.U.R.E desktop app.</p>
-<p class="dim">Launch it via <code>cure-gui.exe</code> (or let <code>cure-watch.exe</code> start it when a rescue USB is inserted).</p>
-</div>
-<div class="app hidden" id="app">
-<a class="skip-link" href="#stage-main">Skip to content</a>
-<aside aria-label="Primary navigation" class="sidebar">
-<div class="brand">
-<svg aria-hidden="true" class="brand-mark" fill="none" height="26" viewBox="0 0 26 26" width="26"><path d="M2 8V2h6M18 2h6v6M24 18v6h-6M8 24H2v-6M8 13h10M13 8v10" stroke="var(--accent)" stroke-width="1.5"></path></svg>
-<div class="wordmark">C.U.R.E<span>Evidence Console</span></div>
-</div>
-<nav aria-label="Sections" class="nav"><button aria-current="false" class="nav-item" data-view="view-overview" id="nav-overview" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"></path></svg><span>Overview</span><span aria-hidden="true" class="nav-number">01</span></button><button aria-current="false" class="nav-item" data-view="scan-center" id="nav-scan" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M5 5l14 14"></path></svg><span>Rescue</span><span aria-hidden="true" class="nav-number">02</span></button><button aria-current="false" class="nav-item" data-view="results-view" id="nav-results" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16M16 16l6 6"></path></svg><span>Investigate</span><span aria-hidden="true" class="nav-number">03</span></button><button aria-current="false" class="nav-item" data-view="view-quarantine" id="nav-quarantine" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 7h18v14H3zM2 3h20v4H2zM9 12h6"></path></svg><span>Quarantine</span><span aria-hidden="true" class="nav-number">04</span></button><button aria-current="false" class="nav-item" data-view="view-eventlog" id="nav-eventlog" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h12"></path></svg><span>Monitor</span><span aria-hidden="true" class="nav-number">05</span></button></nav>
-<div class="side-foot"><strong>LOCAL · OPERATOR CONTROLLED</strong><span>Read-only inspection.<br/>Confirmed actions.<br/>Recorded undo.</span></div>
-</aside>
-<div class="shell">
-<header class="topbar">
-<nav aria-label="Breadcrumb" class="crumbs"><span class="crumb-home">C.U.R.E</span><span aria-hidden="true" class="crumb-sep">›</span><div class="view-title" id="view-title">Overview</div></nav>
-<div class="session-meta" id="session-meta">NO SCAN THIS SESSION</div>
-<span class="topbar-clock" id="topbar-clock" title="Local system time"></span>
-<div class="pill scanning" id="status-pill">
-<span class="pill-dot"></span>
-<svg class="pill-icon" viewBox="0 0 16 16"><path d="M2 8.5l4 4L14 4"></path></svg>
-<svg class="pill-icon warn" viewBox="0 0 16 16"><path d="M8 1.5L15 14H1z"></path><line x1="8" x2="8" y1="6.5" y2="10"></line><circle cx="8" cy="12" r="0.5"></circle></svg>
-<span aria-live="polite" id="status-text">Ready</span>
-</div>
-</header>
-<main class="stage" id="stage-main" tabindex="-1">
-<section class="view" id="scan-view"><div class="page-head"><div><div class="eyebrow">Rescue / Live collection</div><h1 class="headline">Evidence Sweep</h1></div><button class="btn hidden" id="scan-retry" type="button">Retry scan</button></div>
-<div class="scan-status">
-<span class="dim" id="scan-scope">Read-only collection · remediation requires a separate confirmed action.</span>
-<span class="flex-spacer"></span>
-<span class="mono dim" id="scan-elapsed" role="status"></span>
-</div>
-<div class="sweep-layout"><div class="sweep-field" id="evidence-sweep"><svg aria-labelledby="sweep-title sweep-desc" id="sweep-svg" role="img" viewBox="0 0 480 320"><title id="sweep-title">Persistence source topology</title><desc id="sweep-desc">Source states are listed beside the field. Connections represent collection scope, not network traffic.</desc></svg><div class="sweep-summary"><span id="sweep-current" role="status">Awaiting collection</span><span id="sweep-items">0 entries inspected</span></div></div><ul aria-label="Collection source states" class="sweep-sources" id="sweep-sources"></ul></div>
-<div class="feed-card">
-<div class="feed-head">
-<svg class="feed-icon" viewBox="0 0 16 16"><path d="M3 4l4 4-4 4"></path><line x1="9" x2="13" y1="12" y2="12"></line></svg>
-<span class="feed-title">Collection log</span>
-<span class="feed-count" id="feed-count">0 ITEMS</span>
-</div>
-<ul class="log" id="log"></ul>
-</div>
-</section>
-<section aria-label="Rescue" class="view hidden" id="landing-view"><div class="page-head"><div><div class="eyebrow">Rescue / Persistence inspection</div><h1 class="headline">Start with the evidence.</h1><p class="subline">Inspect startup mechanisms, running processes and ransom indicators. Review each finding before taking action.</p></div><button class="btn btn-primary" id="start-rescue-btn" type="button">Start Rescue Scan</button></div><div class="tool-nav"><button class="btn" id="start-cleanup-btn" type="button">Disk cleanup</button></div><div class="rescue-preflight"><section><h2 class="section-title">Collection sources</h2><p class="subline">Coverage and access limits are reported with the results.</p><ul class="source-index"><li><span>01</span>Startup folders</li><li><span>02</span>Registry autoruns</li><li><span>03</span>Scheduled tasks</li><li><span>04</span>Services</li><li><span>05</span>WMI subscriptions</li><li><span>06</span>IFEO / AppInit</li><li><span>07</span>COM registrations</li><li><span>08</span>Running processes</li><li><span>09</span>Ransom indicators</li></ul></section><section><h2 class="section-title">Operator protocol</h2><ol class="protocol-list"><li><div>Inspect<small>Overlay candidates are shown for review. Each close is a separate action.</small></div></li><li><div>Review<small>Risk scores are investigation leads. Evidence and collection limits remain visible.</small></div></li><li><div>Decide<small>Quarantine moves supported files after confirmation. Restore them with scoped undo.</small></div></li></ol></section></div></section>
-<section class="view hidden" id="results-view">
-<div class="results-main">
-<div class="results-stack"><nav aria-label="Investigation tools" class="tool-nav"><button class="btn" data-route="results-view" type="button">Findings</button><button class="btn" data-route="view-audit" id="nav-audit" type="button">Persistence audit</button><button class="btn" data-route="view-processes" id="nav-processes" type="button">Processes</button><button class="btn" data-route="view-incident" id="nav-incident" type="button">Login observation</button></nav>
-<div class="results-head">
-<div class="headline-wrap">
-<h1 class="headline" id="headline">No scan this session</h1>
-<div class="subline" id="subline">Start a Rescue Scan to collect findings for review.</div>
-</div>
-<span class="flex-spacer"></span>
-<button class="btn" id="rescan-btn" type="button">Scan again</button>
-</div>
-<div class="action-receipt hidden" id="action-receipt" role="status"><span aria-hidden="true" class="receipt-dot"></span><span id="action-receipt-text"></span><button aria-label="Dismiss this message" class="ghost-btn receipt-x" id="action-receipt-x" type="button">Dismiss</button></div>
-<div class="stats" id="stats-row">
-<div class="stat card tint-teal"><span id="stat-cleaned">0</span><label>QUARANTINED</label></div>
-<div class="stat card tint-amber"><span id="stat-review">0</span><label>NEEDS REVIEW</label></div>
-<div class="stat card tint-neutral"><span id="stat-safe">0</span><label>SAFE</label></div>
-</div>
-<div class="panel" id="review-block">
-<h2 class="section-title">Persistence findings</h2>
-<div class="entry-cards" id="review-cards"></div>
-<div class="all-clear" id="review-clear">
-<svg class="clear-check" viewBox="0 0 16 16"><path d="M2 8.5l4 4L14 4"></path></svg>
-<span>No evidence collected yet. Run a scan from Rescue.</span>
-</div>
-</div>
-<div class="panel" id="cleaned-block">
-<h2 class="section-title">Quarantined after confirmation</h2>
-<div class="entry-cards cleaned" id="cleaned-cards"></div>
-</div>
-<div class="panel hidden" id="process-block">
-<h2 class="section-title">SUSPICIOUS PROCESSES</h2>
-<div class="entry-cards" id="process-cards"></div>
-<div class="kill-row">
-<button class="btn" disabled="" id="kill-procs-btn" type="button">Kill selected</button>
-<span class="kill-status hidden" id="kill-procs-status"></span>
-</div>
-</div>
-<div class="panel hidden" id="ransom-block">
-<h2 class="section-title">RANSOM INDICATORS</h2>
-<div class="entry-cards" id="ransom-cards"></div>
-<div class="hidden" id="ransom-link">
-            If a ransomware family was identified, check nomoreransom.org
-            (typed by you into a browser) for a known decryptor.
-            C.U.R.E cannot decrypt files and never links out.
+    <link href="style.css" rel="stylesheet" />
+  </head>
+  <body>
+    <div class="fallback hidden" id="fallback">
+      <h1>C.U.R.E</h1>
+      <p>This interface must run inside the C.U.R.E desktop app.</p>
+      <p class="dim">
+        Launch it via <code>cure-gui.exe</code> (or let
+        <code>cure-watch.exe</code> start it when a rescue USB is inserted).
+      </p>
+    </div>
+    <div class="app hidden" id="app">
+      <a class="skip-link" href="#stage-main">Skip to content</a>
+      <aside aria-label="Primary navigation" class="sidebar">
+        <div class="brand">
+          <svg
+            aria-hidden="true"
+            class="brand-mark"
+            fill="none"
+            height="26"
+            viewBox="0 0 26 26"
+            width="26"
+          >
+            <path
+              d="M2 8V2h6M18 2h6v6M24 18v6h-6M8 24H2v-6M8 13h10M13 8v10"
+              stroke="var(--accent)"
+              stroke-width="1.5"
+            ></path>
+          </svg>
+          <div class="wordmark">C.U.R.E<span>Evidence Console</span></div>
+        </div>
+        <nav aria-label="Sections" class="nav">
+          <button
+            aria-current="false"
+            class="nav-item"
+            data-view="view-overview"
+            id="nav-overview"
+            type="button"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path
+                d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"
+              ></path></svg
+            ><span>Overview</span
+            ><span aria-hidden="true" class="nav-number">01</span></button
+          ><button
+            aria-current="false"
+            class="nav-item"
+            data-view="scan-center"
+            id="nav-scan"
+            type="button"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M12 3v18M3 12h18M5 5l14 14"></path></svg
+            ><span>Rescue</span
+            ><span aria-hidden="true" class="nav-number">02</span></button
+          ><button
+            aria-current="false"
+            class="nav-item"
+            data-view="results-view"
+            id="nav-results"
+            type="button"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path
+                d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16M16 16l6 6"
+              ></path></svg
+            ><span>Investigate</span
+            ><span aria-hidden="true" class="nav-number">03</span></button
+          ><button
+            aria-current="false"
+            class="nav-item"
+            data-view="view-quarantine"
+            id="nav-quarantine"
+            type="button"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M3 7h18v14H3zM2 3h20v4H2zM9 12h6"></path></svg
+            ><span>Quarantine</span
+            ><span aria-hidden="true" class="nav-number">04</span></button
+          ><button
+            aria-current="false"
+            class="nav-item"
+            data-view="view-eventlog"
+            id="nav-eventlog"
+            type="button"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M3 6h18M3 12h18M3 18h12"></path></svg
+            ><span>Monitor</span
+            ><span aria-hidden="true" class="nav-number">05</span>
+          </button>
+        </nav>
+        <div class="side-foot">
+          <strong>LOCAL · OPERATOR CONTROLLED</strong
+          ><span
+            >Read-only inspection.<br />Confirmed actions.<br />Recorded
+            undo.</span
+          >
+        </div>
+      </aside>
+      <div class="shell">
+        <header class="topbar">
+          <nav aria-label="Breadcrumb" class="crumbs">
+            <span class="crumb-home">C.U.R.E</span
+            ><span aria-hidden="true" class="crumb-sep">›</span>
+            <div class="view-title" id="view-title">Overview</div>
+          </nav>
+          <div class="session-meta" id="session-meta">NO SCAN THIS SESSION</div>
+          <span
+            class="topbar-clock"
+            id="topbar-clock"
+            title="Local system time"
+          ></span>
+          <div class="pill scanning" id="status-pill">
+            <span class="pill-dot"></span>
+            <svg class="pill-icon" viewBox="0 0 16 16">
+              <path d="M2 8.5l4 4L14 4"></path>
+            </svg>
+            <svg class="pill-icon warn" viewBox="0 0 16 16">
+              <path d="M8 1.5L15 14H1z"></path>
+              <line x1="8" x2="8" y1="6.5" y2="10"></line>
+              <circle cx="8" cy="12" r="0.5"></circle>
+            </svg>
+            <span aria-live="polite" id="status-text">Ready</span>
           </div>
-</div>
-<div class="panel" id="res-coverage-panel">
-<h2 class="section-title">Collection coverage</h2>
-<ul class="coverage-list" id="res-coverage"></ul>
-<div class="coverage-note dim">Access and collection limits are part of the evidence. Incomplete coverage cannot establish an all-clear result.</div>
-</div></div>
-</div>
-</section>
-<section class="view hidden" id="cleanup-view">
-<div class="results-main">
-<div class="results-stack">
-<div class="results-head">
-<div class="headline-wrap">
-<h1 class="headline">Disk Cleanup</h1>
-<div class="subline" id="cleanup-subline"></div>
-<ol aria-label="Cleanup progress" class="steps" id="cleanup-steps">
-<li class="step current" data-step="1"><span class="step-n">1</span><span class="step-copy"><span class="step-t">Candidates</span><span class="step-d">Scan for removable items</span></span></li>
-<li aria-hidden="true" class="step-arrow">→</li>
-<li class="step" data-step="2"><span class="step-n">2</span><span class="step-copy"><span class="step-t">Confirmation</span><span class="step-d">Review and approve</span></span></li>
-<li aria-hidden="true" class="step-arrow">→</li>
-<li class="step" data-step="3"><span class="step-n">3</span><span class="step-copy"><span class="step-t">Cleanup</span><span class="step-d">Remove selected items</span></span></li>
-</ol>
-</div>
-<span class="flex-spacer"></span>
-<button class="btn" id="cleanup-back" type="button">Back to results</button>
-</div>
-<div class="pill scanning" id="cleanup-status-line">
-<span class="pill-dot"></span>
-<span id="cleanup-status-text">measuring reclaimable space…</span>
-</div>
-<div class="panel" id="cleanup-panel">
-<div class="cleanup-idle hidden" id="cleanup-idle">
-<div class="cleanup-idle-copy">
-<div class="cleanup-note dim">Check for reclaimable junk — temp files, browser caches, Recycle Bin, Windows.old, old installers. Nothing is scanned or deleted until you start.</div>
-<button class="btn" id="cleanup-scan-btn" type="button">Scan disk</button>
-</div>
-</div>
-<div class="cleanup-note dim hidden" id="cleanup-loading">measuring reclaimable space…</div>
-<div class="hidden" id="cleanup-body">
-<div class="cleanup-cols">
-<div class="cleanup-maincol">
-<div class="cleanup-total" id="cleanup-total"></div>
-<div class="cleanup-grid" id="cleanup-grid"></div>
-<div class="hidden" id="cleanup-downloads">
-<div class="dl-head">OLD INSTALLERS IN DOWNLOADS — TICK WHAT MAY GO</div>
-<ul class="dl-list" id="cleanup-dl-list"></ul>
-</div>
-</div>
-<aside aria-label="Cleanup summary" class="panel cleanup-summary">
-<h2 class="section-title">Cleanup Summary</h2>
-<dl class="sum-rows">
-<div><dt>Total items</dt><dd id="cs-total-items">—</dd></div>
-<div><dt>Total size</dt><dd id="cs-total-size">—</dd></div>
-<div><dt>Selected</dt><dd id="cs-selected">—</dd></div>
-<div><dt>Status</dt><dd><span class="status-pill-mini" id="cs-status">Idle</span></dd></div>
-</dl>
-<div class="sum-check"><h4>What gets cleaned</h4><ul><li>Temporary files and system caches</li><li>Browser caches — only if selected</li><li>Recycle Bin contents — only if selected</li><li>Old installers you tick — never automatic</li></ul></div>
-<p class="important-box"><strong>Important</strong><span>This operation cannot be undone. Make sure you have reviewed the selected items before proceeding.</span></p>
-</aside>
-</div>
-<div class="cleanup-actions cleanup-actions-premium">
-<span class="cleanup-busy hidden" id="cleanup-operation" role="status">Removing confirmed selections…</span>
-<div class="cleanup-btn-col">
-<button class="btn btn-cleanup-premium" disabled="" id="cleanup-btn" type="button"><span aria-hidden="true" class="btn-shine"></span><span id="cleanup-btn-label">Clean up</span></button>
-</div>
-</div>
-<div class="cleanup-result dim hidden" id="cleanup-status"></div>
-<ul class="dl-list cleanup-failures hidden" id="cleanup-failures"></ul>
-</div>
-</div>
-</div>
-</div>
-</section>
-<section aria-label="Overview" class="view hidden" id="view-overview">
-<div class="results-stack">
-<div class="results-head posture">
-<div class="headline-wrap"><div class="eyebrow">System posture</div>
-<h1 class="headline" id="ov-posture">Not assessed</h1>
-<div class="subline" id="ov-subline">Run a Rescue Scan to establish the evidence available on this system.</div>
-<div class="subline dim" id="ov-scope">No scan has run this session.</div>
-</div>
-<button class="btn btn-primary" data-route="scan-center" type="button">Start Rescue Scan</button></div>
-<div class="metric-grid" id="ov-metrics"><div class="metric-card"><span class="metric-value" id="ov-coverage-state">—</span><span class="metric-label">COVERAGE</span></div><div class="metric-card"><span class="metric-value" id="ov-last-scan">—</span><span class="metric-label">LAST SCAN</span></div><div class="metric-card"><span class="metric-value" id="ov-findings">—</span><span class="metric-label">FINDINGS</span></div><div class="metric-card"><span class="metric-value" id="ov-quarantined">—</span><span class="metric-label">QUARANTINED</span></div></div>
-<div class="overview-columns"><div id="overview-evidence"><section class="panel"><h2 class="section-title">Recent findings</h2><div id="ov-recent"><div class="empty-state"><strong>No evidence collected yet</strong>Start a scan to inspect this system’s persistence sources.</div></div></section><div class="panel" id="ov-actions-panel">
-<h2 class="section-title">Evidence timeline · this session</h2>
-<ul class="log" id="ov-actions"></ul>
-<div class="empty-state" id="ov-actions-empty">Scan progress and confirmed actions will appear here.</div>
-</div><div class="panel" id="ov-incident-panel">
-<h2 class="section-title">Login observation</h2>
-<div class="coverage-note dim" id="ov-incident">No login observation recorded this session.</div>
-</div></div><div id="overview-coverage"><div class="panel" id="ov-coverage-panel">
-<h2 class="section-title">Coverage summary</h2>
-<ul class="coverage-list" id="ov-coverage"><li><span class="cov-dot"></span><span class="cov-name">Not assessed</span><span class="cov-detail">No collectors have run.</span></li></ul>
-<div class="coverage-note dim">Some collectors do not report access coverage. Completed collection is shown separately from verified coverage.</div>
-</div><section class="panel"><h2 class="section-title">Watcher / USB</h2><p class="dim">Status unavailable in this console.</p><p class="coverage-note">Pairing and watcher installation are managed with cure-watch.exe. The console cannot verify their connection.</p></section></div></div><div class="panel" id="ov-report-panel">
-<h2 class="section-title">Export evidence</h2>
-<div class="report-row">
-<span class="report-copy dim">Explicit export — runs fresh scans, remediates nothing. Findings carry evidence, ATT&amp;CK, signature, and recommended actions.</span>
-<span class="flex-spacer"></span>
-<label class="redact-check"><input checked="" id="exp-redact" type="checkbox"/> Redact personal paths</label>
-<button class="btn" id="exp-txt" type="button">Export TXT</button>
-<button class="btn" id="exp-json" type="button">Export JSON</button>
-</div>
-</div></div>
-</section>
-<section aria-label="Startup audit" class="view hidden" id="view-audit">
-<div class="results-stack"><nav aria-label="Investigation tools" class="tool-nav"><button class="btn" data-route="results-view" type="button">Findings</button><button class="btn" data-route="view-audit" id="tool-audit-view-audit" type="button">Persistence audit</button><button class="btn" data-route="view-processes" id="tool-process-view-audit" type="button">Processes</button><button class="btn" data-route="view-incident" id="tool-incident-view-audit" type="button">Login observation</button></nav>
-<div class="results-head">
-<div class="headline-wrap">
-<h1 class="headline">Persistence audit</h1>
-<div class="subline" id="audit-subline"></div>
-</div>
-</div>
-<div class="panel">
-<h2 class="section-title">PERSISTENCE FINDINGS</h2>
-<div aria-label="Audit filters" class="proc-filters" role="group">
-<button class="filter-btn on" data-af="all" type="button">All</button>
-<button class="filter-btn" data-af="HighRisk" type="button">High risk</button>
-<button class="filter-btn" data-af="Suspicious" type="button">Suspicious</button>
-
-</div>
-<ul class="entry-cards" id="audit-list"></ul>
-<div class="dim" id="audit-note"></div>
-</div>
-</div>
-</section>
-<section aria-label="Process sentinel" class="view hidden" id="view-processes">
-<div class="results-stack"><nav aria-label="Investigation tools" class="tool-nav"><button class="btn" data-route="results-view" type="button">Findings</button><button class="btn" data-route="view-audit" id="tool-audit-view-processes" type="button">Persistence audit</button><button class="btn" data-route="view-processes" id="tool-process-view-processes" type="button">Processes</button><button class="btn" data-route="view-incident" id="tool-incident-view-processes" type="button">Login observation</button></nav>
-<div class="results-head">
-<div class="headline-wrap">
-<h1 class="headline">Process evidence</h1>
-<div class="subline" id="proc-subline"></div>
-</div>
-</div>
-<div class="panel">
-<div aria-label="Process filters" class="proc-filters" role="group">
-<button class="filter-btn on" data-f="all" type="button">All</button>
-<button class="filter-btn" data-f="HighRisk" type="button">High risk</button>
-<button class="filter-btn" data-f="Suspicious" type="button">Suspicious</button>
-</div>
-<div class="table-wrap">
-<table class="data-table" id="proc-table">
-<caption class="sr-only">Running processes observed during this scan</caption>
-<thead><tr><th scope="col">Process</th><th scope="col">PID</th><th scope="col">Path</th><th scope="col">Score</th><th scope="col">Risk</th><th scope="col">Reasons</th><th scope="col"><span class="sr-only">Action</span></th></tr></thead>
-<tbody id="proc-rows"></tbody>
-</table>
-</div>
-<div class="empty-state hidden" id="proc-empty">No flagged processes in the last scan.</div>
-</div>
-</div>
-</section>
-<section aria-label="Quarantine" class="view hidden" id="view-quarantine">
-<div class="results-stack">
-<div class="results-head">
-<div class="headline-wrap">
-<h1 class="headline">Quarantine</h1>
-<div class="subline" id="q-subline">Recorded file moves. Restore bytes to their original location with scoped undo.</div>
-</div>
-<span class="flex-spacer"></span>
-<button class="btn" id="q-refresh" type="button">Refresh</button>
-</div>
-<div class="panel">
-<div class="receipt hidden" id="q-receipt" role="status"></div><ul class="entry-cards" id="q-list"></ul>
-<div class="empty-state hidden" id="q-empty"><strong>Quarantine is empty</strong>Confirmed file moves will appear here with integrity metadata and Undo.</div>
-</div>
-</div>
-</section>
-<section aria-label="Event log" class="view hidden" id="view-eventlog">
-<div class="results-stack"><nav aria-label="Monitor tools" class="tool-nav"><button class="btn" data-route="view-eventlog" type="button">Session events</button><button class="btn" data-route="view-canary" type="button">Canary tripwire</button></nav>
-<div class="results-head">
-<div class="headline-wrap">
-<h1 class="headline">Event Log</h1>
-<div class="subline">Session events only — scan progress, canary alerts, and actions taken in this run.</div>
-</div>
-<span class="flex-spacer"></span>
-<button class="btn" id="log-clear" type="button">Clear view</button>
-</div>
-<div class="panel">
-<ul class="log" id="event-log-list"></ul>
-<div class="empty-state hidden" id="event-log-empty">No events yet this session.</div>
-</div>
-</div>
-</section>
-<section aria-label="Canary guard" class="view hidden" id="view-canary">
-<div class="results-stack"><nav aria-label="Monitor tools" class="tool-nav"><button class="btn" data-route="view-eventlog" type="button">Session events</button><button class="btn" data-route="view-canary" type="button">Canary tripwire</button></nav>
-<div class="results-head">
-<div class="headline-wrap">
-<h1 class="headline">Canary tripwire</h1>
-<div class="subline">Decoy-based ransomware tripwire.</div>
-</div>
-</div>
-<div class="panel canary-detail">
-<div class="canary-status-row">
-<span class="severity-badge" id="can-state">OFF</span>
-<button class="btn" id="can-toggle" type="button">Enable guard</button>
-</div>
-<p class="experimental-note"><strong>Experimental.</strong> Plants <code>~cure-canary-*</code> decoys in Desktop, Documents and Downloads, watches for tampering and bulk-encryption patterns, and polls for shadow-copy-wiping tools. This is a tripwire — not full ransomware protection.</p>
-<div class="coverage-note dim">Limitations: detects decoy tampering and crude bulk-encryption patterns only. Verify any alert with a rescue scan — the alert below is session evidence, not a diagnosis.</div>
-<h2 class="section-title">SESSION ALERTS</h2>
-<ul class="log" id="can-alerts"></ul>
-<div class="empty-state hidden" id="can-empty">No canary alerts this session.</div>
-</div>
-</div>
-</section>
-<section aria-label="Post-login incident investigation" class="view hidden" id="view-incident">
-<div class="results-stack"><nav aria-label="Investigation tools" class="tool-nav"><button class="btn" data-route="results-view" type="button">Findings</button><button class="btn" data-route="view-audit" id="tool-audit-view-incident" type="button">Persistence audit</button><button class="btn" data-route="view-processes" id="tool-process-view-incident" type="button">Processes</button><button class="btn" data-route="view-incident" id="tool-incident-view-incident" type="button">Login observation</button></nav>
-<div class="results-head">
-<div class="headline-wrap">
-<h1 class="headline">Post-Login Investigation</h1>
-<div class="subline">Correlate startup persistence with observed process and window activity.</div>
-</div>
-</div>
-<div class="panel" id="inc-prepare">
-<h2 class="section-title">STEP 1 — PREPARE · OBSERVATION WINDOW</h2>
-<div class="incident-prepare">
-<p class="dim">C.U.R.E. will observe startup activity for a limited period. Observation installs nothing and modifies nothing — no Startup, registry, service, or task changes. For true post-login capture, start the observation within a minute of logging in; a reboot flow is intentionally not offered.</p>
-<p class="dim">Each choice passively records process starts/exits and window titles/classes only — no screenshots, no keystrokes, no window contents. Longer windows catch more activity but keep this screen busy.</p>
-<div aria-label="Observation duration — how long to observe" class="proc-filters" role="group">
-<span class="commit-label" id="inc-dur-label">Observe for:</span>
-<button aria-describedby="inc-dur-label" class="filter-btn" data-dur="15" type="button">15 sec</button>
-<button aria-describedby="inc-dur-label" class="filter-btn on" data-dur="30" type="button">30 sec</button>
-<button aria-describedby="inc-dur-label" class="filter-btn" data-dur="60" type="button">60 sec</button>
-<button aria-describedby="inc-dur-label" class="filter-btn" data-dur="120" type="button">120 sec</button>
-</div>
-<div class="incident-actions">
-<button class="btn" id="btn-incident-start" type="button">Start login investigation</button>
-<span class="kill-status" id="inc-status" role="status"></span>
-</div>
-<div class="cleanup-note dim hidden" id="inc-progress" role="status"></div>
-</div>
-</div>
-<div class="panel hidden" id="inc-results">
-<h2 class="section-title">INCIDENT STATUS</h2>
-<div class="canary-status-row">
-<span class="severity-badge" id="inc-verdict">—</span>
-<span class="dim" id="inc-verdict-why"></span>
-</div>
-<div aria-live="polite" class="inc-meta dim" id="inc-meta"></div>
-<div class="receipt hidden" id="inc-receipt" role="status"></div>
-<details class="corr-legend">
-<summary>What do DIRECT / STRONG / PARTIAL / WEAK / NONE mean?</summary>
-<ul>
-<li><strong>DIRECT</strong> — finding's executable path matches the observed executable path (normalized). Service entries additionally require the reported PID to match. Matched path + process.</li>
-<li><strong>STRONG</strong> — finding command and observed command line reference each other (executable substring either direction, or shared distinctive arguments ≥12 chars) with the launch inside the window. Matched command/path + timing.</li>
-<li><strong>PARTIAL</strong> — same executable file name, different paths (both shown). Matched name only.</li>
-<li><strong>WEAK</strong> — same folder but different program, or a child of a correlated process. Temporal/structural proximity only.</li>
-<li><strong>NONE</strong> — no observed relationship.</li>
-</ul>
-<p class="dim">Correlation does not by itself establish malicious intent. Levels and verdicts are deterministic — see the methodology note in the report export.</p>
-</details>
-</div>
-<div class="panel hidden" id="inc-scope-panel">
-<h2 class="section-title">OBSERVATION WINDOW / SCOPE</h2>
-<ul class="coverage-list" id="inc-scope"></ul>
-<div class="coverage-note dim">Command lines are fetched only for correlated processes (bounded). Window evidence is titles + classes only — no screenshots, no keystrokes, no contents.</div>
-</div>
-<div class="panel hidden" id="inc-timeline-panel">
-<h2 class="section-title">TIMELINE — WHAT WAS OBSERVED, WHEN</h2>
-<div class="coverage-note dim">Each event shows its timestamp and, where the backend collected it, the process, PID, PPID, path, command line, correlation, and window. Unavailable values say “Not collected”. Long values truncate visually — hover or focus to see the full value; all evidence text is selectable.</div>
-<ul class="log inc-timeline" id="incident-timeline"></ul>
-</div>
-<div class="panel hidden" id="inc-review-panel">
-<h2 class="section-title">CORRELATIONS — WHAT CONNECTS TO WHAT</h2>
-<h2 class="sub-h3 section-title">SUPPORTING EVIDENCE (DIRECT · STRONG)</h2>
-<ul class="entry-cards" id="inc-corr-strong"></ul>
-<h2 class="sub-h3 section-title">WEAK / PARTIAL SIGNALS (REVIEW MANUALLY)</h2>
-<ul class="entry-cards" id="inc-correlations"></ul>
-<div class="empty-state hidden" id="inc-corr-empty">No observed process relates to a startup finding.</div>
-</div>
-<div class="panel hidden" id="inc-processes-panel">
-<h2 class="section-title">PROCESSES — WHAT RAN DURING THE WINDOW</h2>
-<ul class="entry-cards" id="inc-processes"></ul>
-<div class="empty-state hidden" id="inc-processes-empty">No processes recorded in this observation.</div>
-</div>
-<div class="panel hidden" id="inc-windows-panel">
-<h2 class="section-title">VISIBLE WINDOWS — TITLES AND CLASSES ONLY</h2>
-<ul class="entry-cards" id="inc-windows"></ul>
-<div class="empty-state hidden" id="inc-windows-empty">No transient windows observed.</div>
-</div>
-<div class="panel hidden" id="inc-recovery-panel">
-<h2 class="section-title">INSUFFICIENT OBSERVATION — WHAT TO DO NEXT</h2>
-<div class="recovery-copy">
-<p class="dim">Observation could not run or produced no usable data. <strong>This is not a clean bill of health.</strong></p>
-<ul class="evidence-list">
-<li>Re-run with a longer window (60 or 120 sec) and keep the machine otherwise idle — popups welcome.</li>
-<li>Start the observation within a minute of logging in for true post-login capture.</li>
-<li>If the failure persists, check elevation (standard-user scans may skip system locations) and re-run elevated to compare counts.</li>
-<li>Export the report anyway — it records the failed/unavailable observation so the gap is auditable.</li>
-</ul>
-</div>
-</div>
-<div class="panel" id="inc-limits-panel">
-<h2 class="section-title">LIMITATIONS — WHAT COULD NOT BE OBSERVED</h2>
-<ul class="limits-list">
-<li>Sub-500 ms processes may be missed (snapshot + WMI delivery timing).</li>
-<li>Command lines are collected only for correlated PIDs.</li>
-<li>PIDs are re-validated before any action; PID reuse is handled, not assumed.</li>
-<li>No persistence or reboot capture — observation installs nothing.</li>
-<li>Window/process lifetimes carry ±500 ms poll precision where applicable.</li>
-</ul>
-</div>
-<div class="panel hidden" id="inc-export-panel">
-<h2 class="section-title">EXPORT REPORT — KEEP THE EVIDENCE</h2>
-<div class="report-row">
-<span class="report-copy dim">JSON/TXT incident report: investigation id, elevation, coverage, timeline, window events, correlations, findings.</span>
-<span class="flex-spacer"></span>
-<button class="btn" id="exp-inc-txt" type="button">Export TXT</button>
-<button class="btn" id="exp-inc-json" type="button">Export JSON</button>
-</div>
-</div>
-
-</div>
-</section>
-</main>
-<footer class="footbar"><span class="console-credit">EVIDENCE CONSOLE</span>
-<div id="footbar-msg" role="status">Ready</div>
-<button class="ghost-btn" id="btn-quarantine-folder" type="button">Open quarantine folder</button>
-<button class="ghost-btn" id="btn-view-log" type="button">View full log</button>
-<button class="ghost-btn" id="btn-exit" type="button">Exit</button>
-</footer>
-</div>
-</div>
-<div class="canary-alert-overlay hidden" id="canary-alert-overlay">
-<div aria-describedby="canary-alert-detail" aria-labelledby="canary-alert-title" aria-modal="true" class="canary-alert-modal" role="alertdialog">
-<svg aria-hidden="true" class="canary-alert-icon" viewBox="0 0 24 24">
-<path d="M12 2L4 6v5c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4z" fill="currentColor" opacity="0.15"></path>
-<path d="M12 2L4 6v5c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4z" fill="none" stroke="currentColor" stroke-width="1.6"></path>
-<line stroke="currentColor" stroke-linecap="round" stroke-width="2" x1="12" x2="12" y1="8" y2="13"></line>
-<circle cx="12" cy="16" fill="currentColor" r="1.2"></circle>
-</svg>
-<div class="canary-alert-title" id="canary-alert-title">Canary activity requires review</div>
-<div class="canary-alert-detail" id="canary-alert-detail"></div>
-<p class="canary-alert-exp"><strong>Experimental.</strong> Canary Guard is a decoy tripwire, not guaranteed protection — verify with a rescue scan.</p>
-<div class="canary-alert-actions">
-<button class="btn" id="canary-dismiss-btn" type="button">Dismiss</button>
-</div>
-</div>
-</div>
-<div class="modal-overlay hidden" id="confirm-overlay">
-<div aria-describedby="confirm-facts" aria-labelledby="confirm-title" aria-modal="true" class="modal" role="alertdialog">
-<div class="modal-kicker" id="confirm-kicker">Confirm action</div>
-<div class="modal-title" id="confirm-title">Are you sure?</div>
-<dl class="modal-facts" id="confirm-facts"></dl>
-<p class="modal-note hidden" id="confirm-note"></p>
-<div class="modal-actions">
-<button class="btn" id="confirm-cancel" type="button">Cancel</button>
-<button class="btn btn-danger" id="confirm-ok" type="button">Confirm</button>
-</div>
-</div>
-</div>
-<div class="drawer-overlay hidden" id="evidence-overlay"><section aria-labelledby="evidence-title" aria-modal="true" class="drawer" id="evidence-inspector" role="dialog"><header class="drawer-head"><div><div class="eyebrow">Evidence inspector</div><h2 class="modal-title" id="evidence-title">Finding</h2><div class="subline" id="evidence-subtitle"></div></div><button class="btn" id="evidence-close" type="button">Close</button></header><div class="drawer-body" id="evidence-body"></div></section></div><script src="evidence-sweep.js"></script><script src="app.js"></script><div class="drawer-overlay hidden" id="inc-drawer-overlay">
-<div aria-labelledby="inc-drawer-title" aria-modal="true" class="drawer" id="inc-drawer" role="dialog">
-<div class="drawer-head">
-<div class="headline-wrap">
-<div class="modal-kicker">Evidence inspector</div>
-<div class="modal-title" id="inc-drawer-title">Evidence</div>
-<div class="subline" id="inc-drawer-sub"></div>
-</div>
-<span class="flex-spacer"></span>
-<button class="btn" id="inc-drawer-close" type="button">Close</button>
-</div>
-<dl class="detail-drawer inc-drawer-body" id="inc-drawer-body"></dl>
-</div>
-</div>
-</body>
+        </header>
+        <main class="stage" id="stage-main" tabindex="-1">
+          <section class="view" id="scan-view">
+            <div class="page-head">
+              <div>
+                <div class="eyebrow">Rescue / Live collection</div>
+                <h1 class="headline">Evidence Sweep</h1>
+              </div>
+              <button class="btn hidden" id="scan-retry" type="button">
+                Retry scan
+              </button>
+            </div>
+            <div class="scan-status">
+              <span class="dim" id="scan-scope"
+                >Read-only collection · remediation requires a separate
+                confirmed action.</span
+              >
+              <span class="flex-spacer"></span>
+              <span class="mono dim" id="scan-elapsed" aria-live="off"></span>
+            </div>
+            <div class="sweep-layout">
+              <div class="sweep-field" id="evidence-sweep">
+                <svg
+                  aria-labelledby="sweep-title sweep-desc"
+                  id="sweep-svg"
+                  role="img"
+                  viewBox="0 0 480 320"
+                >
+                  <title id="sweep-title">Persistence source topology</title>
+                  <desc id="sweep-desc">
+                    Source states are listed beside the field. Connections
+                    represent collection scope, not network traffic.
+                  </desc>
+                </svg>
+                <div class="sweep-summary">
+                  <span id="sweep-current" role="status"
+                    >Awaiting collection</span
+                  ><span id="sweep-items">0 entries inspected</span>
+                </div>
+              </div>
+              <ul
+                aria-label="Collection source states"
+                class="sweep-sources"
+                id="sweep-sources"
+              ></ul>
+            </div>
+            <div class="feed-card">
+              <div class="feed-head">
+                <svg class="feed-icon" viewBox="0 0 16 16">
+                  <path d="M3 4l4 4-4 4"></path>
+                  <line x1="9" x2="13" y1="12" y2="12"></line>
+                </svg>
+                <span class="feed-title">Collection log</span>
+                <span class="feed-count" id="feed-count">0 ITEMS</span>
+              </div>
+              <ul class="log" id="log"></ul>
+            </div>
+          </section>
+          <section aria-label="Rescue" class="view hidden" id="landing-view">
+            <div class="page-head">
+              <div>
+                <div class="eyebrow">Rescue / Persistence inspection</div>
+                <h1 class="headline">Start with the evidence.</h1>
+                <p class="subline">
+                  Inspect startup mechanisms, running processes and ransom
+                  indicators. Review each finding before taking action.
+                </p>
+              </div>
+              <button
+                class="btn btn-primary"
+                id="start-rescue-btn"
+                type="button"
+              >
+                Start Rescue Scan
+              </button>
+            </div>
+            <div class="tool-nav">
+              <button class="btn" id="start-cleanup-btn" type="button">
+                Disk cleanup
+              </button>
+            </div>
+            <div class="rescue-preflight">
+              <section>
+                <h2 class="section-title">Collection sources</h2>
+                <p class="subline">
+                  Coverage and access limits are reported with the results.
+                </p>
+                <ul class="source-index">
+                  <li><span>01</span>Startup folders</li>
+                  <li><span>02</span>Registry autoruns</li>
+                  <li><span>03</span>Scheduled tasks</li>
+                  <li><span>04</span>Services</li>
+                  <li><span>05</span>WMI subscriptions</li>
+                  <li><span>06</span>IFEO / AppInit</li>
+                  <li><span>07</span>COM registrations</li>
+                  <li><span>08</span>Running processes</li>
+                  <li><span>09</span>Ransom indicators</li>
+                </ul>
+              </section>
+              <section>
+                <h2 class="section-title">Operator protocol</h2>
+                <ol class="protocol-list">
+                  <li>
+                    <div>
+                      Inspect<small
+                        >Overlay candidates are shown for review. Each close is
+                        a separate action.</small
+                      >
+                    </div>
+                  </li>
+                  <li>
+                    <div>
+                      Review<small
+                        >Risk scores are investigation leads. Evidence and
+                        collection limits remain visible.</small
+                      >
+                    </div>
+                  </li>
+                  <li>
+                    <div>
+                      Decide<small
+                        >Quarantine moves supported files after confirmation.
+                        Restore them with scoped undo.</small
+                      >
+                    </div>
+                  </li>
+                </ol>
+              </section>
+            </div>
+          </section>
+          <section class="view hidden" id="results-view">
+            <div class="results-main">
+              <div class="results-stack">
+                <nav aria-label="Investigation tools" class="tool-nav">
+                  <button class="btn" data-route="results-view" type="button">
+                    Findings</button
+                  ><button
+                    class="btn"
+                    data-route="view-audit"
+                    id="nav-audit"
+                    type="button"
+                  >
+                    Persistence audit</button
+                  ><button
+                    class="btn"
+                    data-route="view-processes"
+                    id="nav-processes"
+                    type="button"
+                  >
+                    Processes</button
+                  ><button
+                    class="btn"
+                    data-route="view-incident"
+                    id="nav-incident"
+                    type="button"
+                  >
+                    Login observation
+                  </button>
+                </nav>
+                <div class="results-head">
+                  <div class="headline-wrap">
+                    <h1 class="headline" id="headline">No scan this session</h1>
+                    <div class="subline" id="subline">
+                      Start a Rescue Scan to collect findings for review.
+                    </div>
+                  </div>
+                  <span class="flex-spacer"></span>
+                  <button class="btn" id="rescan-btn" type="button">
+                    Scan again
+                  </button>
+                </div>
+                <div
+                  class="action-receipt hidden"
+                  id="action-receipt"
+                  role="status"
+                >
+                  <span aria-hidden="true" class="receipt-dot"></span
+                  ><span id="action-receipt-text"></span
+                  ><button
+                    aria-label="Dismiss this message"
+                    class="ghost-btn receipt-x"
+                    id="action-receipt-x"
+                    type="button"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+                <div class="stats" id="stats-row">
+                  <div class="stat card tint-teal">
+                    <span id="stat-cleaned">0</span><label>QUARANTINED</label>
+                  </div>
+                  <div class="stat card tint-amber">
+                    <span id="stat-review">0</span
+                    ><label>FLAGGED FOR REVIEW</label>
+                  </div>
+                  <div class="stat card tint-neutral">
+                    <span id="stat-safe">0</span><label>SAFE SCORE</label>
+                  </div>
+                </div>
+                <div class="panel" id="review-block">
+                  <h2 class="section-title">Persistence findings</h2>
+                  <ul class="entry-cards" id="review-cards"></ul>
+                  <div class="all-clear" id="review-clear">
+                    <svg class="clear-check" viewBox="0 0 16 16">
+                      <path d="M2 8.5l4 4L14 4"></path>
+                    </svg>
+                    <span
+                      >No evidence collected yet. Run a scan from Rescue.</span
+                    >
+                  </div>
+                </div>
+                <div class="panel" id="cleaned-block">
+                  <h2 class="section-title">Quarantined after confirmation</h2>
+                  <ul class="entry-cards cleaned" id="cleaned-cards"></ul>
+                </div>
+                <div class="panel hidden" id="process-block">
+                  <h2 class="section-title">SUSPICIOUS PROCESSES</h2>
+                  <ul class="entry-cards" id="process-cards"></ul>
+                  <div class="kill-row">
+                    <button
+                      class="btn"
+                      disabled=""
+                      id="kill-procs-btn"
+                      type="button"
+                    >
+                      Kill selected
+                    </button>
+                    <span
+                      class="kill-status hidden"
+                      id="kill-procs-status"
+                    ></span>
+                  </div>
+                </div>
+                <div class="panel hidden" id="ransom-block">
+                  <h2 class="section-title">RANSOM INDICATORS</h2>
+                  <div class="entry-cards" id="ransom-cards"></div>
+                  <div class="hidden" id="ransom-link">
+                    If a ransomware family was identified, check
+                    nomoreransom.org (typed by you into a browser) for a known
+                    decryptor. C.U.R.E cannot decrypt files and never links out.
+                  </div>
+                </div>
+                <div class="panel" id="res-coverage-panel">
+                  <h2 class="section-title">Collection coverage</h2>
+                  <ul class="coverage-list" id="res-coverage"></ul>
+                  <div class="coverage-note dim">
+                    Access and collection limits are part of the evidence.
+                    Incomplete coverage cannot establish an all-clear result.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section class="view hidden" id="cleanup-view">
+            <div class="results-main">
+              <div class="results-stack">
+                <div class="results-head">
+                  <div class="headline-wrap">
+                    <h1 class="headline">Disk Cleanup</h1>
+                    <div class="subline" id="cleanup-subline"></div>
+                    <ol
+                      aria-label="Cleanup progress"
+                      class="steps"
+                      id="cleanup-steps"
+                    >
+                      <li class="step current" data-step="1">
+                        <span class="step-n">1</span
+                        ><span class="step-copy"
+                          ><span class="step-t">Candidates</span
+                          ><span class="step-d"
+                            >Scan for removable items</span
+                          ></span
+                        >
+                      </li>
+                      <li aria-hidden="true" class="step-arrow">→</li>
+                      <li class="step" data-step="2">
+                        <span class="step-n">2</span
+                        ><span class="step-copy"
+                          ><span class="step-t">Confirmation</span
+                          ><span class="step-d">Review and approve</span></span
+                        >
+                      </li>
+                      <li aria-hidden="true" class="step-arrow">→</li>
+                      <li class="step" data-step="3">
+                        <span class="step-n">3</span
+                        ><span class="step-copy"
+                          ><span class="step-t">Cleanup</span
+                          ><span class="step-d"
+                            >Remove selected items</span
+                          ></span
+                        >
+                      </li>
+                    </ol>
+                  </div>
+                  <span class="flex-spacer"></span>
+                  <button class="btn" id="cleanup-back" type="button">
+                    Back to results
+                  </button>
+                </div>
+                <div class="pill scanning" id="cleanup-status-line">
+                  <span class="pill-dot"></span>
+                  <span id="cleanup-status-text"
+                    >measuring reclaimable space…</span
+                  >
+                </div>
+                <div class="panel" id="cleanup-panel">
+                  <div class="cleanup-idle hidden" id="cleanup-idle">
+                    <div class="cleanup-idle-copy">
+                      <div class="cleanup-note dim">
+                        Check for reclaimable junk — temp files, browser caches,
+                        Recycle Bin, Windows.old, old installers. Nothing is
+                        scanned or deleted until you start.
+                      </div>
+                      <button class="btn" id="cleanup-scan-btn" type="button">
+                        Scan disk
+                      </button>
+                    </div>
+                  </div>
+                  <div class="cleanup-note dim hidden" id="cleanup-loading">
+                    measuring reclaimable space…
+                  </div>
+                  <div class="hidden" id="cleanup-body">
+                    <div class="cleanup-cols">
+                      <div class="cleanup-maincol">
+                        <div class="cleanup-total" id="cleanup-total"></div>
+                        <div class="cleanup-grid" id="cleanup-grid"></div>
+                        <div class="hidden" id="cleanup-downloads">
+                          <div class="dl-head">
+                            OLD INSTALLERS IN DOWNLOADS — TICK WHAT MAY GO
+                          </div>
+                          <ul class="dl-list" id="cleanup-dl-list"></ul>
+                        </div>
+                      </div>
+                      <aside
+                        aria-label="Cleanup summary"
+                        class="panel cleanup-summary"
+                      >
+                        <h2 class="section-title">Cleanup Summary</h2>
+                        <dl class="sum-rows">
+                          <div>
+                            <dt>Total items</dt>
+                            <dd id="cs-total-items">—</dd>
+                          </div>
+                          <div>
+                            <dt>Total size</dt>
+                            <dd id="cs-total-size">—</dd>
+                          </div>
+                          <div>
+                            <dt>Selected</dt>
+                            <dd id="cs-selected">—</dd>
+                          </div>
+                          <div>
+                            <dt>Status</dt>
+                            <dd>
+                              <span class="status-pill-mini" id="cs-status"
+                                >Idle</span
+                              >
+                            </dd>
+                          </div>
+                        </dl>
+                        <div class="sum-check">
+                          <h4>What gets cleaned</h4>
+                          <ul>
+                            <li>Temporary files and system caches</li>
+                            <li>Browser caches — only if selected</li>
+                            <li>Recycle Bin contents — only if selected</li>
+                            <li>Old installers you tick — never automatic</li>
+                          </ul>
+                        </div>
+                        <p class="important-box">
+                          <strong>Important</strong
+                          ><span
+                            >This operation cannot be undone. Make sure you have
+                            reviewed the selected items before proceeding.</span
+                          >
+                        </p>
+                      </aside>
+                    </div>
+                    <div class="cleanup-actions cleanup-actions-premium">
+                      <span
+                        class="cleanup-busy hidden"
+                        id="cleanup-operation"
+                        role="status"
+                        >Removing confirmed selections…</span
+                      >
+                      <div class="cleanup-btn-col">
+                        <button
+                          class="btn btn-cleanup-premium"
+                          disabled=""
+                          id="cleanup-btn"
+                          type="button"
+                        >
+                          <span aria-hidden="true" class="btn-shine"></span
+                          ><span id="cleanup-btn-label">Clean up</span>
+                        </button>
+                      </div>
+                    </div>
+                    <div
+                      class="cleanup-result dim hidden"
+                      id="cleanup-status"
+                    ></div>
+                    <ul
+                      class="dl-list cleanup-failures hidden"
+                      id="cleanup-failures"
+                    ></ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section aria-label="Overview" class="view hidden" id="view-overview">
+            <div class="results-stack">
+              <div class="results-head posture">
+                <div class="headline-wrap">
+                  <div class="eyebrow">System posture</div>
+                  <h1 class="headline" id="ov-posture">Not assessed</h1>
+                  <div class="subline" id="ov-subline">
+                    Run a Rescue Scan to establish the evidence available on
+                    this system.
+                  </div>
+                  <div class="subline dim" id="ov-scope">
+                    No scan has run this session.
+                  </div>
+                </div>
+                <button
+                  class="btn btn-primary"
+                  id="overview-rescue-btn"
+                  type="button"
+                >
+                  Start Rescue Scan
+                </button>
+              </div>
+              <div class="metric-grid" id="ov-metrics">
+                <div class="metric-card">
+                  <span class="metric-value" id="ov-coverage-state">—</span
+                  ><span class="metric-label">COVERAGE</span>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-value" id="ov-last-scan">—</span
+                  ><span class="metric-label">LAST SCAN</span>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-value" id="ov-findings">—</span
+                  ><span class="metric-label">FINDINGS</span>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-value" id="ov-quarantined">—</span
+                  ><span class="metric-label">QUARANTINED</span>
+                </div>
+              </div>
+              <div class="overview-columns">
+                <div id="overview-evidence">
+                  <section class="panel">
+                    <h2 class="section-title">Recent findings</h2>
+                    <div id="ov-recent">
+                      <div class="empty-state">
+                        <strong>No evidence collected yet</strong>Start a scan
+                        to inspect this system’s persistence sources.
+                      </div>
+                    </div>
+                  </section>
+                  <div class="panel" id="ov-actions-panel">
+                    <h2 class="section-title">
+                      Evidence timeline · this session
+                    </h2>
+                    <ul class="log" id="ov-actions"></ul>
+                    <div class="empty-state" id="ov-actions-empty">
+                      Scan progress and confirmed actions will appear here.
+                    </div>
+                  </div>
+                  <div class="panel" id="ov-incident-panel">
+                    <h2 class="section-title">Login observation</h2>
+                    <div class="coverage-note dim" id="ov-incident">
+                      No login observation recorded this session.
+                    </div>
+                  </div>
+                </div>
+                <div id="overview-coverage">
+                  <div class="panel" id="ov-coverage-panel">
+                    <h2 class="section-title">Coverage summary</h2>
+                    <ul class="coverage-list" id="ov-coverage">
+                      <li>
+                        <span class="cov-dot"></span
+                        ><span class="cov-name">Not assessed</span
+                        ><span class="cov-detail">No collectors have run.</span>
+                      </li>
+                    </ul>
+                    <div class="coverage-note dim">
+                      Some collectors do not report access coverage. Completed
+                      collection is shown separately from verified coverage.
+                    </div>
+                  </div>
+                  <section class="panel">
+                    <h2 class="section-title">Watcher / USB</h2>
+                    <p class="dim">Status unavailable in this console.</p>
+                    <p class="coverage-note">
+                      Pairing and watcher installation are managed with
+                      cure-watch.exe. The console cannot verify their
+                      connection.
+                    </p>
+                  </section>
+                </div>
+              </div>
+              <div class="panel" id="ov-report-panel">
+                <h2 class="section-title">Export evidence</h2>
+                <div class="report-row">
+                  <span class="report-copy dim"
+                    >Explicit export — runs fresh scans, remediates nothing.
+                    Findings carry evidence, ATT&amp;CK, signature, and
+                    recommended actions.</span
+                  >
+                  <span class="flex-spacer"></span>
+                  <label class="redact-check"
+                    ><input checked="" id="exp-redact" type="checkbox" /> Redact
+                    personal paths</label
+                  >
+                  <button class="btn" id="exp-txt" type="button">
+                    Export TXT
+                  </button>
+                  <button class="btn" id="exp-json" type="button">
+                    Export JSON
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section
+            aria-label="Startup audit"
+            class="view hidden"
+            id="view-audit"
+          >
+            <div class="results-stack">
+              <nav aria-label="Investigation tools" class="tool-nav">
+                <button class="btn" data-route="results-view" type="button">
+                  Findings</button
+                ><button
+                  class="btn"
+                  data-route="view-audit"
+                  id="tool-audit-view-audit"
+                  type="button"
+                >
+                  Persistence audit</button
+                ><button
+                  class="btn"
+                  data-route="view-processes"
+                  id="tool-process-view-audit"
+                  type="button"
+                >
+                  Processes</button
+                ><button
+                  class="btn"
+                  data-route="view-incident"
+                  id="tool-incident-view-audit"
+                  type="button"
+                >
+                  Login observation
+                </button>
+              </nav>
+              <div class="results-head">
+                <div class="headline-wrap">
+                  <h1 class="headline">Persistence audit</h1>
+                  <div class="subline" id="audit-subline"></div>
+                </div>
+              </div>
+              <div class="panel">
+                <h2 class="section-title">PERSISTENCE FINDINGS</h2>
+                <div
+                  aria-label="Audit filters"
+                  class="proc-filters"
+                  role="group"
+                >
+                  <button class="filter-btn on" data-af="all" type="button">
+                    All
+                  </button>
+                  <button class="filter-btn" data-af="HighRisk" type="button">
+                    High risk
+                  </button>
+                  <button class="filter-btn" data-af="Suspicious" type="button">
+                    Suspicious
+                  </button>
+                </div>
+                <ul class="entry-cards" id="audit-list"></ul>
+                <div class="dim" id="audit-note"></div>
+              </div>
+            </div>
+          </section>
+          <section
+            aria-label="Process sentinel"
+            class="view hidden"
+            id="view-processes"
+          >
+            <div class="results-stack">
+              <nav aria-label="Investigation tools" class="tool-nav">
+                <button class="btn" data-route="results-view" type="button">
+                  Findings</button
+                ><button
+                  class="btn"
+                  data-route="view-audit"
+                  id="tool-audit-view-processes"
+                  type="button"
+                >
+                  Persistence audit</button
+                ><button
+                  class="btn"
+                  data-route="view-processes"
+                  id="tool-process-view-processes"
+                  type="button"
+                >
+                  Processes</button
+                ><button
+                  class="btn"
+                  data-route="view-incident"
+                  id="tool-incident-view-processes"
+                  type="button"
+                >
+                  Login observation
+                </button>
+              </nav>
+              <div class="results-head">
+                <div class="headline-wrap">
+                  <h1 class="headline">Process evidence</h1>
+                  <div class="subline" id="proc-subline"></div>
+                </div>
+              </div>
+              <div class="panel">
+                <div
+                  aria-label="Process filters"
+                  class="proc-filters"
+                  role="group"
+                >
+                  <button class="filter-btn on" data-f="all" type="button">
+                    All
+                  </button>
+                  <button class="filter-btn" data-f="HighRisk" type="button">
+                    High risk
+                  </button>
+                  <button class="filter-btn" data-f="Suspicious" type="button">
+                    Suspicious
+                  </button>
+                </div>
+                <div class="table-wrap">
+                  <table class="data-table" id="proc-table">
+                    <caption class="sr-only">
+                      Running processes observed during this scan
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Process</th>
+                        <th scope="col">PID</th>
+                        <th scope="col">Path</th>
+                        <th scope="col">Score</th>
+                        <th scope="col">Risk</th>
+                        <th scope="col">Reasons</th>
+                        <th scope="col"><span class="sr-only">Action</span></th>
+                      </tr>
+                    </thead>
+                    <tbody id="proc-rows"></tbody>
+                  </table>
+                </div>
+                <div class="empty-state hidden" id="proc-empty">
+                  No flagged processes in the last scan.
+                </div>
+              </div>
+            </div>
+          </section>
+          <section
+            aria-label="Quarantine"
+            class="view hidden"
+            id="view-quarantine"
+          >
+            <div class="results-stack">
+              <div class="results-head">
+                <div class="headline-wrap">
+                  <h1 class="headline">Quarantine</h1>
+                  <div class="subline" id="q-subline">
+                    Recorded file moves. Restore bytes to their original
+                    location with scoped undo.
+                  </div>
+                </div>
+                <span class="flex-spacer"></span>
+                <button class="btn" id="q-refresh" type="button">
+                  Refresh
+                </button>
+              </div>
+              <div class="panel">
+                <div class="receipt hidden" id="q-receipt" role="status"></div>
+                <ul class="entry-cards" id="q-list"></ul>
+                <div class="empty-state hidden" id="q-empty">
+                  <strong>Quarantine is empty</strong>Confirmed file moves will
+                  appear here with integrity metadata and Undo.
+                </div>
+              </div>
+            </div>
+          </section>
+          <section
+            aria-label="Event log"
+            class="view hidden"
+            id="view-eventlog"
+          >
+            <div class="results-stack">
+              <nav aria-label="Monitor tools" class="tool-nav">
+                <button class="btn" data-route="view-eventlog" type="button">
+                  Session events</button
+                ><button class="btn" data-route="view-canary" type="button">
+                  Canary tripwire
+                </button>
+              </nav>
+              <div class="results-head">
+                <div class="headline-wrap">
+                  <h1 class="headline">Event Log</h1>
+                  <div class="subline">
+                    Session events only — scan progress, canary alerts, and
+                    actions taken in this run.
+                  </div>
+                </div>
+                <span class="flex-spacer"></span>
+                <button class="btn" id="log-clear" type="button">
+                  Clear view
+                </button>
+              </div>
+              <div class="panel">
+                <ul class="log" id="event-log-list"></ul>
+                <div class="empty-state hidden" id="event-log-empty">
+                  No events yet this session.
+                </div>
+              </div>
+            </div>
+          </section>
+          <section
+            aria-label="Canary guard"
+            class="view hidden"
+            id="view-canary"
+          >
+            <div class="results-stack">
+              <nav aria-label="Monitor tools" class="tool-nav">
+                <button class="btn" data-route="view-eventlog" type="button">
+                  Session events</button
+                ><button class="btn" data-route="view-canary" type="button">
+                  Canary tripwire
+                </button>
+              </nav>
+              <div class="results-head">
+                <div class="headline-wrap">
+                  <h1 class="headline">Canary tripwire</h1>
+                  <div class="subline">Decoy-based ransomware tripwire.</div>
+                </div>
+              </div>
+              <div class="panel canary-detail">
+                <div class="canary-status-row">
+                  <span class="severity-badge" id="can-state">OFF</span>
+                  <button class="btn" id="can-toggle" type="button">
+                    Enable guard
+                  </button>
+                </div>
+                <p class="experimental-note">
+                  <strong>Experimental.</strong> Plants
+                  <code>~cure-canary-*</code> decoys in Desktop, Documents and
+                  Downloads, watches for tampering and bulk-encryption patterns,
+                  and polls for shadow-copy-wiping tools. This is a tripwire —
+                  not full ransomware protection.
+                </p>
+                <div class="coverage-note dim">
+                  Limitations: detects decoy tampering and crude bulk-encryption
+                  patterns only. Verify any alert with a rescue scan — the alert
+                  below is session evidence, not a diagnosis.
+                </div>
+                <h2 class="section-title">SESSION ALERTS</h2>
+                <ul class="log" id="can-alerts"></ul>
+                <div class="empty-state hidden" id="can-empty">
+                  No canary alerts this session.
+                </div>
+              </div>
+            </div>
+          </section>
+          <section
+            aria-label="Post-login incident investigation"
+            class="view hidden"
+            id="view-incident"
+          >
+            <div class="results-stack">
+              <nav aria-label="Investigation tools" class="tool-nav">
+                <button class="btn" data-route="results-view" type="button">
+                  Findings</button
+                ><button
+                  class="btn"
+                  data-route="view-audit"
+                  id="tool-audit-view-incident"
+                  type="button"
+                >
+                  Persistence audit</button
+                ><button
+                  class="btn"
+                  data-route="view-processes"
+                  id="tool-process-view-incident"
+                  type="button"
+                >
+                  Processes</button
+                ><button
+                  class="btn"
+                  data-route="view-incident"
+                  id="tool-incident-view-incident"
+                  type="button"
+                >
+                  Login observation
+                </button>
+              </nav>
+              <div class="results-head">
+                <div class="headline-wrap">
+                  <h1 class="headline">Post-Login Investigation</h1>
+                  <div class="subline">
+                    Correlate startup persistence with observed process and
+                    window activity.
+                  </div>
+                </div>
+              </div>
+              <div class="panel" id="inc-prepare">
+                <h2 class="section-title">
+                  STEP 1 — PREPARE · OBSERVATION WINDOW
+                </h2>
+                <div class="incident-prepare">
+                  <p class="dim">
+                    C.U.R.E. will observe startup activity for a limited period.
+                    Observation installs nothing and modifies nothing — no
+                    Startup, registry, service, or task changes. For true
+                    post-login capture, start the observation within a minute of
+                    logging in; a reboot flow is intentionally not offered.
+                  </p>
+                  <p class="dim">
+                    Each choice passively records process starts/exits and
+                    window titles/classes only — no screenshots, no keystrokes,
+                    no window contents. Longer windows catch more activity but
+                    keep this screen busy.
+                  </p>
+                  <div
+                    aria-label="Observation duration — how long to observe"
+                    class="proc-filters"
+                    role="group"
+                  >
+                    <span class="commit-label" id="inc-dur-label"
+                      >Observe for:</span
+                    >
+                    <button
+                      aria-describedby="inc-dur-label"
+                      class="filter-btn"
+                      data-dur="15"
+                      type="button"
+                    >
+                      15 sec
+                    </button>
+                    <button
+                      aria-describedby="inc-dur-label"
+                      class="filter-btn on"
+                      data-dur="30"
+                      type="button"
+                    >
+                      30 sec
+                    </button>
+                    <button
+                      aria-describedby="inc-dur-label"
+                      class="filter-btn"
+                      data-dur="60"
+                      type="button"
+                    >
+                      60 sec
+                    </button>
+                    <button
+                      aria-describedby="inc-dur-label"
+                      class="filter-btn"
+                      data-dur="120"
+                      type="button"
+                    >
+                      120 sec
+                    </button>
+                  </div>
+                  <div class="incident-actions">
+                    <button class="btn" id="btn-incident-start" type="button">
+                      Start login investigation
+                    </button>
+                    <span
+                      class="kill-status"
+                      id="inc-status"
+                      role="status"
+                    ></span>
+                  </div>
+                  <div
+                    class="cleanup-note dim hidden"
+                    id="inc-progress"
+                    role="status"
+                  ></div>
+                </div>
+              </div>
+              <div class="panel hidden" id="inc-results">
+                <h2 class="section-title">INCIDENT STATUS</h2>
+                <div class="canary-status-row">
+                  <span class="severity-badge" id="inc-verdict">—</span>
+                  <span class="dim" id="inc-verdict-why"></span>
+                </div>
+                <div
+                  aria-live="polite"
+                  class="inc-meta dim"
+                  id="inc-meta"
+                ></div>
+                <div
+                  class="receipt hidden"
+                  id="inc-receipt"
+                  role="status"
+                ></div>
+                <details class="corr-legend">
+                  <summary>
+                    What do DIRECT / STRONG / PARTIAL / WEAK / NONE mean?
+                  </summary>
+                  <ul>
+                    <li>
+                      <strong>DIRECT</strong> — finding's executable path
+                      matches the observed executable path (normalized). Service
+                      entries additionally require the reported PID to match.
+                      Matched path + process.
+                    </li>
+                    <li>
+                      <strong>STRONG</strong> — finding command and observed
+                      command line reference each other (executable substring
+                      either direction, or shared distinctive arguments ≥12
+                      chars) with the launch inside the window. Matched
+                      command/path + timing.
+                    </li>
+                    <li>
+                      <strong>PARTIAL</strong> — same executable file name,
+                      different paths (both shown). Matched name only.
+                    </li>
+                    <li>
+                      <strong>WEAK</strong> — same folder but different program,
+                      or a child of a correlated process. Temporal/structural
+                      proximity only.
+                    </li>
+                    <li><strong>NONE</strong> — no observed relationship.</li>
+                  </ul>
+                  <p class="dim">
+                    Correlation does not by itself establish malicious intent.
+                    Levels and verdicts are deterministic — see the methodology
+                    note in the report export.
+                  </p>
+                </details>
+              </div>
+              <div class="panel hidden" id="inc-scope-panel">
+                <h2 class="section-title">OBSERVATION WINDOW / SCOPE</h2>
+                <ul class="coverage-list" id="inc-scope"></ul>
+                <div class="coverage-note dim">
+                  Command lines are fetched only for correlated processes
+                  (bounded). Window evidence is titles + classes only — no
+                  screenshots, no keystrokes, no contents.
+                </div>
+              </div>
+              <div class="panel hidden" id="inc-timeline-panel">
+                <h2 class="section-title">
+                  TIMELINE — WHAT WAS OBSERVED, WHEN
+                </h2>
+                <div class="coverage-note dim">
+                  Each event shows its timestamp and, where the backend
+                  collected it, the process, PID, PPID, path, command line,
+                  correlation, and window. Unavailable values say “Not
+                  collected”. Long values truncate visually — hover or focus to
+                  see the full value; all evidence text is selectable.
+                </div>
+                <ul class="log inc-timeline" id="incident-timeline"></ul>
+              </div>
+              <div class="panel hidden" id="inc-review-panel">
+                <h2 class="section-title">
+                  CORRELATIONS — WHAT CONNECTS TO WHAT
+                </h2>
+                <h2 class="sub-h3 section-title">
+                  SUPPORTING EVIDENCE (DIRECT · STRONG)
+                </h2>
+                <ul class="entry-cards" id="inc-corr-strong"></ul>
+                <h2 class="sub-h3 section-title">
+                  WEAK / PARTIAL SIGNALS (REVIEW MANUALLY)
+                </h2>
+                <ul class="entry-cards" id="inc-correlations"></ul>
+                <div class="empty-state hidden" id="inc-corr-empty">
+                  No observed process relates to a startup finding.
+                </div>
+              </div>
+              <div class="panel hidden" id="inc-processes-panel">
+                <h2 class="section-title">
+                  PROCESSES — WHAT RAN DURING THE WINDOW
+                </h2>
+                <ul class="entry-cards" id="inc-processes"></ul>
+                <div class="empty-state hidden" id="inc-processes-empty">
+                  No processes recorded in this observation.
+                </div>
+              </div>
+              <div class="panel hidden" id="inc-windows-panel">
+                <h2 class="section-title">
+                  VISIBLE WINDOWS — TITLES AND CLASSES ONLY
+                </h2>
+                <ul class="entry-cards" id="inc-windows"></ul>
+                <div class="empty-state hidden" id="inc-windows-empty">
+                  No transient windows observed.
+                </div>
+              </div>
+              <div class="panel hidden" id="inc-recovery-panel">
+                <h2 class="section-title">
+                  INSUFFICIENT OBSERVATION — WHAT TO DO NEXT
+                </h2>
+                <div class="recovery-copy">
+                  <p class="dim">
+                    Observation could not run or produced no usable data.
+                    <strong>This is not a clean bill of health.</strong>
+                  </p>
+                  <ul class="evidence-list">
+                    <li>
+                      Re-run with a longer window (60 or 120 sec) and keep the
+                      machine otherwise idle — popups welcome.
+                    </li>
+                    <li>
+                      Start the observation within a minute of logging in for
+                      true post-login capture.
+                    </li>
+                    <li>
+                      If the failure persists, check elevation (standard-user
+                      scans may skip system locations) and re-run elevated to
+                      compare counts.
+                    </li>
+                    <li>
+                      Export the report anyway — it records the
+                      failed/unavailable observation so the gap is auditable.
+                    </li>
+                  </ul>
+                </div>
+              </div>
+              <div class="panel" id="inc-limits-panel">
+                <h2 class="section-title">
+                  LIMITATIONS — WHAT COULD NOT BE OBSERVED
+                </h2>
+                <ul class="limits-list">
+                  <li>
+                    Sub-500 ms processes may be missed (snapshot + WMI delivery
+                    timing).
+                  </li>
+                  <li>Command lines are collected only for correlated PIDs.</li>
+                  <li>
+                    PIDs are re-validated before any action; PID reuse is
+                    handled, not assumed.
+                  </li>
+                  <li>
+                    No persistence or reboot capture — observation installs
+                    nothing.
+                  </li>
+                  <li>
+                    Window/process lifetimes carry ±500 ms poll precision where
+                    applicable.
+                  </li>
+                </ul>
+              </div>
+              <div class="panel hidden" id="inc-export-panel">
+                <h2 class="section-title">EXPORT REPORT — KEEP THE EVIDENCE</h2>
+                <div class="report-row">
+                  <span class="report-copy dim"
+                    >JSON/TXT incident report: investigation id, elevation,
+                    coverage, timeline, window events, correlations,
+                    findings.</span
+                  >
+                  <span class="flex-spacer"></span>
+                  <button class="btn" id="exp-inc-txt" type="button">
+                    Export TXT
+                  </button>
+                  <button class="btn" id="exp-inc-json" type="button">
+                    Export JSON
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </main>
+        <footer class="footbar">
+          <span class="console-credit">EVIDENCE CONSOLE</span>
+          <div id="footbar-msg" role="status">Ready</div>
+          <button class="ghost-btn" id="btn-quarantine-folder" type="button">
+            Open quarantine folder
+          </button>
+          <button class="ghost-btn" id="btn-view-log" type="button">
+            View full log
+          </button>
+          <button class="ghost-btn" id="btn-exit" type="button">Exit</button>
+        </footer>
+      </div>
+    </div>
+    <div class="canary-alert-overlay hidden" id="canary-alert-overlay">
+      <div
+        aria-describedby="canary-alert-detail"
+        aria-labelledby="canary-alert-title"
+        aria-modal="true"
+        class="canary-alert-modal"
+        role="alertdialog"
+      >
+        <svg aria-hidden="true" class="canary-alert-icon" viewBox="0 0 24 24">
+          <path
+            d="M12 2L4 6v5c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4z"
+            fill="currentColor"
+            opacity="0.15"
+          ></path>
+          <path
+            d="M12 2L4 6v5c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+          ></path>
+          <line
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-width="2"
+            x1="12"
+            x2="12"
+            y1="8"
+            y2="13"
+          ></line>
+          <circle cx="12" cy="16" fill="currentColor" r="1.2"></circle>
+        </svg>
+        <div class="canary-alert-title" id="canary-alert-title">
+          Canary activity requires review
+        </div>
+        <div class="canary-alert-detail" id="canary-alert-detail"></div>
+        <p class="canary-alert-exp">
+          <strong>Experimental.</strong> Canary Guard is a decoy tripwire, not
+          guaranteed protection — verify with a rescue scan.
+        </p>
+        <div class="canary-alert-actions">
+          <button class="btn" id="canary-dismiss-btn" type="button">
+            Dismiss
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-overlay hidden" id="confirm-overlay">
+      <div
+        aria-describedby="confirm-facts"
+        aria-labelledby="confirm-title"
+        aria-modal="true"
+        class="modal"
+        role="alertdialog"
+      >
+        <div class="modal-kicker" id="confirm-kicker">Confirm action</div>
+        <div class="modal-title" id="confirm-title">Are you sure?</div>
+        <dl class="modal-facts" id="confirm-facts"></dl>
+        <p class="modal-note hidden" id="confirm-note"></p>
+        <div class="modal-actions">
+          <button class="btn" id="confirm-cancel" type="button">Cancel</button>
+          <button class="btn btn-danger" id="confirm-ok" type="button">
+            Confirm
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="drawer-overlay hidden" id="evidence-overlay">
+      <section
+        aria-labelledby="evidence-title"
+        aria-modal="true"
+        class="drawer"
+        id="evidence-inspector"
+        role="dialog"
+      >
+        <header class="drawer-head">
+          <div>
+            <div class="eyebrow">Evidence inspector</div>
+            <h2 class="modal-title" id="evidence-title">Finding</h2>
+            <div class="subline" id="evidence-subtitle"></div>
+          </div>
+          <button class="btn" id="evidence-close" type="button">Close</button>
+        </header>
+        <div class="drawer-body" id="evidence-body"></div>
+      </section>
+    </div>
+    <script src="evidence-sweep.js"></script>
+    <script src="app.js"></script>
+    <div class="drawer-overlay hidden" id="inc-drawer-overlay">
+      <div
+        aria-labelledby="inc-drawer-title"
+        aria-modal="true"
+        class="drawer"
+        id="inc-drawer"
+        role="dialog"
+      >
+        <div class="drawer-head">
+          <div class="headline-wrap">
+            <div class="modal-kicker">Evidence inspector</div>
+            <div class="modal-title" id="inc-drawer-title">Evidence</div>
+            <div class="subline" id="inc-drawer-sub"></div>
+          </div>
+          <span class="flex-spacer"></span>
+          <button class="btn" id="inc-drawer-close" type="button">Close</button>
+        </div>
+        <dl class="detail-drawer inc-drawer-body" id="inc-drawer-body"></dl>
+      </div>
+    </div>
+  </body>
 </html>

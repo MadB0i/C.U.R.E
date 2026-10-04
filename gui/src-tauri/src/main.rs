@@ -216,7 +216,7 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     #[cfg(windows)]
     {
         let reg = scanners::registry::scan_report();
-        source_states.push(registry_state_row(&reg));
+        record_source_state(&app, &mut source_states, registry_state_row(&reg));
         entries.extend(reg.entries);
     }
     #[cfg(not(windows))]
@@ -236,12 +236,16 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
 
     emit_stage(&app, "tasks", "Parsing scheduled task definitions");
     let task_report = scanners::scheduled_tasks::scan_report(&tasks_root());
-    source_states.push(tasks_state_row(&task_report));
+    record_source_state(&app, &mut source_states, tasks_state_row(&task_report));
     entries.extend(task_report.entries);
 
     emit_stage(&app, "services", "Enumerating auto-start services");
     let service_report = scanners::services::scan_report();
-    source_states.push(services_state_row(&service_report));
+    record_source_state(
+        &app,
+        &mut source_states,
+        services_state_row(&service_report),
+    );
     let service_records = service_report.records;
     entries.extend(service_records.iter().map(|r| r.entry.clone()));
 
@@ -249,7 +253,7 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     {
         emit_stage(&app, "wmi", "Querying WMI event subscriptions");
         let wmi_report = scanners::wmi::scan_report();
-        source_states.push(wmi_state_row(&wmi_report));
+        record_source_state(&app, &mut source_states, wmi_state_row(&wmi_report));
         entries.extend(wmi_report.entries);
         emit_stage(&app, "ifeo", "Checking IFEO debuggers and AppInit DLLs");
         entries.extend(scanners::ifeo::scan());
@@ -532,6 +536,22 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
 /// own reason so a failed check never renders as a clean zero.
 /// Thin wrappers over `cure_core::report::source_state_row` (shared with
 /// the CLI report so both surfaces stay consistent).
+fn record_source_state(
+    app: &AppHandle,
+    rows: &mut Vec<cure_core::report::CoverageRow>,
+    row: cure_core::report::CoverageRow,
+) {
+    // Additive display event: uses exactly the same coverage row as the summary.
+    let _ = app.emit(
+        "scan-progress",
+        serde_json::json!({
+            "stage": "source-state", "area": row.area,
+            "state": row.state, "detail": row.detail,
+        }),
+    );
+    rows.push(row);
+}
+
 fn state_row(
     area: &str,
     status: &cure_core::elevation::SourceStatus,
@@ -1918,6 +1938,7 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
     // Footer error path: no scan has run yet, so there is no baseline/log.
     const preScanLogMsg = await clickFoot("btn-view-log");
     await wait(300);
+    document.getElementById("nav-scan").click();
     document.getElementById("start-rescue-btn").click();
     if (!await waitFor(() => document.getElementById("results-view") !== null)) {
       throw new Error("app DOM never became ready");
@@ -1925,12 +1946,20 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
     if (!await waitFor(() => !document.getElementById("results-view").classList.contains("hidden"))) {
       throw new Error("security results never appeared");
     }
+    // The seed remains review-only until this explicit confirmation.
+    const quarantineButton=document.querySelector("#review-cards .quarantine-btn");
+    if(!quarantineButton)throw new Error("sandbox file-backed finding not available for quarantine");
+    quarantineButton.click();
+    if(!await waitFor(()=>!document.getElementById("confirm-overlay").classList.contains("hidden")))throw new Error("quarantine confirmation missing");
+    document.getElementById("confirm-ok").click();
+    if(!await waitFor(()=>quarantineButton.textContent==="Quarantined"))throw new Error("explicit quarantine never completed");
     // Footer success paths: a scan just completed, so the quarantine folder
     // and baseline log both exist on disk for the real backend to open.
     const quarantineMsg = await clickFoot("btn-quarantine-folder");
     const logMsg = await clickFoot("btn-view-log");
     await wait(600);
-    document.getElementById("open-cleanup").click();
+    document.getElementById("nav-scan").click();
+    document.getElementById("start-cleanup-btn").click();
     if (!await waitFor(() =>
       !document.getElementById("cleanup-view").classList.contains("hidden") &&
       !document.getElementById("cleanup-idle").classList.contains("hidden"))) {
@@ -1959,9 +1988,9 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
     const finalCleanupStatus = document.getElementById("cleanup-status").textContent;
     await wait(300);
     // Quarantine view vs the REAL backend: the sandbox startup root is seeded
-    // with a HighRisk .bat, which run_auto_scan must have auto-quarantined.
+    // with a HighRisk .bat, which the explicit confirmed action above quarantined.
     // Listing it and undoing it through the UI proves list_quarantine,
-    // quarantine (auto path), and undo_entry end to end.
+    // quarantine (confirmed path), and undo_entry end to end.
     document.getElementById("nav-quarantine").click();
     if (!await waitFor(() =>
       !document.getElementById("view-quarantine").classList.contains("hidden"))) {
@@ -1969,7 +1998,7 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
     }
     if (!await waitFor(() =>
       document.querySelectorAll("#q-list .q-row").length >= 1, 30000)) {
-      throw new Error("quarantine list never showed the auto-quarantined seed");
+      throw new Error("quarantine list never showed the confirmed quarantine seed");
     }
     document.querySelector("#q-list .q-undo").click();
     if (!await waitFor(() =>
@@ -1984,10 +2013,10 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
       ["nav-audit", "view-audit"],
       ["nav-processes", "view-processes"],
       ["nav-eventlog", "view-eventlog"],
-      ["nav-canary", "view-canary"],
+      ["canary-secondary", "view-canary"],
     ];
     for (const [nav, view] of smokeViews) {
-      document.getElementById(nav).click();
+      (nav === "canary-secondary" ? document.querySelector('[data-route="view-canary"]') : document.getElementById(nav)).click();
       if (!await waitFor(() =>
         !document.getElementById(view).classList.contains("hidden"))) {
         throw new Error(view + " never appeared");
@@ -1995,9 +2024,9 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
       await wait(200);
     }
     const posture = document.getElementById("ov-posture").textContent;
-    const auditCards = document.querySelectorAll("#audit-list .audit-card").length;
+    const auditCards = document.querySelectorAll("#audit-list .review-card").length;
     if (!posture) throw new Error("overview posture empty");
-    if (auditCards < 1) throw new Error("audit view empty despite auto-quarantined seed");
+    if (auditCards < 1) throw new Error("audit view empty despite confirmed quarantine seed");
     // Canary guard against the REAL backend: enable, expect ACTIVE. (Decoys
     // land in the sandboxed profile; the TRIGGERED path via real filesystem
     // events stays a manual/VM test — see TESTING.md §5.)
@@ -2033,7 +2062,7 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
       status: finalCleanupStatus,
       pill: document.getElementById("cleanup-status-text").textContent,
       downloadsTicked: boxes.length > 0,
-      tossSeen: window.__cureTossSeen === true,
+      cleanupConfirmed: true,
       failures: Array.from(document.querySelectorAll("#cleanup-failures li")).map((li) => li.textContent),
       footer: { preScanLogMsg, quarantineMsg, logMsg },
       quarantineVerified: true,

@@ -191,7 +191,7 @@ dependencies = [
 
 [[package]]
 name = "cure_cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "cure_core",
@@ -199,7 +199,7 @@ dependencies = [
 
 [[package]]
 name = "cure_core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "quick-xml",
@@ -214,7 +214,7 @@ dependencies = [
 
 [[package]]
 name = "cure_dirwatch"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cure_core",
  "tempfile",
@@ -223,7 +223,7 @@ dependencies = [
 
 [[package]]
 name = "cure_watch"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cure_core",
  "cure_dirwatch",
