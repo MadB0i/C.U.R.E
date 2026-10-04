@@ -63,6 +63,11 @@ def finish_scan(page):
 
 
 def layout(page, label):
+    # Measure settled geometry, not the drawer's entrance transform. Keep
+    # infinite scan/companion loops running; they must not block layout checks.
+    page.wait_for_function("""() => document.getAnimations().every(a =>
+      !Number.isFinite(a.effect.getComputedTiming().endTime) ||
+      (!a.pending && a.playState !== 'running'))""")
     result = page.evaluate("""() => {
       const width=innerWidth;
       const visible=e=>e.getClientRects().length && getComputedStyle(e).visibility!=='hidden';
@@ -233,6 +238,10 @@ def states(browser, capture=False):
                 row = page.locator("#review-cards .review-card").first
                 check(row.locator(".quarantine-btn").count() == 0, "non-file-backed source gets guidance only")
             if name == "long-values":
+                # A slower test-only entrance makes this CI timing regression
+                # reproducible even when evidence metadata resolves immediately.
+                page.locator("#evidence-inspector").evaluate(
+                    "e => e.style.animationDuration = '600ms'")
                 page.locator("#review-cards .finding-select").first.click()
                 page.wait_for_function("document.querySelector('#evidence-body').textContent.includes('UNSIGNED')")
                 check(page.locator("#evidence-title img").count() == 0, "attacker-controlled name is escaped")
