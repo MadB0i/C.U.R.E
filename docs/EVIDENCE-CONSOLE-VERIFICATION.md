@@ -14,10 +14,10 @@ remains framework-free, offline, and backed by the existing Tauri commands.
 | Workspace and GUI Clippy, all targets, warnings denied | Passed |
 | Root and GUI release builds, version 0.2.0 | Passed |
 | Shipped JavaScript syntax, offline URL guard, `git diff --check` | Passed |
-| Native Python Playwright full suite | 262 checks passed |
+| Native Python Playwright full suite | 268 checks passed |
 | Existing layout command | 80 checks passed |
 | Existing pixel command | 68 checks passed |
-| Documentation capture command | 102 checks passed; seven 1440×900 PNGs |
+| Documentation capture command | 108 checks passed; seven 1440×900 PNGs |
 | Documentation demo command | Completed scan → finding → inspector → confirm → quarantine → undo |
 | Real CLI baseline guard | Passed; isolated output, Desktop/home unchanged |
 | Real CLI quarantine regression | Passed; unconfirmed call refused, explicit move, byte identity, idempotence, scoped undo |
@@ -42,13 +42,20 @@ footer stays inside the window. Findings lead the investigation view;
 confirmation explicitly separates changes, unchanged behavior and undo.
 
 The reviewed media uses labelled deterministic sample data. The GIF is
-1100px wide, eight frames per second, about 14 seconds; an MP4 is also saved.
+1100px wide, eight frames per second, about 15 seconds; an MP4 is also saved.
 This demonstrates the interface and control flow, not malware detection.
 
 ## Limits of this verification
 
-Mock browser coverage does not substitute for a real WebView2/Windows
-collection run, an elevated/standard-user comparison, or a human NVDA pass.
+The final release audit additionally passed 45 checks against the production
+Windows/WebView2 executable: offline launch, real scan, fixture move/undo,
+keyboard focus, physical 900×600 resize at 125% DPI, emulated 200% scaling,
+reduced motion and zero runtime errors/remote application requests. Six
+native axe scans found zero violations. See
+[the final audit](FINAL-RELEASE-AUDIT-0.2.0.md).
+
+Browser/native automation does not substitute for an elevated/standard-user
+comparison or a human NVDA pass.
 The interactive overlay fixture and native desktop E2E driver remain opt-in
 and were not run during this redesign. No host process was terminated or
 host persistence remediated by the GUI tests. Real CLI move/undo checks used

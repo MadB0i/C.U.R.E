@@ -31,15 +31,25 @@ tests in isolated temporary directories. They require a current release CLI.
 The real-desktop overlay fixture is opt-in under `testing/` and is not run by
 the mock suite. A human screen-reader pass remains part of release validation.
 
+Native test drivers require a separate GUI build with `--features desktop-e2e`.
+Normal release builds exclude those environment-triggered drivers and embed
+only the production asset allowlist. Build distributables with
+`tools/build-release.ps1` to remap the builder's local source paths; run
+`python tools/audit-candidate.py <candidate-directory>` after packaging.
+
 Public assets use labelled mock data:
 
 ```powershell
 node tools/docs-capture/capture.mjs
 node tools/docs-capture/demo.mjs
-ffmpeg -y -i docs/media/demo.webm -an docs/media/demo.mp4
-ffmpeg -y -i docs/media/demo.webm -vf "fps=8,scale=1100:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse" docs/media/demo.gif
+ffmpeg -y -ss 0.75 -i docs/media/demo.webm -an -c:v libx264 -crf 20 -pix_fmt yuv420p docs/media/demo.mp4
+ffmpeg -y -ss 0.75 -i docs/media/demo.webm -vf "fps=8,scale=1100:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse" docs/media/demo.gif
 ```
 
 Screenshots fix time/timezone, disable entrance motion, and wait on actual
 mock events. The sweep layout has no randomness. Local outputs are ignored;
 the seven deliberate documentation assets are committed under `docs/`.
+
+The current recording has a 0.75-second browser initialization lead-in; the
+encoding commands trim it so the public loop opens on the loaded Overview.
+Recheck the first frame after recapture rather than including blank frames.
