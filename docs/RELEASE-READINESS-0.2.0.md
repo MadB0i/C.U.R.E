@@ -4,11 +4,11 @@ Prepared 2026-10-04. **Recommended version: v0.2.0. READY TO PUSH for PR CI;
 publication still requires successful remote CI and the human screen-reader gate.**
 The public v0.1.0 release and its tag remain untouched.
 
-**Exact tested source/media/package commit:** `ee44f787749175fb50fd6069b1669314a08f309b`
+**Exact tested source/media/package commit:** `d225a9d0feee994880078bc7bbd3736416bddace`
 
 Branch: `codex/evidence-console`. This report is a subsequent documentation
 commit. It does not change the tested executable bytes. No push, merge, tag
-or publication was performed. See [the final audit](FINAL-RELEASE-AUDIT-0.2.0.md).
+or publication was performed. See [companion verification](COMPANION-PASS-VERIFICATION.md).
 
 ## Candidate replacement
 
@@ -16,23 +16,25 @@ The original `release-candidate/v0.2.0/` from
 `267cbf9d42835763297f55e6119269413441c75a` is **REJECTED / SUPERSEDED**.
 The final audit found embedded development assets/test drivers and builder
 paths. That directory is preserved, not overwritten; do not distribute it.
-Use only `release-candidate/v0.2.0-final/` for this locally verified candidate.
+The prior verified `release-candidate/v0.2.0-final/` is now **SUPERSEDED** by
+the companion pass. It is preserved, not overwritten. Use only
+`release-candidate/v0.2.0-companion/` for the current local candidate.
 
 ## Required release assets
 
 | Asset | Local candidate SHA-256 |
 | --- | --- |
-| `cure-gui.exe` | `9b5a868617b1cc82b3096b65d6e8d19add055f161cbe8b58394022941fff0bc6` |
+| `cure-gui.exe` | `e991770dc0f398b9bd2c193cbe3772b55b5385927f9d586f8d9d28373b24b4ba` |
 | `cure-watch.exe` | `7fe70d4d3c7b252a1f4c2f348f5ef98bf9866facbe594bc4a8eca03143912589` |
 | `cure.exe` | `9338c30e85f9e4c3fc1e900ce33a9194f3dcf11bf8e461dc0b6c423e5210d28e` |
-| `cure-v0.2.0.zip` | `2811ec75dc7f2e29786b08a42fc5ec8e9aad59eccd42eeebcbe73ec19d1ad3cb` |
+| `cure-v0.2.0.zip` | `c637ea02a094b5b6d9acf1460e3c2f00d81feda6f8c70318c538ac2dd4f4f82f` |
 | `SHA256SUMS.txt` | External manifest covering three EXEs and the ZIP |
 
-ZIP: **12,720,749 bytes**. The ignored candidate directory contains the ZIP,
+ZIP: **13,462,328 bytes**. The ignored candidate directory contains the ZIP,
 external manifest and `portable/` staging directory. The GUI is byte-identical
-to the production executable used for 45 native checks. All 17 ZIP entries
+to the production executable used for the final 50 native checks. All 19 ZIP entries
 match staging byte-for-byte. All four external and three internal hashes pass
-`python tools/audit-candidate.py release-candidate/v0.2.0-final`.
+`python tools/audit-candidate.py release-candidate/v0.2.0-companion`.
 
 These are local build hashes. Release-runner bytes may differ; publish
 checksums generated from the actual uploaded artifacts, never reuse this
@@ -40,7 +42,7 @@ manifest for a different build.
 
 ## Portable ZIP contents
 
-Exactly 17 files:
+Exactly 19 files:
 
 - `cure-gui.exe`, `cure.exe`, `cure-watch.exe`
 - `README.md`, `LICENSE`, `SECURITY.md`, `RELEASE-NOTES.md`
@@ -53,10 +55,13 @@ Exactly 17 files:
 - `docs/screenshots/05-quarantine-confirm.png`
 - `docs/screenshots/06-quarantine.png`
 - `docs/screenshots/07-all-clear.png`
+- `docs/screenshots/08-cleanup.png`
+- `docs/screenshots/09-cleanup-result.png`
 - `docs/media/demo.gif`
 
 No source, mocks, test drivers, PDBs, temporary captures or installers are
-packaged. Production Tauri embeds an explicit four-file frontend allowlist.
+packaged. Production Tauri embeds an explicit six-file frontend allowlist,
+including the offline SVG companion script and stylesheet.
 Artifact checks find no current builder workspace/profile paths or common
 credential markers in EXEs. Windows 10/11 and host WebView2 are required.
 Data defaults to `%LOCALAPPDATA%\CURE`. Watcher consent/pairing is separate.
@@ -79,16 +84,18 @@ refuses an existing published release; only an explicit 404 permits creation.
 ## Presentation and verification
 
 README retains the evidence-first title/subtitle, Overview hero, three factual
-values, release link and labelled sample workflow. Seven 1440×900 PNGs were
-reviewed individually. GIF: **1100×688, 122 frames, 15.26 seconds, 8 fps**;
+values, release link and labelled sample workflow. Nine 1440×900 PNGs were
+reviewed individually. GIF: **1100×688, 166 frames, 20.76 seconds, 8 fps**;
 MP4 refreshed. Blank recording lead-in removed. The sequence covers launch,
-scan, sweep, finding, inspector, confirmation, quarantine and undo.
+scan, sweep, finding, inspector, confirmation, quarantine, undo and separately
+confirmed cleanup. Luma remains contained; technical records and consequence
+copy remain serious. Mock cleanup counts/rescans match successful selections.
 
 Local final gates: **364 Rust tests; 4 Tauri tests (1 ignored); formatting;
 strict Clippy (GUI all features); production release builds; JS syntax;
-268 browser checks; 80 layout; 68 pixel; 108 capture; demo capture;
-real CLI baseline and quarantine/undo regressions; 45 production native
-checks; six native axe scans with zero violations; exact package audit.**
+312 browser checks; 80 layout; 68 pixel; 152 capture; demo capture;
+real CLI baseline and quarantine/undo regressions; 50 production native
+checks; seven native axe scans with zero violations; exact package audit.**
 These browser/layout/pixel counts overlap and are not summed.
 
 Remote CI for this branch is **NOT RUN / pending push and PR**. Workflow source
@@ -99,7 +106,11 @@ successful CI on the PR head and the human accessibility pass below.
 
 - Human NVDA, live overlay close/force, elevated comparison, real OS
   reduced-motion toggle, and other physical monitor DPIs: **NOT VALIDATED**.
-  Actual host 125% DPI and emulated 200% scaling were tested.
+  Actual host 125% DPI and emulated 900×600/200% scaling were tested. The prior
+  audit's physical window-resize gate was not repeated in the companion pass.
+  Native permanent disk cleanup was not exercised against host files; browser
+  mock checks and existing Rust tests cover that behavior. Its busy state has
+  no invented incremental progress because the engine provides only a result.
 - Only Registry, Tasks, Services and WMI report explicit coverage. Other
   collectors show coverage not reported. Watcher/USB status has no GUI API.
 - Evidence metadata may be unavailable; legacy quarantine records can lack
