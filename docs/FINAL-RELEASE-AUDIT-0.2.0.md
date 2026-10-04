@@ -2,7 +2,7 @@
 
 **Historical audit of the prior visual pass.** The user's subsequent companion
 brief supersedes its visual/media/package verdict. Current validation is in
-[companion verification](COMPANION-PASS-VERIFICATION.md); current artifact
+[Rescue Console visual verification](UI-REDESIGN-VERIFICATION.md); current artifact
 commit and hashes are in [release readiness](RELEASE-READINESS-0.2.0.md).
 The earlier candidate is preserved and must not be used for the latest UI.
 

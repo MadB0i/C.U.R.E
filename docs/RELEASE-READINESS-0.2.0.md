@@ -8,7 +8,7 @@ The public v0.1.0 release and its tag remain untouched.
 
 Branch: `codex/evidence-console`. This report is a subsequent documentation
 commit. It does not change the tested executable bytes. No push, merge, tag
-or publication was performed. See [companion verification](COMPANION-PASS-VERIFICATION.md).
+or publication was performed. See [Rescue Console visual verification](UI-REDESIGN-VERIFICATION.md).
 
 ## Candidate replacement
 

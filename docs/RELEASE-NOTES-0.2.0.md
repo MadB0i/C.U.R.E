@@ -6,12 +6,12 @@ Evidence-first Windows persistence inspection and reversible quarantine.
   persistence-layer plates, a bounded chassis board with the system core, and an
   inspection beam that travels to whichever collector the backend reports as
   running. Layer state follows actual collection events and reported coverage.
-- **Luma**: an original offline vector companion with ten articulated states —
-  idle, three rotating scan actions (console, evidence scanner, observation
-  lens), three rotating cleanup actions (sweep, sort, recycler), success,
-  review, and a containment seal used only after a confirmed quarantine. Motion
-  can be paused with one gesture that also stops the scan field and storage
-  core, and respects reduced-motion preferences.
+- **Luma**: a compact offline status node, not a character. A graphite body with
+  a violet ring that reports state — idle breathes, scanning sweeps an arc,
+  cleanup collapses segments, review pulses amber, and success or seal draws a
+  green ring once and rests. Flat and filter-free, sized to stay secondary to the
+  measurements beside it. Motion can be paused with one gesture that also stops
+  the scan field and storage core, and respects reduced-motion preferences.
 - **Disk Cleanup** is a primary destination with a segmented storage core: one
   arc and one proportional bar per real engine category, sized from measured
   byte totals, with the reclaimed arc drawn from the engine's own

@@ -1,5 +1,11 @@
 # Evidence Console verification — 2026-10-04
 
+> **Historical.** This verifies the Evidence Console pass that preceded the
+> Rescue Console redesign. For the current visual and test verification see
+> [UI-REDESIGN-VERIFICATION.md](UI-REDESIGN-VERIFICATION.md). Its statements
+> about the former companion artwork describe a visual pass that has since been
+> replaced.
+
 The implementation was audited before modification. See
 [the architecture and safety audit](EVIDENCE-CONSOLE-AUDIT.md). The frontend
 remains framework-free, offline, and backed by the existing Tauri commands.
@@ -53,7 +59,7 @@ pause/persistence, real scan, fixture move/undo, keyboard focus, emulated
 900×600 and 200% scaling, reduced motion and zero runtime errors/remote
 application requests. Seven native axe scans found zero violations. Host DPI
 was 125%; the earlier audit's physical resize check was not repeated in this
-pass. See [companion verification](COMPANION-PASS-VERIFICATION.md) for details.
+pass. See [Rescue Console visual verification](UI-REDESIGN-VERIFICATION.md) for details.
 
 Browser/native automation does not substitute for an elevated/standard-user
 comparison or a human NVDA pass.

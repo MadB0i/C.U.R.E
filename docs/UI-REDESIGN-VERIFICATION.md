@@ -113,16 +113,22 @@ New checks: six destinations with icon-and-title-only labels, X-Ray canvas
 backing store, all nine layers reported, instrument panel above the fold at
 900×600, real instrument counts, unmeasured cleanup never inventing bytes, the
 reclaimed receipt using the engine's `bytes_freed`, storage core occupying the
-cleanup stage, companion variant rotation, one pause gesture governing the whole
-presentation, every companion state having its own expression and prop, the
-generated dev shell staying in sync, and the production allowlist matching the
-shipped frontend.
+cleanup stage, node variant rotation, one pause gesture governing the whole
+presentation, every node state having its own visual treatment, the node
+carrying no text or raster data and no glow filter, the node staying under
+96px so it remains secondary to real measurements, the generated dev shell
+staying in sync, and the production allowlist matching the shipped frontend.
 
 The blanket "no gradient / no glow" string ban was replaced with **measured**
-pixel gates: violet share between 1.5% and 11% of pixels, at most three
+pixel gates: violet share between 1.0% and 11% of pixels, at most three
 dominant saturated hue families, a dark graphite surface, and real tonal depth
 (2nd–98th percentile luminance spread ≥ 40). Palette failures must now be
 fixed in the design, not in the check.
+
+The violet floor was later lowered from 1.5% to 1.0%: it had been calibrated
+while a large illustrated character dominated the frame. With the character
+replaced by the small status node, the interface alone paints 1.33%. The upper
+bound, which is the actual design guard, was not changed.
 
 ## Remaining limitations
 

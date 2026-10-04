@@ -1,234 +1,137 @@
 # C.U.R.E
 
-**Evidence-first Windows persistence inspection and reversible quarantine.**
+### Evidence-first Windows rescue and persistence inspection.
+
+C.U.R.E shows what starts with Windows, why it was flagged,
+and what will change before you act.
 
 [![CI](https://github.com/MadB0i/C.U.R.E/actions/workflows/ci.yml/badge.svg)](https://github.com/MadB0i/C.U.R.E/actions/workflows/ci.yml)
 
-![C.U.R.E Rescue Console — System X-Ray during a live collection run, sample data from the deterministic mock backend](docs/screenshots/02-scan.png)
+![C.U.R.E Rescue Console: System X-Ray during a live collection run, sample data from the deterministic mock backend](docs/screenshots/02-scan.png)
 
-- Inspect Windows persistence sources and review the evidence behind each risk score.
-- See collection coverage and access limits alongside findings.
-- Quarantine supported files only after confirmation, then restore with scoped undo.
-- Reclaim real disk space from temp files, browser caches, Recycle Bin and
-  `Windows.old` — measured by the engine, deleted only after you confirm.
+- Inspect Windows persistence points and suspicious processes.
+- Review evidence before taking action.
+- Quarantine supported files with integrity-checked undo.
 
-[**Download latest release**](https://github.com/MadB0i/C.U.R.E/releases/latest)
+![Sample flow: launch, Rescue Scan, System X-Ray, finding, evidence, confirmed quarantine, undo, then a separately confirmed Disk Cleanup. Sample data.](docs/media/demo.gif)
 
-Binaries are unsigned. Windows 10/11 with WebView2 is required — no installer,
-no admin needed for the core flows. The Rescue Console shown here is the
-prepared **0.2.0 candidate**; the current public release is still v0.1.0. No new
-tag or release has been published.
+[Watch the same flow as MP4](docs/media/demo.mp4) · [WebM](docs/media/demo.webm)
 
-![Sample workflow: launch → Rescue Scan → System X-Ray → finding → evidence → confirmed quarantine → undo → separately confirmed cleanup](docs/media/demo.gif)
+Malware that survives a reboot hides in startup folders, Run keys, scheduled
+tasks, services and WMI subscriptions. C.U.R.E reads those mechanisms, scores
+every finding **with its evidence attached**, and moves — never deletes —
+files you confirm, with a recorded, byte-identical undo. Anything it will not
+touch automatically, such as the registry, is reported as guidance instead.
 
-The interface is built around the **System X-Ray**, a sectioned view of the
-machine being inspected: nine persistence layers on the left, the system core
-on a bounded board, and an inspection beam that travels to whichever collector
-the backend says is running. **Luma**, an original vector companion, works the
-scanner console, the evidence scanner and the cleanup bins, and rotates through
-distinct action sets rather than one repeating loop. Evidence, coverage limits
-and operator controls remain central; every number on screen comes from the
-local engine.
+## What it inspects
 
-## Why it exists
+| Layer | What C.U.R.E reads |
+|---|---|
+| Registry | Run/RunOnce keys, Startup folders — **guidance only, never modified** |
+| Startup | Startup folders and shortcuts |
+| Tasks | Scheduled task definitions and actions |
+| Services | Service image paths and descriptions |
+| WMI | Event subscriptions and permanent consumers |
+| IFEO | Image File Execution Options debugger entries |
+| COM | Hijackable COM registrations |
+| Processes | Running process list and command lines |
+| Disk Cleanup | Temp files, browser caches, Recycle Bin, `Windows.old` |
 
-Malware that survives a reboot hides in startup folders, Run keys,
-scheduled tasks, services, and WMI subscriptions. C.U.R.E inspects those
-mechanisms, risk-scores every finding **with its evidence attached**, and
-lets you quarantine files (never delete) with a recorded, scoped undo —
-or tells you exactly which manual backup-first steps to take for things it
-will never touch automatically (registry, services, WMI).
+Scoring is heuristic: Authenticode status, path reputation, LOLBin shapes and
+local indicators, each with the reason shown beside it. Treat Suspicious and
+High as investigation leads, not verdicts.
 
-## How it works
+## Screenshots
 
-```
-scan      → collectors read persistence locations (nothing is changed)
-score     → heuristics + Authenticode + local hash IOCs → risk + reasons
-YOU CONFIRM → per-item quarantine confirmation, or CLI --yes (never automatic)
-quarantine→ recorded move to quarantine/ (+ ACL snapshot) …
-undo      → … restored byte-identical, ACLs included, or a fidelity note
-```
+| | |
+|---|---|
+| ![Evidence inspector showing the summary, the reasons a startup entry was flagged, its persistence source, target, signature and resolved SHA-256](docs/screenshots/04-evidence-inspector.png) | ![Disk Cleanup with a measured storage core, per-category ledger and reclaimable total](docs/screenshots/08-cleanup.png) |
+| **Evidence inspector** — why it was flagged, and what it points at. | **Disk Cleanup** — measured first, deleted only after you confirm. |
+| ![Cleanup result showing bytes freed taken from the engine receipt and the per-category outcome](docs/screenshots/09-cleanup-result.png) | ![Review required listing persistence findings with scores and reasons](docs/screenshots/03-review-required.png) |
+| **Cleanup result** — the receipt is the engine's own, not an estimate. | **Review required** — every finding carries its score and reason. |
 
-It is evidence-first: nothing is remediated on the basis of a score
-alone. It is a diagnostic instrument, not an antivirus: no guaranteed
-malware detection, no real-time protection, no cloud threat intelligence,
-no automatic malware removal.
+All screenshots and demo media use labelled mock sample data.
 
-## Key design principles
+## Download
 
-- **No auto-scan.** Every run starts with one explicit click or command.
-- **User control.** Destructive actions confirm per item; non-interactive
-  sessions refuse instead of guessing.
-- **Local-only, no network by default.** No telemetry, no accounts, no
-  threat lookup. Certificate revocation is cache-only unless you pass
-  `--online-revocation`.
-- **Move, never delete.** Quarantine relocates with size+hash integrity
-  checks and restores ACLs/timestamps; orphans are reported, never purged.
-- **Honest limits.** Uncheckable areas render as INCOMPLETE, never "clean".
-  The Canary Guard is an experimental tripwire, not protection.
+The published release is **v0.1.0**. v0.2.0 is prepared and awaiting release.
 
-## Security model / threat model
+[**Releases**](https://github.com/MadB0i/C.U.R.E/releases/latest)
 
-What is trusted:
+Each release archive contains:
 
-- The rescue USB **you prepared** and the host-installed copies it pins on
-  first consented run (`%LOCALAPPDATA%\CURE\cure-gui.exe`, pinned by
-  SHA-256; the watcher launches nothing else, ever).
-- Your own explicit confirmations (Start Rescue click, `[y/N]` prompts,
-  `--yes` flags, per-window overlay Close buttons). Nothing destructive
-  runs without one.
+| File | What it is |
+|---|---|
+| `cure-gui.exe` | Desktop Rescue Console (Tauri, needs WebView2) |
+| `cure.exe` | CLI scanner, quarantine and undo |
+| `cure-watch.exe` | USB watcher: consent, pairing, launch, uninstall |
+| portable ZIP | The above, no installer |
+| `SHA256SUMS.txt` | Hashes for the archive contents |
 
-What is NOT trusted:
-
-- Any other USB stick, including its `.cure-trigger` file and any
-  executables it carries. A copied trigger without this machine's pairing
-  token is ignored; a drive-supplied binary is never executed — verified
-  live with a swapped-exe test (see `docs/validation/REAL-PC-VALIDATION.md`).
-- Data from the scanned machine: file names, registry values, task XML,
-  and window titles are attacker-controlled input. They are displayed
-  escaped (never executed, never passed to a shell) and scores treat them
-  as evidence, not verdicts.
-
-Overlay windows: candidates are **shown** (process, path, PID, signature,
-size, monitor coverage) and each close is a separate click — graceful
-`WM_CLOSE` by default, process termination only via an explicit per-window
-Force-close. Matching additionally requires ≥90% monitor coverage plus a
-path+hash user allowlist. Known surface: a *fullscreen*, unsigned,
-borderless, topmost window (unsigned game, AHK tool, installer splash) is
-still *shown* for your judgement — see the honest-limits note in
-`testing/real-pc/README-TESTING.md`.
-
-Cooperative vs enforced: quarantine/undo integrity (pending records,
-atomic saves, hash checks) is **enforced** by the engine. Stopping malware
-that is already running as your user is **not** — same-user code execution
-is outside what any user-space scanner can enforce, and C.U.R.E does not
-claim otherwise.
-
-## Install / run / uninstall
-
-No installer, no admin needed for the core flows (scanning HKLM areas and
-the Task Scheduler root show INCOMPLETE rows instead when unelevated).
+Windows 10/11 with WebView2 (preinstalled on current Windows). **Binaries are
+currently unsigned.** No installer and no administrator rights are needed for
+the core flows; unelevated scans show INCOMPLETE rows instead of guessing.
 
 ```bat
-:: CLI
 cure.exe --data-dir .\cure-data scan
 cure.exe --data-dir .\cure-data quarantine <id>     :: asks first
 cure.exe --data-dir .\cure-data undo <id>
-
-:: Desktop UI (needs WebView2, preinstalled on modern Windows)
-cure-gui.exe
-
-:: Watcher: first run asks Yes/No, then watches for paired USBs
-cure-watch.exe
-cure-watch.exe pair E:
-cure-watch.exe --uninstall --dry-run
-cure-watch.exe --uninstall          :: asks first; ends with clean/leftovers
 ```
 
-## Build from source
+## Safety and limitations
+
+**C.U.R.E is a diagnostic and rescue tool. It is not an antivirus or an EDR.**
+It does not guarantee malware detection, provides no real-time protection, and
+will not make an infected machine safe on its own.
+
+- **Nothing runs without you.** No auto-scan: every run starts with one
+  explicit click or command. Non-interactive sessions refuse rather than guess.
+- **Local only.** No telemetry, no accounts, no cloud lookups. Certificate
+  revocation is cache-only unless you pass `--online-revocation`.
+- **Move, never delete.** Quarantine relocates with size and hash integrity
+  checks, snapshots ACLs, and restores byte-identical — or reports exactly what
+  could not be restored.
+- **Honest gaps.** Areas that could not be read render as INCOMPLETE, never as
+  "clean". Disk Cleanup is the one permanent deletion, and it is a separate,
+  explicitly confirmed action.
+- **Scoring is heuristic.** Novel attacker patterns outside the known list can
+  score Safe. `%VAR%` expansion depends on the process environment.
+- **Same-user code execution is out of scope.** Stopping malware already
+  running as your user is not enforced by any user-space scanner.
+
+## Build and validate
 
 ```bat
-cargo build --release        :: cure.exe + cure-watch.exe (root workspace)
-
+cargo build --release        :: cure.exe + cure-watch.exe
 cd gui\src-tauri
-cargo build --release        :: cure-gui.exe (GUI workspace)
-```
+cargo build --release        :: cure-gui.exe
 
-Requires Windows 10/11 with WebView2 (preinstalled on modern systems).
-
-## Testing
-
-```bat
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
-
-cd gui\src-tauri
-cargo test                   :: headless-safe GUI tests (one desktop test is #[ignore]d)
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
 ```
 
-The GUI has deterministic state, accessibility, keyboard, layout, reduced-motion
-and pixel checks. They use mock data and make no changes to the host:
+The GUI ships an offline, framework-free frontend and has deterministic
+state, accessibility, keyboard, layout, reduced-motion and pixel checks that
+use mock data and change nothing on the host:
 
 ```powershell
 python -m pip install -r gui/devtools/requirements.txt
 python -m playwright install chromium
 cd gui/devtools
-npm ci
-npm test
-npm run layout
-npm run pixel
+npm ci && npm test && npm run layout && npm run pixel
 ```
 
-See [GUI verification](gui/devtools/README.md) for capture commands and
-[rescue console redesign verification](docs/UI-REDESIGN-VERIFICATION.md) for
-the visual pass and its checks, plus
-[release readiness](docs/RELEASE-READINESS-0.2.0.md) for the candidate commit,
-checks, assets and remaining validation limits.
+## Documentation
 
-Counts move with every fix, so they are not hardcoded here — the CI badge
-at the top is authoritative. The `#[ignore]`d overlay test needs an
-interactive desktop: `testing\run-gui-desktop-tests.bat`.
-
-## Validation status
-
-From `docs/validation/REAL-PC-VALIDATION.md` (real Windows 11 PC,
-standard user, 2026-09-24). Nothing below is claimed beyond that report.
-
-| Area | Verified live | Unit-tested | Code-verified only | Not validated |
-|---|---|---|---|---|
-| Scan detects Run/Startup persistence + risk levels | ✓ | ✓ | | |
-| Registry guidance-only (never moved) | ✓ | | | |
-| Quarantine move + record | ✓ | ✓ | | |
-| Undo byte-identical + ACL restore | ✓ | ✓ | | |
-| Dry-run / unknown-id / double-undo errors | ✓ | ✓ | | |
-| Non-TTY refusal (exit 1, untouched) | ✓ | ✓ | | |
-| Watcher consent, pairing, token rows, swapped-exe never launched | ✓ | ✓ | | |
-| `cure-watch --uninstall` + clean verify | ✓ | ✓ | | |
-| Overlay matcher (coverage gate, allowlist, attribution) | | ✓ | | |
-| Overlay card / close / force / allowlist loop (live UI) | | | | ✓ |
-| Revocation UNVERIFIED state | | ✓ | | |
-| Cold-cache revocation, elevated scans | | | | ✓ |
-| `cleanup run`, DISM | | | | ✓ |
-| Real-malware canary | | | | ✓ (synthetic by design) |
-| GUI fully offline (no remote URLs) | | | ✓ (grep + CI gate) | |
-| Scoring weights, WMI/service/error paths | | ✓ | | |
-| LOLBin scoring (discounts withheld, remote-arg) + live 114-entry zero-diff FP check | ✓ (zero-diff) | ✓ | | |
-
-## Project structure
-
-```
-core/            scanners, scoring, quarantine/undo, reports, signatures
-cli/             cure.exe
-watch/           cure-watch.exe (USB pairing, launch, canary, uninstall)
-winwatch/        shared directory watching + decoy planting
-gui/             Tauri v2 frontend (dist/ ships offline; index.dev.html = mock)
-testing/         fake-overlay fixture · real-pc/ live kit · vm-stage/ VM harness
-tools/docs-capture/  screenshot/demo entry points sharing the verified GUI flow
-docs/            screenshots/ · media/ · validation/ · ARCHITECTURE.md
-```
-
-See `docs/ARCHITECTURE.md` (one page) and `testing/real-pc/README-TESTING.md`
-(manual checklist) for more.
-
-## Limitations / roadmap
-
-- Scoring is heuristic-based, not a verdict engine: weights favor
-  precision (benign signed tools stay Safe), so novel attacker patterns
-  outside the heuristic list can score Safe — notably, only *known*
-  LOLBin/argument shapes are flagged, and `%VAR%` expansion depends on the
-  process environment. Treat Suspicious/High as investigation leads.
-- Needs elevation for HKLM areas and the Task Scheduler root (reported as
-  INCOMPLETE, never silent).
-- IOC feed is a labeled DEMO fixture; a signed-feed provider is future work.
-- No Winget/store installer yet; no signed binaries shipped. New release packaging
-  includes SHA256SUMS.txt for the executables and ZIP; it is not a publisher signature.
-- Some collectors do not report explicit access coverage. Watcher/USB connection
-  status is unavailable in the GUI; pairing remains a watcher CLI operation.
-- Overlay live loop, cold-cache revocation, and USB-passthrough timing
-  still want an isolated box (see the validation report).
+[Release notes](docs/RELEASE-NOTES-0.2.0.md) ·
+[Release readiness](docs/RELEASE-READINESS-0.2.0.md) ·
+[Visual verification](docs/UI-REDESIGN-VERIFICATION.md) ·
+[Architecture](docs/ARCHITECTURE.md) ·
+[GUI verification](gui/devtools/README.md) ·
+[Real-PC validation report](docs/validation/REAL-PC-VALIDATION.md) ·
+[Manual test checklist](testing/real-pc/README-TESTING.md) ·
+[Security policy](SECURITY.md)
 
 ## License
 

@@ -1,5 +1,9 @@
 # Evidence Console redesign audit
 
+> **Historical.** This audits the interface as it stood before the Rescue
+> Console redesign. For current verification see
+> [UI-REDESIGN-VERIFICATION.md](UI-REDESIGN-VERIFICATION.md).
+
 Audited 2026-10-04 from 4bcdbf8. Existing framework-free Tauri v2 contracts remain authoritative.
 
 ## Product surface and transitions
