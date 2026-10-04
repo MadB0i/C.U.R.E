@@ -64,12 +64,19 @@ def finish_scan(page):
     expect(page.locator("#results-view")).to_be_visible(timeout=30000)
 
 
-def layout(page, label):
-    # Measure settled geometry, not the drawer's entrance transform. Keep
-    # infinite scan/companion loops running; they must not block layout checks.
+def settled(page):
+    # Wait for entrance animations to finish before measuring or clicking.
+    # Infinite loops (the LUMA node, the scan field, the storage core) must not
+    # block: they have no finite end time and are ignored here.
     page.wait_for_function("""() => document.getAnimations().every(a =>
       !Number.isFinite(a.effect.getComputedTiming().endTime) ||
       (!a.pending && a.playState !== 'running'))""")
+
+
+def layout(page, label):
+    # Measure settled geometry, not the drawer's entrance transform. Keep
+    # infinite scan/companion loops running; they must not block layout checks.
+    settled(page)
     result = page.evaluate("""() => {
       const width=innerWidth;
       const visible=e=>e.getClientRects().length && getComputedStyle(e).visibility!=='hidden';
@@ -480,7 +487,13 @@ def luma_states(browser):
     check(page.locator('[data-companion="result"]').get_attribute('data-state')!='seal',
           'no seal state before any quarantine')
     page.locator('#nav-results').click()
-    page.locator('#review-cards .quarantine-btn').first.click()
+    # The review cards animate in, so their buttons have no stable box until the
+    # entrance finishes. Same settled-geometry wait the layout checks use; the
+    # assertions below are unchanged.
+    settled(page)
+    btn = page.locator('#review-cards .quarantine-btn').first
+    expect(btn).to_be_visible()
+    btn.click()
     page.locator('#confirm-ok').click()
     expect(page.locator('[data-companion="result"]')).to_have_attribute('data-state','seal')
     # LUMA is an instrument, not a character or a data source: no text to read,
