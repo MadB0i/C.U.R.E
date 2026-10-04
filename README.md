@@ -4,22 +4,31 @@
 
 [![CI](https://github.com/MadB0i/C.U.R.E/actions/workflows/ci.yml/badge.svg)](https://github.com/MadB0i/C.U.R.E/actions/workflows/ci.yml)
 
-![C.U.R.E Evidence Console — sample data from the deterministic mock backend](docs/screenshots/01-overview.png)
+![C.U.R.E Rescue Console — System X-Ray during a live collection run, sample data from the deterministic mock backend](docs/screenshots/02-scan.png)
 
 - Inspect Windows persistence sources and review the evidence behind each risk score.
 - See collection coverage and access limits alongside findings.
 - Quarantine supported files only after confirmation, then restore with scoped undo.
+- Reclaim real disk space from temp files, browser caches, Recycle Bin and
+  `Windows.old` — measured by the engine, deleted only after you confirm.
 
 [**Download latest release**](https://github.com/MadB0i/C.U.R.E/releases/latest)
 
-Binaries are unsigned. Windows 10/11 with WebView2 is required. The Evidence
-Console shown here is the prepared **0.2.0 candidate**; the current public
-release is still v0.1.0. No new tag or release has been published.
+Binaries are unsigned. Windows 10/11 with WebView2 is required — no installer,
+no admin needed for the core flows. The Rescue Console shown here is the
+prepared **0.2.0 candidate**; the current public release is still v0.1.0. No new
+tag or release has been published.
 
-![Sample workflow: launch → Rescue Scan → Evidence Sweep → finding → evidence → confirmed quarantine → undo → separately confirmed cleanup](docs/media/demo.gif)
+![Sample workflow: launch → Rescue Scan → System X-Ray → finding → evidence → confirmed quarantine → undo → separately confirmed cleanup](docs/media/demo.gif)
 
-The local SVG companion follows collection and confirmed cleanup state.
-Evidence, coverage limits and operator controls remain central.
+The interface is built around the **System X-Ray**, a sectioned view of the
+machine being inspected: nine persistence layers on the left, the system core
+on a bounded board, and an inspection beam that travels to whichever collector
+the backend says is running. **Luma**, an original vector companion, works the
+scanner console, the evidence scanner and the cleanup bins, and rotates through
+distinct action sets rather than one repeating loop. Evidence, coverage limits
+and operator controls remain central; every number on screen comes from the
+local engine.
 
 ## Why it exists
 
@@ -154,6 +163,8 @@ npm run pixel
 ```
 
 See [GUI verification](gui/devtools/README.md) for capture commands and
+[rescue console redesign verification](docs/UI-REDESIGN-VERIFICATION.md) for
+the visual pass and its checks, plus
 [release readiness](docs/RELEASE-READINESS-0.2.0.md) for the candidate commit,
 checks, assets and remaining validation limits.
 

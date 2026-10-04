@@ -7,10 +7,13 @@
     "frontendDist": [
       "../dist/index.html",
       "../dist/style.css",
-      "../dist/companion.css",
-      "../dist/companion.js",
-      "../dist/app.js",
-      "../dist/evidence-sweep.js"
+      "../dist/xray.css",
+      "../dist/luma.css",
+      "../dist/storage.css",
+      "../dist/luma.js",
+      "../dist/xray.js",
+      "../dist/storage-core.js",
+      "../dist/app.js"
     ]
   },
   "app": {

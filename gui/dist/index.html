@@ -4,11 +4,13 @@
   <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
-    <title>C.U.R.E — Evidence Console</title>
+    <title>C.U.R.E — Rescue Console</title>
     <!-- No remote fonts or assets: system font stack only (see style.css
        --font-ui). The app must work fully offline; see README threat model. -->
     <link href="style.css" rel="stylesheet" />
-    <link href="companion.css" rel="stylesheet" />
+    <link href="xray.css" rel="stylesheet" />
+    <link href="luma.css" rel="stylesheet" />
+    <link href="storage.css" rel="stylesheet" />
   </head>
   <body>
     <div class="fallback hidden" id="fallback">
@@ -33,7 +35,7 @@
           >
             <path
               d="M2 8V2h6M18 2h6v6M24 18v6h-6M8 24H2v-6M8 13h10M13 8v10"
-              stroke="var(--accent)"
+              stroke="var(--cure-400)"
               stroke-width="1.5"
             ></path>
           </svg>
@@ -48,12 +50,10 @@
             type="button"
           >
             <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path
-                d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"
+              <path d="M4 13h6V4H4zM14 20h6v-6h-6zM4 20h6v-4H4zM14 11h6V4h-6z"
               ></path></svg
-            ><span>Overview</span
-            ><span aria-hidden="true" class="nav-number">01</span></button
-          ><button
+            ><span>Overview</span></button>
+          <button
             aria-current="false"
             class="nav-item"
             data-view="scan-center"
@@ -61,10 +61,10 @@
             type="button"
           >
             <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M12 3v18M3 12h18M5 5l14 14"></path></svg
-            ><span>Rescue</span
-            ><span aria-hidden="true" class="nav-number">02</span></button
-          ><button
+              <path d="M12 4v16M4 12h16M6.5 6.5l11 11M17.5 6.5l-11 11"
+              ></path></svg
+            ><span>Rescue</span></button>
+          <button
             aria-current="false"
             class="nav-item"
             data-view="results-view"
@@ -72,12 +72,10 @@
             type="button"
           >
             <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path
-                d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16M16 16l6 6"
-              ></path></svg
-            ><span>Investigate</span
-            ><span aria-hidden="true" class="nav-number">03</span></button
-          ><button
+              <circle cx="10.5" cy="10.5" r="6.5"></circle>
+              <path d="M15.5 15.5L21 21"></path></svg
+            ><span>Investigate</span></button>
+          <button
             aria-current="false"
             class="nav-item"
             data-view="view-quarantine"
@@ -85,10 +83,21 @@
             type="button"
           >
             <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M3 7h18v14H3zM2 3h20v4H2zM9 12h6"></path></svg
-            ><span>Quarantine</span
-            ><span aria-hidden="true" class="nav-number">04</span></button
-          ><button
+              <path d="M4 8h16v11H4zM3 4h18v4H3zM9.5 12.5h5"></path></svg
+            ><span>Quarantine</span></button>
+          <button
+            aria-current="false"
+            class="nav-item"
+            data-view="cleanup-view"
+            id="nav-cleanup"
+            type="button"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <ellipse cx="12" cy="6.5" rx="7.5" ry="3"></ellipse>
+              <path d="M4.5 6.5v11c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-11M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"
+              ></path></svg
+            ><span>Disk Cleanup</span></button>
+          <button
             aria-current="false"
             class="nav-item"
             data-view="view-eventlog"
@@ -96,10 +105,8 @@
             type="button"
           >
             <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M3 6h18M3 12h18M3 18h12"></path></svg
-            ><span>Monitor</span
-            ><span aria-hidden="true" class="nav-number">05</span>
-          </button>
+              <path d="M3 12h4l2.5-6 4 12L16 12h5"></path></svg
+            ><span>Monitor</span></button>
         </nav>
         <div class="side-foot">
           <strong>LOCAL · OPERATOR CONTROLLED</strong
@@ -124,81 +131,118 @@
           ></span>
           <div class="pill scanning" id="status-pill">
             <span class="pill-dot"></span>
-            <svg class="pill-icon" viewBox="0 0 16 16">
-              <path d="M2 8.5l4 4L14 4"></path>
-            </svg>
-            <svg class="pill-icon warn" viewBox="0 0 16 16">
-              <path d="M8 1.5L15 14H1z"></path>
-              <line x1="8" x2="8" y1="6.5" y2="10"></line>
-              <circle cx="8" cy="12" r="0.5"></circle>
-            </svg>
             <span aria-live="polite" id="status-text">Ready</span>
           </div>
         </header>
         <main class="stage" id="stage-main" tabindex="-1">
+          <!-- ============================================================
+               RESCUE · live collection
+               ============================================================ -->
           <section class="view" id="scan-view">
-            <div class="page-head">
+            <div class="rescue-head">
               <div>
                 <div class="eyebrow">Rescue / Live collection</div>
-                <h1 class="headline">Evidence Sweep</h1>
+                <h1 class="headline">System X-Ray</h1>
+                <p class="subline">
+                  Read-only inspection of this machine. Remediation is a separate,
+                  explicitly confirmed action.
+                </p>
               </div>
-              <button class="btn hidden" id="scan-retry" type="button">
-                Retry scan
-              </button>
+              <div class="rescue-head-actions">
+                <button class="btn hidden" id="scan-retry" type="button">
+                  Retry scan
+                </button>
+              </div>
             </div>
-            <div class="scan-status">
-              <span class="dim" id="scan-scope"
-                >Read-only collection · remediation requires a separate
-                confirmed action.</span
-              >
-              <span class="flex-spacer"></span>
-              <span class="mono dim" id="scan-elapsed" aria-live="off"></span>
-            </div>
-            <div class="sweep-layout">
-              <div class="sweep-field" id="evidence-sweep">
-                <svg
-                  aria-labelledby="sweep-title sweep-desc"
-                  id="sweep-svg"
-                  role="img"
-                  viewBox="0 0 480 320"
-                >
-                  <title id="sweep-title">Persistence source topology</title>
-                  <desc id="sweep-desc">
-                    Source states are listed beside the field. Connections
-                    represent collection scope, not network traffic.
-                  </desc>
-                </svg>
-                <div class="sweep-summary">
-                  <span id="sweep-current" role="status"
-                    >Awaiting collection</span
-                  ><span id="sweep-items">0 entries inspected</span>
+            <div class="xray-hero">
+              <div class="xray-field" data-running="true" id="xray-field">
+                <canvas
+                  aria-hidden="true"
+                  class="xray-canvas"
+                  id="xray-canvas"
+                ></canvas>
+                <div class="xray-corner top">
+                  <span class="xray-tag">Sectioned chassis · 9 inspection
+                    layers</span>
+                </div>
+                <div class="xray-corner bottom">
+                  <span class="xray-live" id="xray-live">Collecting</span>
+                  <button
+                    class="ghost-btn xray-motion"
+                    id="xray-motion"
+                    type="button"
+                  >
+                    Pause field motion
+                  </button>
+                </div>
+                <div class="xray-core-readout" id="xray-core-readout">
+                  Awaiting collection
                 </div>
               </div>
-              <div class="sweep-side">
+              <div class="xray-side">
                 <div
                   class="companion scan-companion"
                   data-companion="scan"
                   aria-label="Scan companion"
                 ></div>
+              </div>
+            </div>
+            <div class="instrument">
+              <div class="ins-cell lead">
+                <span class="ins-label">Current collector</span>
+                <span class="ins-value" id="xray-phase">Preparing
+                  collection</span>
+              </div>
+              <div class="ins-cell">
+                <span class="ins-label">Entries inspected</span>
+                <span class="ins-value" id="xray-inspected">0</span>
+              </div>
+              <div class="ins-cell">
+                <span class="ins-label">Elapsed</span>
+                <span class="ins-value" id="scan-elapsed" aria-live="off"
+                  >elapsed 0.0s</span
+                >
+              </div>
+              <div class="ins-cell">
+                <span class="ins-label">Coverage</span>
+                <span class="ins-value" id="xray-coverage">—</span>
+              </div>
+              <div class="ins-cell">
+                <span class="ins-label">Findings</span>
+                <span class="ins-value" id="xray-findings">0</span>
+              </div>
+            </div>
+            <div class="xray-lower">
+              <section class="panel">
+                <h2 class="section-title">Inspection layers</h2>
                 <ul
                   aria-label="Collection source states"
                   class="sweep-sources"
                   id="sweep-sources"
                 ></ul>
-              </div>
-            </div>
-            <div class="feed-card">
-              <div class="feed-head">
-                <svg class="feed-icon" viewBox="0 0 16 16">
-                  <path d="M3 4l4 4-4 4"></path>
-                  <line x1="9" x2="13" y1="12" y2="12"></line>
-                </svg>
-                <span class="feed-title">Collection log</span>
-                <span class="feed-count" id="feed-count">0 ITEMS</span>
-              </div>
-              <ul class="log" id="log"></ul>
+                <div class="sweep-foot">
+                  <span>State <b id="sweep-current">Awaiting collection</b></span>
+                  <span>Inspected <b id="sweep-items">0 entries inspected</b></span>
+                  <span
+                    >Layer states come from reported collection coverage.
+                    <b>Incomplete coverage cannot establish an all-clear.</b></span
+                  >
+                </div>
+              </section>
+              <section class="panel feed-card">
+                <h2 class="section-title">Collection log</h2>
+                <div class="feed-head">
+                  <span class="feed-title">Live backend events</span>
+                  <span class="feed-count" id="feed-count">0 ITEMS</span>
+                </div>
+                <ul class="log" id="log"></ul>
+              </section>
             </div>
           </section>
+
+          <!-- ============================================================
+               RESCUE · preflight
+               ============================================================ -->
           <section aria-label="Rescue" class="view hidden" id="landing-view">
             <div class="page-head">
               <div>
@@ -217,16 +261,6 @@
                 Start Rescue Scan
               </button>
             </div>
-            <div class="tool-nav">
-              <button class="btn" id="start-cleanup-btn" type="button">
-                Disk cleanup
-              </button>
-            </div>
-            <div
-              class="companion"
-              data-companion="rescue"
-              aria-label="Rescue companion"
-            ></div>
             <div class="rescue-preflight">
               <section>
                 <h2 class="section-title">Collection sources</h2>
@@ -234,48 +268,49 @@
                   Coverage and access limits are reported with the results.
                 </p>
                 <ul class="source-index">
-                  <li><span>01</span>Startup folders</li>
-                  <li><span>02</span>Registry autoruns</li>
-                  <li><span>03</span>Scheduled tasks</li>
-                  <li><span>04</span>Services</li>
-                  <li><span>05</span>WMI subscriptions</li>
-                  <li><span>06</span>IFEO / AppInit</li>
-                  <li><span>07</span>COM registrations</li>
-                  <li><span>08</span>Running processes</li>
-                  <li><span>09</span>Ransom indicators</li>
+                  <li><b></b>Startup folders</li>
+                  <li><b></b>Registry autoruns</li>
+                  <li><b></b>Scheduled tasks</li>
+                  <li><b></b>Services</li>
+                  <li><b></b>WMI subscriptions</li>
+                  <li><b></b>IFEO / AppInit</li>
+                  <li><b></b>COM registrations</li>
+                  <li><b></b>Running processes</li>
+                  <li><b></b>Ransom indicators</li>
                 </ul>
               </section>
               <section>
                 <h2 class="section-title">Operator protocol</h2>
                 <ol class="protocol-list">
                   <li>
-                    <div>
-                      Inspect<small
-                        >Overlay candidates are shown for review. Each close is
-                        a separate action.</small
-                      >
-                    </div>
+                    <b>Inspect</b>
+                    <small
+                      >Overlay candidates are shown for review. Each close is a
+                      separate action.</small
+                    >
                   </li>
                   <li>
-                    <div>
-                      Review<small
-                        >Risk scores are investigation leads. Evidence and
-                        collection limits remain visible.</small
-                      >
-                    </div>
+                    <b>Review</b>
+                    <small
+                      >Risk scores are investigation leads. Evidence and
+                      collection limits remain visible.</small
+                    >
                   </li>
                   <li>
-                    <div>
-                      Decide<small
-                        >Quarantine moves supported files after confirmation.
-                        Restore them with scoped undo.</small
-                      >
-                    </div>
+                    <b>Decide</b>
+                    <small
+                      >Quarantine moves supported files after confirmation.
+                      Restore them with scoped undo.</small
+                    >
                   </li>
                 </ol>
               </section>
             </div>
           </section>
+
+          <!-- ============================================================
+               INVESTIGATE · findings
+               ============================================================ -->
           <section class="view hidden" id="results-view">
             <div class="results-main">
               <div class="results-stack">
@@ -311,6 +346,7 @@
                     <div class="subline" id="subline">
                       Start a Rescue Scan to collect findings for review.
                     </div>
+                    <div class="headline-rule"></div>
                   </div>
                   <span class="flex-spacer"></span>
                   <button class="btn" id="rescan-btn" type="button">
@@ -322,8 +358,7 @@
                   id="action-receipt"
                   role="status"
                 >
-                  <span aria-hidden="true" class="receipt-dot"></span
-                  ><span id="action-receipt-text"></span
+                  <span id="action-receipt-text"></span
                   ><button
                     aria-label="Dismiss this message"
                     class="ghost-btn receipt-x"
@@ -334,36 +369,33 @@
                   </button>
                 </div>
                 <div class="stats" id="stats-row">
-                  <div class="stat card tint-teal">
+                  <div class="stat">
                     <span id="stat-cleaned">0</span><label>QUARANTINED</label>
                   </div>
-                  <div class="stat card tint-amber">
+                  <div class="stat">
                     <span id="stat-review">0</span
                     ><label>FLAGGED FOR REVIEW</label>
                   </div>
-                  <div class="stat card tint-neutral">
+                  <div class="stat">
                     <span id="stat-safe">0</span><label>SAFE SCORE</label>
                   </div>
                 </div>
+                <div
+                  class="companion result-companion hidden"
+                  id="companion-result"
+                  data-companion="result"
+                  aria-label="Collection companion"
+                ></div>
                 <div class="panel" id="review-block">
                   <h2 class="section-title">Persistence findings</h2>
                   <ul class="entry-cards" id="review-cards"></ul>
                   <div class="all-clear" id="review-clear">
-                    <svg class="clear-check" viewBox="0 0 16 16">
-                      <path d="M2 8.5l4 4L14 4"></path>
-                    </svg>
                     <span
                       >No evidence collected yet. Run a scan from Rescue.</span
                     >
                   </div>
                 </div>
-                <div
-                  class="companion companion-success hidden"
-                  id="companion-result"
-                  data-companion="result"
-                  aria-label="Collection companion"
-                ></div>
-                <div class="panel" id="cleaned-block">
+                <div class="panel hidden" id="cleaned-block">
                   <h2 class="section-title">Quarantined after confirmation</h2>
                   <ul class="entry-cards cleaned" id="cleaned-cards"></ul>
                 </div>
@@ -389,9 +421,9 @@
                   <h2 class="section-title">RANSOM INDICATORS</h2>
                   <div class="entry-cards" id="ransom-cards"></div>
                   <div class="hidden" id="ransom-link">
-                    If a ransomware family was identified, check
-                    nomoreransom.org (typed by you into a browser) for a known
-                    decryptor. C.U.R.E cannot decrypt files and never links out.
+                    If a ransomware family was identified, check nomoreransom.org
+                    (typed by you into a browser) for a known decryptor. C.U.R.E
+                    cannot decrypt files and never links out.
                   </div>
                 </div>
                 <div class="panel" id="res-coverage-panel">
@@ -405,154 +437,134 @@
               </div>
             </div>
           </section>
-          <section class="view hidden" id="cleanup-view">
-            <div class="results-main">
-              <div class="results-stack">
-                <div class="results-head">
-                  <div class="headline-wrap">
-                    <h1 class="headline">Disk Cleanup</h1>
-                    <div class="subline" id="cleanup-subline"></div>
-                    <ol
-                      aria-label="Cleanup progress"
-                      class="steps"
-                      id="cleanup-steps"
-                    >
-                      <li class="step current" data-step="1">
-                        <span class="step-n">1</span
-                        ><span class="step-copy"
-                          ><span class="step-t">Candidates</span
-                          ><span class="step-d"
-                            >Scan for removable items</span
-                          ></span
-                        >
-                      </li>
-                      <li aria-hidden="true" class="step-arrow">→</li>
-                      <li class="step" data-step="2">
-                        <span class="step-n">2</span
-                        ><span class="step-copy"
-                          ><span class="step-t">Confirmation</span
-                          ><span class="step-d">Review and approve</span></span
-                        >
-                      </li>
-                      <li aria-hidden="true" class="step-arrow">→</li>
-                      <li class="step" data-step="3">
-                        <span class="step-n">3</span
-                        ><span class="step-copy"
-                          ><span class="step-t">Cleanup</span
-                          ><span class="step-d"
-                            >Remove selected items</span
-                          ></span
-                        >
-                      </li>
-                    </ol>
-                  </div>
-                  <span class="flex-spacer"></span>
-                  <button class="btn" id="cleanup-back" type="button">
-                    Back to results
-                  </button>
+
+          <!-- ============================================================
+               DISK CLEANUP
+               ============================================================ -->
+          <section
+            aria-label="Disk Cleanup"
+            class="view hidden"
+            id="cleanup-view"
+          >
+            <div class="results-stack">
+              <div class="results-head">
+                <div class="headline-wrap">
+                  <h1 class="headline">Disk Cleanup</h1>
+                  <div class="subline" id="cleanup-subline"></div>
                 </div>
-                <div
-                  class="companion"
-                  data-companion="cleanup"
-                  aria-label="Cleanup companion"
-                ></div>
+                <span class="flex-spacer"></span>
                 <div class="pill scanning" id="cleanup-status-line">
                   <span class="pill-dot"></span>
-                  <span id="cleanup-status-text"
-                    >measuring reclaimable space…</span
-                  >
+                  <span id="cleanup-status-text">Ready to measure</span>
                 </div>
-                <div class="panel" id="cleanup-panel">
-                  <div class="cleanup-idle hidden" id="cleanup-idle">
-                    <div class="cleanup-idle-copy">
-                      <div class="cleanup-note dim">
-                        Check for reclaimable junk — temp files, browser caches,
-                        Recycle Bin, Windows.old, old installers. Nothing is
-                        scanned or deleted until you start.
-                      </div>
-                      <button class="btn" id="cleanup-scan-btn" type="button">
+                <button class="btn" id="cleanup-back" type="button">Back</button>
+              </div>
+              <ol
+                aria-label="Cleanup progress"
+                class="steps"
+                id="cleanup-steps"
+              >
+                <li class="step current" data-step="1">
+                  <span class="step-n">1</span
+                  ><span class="step-t">Candidates</span>
+                </li>
+                <li aria-hidden="true" class="step-arrow">→</li>
+                <li class="step" data-step="2">
+                  <span class="step-n">2</span
+                  ><span class="step-t">Confirmation</span>
+                </li>
+                <li aria-hidden="true" class="step-arrow">→</li>
+                <li class="step" data-step="3">
+                  <span class="step-n">3</span
+                  ><span class="step-t">Cleanup</span>
+                </li>
+              </ol>
+              <div class="cleanup-hero">
+                <div class="cleanup-hero-figure">
+                  <div
+                    class="companion hero-companion"
+                    data-companion="cleanup"
+                    aria-label="Cleanup companion"
+                  ></div>
+                </div>
+                <div class="cleanup-core">
+                  <div class="storage-core" id="storage-core">
+                    <canvas
+                      aria-hidden="true"
+                      class="storage-canvas"
+                      id="storage-canvas"
+                    ></canvas>
+                  </div>
+                  <div class="storage-panel">
+                    <div class="storage-measure-tag" id="storage-measure">
+                      NOT MEASURED
+                    </div>
+                    <ul
+                      aria-label="Cleanup categories measured by the engine"
+                      class="storage-legend"
+                      id="storage-legend"
+                    >
+                      <li class="st-row">
+                        <span class="st-mark" aria-hidden="true"></span>
+                        <span class="st-name">Not measured</span>
+                        <span class="st-bar" aria-hidden="true"
+                          ><i></i
+                        ></span>
+                        <span class="st-value">—</span>
+                      </li>
+                    </ul>
+                    <div class="storage-receipt">
+                      <span class="storage-reclaimable">Reclaimable</span>
+                      <span class="storage-amount" id="storage-reclaimable"
+                        >—</span
+                      >
+                      <span class="storage-caption" id="storage-caption"></span>
+                      <span
+                        class="storage-freed hidden"
+                        id="storage-freed-wrap"
+                      ></span>
+                    </div>
+                    <div class="hidden" id="cleanup-idle">
+                      <p class="cleanup-note dim">
+                        Nothing is scanned or deleted until you measure. Each
+                        category below is reported by the local engine; browser
+                        caches, Recycle Bin and old installers are never removed
+                        without your explicit selection.
+                      </p>
+                      <button class="btn btn-primary" id="cleanup-scan-btn"
+                        type="button">
                         Scan disk
                       </button>
                     </div>
-                  </div>
-                  <div class="cleanup-note dim hidden" id="cleanup-loading">
-                    measuring reclaimable space…
-                  </div>
-                  <div class="hidden" id="cleanup-body">
-                    <div class="cleanup-cols">
-                      <div class="cleanup-maincol">
-                        <div class="cleanup-total" id="cleanup-total"></div>
-                        <div class="cleanup-grid" id="cleanup-grid"></div>
-                        <div class="hidden" id="cleanup-downloads">
-                          <div class="dl-head">
-                            OLD INSTALLERS IN DOWNLOADS — TICK WHAT MAY GO
-                          </div>
-                          <ul class="dl-list" id="cleanup-dl-list"></ul>
-                        </div>
-                      </div>
-                      <aside
-                        aria-label="Cleanup summary"
-                        class="panel cleanup-summary"
-                      >
-                        <h2 class="section-title">Cleanup Summary</h2>
-                        <dl class="sum-rows">
-                          <div>
-                            <dt>Total items</dt>
-                            <dd id="cs-total-items">—</dd>
-                          </div>
-                          <div>
-                            <dt>Total size</dt>
-                            <dd id="cs-total-size">—</dd>
-                          </div>
-                          <div>
-                            <dt>Selected</dt>
-                            <dd id="cs-selected">—</dd>
-                          </div>
-                          <div>
-                            <dt>Status</dt>
-                            <dd>
-                              <span class="status-pill-mini" id="cs-status"
-                                >Idle</span
-                              >
-                            </dd>
-                          </div>
-                        </dl>
-                        <div class="sum-check">
-                          <h4>What gets cleaned</h4>
-                          <ul>
-                            <li>Temporary files and system caches</li>
-                            <li>Browser caches — only if selected</li>
-                            <li>Recycle Bin contents — only if selected</li>
-                            <li>Old installers you tick — never automatic</li>
-                          </ul>
-                        </div>
-                        <p class="important-box">
-                          <strong>Important</strong
-                          ><span
-                            >This operation cannot be undone. Make sure you have
-                            reviewed the selected items before proceeding.</span
-                          >
-                        </p>
-                      </aside>
+                    <div class="cleanup-note dim hidden" id="cleanup-loading">
+                      measuring reclaimable space…
                     </div>
-                    <div class="cleanup-actions cleanup-actions-premium">
-                      <span
-                        class="cleanup-busy hidden"
-                        id="cleanup-operation"
-                        role="status"
-                        >Removing confirmed selections…</span
-                      >
-                      <div class="cleanup-btn-col">
-                        <button
-                          class="btn btn-cleanup-premium"
-                          disabled=""
-                          id="cleanup-btn"
-                          type="button"
-                        >
-                          <span aria-hidden="true" class="btn-shine"></span
-                          ><span id="cleanup-btn-label">Clean up</span>
-                        </button>
+                    <div class="cleanup-busy hidden" id="cleanup-operation"
+                      role="status"
+                    >
+                      Removing confirmed selections — waiting for the engine
+                      result.
+                    </div>
+                    <div class="cleanup-queue hidden" id="cleanup-queue">
+                      <div class="cleanup-queue-title">
+                        Queued for removal
                       </div>
+                      <div id="cleanup-queue-list"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="hidden" id="cleanup-body">
+                <div class="cleanup-cols" id="cleanup-panel">
+                  <div class="cleanup-maincol">
+                    <h2 class="section-title">Measured categories</h2>
+                    <div class="cleanup-total" id="cleanup-total"></div>
+                    <div class="cleanup-grid" id="cleanup-grid"></div>
+                    <div class="hidden" id="cleanup-downloads">
+                      <div class="dl-head">
+                        OLD INSTALLERS IN DOWNLOADS — TICK WHAT MAY GO
+                      </div>
+                      <ul class="dl-list" id="cleanup-dl-list"></ul>
                     </div>
                     <div
                       class="cleanup-result dim hidden"
@@ -563,63 +575,168 @@
                       id="cleanup-failures"
                     ></ul>
                   </div>
+                  <aside
+                    aria-label="Cleanup summary"
+                    class="panel cleanup-summary"
+                  >
+                    <h2 class="section-title">Cleanup summary</h2>
+                    <dl class="sum-rows">
+                      <div>
+                        <dt>Total items</dt>
+                        <dd id="cs-total-items">—</dd>
+                      </div>
+                      <div>
+                        <dt>Total size</dt>
+                        <dd id="cs-total-size">—</dd>
+                      </div>
+                      <div>
+                        <dt>Selected</dt>
+                        <dd id="cs-selected">—</dd>
+                      </div>
+                      <div>
+                        <dt>Status</dt>
+                        <dd>
+                          <span class="status-pill-mini" id="cs-status">Idle</span>
+                        </dd>
+                      </div>
+                    </dl>
+                    <div class="sum-check">
+                      <h4>What gets cleaned</h4>
+                      <ul>
+                        <li>Temporary files and system caches</li>
+                        <li>Browser caches — only if selected</li>
+                        <li>Recycle Bin contents — only if selected</li>
+                        <li>Old installers you tick — never automatic</li>
+                      </ul>
+                    </div>
+                    <p class="important-box">
+                      <strong>Important</strong
+                      ><span
+                        >This operation cannot be undone. Make sure you have
+                        reviewed the selected items before proceeding.</span
+                      >
+                    </p>
+                    <div class="cleanup-actions">
+                      <button
+                        class="btn btn-primary"
+                        disabled=""
+                        id="cleanup-btn"
+                        type="button"
+                      >
+                        <span id="cleanup-btn-label">Clean up</span>
+                      </button>
+                    </div>
+                  </aside>
                 </div>
               </div>
             </div>
           </section>
-          <section aria-label="Overview" class="view hidden" id="view-overview">
+
+          <!-- ============================================================
+               OVERVIEW
+               ============================================================ -->
+          <section
+            aria-label="Overview"
+            class="view hidden"
+            id="view-overview"
+          >
             <div class="results-stack">
-              <div class="results-head posture">
-                <div class="headline-wrap">
-                  <div class="eyebrow">System posture</div>
-                  <h1 class="headline" id="ov-posture">Not assessed</h1>
-                  <div class="subline" id="ov-subline">
-                    Run a Rescue Scan to establish the evidence available on
-                    this system.
+              <div class="ov-hero">
+                <div class="ov-dial-wrap">
+                  <svg
+                    aria-hidden="true"
+                    class="ov-dial"
+                    viewBox="0 0 120 120"
+                  >
+                    <circle class="ov-dial-track" cx="60" cy="60" r="52" />
+                    <circle
+                      class="ov-dial-arc"
+                      cx="60"
+                      cy="60"
+                      id="ov-dial-arc"
+                      r="52"
+                    />
+                    <circle class="ov-dial-track" cx="60" cy="60" r="40" />
+                  </svg>
+                  <div class="ov-dial-center">
+                    <span class="ov-dial-value" id="ov-dial-value">—</span>
+                    <span class="ov-dial-label" id="ov-dial-label"
+                      >Layers checked</span
+                    >
                   </div>
+                </div>
+                <div class="ov-hero-copy">
+                  <div class="eyebrow">System posture</div>
+                  <div class="ov-posture-wrap">
+                    <span
+                      aria-hidden="true"
+                      class="ov-beacon"
+                      id="ov-beacon"
+                    ></span>
+                    <h1 class="headline" id="ov-posture">Not assessed</h1>
+                  </div>
+                  <p class="subline" id="ov-subline">
+                    Run a Rescue Scan to establish the evidence available on this
+                    system.
+                  </p>
                   <div class="subline dim" id="ov-scope">
                     No scan has run this session.
                   </div>
+                  <div class="ov-actions">
+                    <button
+                      class="btn btn-primary"
+                      id="overview-rescue-btn"
+                      type="button"
+                    >
+                      Start Rescue Scan
+                    </button>
+                    <button class="btn" data-route="cleanup-view" type="button">
+                      Disk cleanup
+                    </button>
+                  </div>
                 </div>
-                <div
-                  class="companion compact"
-                  data-companion="overview"
-                  aria-label="Overview companion"
-                ></div>
-                <button
-                  class="btn btn-primary"
-                  id="overview-rescue-btn"
-                  type="button"
-                >
-                  Start Rescue Scan
-                </button>
-              </div>
-              <div class="metric-grid" id="ov-metrics">
-                <div class="metric-card">
-                  <span class="metric-value" id="ov-coverage-state">—</span
-                  ><span class="metric-label">COVERAGE</span>
-                </div>
-                <div class="metric-card">
-                  <span class="metric-value" id="ov-last-scan">—</span
-                  ><span class="metric-label">LAST SCAN</span>
-                </div>
-                <div class="metric-card">
-                  <span class="metric-value" id="ov-findings">—</span
-                  ><span class="metric-label">FINDINGS</span>
-                </div>
-                <div class="metric-card">
-                  <span class="metric-value" id="ov-quarantined">—</span
-                  ><span class="metric-label">QUARANTINED</span>
+                <div class="ov-hero-figure">
+                  <div
+                    class="companion compact overview-companion"
+                    data-companion="overview"
+                    aria-label="Overview companion"
+                  ></div>
                 </div>
               </div>
+              <dl class="ov-readouts">
+                <div class="ov-readout">
+                  <dt>Coverage</dt>
+                  <dd id="ov-coverage-state">—</dd>
+                </div>
+                <div class="ov-readout">
+                  <dt>Last rescue scan</dt>
+                  <dd id="ov-last-scan">—</dd>
+                </div>
+                <div class="ov-readout">
+                  <dt>Review required</dt>
+                  <dd id="ov-findings">—</dd>
+                </div>
+                <div class="ov-readout">
+                  <dt>Quarantine state</dt>
+                  <dd id="ov-quarantined">—</dd>
+                </div>
+                <div class="ov-readout">
+                  <dt>Checks completed</dt>
+                  <dd id="ov-checks">—</dd>
+                </div>
+                <div class="ov-readout">
+                  <dt>Disk reclaimable</dt>
+                  <dd id="ov-reclaimable">Not measured</dd>
+                </div>
+              </dl>
               <div class="overview-columns">
                 <div id="overview-evidence">
                   <section class="panel">
                     <h2 class="section-title">Recent findings</h2>
                     <div id="ov-recent">
                       <div class="empty-state">
-                        <strong>No evidence collected yet</strong>Start a scan
-                        to inspect this system’s persistence sources.
+                        <strong>No evidence collected yet</strong>Start a scan to
+                        inspect this system’s persistence sources.
                       </div>
                     </div>
                   </section>
@@ -646,7 +763,9 @@
                       <li>
                         <span class="cov-dot"></span
                         ><span class="cov-name">Not assessed</span
-                        ><span class="cov-detail">No collectors have run.</span>
+                        ><span class="cov-detail"
+                          >No collectors have run.</span
+                        >
                       </li>
                     </ul>
                     <div class="coverage-note dim">
@@ -659,8 +778,7 @@
                     <p class="dim">Status unavailable in this console.</p>
                     <p class="coverage-note">
                       Pairing and watcher installation are managed with
-                      cure-watch.exe. The console cannot verify their
-                      connection.
+                      cure-watch.exe. The console cannot verify their connection.
                     </p>
                   </section>
                 </div>
@@ -688,6 +806,10 @@
               </div>
             </div>
           </section>
+
+          <!-- ============================================================
+               INVESTIGATE · persistence audit
+               ============================================================ -->
           <section
             aria-label="Startup audit"
             class="view hidden"
@@ -748,6 +870,10 @@
               </div>
             </div>
           </section>
+
+          <!-- ============================================================
+               INVESTIGATE · processes
+               ============================================================ -->
           <section
             aria-label="Process sentinel"
             class="view hidden"
@@ -827,6 +953,10 @@
               </div>
             </div>
           </section>
+
+          <!-- ============================================================
+               QUARANTINE
+               ============================================================ -->
           <section
             aria-label="Quarantine"
             class="view hidden"
@@ -837,9 +967,10 @@
                 <div class="headline-wrap">
                   <h1 class="headline">Quarantine</h1>
                   <div class="subline" id="q-subline">
-                    Recorded file moves. Restore bytes to their original
-                    location with scoped undo.
+                    Recorded file moves. Restore bytes to their original location
+                    with scoped undo.
                   </div>
+                  <div class="headline-rule"></div>
                 </div>
                 <span class="flex-spacer"></span>
                 <button class="btn" id="q-refresh" type="button">
@@ -856,6 +987,10 @@
               </div>
             </div>
           </section>
+
+          <!-- ============================================================
+               MONITOR
+               ============================================================ -->
           <section
             aria-label="Event log"
             class="view hidden"
@@ -873,8 +1008,8 @@
                 <div class="headline-wrap">
                   <h1 class="headline">Event Log</h1>
                   <div class="subline">
-                    Session events only — scan progress, canary alerts, and
-                    actions taken in this run.
+                    Session events only — scan progress, canary alerts, and actions
+                    taken in this run.
                   </div>
                 </div>
                 <span class="flex-spacer"></span>
@@ -920,8 +1055,8 @@
                   <strong>Experimental.</strong> Plants
                   <code>~cure-canary-*</code> decoys in Desktop, Documents and
                   Downloads, watches for tampering and bulk-encryption patterns,
-                  and polls for shadow-copy-wiping tools. This is a tripwire —
-                  not full ransomware protection.
+                  and polls for shadow-copy-wiping tools. This is a tripwire — not
+                  full ransomware protection.
                 </p>
                 <div class="coverage-note dim">
                   Limitations: detects decoy tampering and crude bulk-encryption
@@ -936,6 +1071,10 @@
               </div>
             </div>
           </section>
+
+          <!-- ============================================================
+               INVESTIGATE · login observation
+               ============================================================ -->
           <section
             aria-label="Post-login incident investigation"
             class="view hidden"
@@ -972,8 +1111,8 @@
                 <div class="headline-wrap">
                   <h1 class="headline">Post-Login Investigation</h1>
                   <div class="subline">
-                    Correlate startup persistence with observed process and
-                    window activity.
+                    Correlate startup persistence with observed process and window
+                    activity.
                   </div>
                 </div>
               </div>
@@ -984,16 +1123,16 @@
                 <div class="incident-prepare">
                   <p class="dim">
                     C.U.R.E. will observe startup activity for a limited period.
-                    Observation installs nothing and modifies nothing — no
-                    Startup, registry, service, or task changes. For true
-                    post-login capture, start the observation within a minute of
-                    logging in; a reboot flow is intentionally not offered.
+                    Observation installs nothing and modifies nothing — no Startup,
+                    registry, service, or task changes. For true post-login capture,
+                    start the observation within a minute of logging in; a reboot
+                    flow is intentionally not offered.
                   </p>
                   <p class="dim">
-                    Each choice passively records process starts/exits and
-                    window titles/classes only — no screenshots, no keystrokes,
-                    no window contents. Longer windows catch more activity but
-                    keep this screen busy.
+                    Each choice passively records process starts/exits and window
+                    titles/classes only — no screenshots, no keystrokes, no window
+                    contents. Longer windows catch more activity but keep this
+                    screen busy.
                   </p>
                   <div
                     aria-label="Observation duration — how long to observe"
@@ -1064,37 +1203,32 @@
                   class="inc-meta dim"
                   id="inc-meta"
                 ></div>
-                <div
-                  class="receipt hidden"
-                  id="inc-receipt"
-                  role="status"
-                ></div>
+                <div class="receipt hidden" id="inc-receipt" role="status"></div>
                 <details class="corr-legend">
                   <summary>
                     What do DIRECT / STRONG / PARTIAL / WEAK / NONE mean?
                   </summary>
                   <ul>
                     <li>
-                      <strong>DIRECT</strong> — finding's executable path
-                      matches the observed executable path (normalized). Service
-                      entries additionally require the reported PID to match.
-                      Matched path + process.
+                      <strong>DIRECT</strong> — finding's executable path matches
+                      the observed executable path (normalized). Service entries
+                      additionally require the reported PID to match. Matched path +
+                      process.
                     </li>
                     <li>
                       <strong>STRONG</strong> — finding command and observed
-                      command line reference each other (executable substring
-                      either direction, or shared distinctive arguments ≥12
-                      chars) with the launch inside the window. Matched
-                      command/path + timing.
+                      command line reference each other (executable substring either
+                      direction, or shared distinctive arguments ≥12 chars) with the
+                      launch inside the window. Matched command/path + timing.
                     </li>
                     <li>
                       <strong>PARTIAL</strong> — same executable file name,
                       different paths (both shown). Matched name only.
                     </li>
                     <li>
-                      <strong>WEAK</strong> — same folder but different program,
-                      or a child of a correlated process. Temporal/structural
-                      proximity only.
+                      <strong>WEAK</strong> — same folder but different program, or a
+                      child of a correlated process. Temporal/structural proximity
+                      only.
                     </li>
                     <li><strong>NONE</strong> — no observed relationship.</li>
                   </ul>
@@ -1109,9 +1243,9 @@
                 <h2 class="section-title">OBSERVATION WINDOW / SCOPE</h2>
                 <ul class="coverage-list" id="inc-scope"></ul>
                 <div class="coverage-note dim">
-                  Command lines are fetched only for correlated processes
-                  (bounded). Window evidence is titles + classes only — no
-                  screenshots, no keystrokes, no contents.
+                  Command lines are fetched only for correlated processes (bounded).
+                  Window evidence is titles + classes only — no screenshots, no
+                  keystrokes, no contents.
                 </div>
               </div>
               <div class="panel hidden" id="inc-timeline-panel">
@@ -1119,11 +1253,11 @@
                   TIMELINE — WHAT WAS OBSERVED, WHEN
                 </h2>
                 <div class="coverage-note dim">
-                  Each event shows its timestamp and, where the backend
-                  collected it, the process, PID, PPID, path, command line,
-                  correlation, and window. Unavailable values say “Not
-                  collected”. Long values truncate visually — hover or focus to
-                  see the full value; all evidence text is selectable.
+                  Each event shows its timestamp and, where the backend collected
+                  it, the process, PID, PPID, path, command line, correlation, and
+                  window. Unavailable values say “Not collected”. Long values
+                  truncate visually — hover or focus to see the full value; all
+                  evidence text is selectable.
                 </div>
                 <ul class="log inc-timeline" id="incident-timeline"></ul>
               </div>
@@ -1176,13 +1310,13 @@
                       machine otherwise idle — popups welcome.
                     </li>
                     <li>
-                      Start the observation within a minute of logging in for
-                      true post-login capture.
+                      Start the observation within a minute of logging in for true
+                      post-login capture.
                     </li>
                     <li>
-                      If the failure persists, check elevation (standard-user
-                      scans may skip system locations) and re-run elevated to
-                      compare counts.
+                      If the failure persists, check elevation (standard-user scans
+                      may skip system locations) and re-run elevated to compare
+                      counts.
                     </li>
                     <li>
                       Export the report anyway — it records the
@@ -1202,13 +1336,10 @@
                   </li>
                   <li>Command lines are collected only for correlated PIDs.</li>
                   <li>
-                    PIDs are re-validated before any action; PID reuse is
-                    handled, not assumed.
+                    PIDs are re-validated before any action; PID reuse is handled,
+                    not assumed.
                   </li>
-                  <li>
-                    No persistence or reboot capture — observation installs
-                    nothing.
-                  </li>
+                  <li>No persistence or reboot capture — observation installs nothing.</li>
                   <li>
                     Window/process lifetimes carry ±500 ms poll precision where
                     applicable.
@@ -1236,7 +1367,7 @@
           </section>
         </main>
         <footer class="footbar">
-          <span class="console-credit">EVIDENCE CONSOLE</span>
+          <span class="console-credit">RESCUE CONSOLE</span>
           <div id="footbar-msg" role="status">Ready</div>
           <button class="ghost-btn" id="btn-quarantine-folder" type="button">
             Open quarantine folder
@@ -1248,6 +1379,7 @@
         </footer>
       </div>
     </div>
+
     <div class="canary-alert-overlay hidden" id="canary-alert-overlay">
       <div
         aria-describedby="canary-alert-detail"
@@ -1333,9 +1465,6 @@
         <div class="drawer-body" id="evidence-body"></div>
       </section>
     </div>
-    <script src="companion.js"></script>
-    <script src="evidence-sweep.js"></script>
-    <script src="app.js"></script>
     <div class="drawer-overlay hidden" id="inc-drawer-overlay">
       <div
         aria-labelledby="inc-drawer-title"
@@ -1356,5 +1485,9 @@
         <dl class="detail-drawer inc-drawer-body" id="inc-drawer-body"></dl>
       </div>
     </div>
+    <script src="luma.js"></script>
+    <script src="xray.js"></script>
+    <script src="storage-core.js"></script>
+    <script src="app.js"></script>
   </body>
 </html>

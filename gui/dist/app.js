@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
   "use strict";
 
   const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -61,6 +61,22 @@
   function setPill(state, text) {
     statusPill.className = "pill " + state;
     statusText.textContent = text;
+    // The X-Ray corner tag mirrors the real session state, never a guess.
+    const live = document.getElementById("xray-live");
+    const fieldEl = document.getElementById("xray-field");
+    if (live) {
+      live.textContent =
+        state === "scanning"
+          ? "Collecting"
+          : state === "error"
+            ? "Interrupted"
+            : state === "clean"
+              ? "Complete"
+              : state === "warn"
+                ? "Review"
+                : "Idle";
+    }
+    if (fieldEl) fieldEl.dataset.running = String(state === "scanning");
   }
 
   // Topbar session context — real scan metadata only, never invented.
@@ -331,6 +347,8 @@
     const card = document.createElement("li");
     card.className = "review-card risk-" + scoreChipClass(scored.score);
     card.dataset.id = scored.entry.id;
+    /* The real score drives the row's risk meter — no invented severity. */
+    card.style.setProperty("--score", String(Math.max(0, Math.min(100, scored.score))));
     const main = makeText("div", "", "rc-main");
     const top = makeText("div", "", "rc-top");
     const select = makeText("button", scored.entry.name, "finding-select");
@@ -342,7 +360,10 @@
       riskLabel(scored.risk) + " · " + scored.score,
       "score-chip " + scoreChipClass(scored.score),
     );
-    top.append(select, severity);
+    const meter = makeText("div", "", "rc-meter");
+    meter.setAttribute("aria-hidden", "true");
+    meter.appendChild(makeText("i", "", "rc-meter-fill"));
+    top.append(select, severity, meter);
     const meta = makeText("div", "", "chips");
     meta.append(
       makeText(
@@ -445,6 +466,10 @@
         false,
       );
       logEvent("action", "Quarantined: " + scored.entry.name);
+      // Supporting state after a completed, confirmed action — never before.
+      window.CureCompanion.seal(
+        "Sealed: " + scored.entry.name + " · Undo available",
+      );
       await refreshQuarantineCount();
       if (evidenceSelected === scored)
         renderEvidence(scored, evidenceCache.get(scored.entry.id));
@@ -942,16 +967,26 @@
       focusViewHeading(resultsView);
   }
 
+  // A newer navigation always wins: a queued view change from an earlier
+  // click must never reveal a view the operator has already left.
+  let viewToken = 0;
+
   function switchView(fromEl, toEl) {
+    const token = ++viewToken;
     return new Promise((resolve) => {
-      if (REDUCED) {
+      if (REDUCED || fromEl === toEl) {
         fromEl.classList.add("hidden");
-        toEl.classList.remove("hidden");
+        toEl.classList.remove("hidden", "exiting", "pre-enter");
         resolve();
         return;
       }
       fromEl.classList.add("exiting");
       setTimeout(() => {
+        if (token !== viewToken) {
+          fromEl.classList.remove("exiting");
+          resolve();
+          return;
+        }
         fromEl.classList.add("hidden");
         fromEl.classList.remove("exiting");
         toEl.classList.remove("hidden");
@@ -1009,6 +1044,7 @@
   }
 
   function showViewInstant(el) {
+    viewToken++;
     const views = document.querySelectorAll(".stage > .view");
     views.forEach((v) => {
       if (v === el) v.classList.remove("hidden", "exiting", "pre-enter");
@@ -1336,10 +1372,6 @@
 
   // ---- canary guard (ransomware decoy monitor) ----------------------------
 
-  const canaryToggle = document.getElementById("canary-toggle");
-  const canaryToggleText = canaryToggle
-    ? canaryToggle.querySelector(".canary-toggle-text")
-    : null;
   let canaryActive = false;
 
   async function syncCanaryStatus() {
@@ -1364,16 +1396,11 @@
   }
 
   function updateCanaryUI() {
-    if (canaryToggle) {
-      canaryToggle.setAttribute("aria-pressed", String(canaryActive));
-      canaryToggle.classList.toggle("on", canaryActive);
-    }
-    if (canaryToggleText)
-      canaryToggleText.textContent = canaryActive ? "ON" : "OFF";
-    const second = document.getElementById("can-toggle");
-    if (second) {
-      second.setAttribute("aria-pressed", String(canaryActive));
-      second.textContent = canaryActive ? "Disable guard" : "Enable guard";
+    const toggle = document.getElementById("can-toggle");
+    if (toggle) {
+      toggle.setAttribute("aria-pressed", String(canaryActive));
+      toggle.classList.toggle("on", canaryActive);
+      toggle.textContent = canaryActive ? "Disable guard" : "Enable guard";
     }
     const badge = document.getElementById("can-state");
     if (badge) {
@@ -1409,10 +1436,6 @@
       footFeedback(cleanErrText(err, "Could not toggle canary guard"), true);
     }
     updateCanaryUI();
-  }
-
-  if (canaryToggle) {
-    canaryToggle.addEventListener("click", toggleCanary);
   }
 
   // Listen for canary-alert events from backend
@@ -1501,7 +1524,6 @@
   }
 
   const cleanupEls = {
-    openBtn: document.getElementById("open-cleanup"),
     backBtn: document.getElementById("cleanup-back"),
     statusLine: document.getElementById("cleanup-status-line"),
     statusText: document.getElementById("cleanup-status-text"),
@@ -1519,6 +1541,7 @@
     status: document.getElementById("cleanup-status"),
     failures: document.getElementById("cleanup-failures"),
     stage: document.getElementById("cleanup-operation"),
+    queue: document.getElementById("cleanup-queue"),
     panel: document.getElementById("cleanup-panel"),
   };
   function setCleanupBtnLabel(t) {
@@ -1531,8 +1554,11 @@
     checkedDownloads: new Set(),
     running: false,
     open: false,
+    outcome: null,
     savedPill: null,
   };
+  /* Real session facts only. Overview never triggers a disk measurement. */
+  const sessionCleanup = { measured: false, last: null, freed: 0 };
 
   const sweepState = {
     findings: [],
@@ -1577,7 +1603,10 @@
   // Cleanup has no progress API: show an honest busy state, never estimated bytes.
   function startCleanupOperation() {
     cleanupEls.stage.classList.remove("hidden");
+    cleanupEls.queue.classList.remove("hidden");
+    renderCleanupQueue();
     document.getElementById("stage-main").scrollTop = 0;
+    window.CureStorage.running();
     window.CureCompanion.cleanup(
       "cleanup",
       "Cleanup in progress",
@@ -1586,9 +1615,42 @@
   }
   function finishCleanupOperation() {
     cleanupEls.stage.classList.add("hidden");
+    cleanupEls.queue.classList.add("hidden");
   }
   function resetCleanupOperation() {
     cleanupEls.stage.classList.add("hidden");
+    cleanupEls.queue.classList.add("hidden");
+  }
+
+  /* What is queued is exactly what the operator confirmed — real selections,
+     real byte totals from the measurement. No estimated progress. */
+  function renderCleanupQueue() {
+    const list = document.getElementById("cleanup-queue-list");
+    if (!list || !cleanupState.summary) return;
+    list.replaceChildren();
+    for (const cat of cleanupState.summary.categories) {
+      if (cat.item_count === 0 || !cleanupState.selectedCats.has(cat.key))
+        continue;
+      const row = document.createElement("div");
+      row.className = "cq-row";
+      const name = document.createElement("span");
+      name.textContent = cat.label;
+      const meta = document.createElement("b");
+      meta.textContent = "queued · " + fmtBytes(cat.total_bytes);
+      row.append(name, meta);
+      list.append(row);
+    }
+    for (const dl of cleanupState.summary.downloads) {
+      if (!cleanupState.checkedDownloads.has(dl.path)) continue;
+      const row = document.createElement("div");
+      row.className = "cq-row";
+      const name = document.createElement("span");
+      name.textContent = dl.name;
+      const meta = document.createElement("b");
+      meta.textContent = "queued · " + fmtBytes(dl.size_bytes);
+      row.append(name, meta);
+      list.append(row);
+    }
   }
 
   // ---- cleanup state / rendering -------------------------------------------
@@ -1640,6 +1702,10 @@
     } else if (!cleanupState.running) {
       setCleanupBtnLabel("Clean up");
     }
+    window.CureStorage.selectionChanged(
+      cleanupState.selectedCats,
+      cleanupState.checkedDownloads,
+    );
     renderCleanupSummary();
   }
 
@@ -1744,11 +1810,18 @@
       (itemCount + summary.downloads.length) +
       " items</span>";
     cleanupEls.subline.textContent =
-      itemCount +
-      summary.downloads.length +
-      " cleanable items found on this machine";
+      (itemCount + summary.downloads.length) +
+      ((itemCount + summary.downloads.length) === 1
+        ? " cleanable item found on this machine"
+        : " cleanable items found on this machine");
+    if (!keepResult) {
+      sessionCleanup.measured = true;
+      sessionCleanup.last = summary;
+      updateOverviewReclaimable();
+    }
 
     cleanupEls.grid.innerHTML = "";
+    window.CureStorage.setDownloads(cleanupState.checkedDownloads);
     const maxCatBytes = Math.max(
       1,
       ...summary.categories.map((c) => c.total_bytes),
@@ -1855,6 +1928,11 @@
     }
 
     updateCleanupButton();
+    window.CureStorage.measured(
+      summary,
+      cleanupState.selectedCats,
+      cleanupState.checkedDownloads,
+    );
   }
 
   async function startCleanupScan(keepResult = false) {
@@ -1863,23 +1941,35 @@
     cleanupEls.loading.classList.remove("hidden");
     cleanupEls.loading.textContent = "measuring reclaimable space…";
     if (!keepResult) {
+      window.CureStorage.measuring();
       setCleanupPill("scanning", "measuring reclaimable space…");
     }
     try {
       const summary = await invoke("scan_cleanup");
       renderCleanup(summary, keepResult);
-      if (!keepResult) {
-        setCleanupPill(
-          "clean",
-          "Disk scan complete — " +
-            fmtBytes(summary.total_bytes) +
-            " reclaimable",
+      if (keepResult) {
+        // The engine's own rescan is the only source of the post-cleanup ring.
+        window.CureStorage.result(
+          cleanupState.outcome,
+          summary,
+          cleanupState.checkedDownloads,
         );
+        sessionCleanup.measured = true;
+        sessionCleanup.last = summary;
+        updateOverviewReclaimable();
+        return;
       }
+      setCleanupPill(
+        "clean",
+        "Disk scan complete — " +
+          fmtBytes(summary.total_bytes) +
+          " reclaimable",
+      );
     } catch (err) {
       cleanupEls.loading.textContent =
         "disk cleanup unavailable: " + cleanErrText(err, "Collection failed");
       if (!keepResult) {
+        window.CureStorage.idle();
         setCleanupPill("error", "Disk cleanup unavailable");
       }
     }
@@ -1893,6 +1983,9 @@
     cleanupEls.body.classList.add("hidden");
     cleanupEls.loading.classList.add("hidden");
     cleanupEls.idle.classList.remove("hidden");
+    window.CureStorage.idle();
+    // A new cleanup session rotates Luma's cleanup variant.
+    window.CureCompanion.beginSession("cleanup");
     setCleanupPill("idle", "Disk cleanup — ready when you are");
   }
 
@@ -1964,13 +2057,16 @@
     setCleanupBtnLabel("Cleaning…");
     const expected = cleanupSelectionBytes();
     startCleanupOperation(expected);
+    let outcome = null;
     try {
       const result = await invoke("run_cleanup", {
         categories: Array.from(cleanupState.selectedCats),
         downloadPaths: Array.from(cleanupState.checkedDownloads),
       });
+      outcome = result;
       finishCleanupOperation(result.bytes_freed);
       cleanupPhase = result.failed ? "done-fail" : "done-ok";
+      sessionCleanup.freed += result.bytes_freed;
       setCleanupStep(3, true);
       setCleanupPill(
         result.failed ? "warn" : "clean",
@@ -2035,6 +2131,7 @@
         cleanupEls.failures.classList.remove("hidden");
       }
     } catch (err) {
+      outcome = { failed: 1, bytes_freed: 0, deleted: 0, attempted: 0, failures: [] };
       finishCleanupOperation(0);
       cleanupPhase = "done-fail";
       setCleanupStep(3, true);
@@ -2044,11 +2141,13 @@
       cleanupEls.status.classList.remove("hidden");
       cleanupEls.status.classList.remove("cleanup-ok");
       cleanupEls.status.classList.add("cleanup-fail");
+      updateOverviewReclaimable();
     } finally {
       cleanupState.running = false;
       cleanupEls.btn.classList.remove("btn-active");
-      updateCleanupButton();
-      startCleanupScan(true);
+      cleanupState.outcome = outcome;
+      // One engine rescan feeds both the category table and the storage ring.
+      await startCleanupScan(true);
     }
   });
 
@@ -2268,6 +2367,46 @@
     if (tone) el.classList.add(tone);
   }
 
+  /* Disk reclaimable on Overview reflects only what this session really
+   measured. The overview never triggers a disk walk of its own. */
+  function updateOverviewReclaimable() {
+    const el = document.getElementById("ov-reclaimable");
+    if (!el) return;
+    if (!sessionCleanup.measured || !sessionCleanup.last) {
+      el.textContent = "Not measured";
+      el.classList.remove("is-ok");
+      return;
+    }
+    el.textContent =
+      fmtBytes(sessionCleanup.last.total_bytes) +
+      (sessionCleanup.freed > 0 ? " · " + fmtBytes(sessionCleanup.freed) + " freed" : "");
+    el.classList.toggle("is-ok", sessionCleanup.freed > 0);
+  }
+
+  /* Overview dial: the share of the nine inspection layers that actually
+     reported coverage. Never an estimate — no collectors, no arc. */
+  const DIAL_R = 52;
+  function paintOverviewDial(ovStates, tone) {
+    const arc = document.getElementById("ov-dial-arc");
+    const value = document.getElementById("ov-dial-value");
+    if (!arc || !value) return;
+    const total = 9;
+    const checked = (ovStates || []).filter(function (row) {
+      const st = row.state;
+      const key = typeof st === "string" ? st : Object.keys(st || {})[0];
+      return key === "Checked" || key === "Available";
+    }).length;
+    const circumference = 2 * Math.PI * DIAL_R;
+    arc.style.strokeDasharray = String(circumference);
+    arc.style.strokeDashoffset = String(
+      circumference * (1 - (ovStates && ovStates.length ? checked / total : 0)),
+    );
+    arc.classList.remove("is-warn", "is-bad");
+    if (tone === "is-warn") arc.classList.add("is-warn");
+    if (tone === "is-bad") arc.classList.add("is-bad");
+    value.textContent = ovStates && ovStates.length ? checked + "/" + total : "—";
+  }
+
   function covRow(name, detail, level) {
     const li = document.createElement("li");
     const dot = document.createElement("span");
@@ -2324,6 +2463,12 @@
     );
     const posture = document.getElementById("ov-posture");
     const subline = document.getElementById("ov-subline");
+    const beacon = document.getElementById("ov-beacon");
+    if (beacon) {
+      beacon.className =
+        "ov-beacon" +
+        (t.critical > 0 ? " bad" : t.findings > 0 || coverageIncomplete(summary) ? " warn" : summary ? " ok" : "");
+    }
     if (t.critical > 0) {
       posture.textContent = "High risk";
       posture.classList.add("is-bad");
@@ -2357,6 +2502,10 @@
     );
     setMetric("ov-checks", String(summary.total), null);
     const ovStates = (summary && summary.source_states) || [];
+    paintOverviewDial(
+      ovStates,
+      t.critical > 0 ? "is-bad" : t.findings > 0 || coverageIncomplete(summary) ? "is-warn" : "is-ok",
+    );
     let skipped = 0;
     let covState = "REPORTED CHECKS OK";
     let covTone = "is-ok";
@@ -2398,6 +2547,7 @@
     );
     setMetric("ov-findings", String(t.findings), t.findings ? "is-warn" : null);
     refreshQuarantineCount();
+    updateOverviewReclaimable();
     const recent = document.getElementById("ov-recent");
     recent.replaceChildren();
     (summary.suspicious_for_review || []).slice(0, 4).forEach((scored) => {
@@ -4127,6 +4277,8 @@
   (async () => {
     scanView.classList.add("hidden");
     showViewInstant(document.getElementById("view-overview"));
+    paintOverviewDial(null, null);
+    updateOverviewReclaimable();
     setPill("idle", "Ready");
     refreshQuarantineCount();
     document
@@ -4166,20 +4318,7 @@
         // continue the scan. Nothing closes without a per-window click.
         renderOverlayReview(candidates, lines);
       });
-    document
-      .getElementById("start-cleanup-btn")
-      .addEventListener("click", async () => {
-        cleanupState.open = true;
-        cleanupState.savedPill = {
-          cls: statusPill.className,
-          text: statusText.textContent,
-        };
-        await switchView(currentView(), cleanupView);
-        setNav("cleanup-view");
-        showCleanupIdle();
-      });
-    document
-      .querySelectorAll("[data-route]")
+    document.querySelectorAll("[data-route]")
       .forEach((btn) =>
         btn.addEventListener("click", () => navTo(btn.dataset.route)),
       );
@@ -4191,7 +4330,7 @@
         if (!btn.disabled) navTo(btn.getAttribute("data-view"));
       });
     });
-    const canToggle2 = document.getElementById("can-toggle");
+const canToggle2 = document.getElementById("can-toggle");
     if (canToggle2) canToggle2.addEventListener("click", toggleCanary);
     document.querySelectorAll(".filter-btn").forEach((btn) => {
       btn.setAttribute("aria-pressed", String(btn.classList.contains("on")));

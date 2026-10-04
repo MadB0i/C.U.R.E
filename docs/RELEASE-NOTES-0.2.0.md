@@ -1,20 +1,39 @@
-# C.U.R.E 0.2.0 — Evidence Console
+# C.U.R.E 0.2.0 — Rescue Console
 
 Evidence-first Windows persistence inspection and reversible quarantine.
 
-- Original offline SVG companion with welcome, scan, cleanup, completed and
-  review poses; motion can be paused and respects reduced-motion preferences.
-- Five destinations: Overview, Rescue, Investigate, Quarantine and Monitor.
-- Evidence Sweep follows actual collection events and reported coverage.
+- **System X-Ray**: a sectioned view of the machine being inspected — nine
+  persistence-layer plates, a bounded chassis board with the system core, and an
+  inspection beam that travels to whichever collector the backend reports as
+  running. Layer state follows actual collection events and reported coverage.
+- **Luma**: an original offline vector companion with ten articulated states —
+  idle, three rotating scan actions (console, evidence scanner, observation
+  lens), three rotating cleanup actions (sweep, sort, recycler), success,
+  review, and a containment seal used only after a confirmed quarantine. Motion
+  can be paused with one gesture that also stops the scan field and storage
+  core, and respects reduced-motion preferences.
+- **Disk Cleanup** is a primary destination with a segmented storage core: one
+  arc and one proportional bar per real engine category, sized from measured
+  byte totals, with the reclaimed arc drawn from the engine's own
+  `bytes_freed`.
+- Six destinations: Overview, Rescue, Investigate, Quarantine, Disk Cleanup and
+  Monitor — icon and title only.
 - Dedicated finding inspection, full selectable technical values, signature,
   publisher and on-demand target hash/metadata; source-specific guidance.
+- Risk rails and real score meters on every finding row; evidence kept to a
+  measured column so verdict, evidence and action read together.
 - Quarantine records show integrity and ACL/fidelity metadata with scoped undo.
-- Offline system typography, reduced motion, compact-window support, keyboard
-  focus and deterministic accessibility/layout/state verification.
+- Graphite depth design system, restrained violet identity accent, offline
+  system typography, reduced motion, compact-window support, keyboard focus and
+  deterministic accessibility/layout/state/pixel verification.
 
 Scanning performs no automatic remediation. Supported files move only after
 confirmation. Registry, services, WMI, IFEO, AppInit and COM are guidance-only.
 Disk cleanup permanently deletes confirmed selections and is a separate action.
+
+C.U.R.E is not antivirus, not EDR and not automatic machine recovery. Plugging
+in a rescue USB does not make an infected machine safe: nothing is scanned or
+remediated until the operator starts a run and confirms each action.
 
 ## Assets and integrity
 

@@ -83,20 +83,25 @@ refuses an existing published release; only an explicit 404 permits creation.
 
 ## Presentation and verification
 
-README retains the evidence-first title/subtitle, Overview hero, three factual
-values, release link and labelled sample workflow. Nine 1440×900 PNGs were
-reviewed individually. GIF: **1100×688, 166 frames, 20.76 seconds, 8 fps**;
-MP4 refreshed. Blank recording lead-in removed. The sequence covers launch,
-scan, sweep, finding, inspector, confirmation, quarantine, undo and separately
-confirmed cleanup. Luma remains contained; technical records and consequence
-copy remain serious. Mock cleanup counts/rescans match successful selections.
+README retains the evidence-first title/subtitle, the Rescue Console hero,
+release link and labelled sample workflow. Nine 1440×900 PNGs were reviewed
+individually. GIF: **1000×640, 146 frames, 20.85 seconds, 7 fps**; MP4 refreshed.
+Blank recording lead-in removed. The sequence covers launch, scan, System
+X-Ray, finding, inspector, confirmation, quarantine, undo and separately
+confirmed cleanup. Luma remains presentation-only; technical records and
+consequence copy remain serious. Mock cleanup counts/rescans match successful
+selections.
+
+The visual identity was replaced in a later pass — see
+[rescue console redesign verification](UI-REDESIGN-VERIFICATION.md). It
+changed no backend behaviour, and the checks below were re-run against it.
 
 Local final gates: **364 Rust tests; 4 Tauri tests (1 ignored); formatting;
 strict Clippy (GUI all features); production release builds; JS syntax;
-312 browser checks; 80 layout; 68 pixel; 152 capture; demo capture;
-real CLI baseline and quarantine/undo regressions; 50 production native
-checks; seven native axe scans with zero violations; exact package audit.**
-These browser/layout/pixel counts overlap and are not summed.
+428 browser checks (all); 423 verify; 153 layout; 97 pixel; 185 capture; demo
+capture; real CLI baseline and quarantine/undo regressions; exact package
+audit; production asset-allowlist parity.** These browser/layout/pixel counts
+overlap and are not summed.
 
 Remote CI for this branch is **NOT RUN / pending push and PR**. Workflow source
 was reviewed; the release publishing job was not executed. Merge only after
