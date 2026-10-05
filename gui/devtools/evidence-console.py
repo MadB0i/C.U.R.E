@@ -64,6 +64,30 @@ def finish_scan(page):
     expect(page.locator("#results-view")).to_be_visible(timeout=30000)
 
 
+def goto_view(page, nav, view):
+    """Click a nav item and wait until that view is the settled destination.
+
+    Cleanup navigation awaits switchView() before committing the active nav
+    item. Clicking again before that promise resolves can let its continuation
+    reveal cleanup over the next destination. Wait for both the active nav item
+    and the sole visible view, then for finite entrance animations to finish.
+    """
+    page.locator(nav).click()
+    page.wait_for_function(
+        """([navSelector, viewId]) => {
+             const nav = document.querySelector(navSelector);
+             const v = document.getElementById(viewId);
+             const shown = [...document.querySelectorAll('.stage > .view')]
+               .filter(x => !x.classList.contains('hidden'));
+             return nav?.getAttribute('aria-current') === 'true' &&
+               !!v && !v.classList.contains('hidden') && shown.length === 1 &&
+               shown[0] === v && !document.querySelector('.exiting, .pre-enter');
+           }""",
+        arg=[nav, view],
+    )
+    settled(page)
+
+
 def settled(page):
     # Wait for entrance animations to finish before measuring or clicking.
     # Infinite loops (the LUMA node, the scan field, the storage core) must not
@@ -475,18 +499,19 @@ def luma_states(browser):
         seen.append(page.locator('[data-companion="scan"]').get_attribute('data-variant'))
     check(seen==['scan-console','scan-scanner','scan-lens'],
           'scan sessions rotate through all three scan variants: '+str(seen))
-    # Cleanup variants rotate the same way.
+    # Cleanup variants rotate the same way. Navigation is confirmed to have landed
+    # before the next click, so the view under test is never mid-transition.
     cseen=[]
     for _ in range(3):
-        page.locator('#nav-cleanup').click()
+        goto_view(page, '#nav-cleanup', 'cleanup-view')
         cseen.append(page.locator('[data-companion="cleanup"]').get_attribute('data-variant'))
-        page.locator('#nav-overview').click()
+        goto_view(page, '#nav-overview', 'view-overview')
     check(cseen==['clean-sweep','clean-sort','clean-recycle'],
           'cleanup sessions rotate through all three cleanup variants: '+str(cseen))
     # Seal appears only after a completed, confirmed quarantine.
     check(page.locator('[data-companion="result"]').get_attribute('data-state')!='seal',
           'no seal state before any quarantine')
-    page.locator('#nav-results').click()
+    goto_view(page, '#nav-results', 'results-view')
     # The review cards animate in, so their buttons have no stable box until the
     # entrance finishes. Same settled-geometry wait the layout checks use; the
     # assertions below are unchanged.
