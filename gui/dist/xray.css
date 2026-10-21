@@ -334,7 +334,7 @@
   .scan-companion .companion-motion {
     min-height: 24px;
     padding: 0 var(--s2);
-    font-size: 10px;
+    font-size: 12px;
   }
   .xray-field {
     min-height: clamp(210px, 36vh, 340px);

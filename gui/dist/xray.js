@@ -879,7 +879,7 @@
         state.layers[i].risk = 0;
         state.layers[i].detail = "";
       }
-      if (newSession) window.CureCompanion.beginSession("scan");
+      if (newSession && window.CureCompanion) window.CureCompanion.scan("scan", "Collection started");
       if (currentEl) currentEl.textContent = "Awaiting collection";
       if (coreReadout) coreReadout.textContent = "Awaiting collection";
       paintLedger();
@@ -963,12 +963,12 @@
       if (currentEl) currentEl.textContent = message;
       if (coreReadout) coreReadout.textContent = message;
       const activeLayer = layerById(state.active);
-      window.CureCompanion.scan(
-        "scan",
-        message,
-        Math.max(0, indexOfActive()),
-        window.CureCompanion.variant("scan"),
-      );
+      // LUMA leans toward the collector that is actually active. The lean is
+      // derived from real progress, not a timer, so it never implies work
+      // that is not happening.
+      if (window.CureCompanion) {
+        window.CureCompanion.scan("scan", message, Math.max(0, indexOfActive()));
+      }
       paintLedger();
       if (rafId === null) startLoop();
     },
@@ -995,12 +995,14 @@
       }
       if (currentEl) currentEl.textContent = "Collection ended";
       if (coreReadout) coreReadout.textContent = "Collection ended";
-      window.CureCompanion.scan(
-        state.findings > 0 ? "review" : "idle",
-        "Collection ended",
-        0,
-        window.CureCompanion.variant("scan"),
-      );
+      // A real finding count decides the reaction. Zero findings is a genuine
+      // "all clear", so LUMA returns to idle rather than performing relief.
+      if (window.CureCompanion) {
+        window.CureCompanion.discovering(
+          state.findings,
+          state.findings > 0 ? "Collection ended" : "Collection ended - nothing flagged",
+        );
+      }
       paintLedger();
       beamY = beamTarget = geo.die ? geo.die.cy : beamY;
       draw();
@@ -1020,12 +1022,9 @@
       if (currentEl)
         currentEl.textContent = "Collection interrupted — retry available";
       if (coreReadout) coreReadout.textContent = "Interrupted";
-      window.CureCompanion.scan(
-        "review",
-        "Collection interrupted — retry available",
-        0,
-        window.CureCompanion.variant("scan"),
-      );
+      if (window.CureCompanion) {
+        window.CureCompanion.failed("Collection interrupted - retry available");
+      }
       paintLedger();
       stopLoop();
       draw();
