@@ -33,8 +33,23 @@
     }
   },
   "bundle": {
-    "active": false,
-    "targets": [],
-    "icon": ["icons/icon.ico"]
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "publisher": "C.U.R.E",
+    "shortDescription": "Windows security and storage intelligence workstation",
+    "longDescription": "C.U.R.E inspects a Windows machine for persistence, suspicious activity and reclaimable storage, and reports what it found with the evidence attached. It never changes anything without an explicit, previewed confirmation.",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English"],
+        "displayLanguageSelector": false
+      }
+    }
   }
 }

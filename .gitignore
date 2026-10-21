@@ -17,3 +17,22 @@ gui/dev-screenshots/*
 docs/media/*.webm
 __pycache__/
 /release-candidate/
+
+# Native captures of this machine. These are recordings of a real engine on
+# a real disk, so they contain real Windows profile paths and real file
+# names. They are local review artefacts, not source: see
+# docs/native-captures/README.md for which of them may be published and
+# why. They must never be committed by a blanket `git add`.
+docs/native-captures/
+
+# The native harness writes its real-machine screenshots to the repository
+# root when it is given a relative --shots directory, which is what the CI
+# does. Same reason: these show the real machine.
+/native-captures/
+
+# Local agent configuration, not a product file.
+/.claude/
+
+# A development-only preview page for the companion's states. The release
+# audit refuses it in a candidate for the same reason.
+docs/LUMA-PREVIEW.html
