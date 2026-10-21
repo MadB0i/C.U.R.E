@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 
 <html lang="en">
   <head>
@@ -10,7 +10,7 @@
     <link href="style.css" rel="stylesheet" />
     <link href="xray.css" rel="stylesheet" />
     <link href="luma.css" rel="stylesheet" />
-    <link href="storage.css" rel="stylesheet" />
+    <link href="storage-workstation.css" rel="stylesheet" />
   </head>
   <body>
     <div class="fallback hidden" id="fallback">
@@ -96,7 +96,7 @@
               <ellipse cx="12" cy="6.5" rx="7.5" ry="3"></ellipse>
               <path d="M4.5 6.5v11c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-11M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"
               ></path></svg
-            ><span>Disk Cleanup</span></button>
+            ><span>Storage</span></button>
           <button
             aria-current="false"
             class="nav-item"
@@ -183,7 +183,6 @@
                 <div
                   class="companion scan-companion"
                   data-companion="scan"
-                  aria-label="Scan companion"
                 ></div>
               </div>
             </div>
@@ -384,7 +383,6 @@
                   class="companion result-companion hidden"
                   id="companion-result"
                   data-companion="result"
-                  aria-label="Collection companion"
                 ></div>
                 <div class="panel" id="review-block">
                   <h2 class="section-title">Persistence findings</h2>
@@ -439,194 +437,613 @@
           </section>
 
           <!-- ============================================================
-               DISK CLEANUP
+               STORAGE WORKSTATION
                ============================================================ -->
           <section
-            aria-label="Disk Cleanup"
+            aria-label="Storage Workstation"
             class="view hidden"
             id="cleanup-view"
           >
             <div class="results-stack">
               <div class="results-head">
                 <div class="headline-wrap">
-                  <h1 class="headline">Disk Cleanup</h1>
-                  <div class="subline" id="cleanup-subline"></div>
+                  <h1 class="headline">Storage Workstation</h1>
+                  <div class="subline" id="sw-subline">
+                    Nothing is measured until you run a scan.
+                  </div>
                 </div>
                 <span class="flex-spacer"></span>
-                <div class="pill scanning" id="cleanup-status-line">
+                <div class="pill" id="sw-status-pill">
                   <span class="pill-dot"></span>
-                  <span id="cleanup-status-text">Ready to measure</span>
-                </div>
-                <button class="btn" id="cleanup-back" type="button">Back</button>
-              </div>
-              <ol
-                aria-label="Cleanup progress"
-                class="steps"
-                id="cleanup-steps"
-              >
-                <li class="step current" data-step="1">
-                  <span class="step-n">1</span
-                  ><span class="step-t">Candidates</span>
-                </li>
-                <li aria-hidden="true" class="step-arrow">→</li>
-                <li class="step" data-step="2">
-                  <span class="step-n">2</span
-                  ><span class="step-t">Confirmation</span>
-                </li>
-                <li aria-hidden="true" class="step-arrow">→</li>
-                <li class="step" data-step="3">
-                  <span class="step-n">3</span
-                  ><span class="step-t">Cleanup</span>
-                </li>
-              </ol>
-              <div class="cleanup-hero">
-                <div class="cleanup-hero-figure">
-                  <div
-                    class="companion hero-companion"
-                    data-companion="cleanup"
-                    aria-label="Cleanup companion"
-                  ></div>
-                </div>
-                <div class="cleanup-core">
-                  <div class="storage-core" id="storage-core">
-                    <canvas
-                      aria-hidden="true"
-                      class="storage-canvas"
-                      id="storage-canvas"
-                    ></canvas>
-                  </div>
-                  <div class="storage-panel">
-                    <div class="storage-measure-tag" id="storage-measure">
-                      NOT MEASURED
-                    </div>
-                    <ul
-                      aria-label="Cleanup categories measured by the engine"
-                      class="storage-legend"
-                      id="storage-legend"
-                    >
-                      <li class="st-row">
-                        <span class="st-mark" aria-hidden="true"></span>
-                        <span class="st-name">Not measured</span>
-                        <span class="st-bar" aria-hidden="true"
-                          ><i></i
-                        ></span>
-                        <span class="st-value">—</span>
-                      </li>
-                    </ul>
-                    <div class="storage-receipt">
-                      <span class="storage-reclaimable">Reclaimable</span>
-                      <span class="storage-amount" id="storage-reclaimable"
-                        >—</span
-                      >
-                      <span class="storage-caption" id="storage-caption"></span>
-                      <span
-                        class="storage-freed hidden"
-                        id="storage-freed-wrap"
-                      ></span>
-                    </div>
-                    <div class="hidden" id="cleanup-idle">
-                      <p class="cleanup-note dim">
-                        Nothing is scanned or deleted until you measure. Each
-                        category below is reported by the local engine; browser
-                        caches, Recycle Bin and old installers are never removed
-                        without your explicit selection.
-                      </p>
-                      <button class="btn btn-primary" id="cleanup-scan-btn"
-                        type="button">
-                        Scan disk
-                      </button>
-                    </div>
-                    <div class="cleanup-note dim hidden" id="cleanup-loading">
-                      measuring reclaimable space…
-                    </div>
-                    <div class="cleanup-busy hidden" id="cleanup-operation"
-                      role="status"
-                    >
-                      Removing confirmed selections — waiting for the engine
-                      result.
-                    </div>
-                    <div class="cleanup-queue hidden" id="cleanup-queue">
-                      <div class="cleanup-queue-title">
-                        Queued for removal
-                      </div>
-                      <div id="cleanup-queue-list"></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div class="hidden" id="cleanup-body">
-                <div class="cleanup-cols" id="cleanup-panel">
-                  <div class="cleanup-maincol">
-                    <h2 class="section-title">Measured categories</h2>
-                    <div class="cleanup-total" id="cleanup-total"></div>
-                    <div class="cleanup-grid" id="cleanup-grid"></div>
-                    <div class="hidden" id="cleanup-downloads">
-                      <div class="dl-head">
-                        OLD INSTALLERS IN DOWNLOADS — TICK WHAT MAY GO
-                      </div>
-                      <ul class="dl-list" id="cleanup-dl-list"></ul>
-                    </div>
-                    <div
-                      class="cleanup-result dim hidden"
-                      id="cleanup-status"
-                    ></div>
-                    <ul
-                      class="dl-list cleanup-failures hidden"
-                      id="cleanup-failures"
-                    ></ul>
-                  </div>
-                  <aside
-                    aria-label="Cleanup summary"
-                    class="panel cleanup-summary"
+                  <span id="sw-status-text" role="status" aria-live="polite"
+                    >Ready</span
                   >
-                    <h2 class="section-title">Cleanup summary</h2>
-                    <dl class="sum-rows">
+                </div>
+              </div>
+
+              <!-- scan controls ------------------------------------- -->
+              <div class="sw-controls" role="group" aria-label="Scan controls">
+                <div class="sw-depth" role="radiogroup" aria-label="Scan depth">
+                  <button
+                    aria-checked="true"
+                    class="sw-chip is-on"
+                    data-depth="quick"
+                    role="radio"
+                    tabindex="0"
+                    type="button"
+                  >
+                    Quick
+                  </button>
+                  <button
+                    aria-checked="false"
+                    class="sw-chip"
+                    data-depth="deep"
+                    role="radio"
+                    tabindex="-1"
+                    type="button"
+                  >
+                    Deep inventory
+                  </button>
+                </div>
+                <p class="sw-depth-note dim" id="sw-depth-note"></p>
+                <span class="flex-spacer"></span>
+                <button
+                  class="btn btn-ghost"
+                  id="sw-add-root"
+                  type="button"
+                >
+                  Add location
+                </button>
+                <button class="btn btn-primary" id="sw-scan" type="button">
+                  Run scan
+                </button>
+                <button class="btn btn-danger hidden" id="sw-cancel" type="button">
+                  Cancel scan
+                </button>
+              </div>
+
+              <div
+                aria-label="Locations added to this scan"
+                class="sw-roots hidden"
+                id="sw-roots-bar"
+              ></div>
+
+              <!-- live progress ----------------------------------- -->
+              <!-- The progress bar updates several times a second. A live
+                   region that changes that often floods a screen reader,
+                   so the region is polite-but-off and the *completion* is
+                   announced through #sw-status-text instead.
+
+                   Every figure below comes from the engine's own progress
+                   event. There is no estimated percentage anywhere: the
+                   engine reports what it has measured and when it expects
+                   to finish, and nothing is inferred from elapsed time. -->
+              <div
+                aria-live="off"
+                class="sw-progress hidden"
+                id="sw-progress"
+                role="status"
+              >
+                <div class="sw-scan-console">
+                  <div aria-hidden="true" class="sw-scan-visual">
+                    <div class="sw-scan-platter"></div>
+                    <div class="sw-scan-beam"></div>
+                    <div class="sw-scan-sweep"></div>
+                  </div>
+                  <div class="sw-scan-readout">
+                    <div class="sw-scan-stage">
+                      <span class="sw-scan-stage-name" id="sw-progress-phase"
+                        >Preparing</span
+                      >
+                      <span class="dim" id="sw-progress-detail"></span>
+                    </div>
+                    <dl class="sw-scan-counters">
                       <div>
-                        <dt>Total items</dt>
-                        <dd id="cs-total-items">—</dd>
+                        <dt id="sw-label-files">Files</dt>
+                        <dd id="sw-count-files">0</dd>
                       </div>
                       <div>
-                        <dt>Total size</dt>
-                        <dd id="cs-total-size">—</dd>
+                        <dt id="sw-label-dirs">Folders</dt>
+                        <dd id="sw-count-dirs">0</dd>
                       </div>
                       <div>
-                        <dt>Selected</dt>
-                        <dd id="cs-selected">—</dd>
-                      </div>
-                      <div>
-                        <dt>Status</dt>
-                        <dd>
-                          <span class="status-pill-mini" id="cs-status">Idle</span>
-                        </dd>
+                        <dt id="sw-label-bytes">Measured</dt>
+                        <dd id="sw-count-bytes">0 B</dd>
                       </div>
                     </dl>
-                    <div class="sum-check">
-                      <h4>What gets cleaned</h4>
-                      <ul>
-                        <li>Temporary files and system caches</li>
-                        <li>Browser caches — only if selected</li>
-                        <li>Recycle Bin contents — only if selected</li>
-                        <li>Old installers you tick — never automatic</li>
-                      </ul>
+                  </div>
+                </div>
+                <ol class="sw-scan-stages" id="sw-scan-stages">
+                  <li data-stage="prepare">Preparing</li>
+                  <li data-stage="walk">Scanning locations</li>
+                  <li data-stage="hash">Verifying duplicates</li>
+                  <li data-stage="final">Finalizing results</li>
+                </ol>
+                <div class="sw-progress-row">
+                  <span class="dim" id="sw-progress-eta"></span>
+                </div>
+              </div>
+
+              <!-- tabs ---------------------------------------------- -->
+              <div class="sw-tabs" role="tablist" aria-label="Storage views">
+                <button
+                  aria-controls="sw-panel-map"
+                  aria-selected="true"
+                  class="sw-tab is-on"
+                  id="sw-tab-map"
+                  role="tab"
+                  tabindex="0"
+                  type="button"
+                >
+                  Map
+                </button>
+                <button
+                  aria-controls="sw-panel-large"
+                  aria-selected="false"
+                  class="sw-tab"
+                  id="sw-tab-large"
+                  role="tab"
+                  tabindex="-1"
+                  type="button"
+                >
+                  Largest files
+                </button>
+                <button
+                  aria-controls="sw-panel-dupes"
+                  aria-selected="false"
+                  class="sw-tab"
+                  id="sw-tab-dupes"
+                  role="tab"
+                  tabindex="-1"
+                  type="button"
+                >
+                  Duplicates
+                </button>
+                <button
+                  aria-controls="sw-panel-queue"
+                  aria-selected="false"
+                  class="sw-tab"
+                  id="sw-tab-queue"
+                  role="tab"
+                  tabindex="-1"
+                  type="button"
+                >
+                  Cleanup queue
+                  <span class="sw-tab-count" id="sw-queue-badge">0</span>
+                </button>
+                <button
+                  aria-controls="sw-panel-coverage"
+                  aria-selected="false"
+                  class="sw-tab"
+                  id="sw-tab-coverage"
+                  role="tab"
+                  tabindex="-1"
+                  type="button"
+                >
+                  Coverage
+                </button>
+              </div>
+
+              <!-- MAP ------------------------------------------------ -->
+              <div
+                aria-labelledby="sw-tab-map"
+                class="sw-panel"
+                id="sw-panel-map"
+                role="tabpanel"
+                tabindex="0"
+              >
+                <div class="sw-headline-card" id="sw-headline-card">
+                  <div class="sw-headline-figure">
+                    <div
+                      class="companion sw-companion"
+                      data-companion="storage"
+                    ></div>
+                  </div>
+                  <div class="sw-headline-main">
+                    <div class="sw-headline-amount" id="sw-amount">
+                      —
                     </div>
-                    <p class="important-box">
-                      <strong>Important</strong
-                      ><span
-                        >This operation cannot be undone. Make sure you have
-                        reviewed the selected items before proceeding.</span
-                      >
+                    <div class="sw-headline-label" id="sw-amount-label">
+                      Not measured
+                    </div>
+                    <p class="sw-headline-note dim" id="sw-amount-note">
+                      Run a scan to measure this machine. C.U.R.E reports only
+                      bytes it has actually measured.
                     </p>
-                    <div class="cleanup-actions">
-                      <button
-                        class="btn btn-primary"
-                        disabled=""
-                        id="cleanup-btn"
-                        type="button"
-                      >
-                        <span id="cleanup-btn-label">Clean up</span>
-                      </button>
+                  </div>
+                  <dl class="sw-headline-split">
+                    <div>
+                      <dt>Needs individual review</dt>
+                      <dd id="sw-careful">—</dd>
+                    </div>
+                    <div>
+                      <dt>Never touched</dt>
+                      <dd id="sw-protected">—</dd>
+                    </div>
+                    <div>
+                      <dt>Free on volume</dt>
+                      <dd id="sw-free">—</dd>
+                    </div>
+                  </dl>
+                </div>
+
+                <div class="sw-map-split">
+                  <div class="sw-treemap-wrap">
+                    <div
+                      class="sw-map-badge hidden"
+                      id="sw-map-badge"
+                    ></div>
+                    <nav
+                      aria-label="Where the map is looking"
+                      class="sw-crumbs"
+                      id="sw-breadcrumbs"
+                    ></nav>
+                    <div
+                      aria-label="Disk usage map. Use the category list beside it for the same information as text."
+                      class="sw-treemap"
+                      id="sw-treemap"
+                      role="img"
+                    >
+                      <canvas
+                        aria-hidden="true"
+                        id="sw-treemap-canvas"
+                      ></canvas>
+                    </div>
+                    <p class="sw-treemap-hint dim" id="sw-treemap-hint">
+                      Each tile is sized by measured bytes. Click a category
+                      for the folders inside it, a folder for what is inside
+                      that, and a file for its details. The trail above the
+                      map is the way back.
+                    </p>
+                    <div
+                      aria-hidden="true"
+                      class="sw-map-tip"
+                      id="sw-map-tip"
+                    ></div>
+                  </div>
+                  <aside
+                    aria-label="Categories measured by the engine"
+                    class="sw-rail"
+                  >
+                    <h2 class="section-title">By category</h2>
+                    <ul class="sw-tiers" id="sw-tier-filter">
+                      <li>
+                        <button
+                          aria-pressed="true"
+                          class="sw-tier is-on"
+                          data-tier="all"
+                          type="button"
+                        >
+                          All
+                        </button>
+                      </li>
+                    </ul>
+                    <ul class="sw-classes" id="sw-classes"></ul>
+                    <div class="sw-legend-note dim">
+                      A category never shows as safe unless every file in it
+                      is. Anything unreadable lowers the totals to a floor and
+                      says so.
                     </div>
                   </aside>
+                </div>
+              </div>
+
+              <!-- LARGEST FILES -------------------------------------- -->
+              <div
+                aria-labelledby="sw-tab-large"
+                class="sw-panel hidden"
+                id="sw-panel-large"
+                role="tabpanel"
+                tabindex="0"
+              >
+                <div class="sw-toolbar">
+                  <label class="sw-sort">
+                    <span>Sort</span>
+                    <select id="sw-large-sort">
+                      <option value="size">Largest first</option>
+                      <option value="age">Oldest first</option>
+                      <option value="name">Name</option>
+                    </select>
+                  </label>
+                  <span class="flex-spacer"></span>
+                  <span class="dim" id="sw-large-count"></span>
+                </div>
+                <div
+                  aria-label="Largest files. Scrollable."
+                  class="sw-table-wrap"
+                  role="region"
+                  tabindex="0"
+                  >
+                  <table class="sw-table" id="sw-large-table">
+                    <caption class="visually-hidden">
+                      Largest files measured on this machine
+                    </caption>
+
+                    <colgroup>
+
+                      <col class="sw-col-name" />
+
+                      <col class="sw-col-class" />
+
+                      <col class="sw-col-tier" />
+
+                      <col class="sw-col-date" />
+
+                      <col class="sw-col-size" />
+
+                      <col class="sw-col-act" />
+
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th scope="col">File</th>
+                        <th scope="col">Class</th>
+                        <th scope="col">Tier</th>
+                        <th scope="col">Modified</th>
+                        <th scope="col" class="num">On disk</th>
+                        <th scope="col"><span class="visually-hidden">Actions</span></th>
+                      </tr>
+                    </thead>
+                    <tbody id="sw-large-body"></tbody>
+                  </table>
+                </div>
+
+                <h3 class="section-title sw-folders-title">
+                  Biggest folders
+                </h3>
+                <div
+                  aria-label="Biggest folders measured on this machine. Scrollable."
+                  class="sw-table-wrap"
+                  role="region"
+                  tabindex="0"
+                >
+                  <table class="sw-table" id="sw-folders-table">
+                    <caption class="visually-hidden">
+                      Folders that occupy the most space
+                    </caption>
+                    <colgroup>
+                      <col class="sw-col-name" />
+                      <col class="sw-col-class" />
+                      <col class="sw-col-date" />
+                      <col class="sw-col-size" />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th scope="col">Folder</th>
+                        <th scope="col">Class</th>
+                        <th scope="col">Files</th>
+                        <th scope="col" class="num">On disk</th>
+                      </tr>
+                    </thead>
+                    <tbody id="sw-folders-body"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- DUPLICATES ----------------------------------------- -->
+              <div
+                aria-labelledby="sw-tab-dupes"
+                class="sw-panel hidden"
+                id="sw-panel-dupes"
+                role="tabpanel"
+                tabindex="0"
+              >
+                <div class="sw-dupe-head">
+                  <p class="dim" id="sw-dupe-coverage">
+                    Duplicates are only reported after every copy has been read
+                    in full and hashed. Nothing is proposed on a size match
+                    alone.
+                  </p>
+                </div>
+                <div id="sw-dupe-list" class="sw-dupe-list"></div>
+              </div>
+
+              <!-- QUEUE ----------------------------------------------- -->
+              <div
+                aria-labelledby="sw-tab-queue"
+                class="sw-panel hidden"
+                id="sw-panel-queue"
+                role="tabpanel"
+                tabindex="0"
+              >
+                <div class="sw-queue-head">
+                  <h2 class="section-title">Queued for removal</h2>
+                  <p class="dim">
+                    Review every line, then preview. There is no bulk action
+                    for protected or uncertain files.
+                  </p>
+                </div>
+                <div id="sw-queue-groups" class="sw-queue-groups"></div>
+                <div class="sw-queue-empty dim" id="sw-queue-empty">
+                  Nothing queued. Add files from the map, the largest-files
+                  list, or a duplicate group.
+                </div>
+                <div class="sw-queue-actions">
+                  <button
+                    class="btn btn-danger"
+                    disabled=""
+                    id="sw-preview-btn"
+                    type="button"
+                  >
+                    Preview removal
+                  </button>
+                  <button class="btn btn-ghost" id="sw-queue-clear" type="button">
+                    Clear queue
+                  </button>
+                </div>
+              </div>
+
+              <!-- COVERAGE -------------------------------------------- -->
+              <div
+                aria-labelledby="sw-tab-coverage"
+                class="sw-panel hidden"
+                id="sw-panel-coverage"
+                role="tabpanel"
+                tabindex="0"
+              >
+                <div class="sw-toolbar">
+                  <h2 class="section-title">What the scan could and could not see</h2>
+                  <span class="flex-spacer"></span>
+                  <button class="btn btn-ghost" id="sw-reveal-root" type="button">
+                    Show data folder
+                  </button>
+                </div>
+                <div class="sw-empty-panel" id="sw-coverage-empty">
+                  <p class="sw-empty">
+                    Nothing has been measured yet. Run a scan and this tab will
+                    report exactly what was read, what was refused, and what
+                    was left out.
+                  </p>
+                  <button class="btn btn-primary" id="sw-coverage-scan" type="button">
+                    Run a scan
+                  </button>
+                </div>
+                <dl class="sw-stat-rows" id="sw-stat-rows"></dl>
+                <h3 class="section-title sw-sub-title">Roots measured</h3>
+                <div
+                  aria-label="Scan roots and their outcome. Scrollable."
+                  class="sw-table-wrap"
+                  role="region"
+                  tabindex="0"
+                  >
+                  <table class="sw-table">
+                    <caption class="visually-hidden">
+                        Scan roots and their outcome
+                    </caption>
+
+                    <colgroup>
+
+                      <col class="sw-col-name" />
+
+                      <col class="sw-col-class" />
+
+                      <col class="sw-col-tier" />
+
+                      <col class="sw-col-date" />
+
+                      <col class="sw-col-size" />
+
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th scope="col">Location</th>
+                        <th scope="col">Category</th>
+                        <th scope="col">Result</th>
+                        <th scope="col" class="num">Files</th>
+                        <th scope="col" class="num">On disk</th>
+                      </tr>
+                    </thead>
+                    <tbody id="sw-roots-body"></tbody>
+                  </table>
+                </div>
+                <h3 class="section-title sw-sub-title">
+                  Places the engine could not read
+                </h3>
+                <ul
+                  aria-label="Locations the engine could not read"
+                  class="sw-failures"
+                  id="sw-failures"
+                  role="list"
+                  tabindex="0"
+                ></ul>
+              </div>
+
+              <!-- INSPECTOR ------------------------------------------ -->
+              <aside
+                aria-label="Selected item details"
+                class="sw-inspector hidden"
+                id="sw-inspector"
+              >
+                <div class="sw-inspector-head">
+                  <h2 class="section-title" id="sw-inspector-title">
+                    Details
+                  </h2>
+                  <button
+                    aria-label="Close details"
+                    class="icon-btn"
+                    id="sw-inspector-close"
+                    type="button"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div class="sw-inspector-body" id="sw-inspector-body"></div>
+              </aside>
+            </div>
+
+            <!-- preview dialog ------------------------------------- -->
+            <div
+              aria-labelledby="sw-preview-title"
+              aria-modal="true"
+              class="modal-overlay hidden"
+              id="sw-preview-overlay"
+              role="dialog"
+            >
+              <div class="confirm-modal sw-preview-modal">
+                <h2 class="confirm-title" id="sw-preview-title">
+                  Confirm removal
+                </h2>
+                <p class="sw-preview-consequence" id="sw-preview-consequence"></p>
+                <div class="sw-preview-columns">
+                  <div>
+                    <h3 class="section-title">Will be removed</h3>
+                    <ul class="sw-preview-list" id="sw-preview-list"></ul>
+                  </div>
+                  <div>
+                    <h3 class="section-title">Refused</h3>
+                    <ul
+                      class="sw-preview-list sw-preview-refused"
+                      id="sw-preview-refused"
+                    ></ul>
+                  </div>
+                </div>
+                <label class="sw-confirm">
+                  <span id="sw-preview-phrase"
+                    >Type <b>REMOVE</b> to confirm this cannot be undone.</span
+                  >
+                  <input
+                    autocomplete="off"
+                    id="sw-confirm-input"
+                    spellcheck="false"
+                    type="text"
+                  />
+                </label>
+                <div class="confirm-actions">
+                  <button class="btn btn-ghost" id="sw-preview-cancel" type="button">
+                    Cancel
+                  </button>
+                  <button
+                    class="btn btn-danger"
+                    disabled=""
+                    id="sw-preview-confirm"
+                    type="button"
+                  >
+                    Remove permanently
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- receipt -------------------------------------------- -->
+            <div
+              aria-labelledby="sw-receipt-title"
+              aria-modal="true"
+              class="modal-overlay hidden"
+              id="sw-receipt-overlay"
+              role="dialog"
+            >
+              <div class="confirm-modal sw-receipt-modal">
+                <h2 class="confirm-title" id="sw-receipt-title">
+                  Cleanup receipt
+                </h2>
+                <div class="sw-receipt-figure" id="sw-receipt-amount">—</div>
+                <p class="sw-receipt-label" id="sw-receipt-label"></p>
+                <dl class="sw-receipt-rows" id="sw-receipt-rows"></dl>
+                <ul class="sw-preview-list sw-preview-refused" id="sw-receipt-notes"></ul>
+                <div class="confirm-actions">
+                  <button class="btn btn-primary" id="sw-receipt-close" type="button">
+                    Done
+                  </button>
                 </div>
               </div>
             </div>
@@ -648,15 +1065,10 @@
                     class="ov-dial"
                     viewBox="0 0 120 120"
                   >
-                    <circle class="ov-dial-track" cx="60" cy="60" r="52" />
-                    <circle
-                      class="ov-dial-arc"
-                      cx="60"
-                      cy="60"
-                      id="ov-dial-arc"
-                      r="52"
-                    />
-                    <circle class="ov-dial-track" cx="60" cy="60" r="40" />
+                    <!-- Nine segments, one per inspection layer. A single
+                         empty ring said nothing; nine segments say exactly
+                         how much of the machine has reported. -->
+                    <g id="ov-dial-segments"></g>
                   </svg>
                   <div class="ov-dial-center">
                     <span class="ov-dial-value" id="ov-dial-value">—</span>
@@ -691,7 +1103,7 @@
                       Start Rescue Scan
                     </button>
                     <button class="btn" data-route="cleanup-view" type="button">
-                      Disk cleanup
+                      Measure storage
                     </button>
                   </div>
                 </div>
@@ -699,7 +1111,6 @@
                   <div
                     class="companion compact overview-companion"
                     data-companion="overview"
-                    aria-label="Overview companion"
                   ></div>
                 </div>
               </div>
@@ -735,8 +1146,11 @@
                     <h2 class="section-title">Recent findings</h2>
                     <div id="ov-recent">
                       <div class="empty-state">
-                        <strong>No evidence collected yet</strong>Start a scan to
-                        inspect this system’s persistence sources.
+                        <strong>No evidence collected yet</strong>
+                        <span
+                          >A Rescue Scan reads the nine persistence layers and
+                          reports what each one found.</span
+                        >
                       </div>
                     </div>
                   </section>
@@ -746,13 +1160,16 @@
                     </h2>
                     <ul class="log" id="ov-actions"></ul>
                     <div class="empty-state" id="ov-actions-empty">
-                      Scan progress and confirmed actions will appear here.
+                      <span
+                        >Scan progress and confirmed actions appear here as they
+                        happen.</span
+                      >
                     </div>
                   </div>
                   <div class="panel" id="ov-incident-panel">
                     <h2 class="section-title">Login observation</h2>
                     <div class="coverage-note dim" id="ov-incident">
-                      No login observation recorded this session.
+                      <span>No login observation recorded this session.</span>
                     </div>
                   </div>
                 </div>
@@ -769,17 +1186,22 @@
                       </li>
                     </ul>
                     <div class="coverage-note dim">
-                      Some collectors do not report access coverage. Completed
-                      collection is shown separately from verified coverage.
+                      <span
+                        >Completed collection is shown separately from verified
+                        coverage.</span
+                      >
                     </div>
                   </div>
                   <section class="panel">
                     <h2 class="section-title">Watcher / USB</h2>
-                    <p class="dim">Status unavailable in this console.</p>
-                    <p class="coverage-note">
-                      Pairing and watcher installation are managed with
-                      cure-watch.exe. The console cannot verify their connection.
-                    </p>
+                    <div class="empty-state">
+                      <strong>Status unavailable in this console</strong>
+                      <span
+                        >Pairing and watcher installation are managed with
+                        cure-watch.exe; the console cannot verify their
+                        connection.</span
+                      >
+                    </div>
                   </section>
                 </div>
               </div>
@@ -1022,6 +1444,24 @@
                 <div class="empty-state hidden" id="event-log-empty">
                   No events yet this session.
                 </div>
+              </div>
+              <div class="panel">
+                <h2 class="section-title">Display</h2>
+                <div class="display-settings">
+                  <label class="redact-check">
+                    <input checked="" id="pref-companion" type="checkbox" /> Show
+                    the companion
+                  </label>
+                  <label class="redact-check">
+                    <input id="pref-companion-motion" type="checkbox" /> Pause
+                    companion motion
+                  </label>
+                </div>
+                <p class="coverage-note dim">
+                  The companion follows the operating system's reduced-motion
+                  preference on its own. Pausing it here overrides that until
+                  the box is cleared.
+                </p>
               </div>
             </div>
           </section>
@@ -1489,7 +1929,7 @@
     <script src="mock-tauri.js"></script>
     <script src="luma.js"></script>
     <script src="xray.js"></script>
-    <script src="storage-core.js"></script>
+    <script src="storage-workstation.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

@@ -89,6 +89,15 @@
   --display: 2.074rem;
   --hero: 2.9rem;
 
+  /* Stepped type scale used by the Storage Workstation and the companion.
+     These names are the ones those modules were written against; without a
+     definition every `font-size: var(--t-*)` declaration is dropped by the
+     CSS parser and the element silently inherits its parent's size. */
+  --t-xs: 0.78125rem;
+  --t-sm: 0.875rem;
+  --t-md: 1rem;
+  --t-lg: 1.2rem;
+
   /* Space. */
   --s1: 4px;
   --s2: 8px;
@@ -476,6 +485,8 @@ code,
   gap: var(--s2);
   align-items: center;
   min-width: 0;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .crumb-home {
@@ -493,14 +504,22 @@ code,
   font-size: var(--base);
   font-weight: 600;
   letter-spacing: -0.005em;
+  white-space: nowrap;
 }
 
+/* The session context names the kind of scan it is reporting, so it can
+   carry two clauses when the operator has run both kinds. It is the one
+   part of the bar that may be clipped: the page title and the clock must
+   never wrap because a second scan was added to the line. */
 .session-meta {
   margin-left: auto;
   font: var(--t-2xs) var(--font-mono);
   letter-spacing: 0.04em;
   color: var(--text-3);
   white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .topbar-clock {
@@ -1133,14 +1152,22 @@ code,
 .all-clear,
 .empty-state,
 .cleanup-idle {
-  padding: var(--s5) 0;
+  padding: var(--s4) 0;
   color: var(--text-2);
+  max-width: 56ch;
 }
 
 .empty-state strong {
   display: block;
-  margin-bottom: var(--s2);
+  margin-bottom: var(--s1);
   color: var(--text);
+  font-size: var(--sm);
+  font-weight: 580;
+}
+
+.empty-state span {
+  display: block;
+  line-height: 1.5;
 }
 
 .empty-state button {
@@ -1634,10 +1661,10 @@ code,
 
 .ov-hero {
   display: grid;
-  grid-template-columns: 148px minmax(0, 1fr) clamp(190px, 17%, 244px);
-  gap: var(--s10);
+  grid-template-columns: 124px minmax(0, 1fr) clamp(190px, 15%, 232px);
+  gap: var(--s6);
   align-items: center;
-  margin-bottom: var(--s6);
+  margin-bottom: var(--s5);
   padding: var(--s6) var(--s8);
   background:
     var(--ambient-cool),
@@ -1648,10 +1675,16 @@ code,
   box-shadow: var(--edge-light), var(--shadow-2);
 }
 
+/* When the companion is hidden the hero closes the column she left, rather
+   than keeping an empty space open beside the content. */
+.ov-hero[data-companion-hidden="true"] {
+  grid-template-columns: 124px minmax(0, 1fr);
+}
+
 .ov-dial-wrap {
   position: relative;
-  width: 148px;
-  height: 148px;
+  width: 124px;
+  height: 124px;
   display: grid;
   place-items: center;
 }
@@ -1664,29 +1697,31 @@ code,
   transform: rotate(-90deg);
 }
 
-.ov-dial-track {
+/* Nine segments, one per inspection layer. Each one that has reported is
+   lit; the rest stay as a quiet outline. Before the first scan the ring is
+   a set of unlit ticks, which says "nothing has reported yet" instead of
+   pretending to be a meter reading zero. */
+.ov-dial-segment {
   fill: none;
-  stroke: rgba(255, 255, 255, 0.055);
-  stroke-width: 6;
-}
-
-.ov-dial-arc {
-  fill: none;
-  stroke: var(--cure-400);
-  stroke-width: 6;
+  stroke: rgba(255, 255, 255, 0.07);
+  stroke-width: 5;
   stroke-linecap: round;
-  filter: drop-shadow(0 0 8px rgba(139, 111, 240, 0.45));
-  transition: stroke-dashoffset var(--slow) var(--ease-out);
+  transition: stroke 420ms var(--ease-out), filter 420ms var(--ease-out);
 }
 
-.ov-dial-arc.is-warn {
+.ov-dial-segment.is-lit {
+  stroke: var(--cure-400);
+  filter: drop-shadow(0 0 5px rgba(139, 111, 240, 0.35));
+}
+
+.ov-dial-segment.is-warn {
   stroke: var(--warning);
-  filter: drop-shadow(0 0 8px rgba(224, 164, 88, 0.4));
+  filter: drop-shadow(0 0 6px rgba(224, 164, 88, 0.4));
 }
 
-.ov-dial-arc.is-bad {
+.ov-dial-segment.is-bad {
   stroke: var(--danger);
-  filter: drop-shadow(0 0 8px rgba(228, 112, 106, 0.4));
+  filter: drop-shadow(0 0 6px rgba(228, 112, 106, 0.4));
 }
 
 .ov-dial-center {
@@ -1696,23 +1731,25 @@ code,
 
 .ov-dial-value {
   display: block;
-  font: 620 var(--xl) "Cascadia Code", Consolas, monospace;
-  letter-spacing: -0.03em;
+  font: 600 var(--sm) "Cascadia Code", Consolas, monospace;
+  letter-spacing: -0.02em;
   color: var(--text);
-  line-height: 1.1;
+  line-height: 1.15;
 }
 
 .ov-dial-label {
   display: block;
-  margin-top: 2px;
-  font-size: 9px;
-  font-weight: 650;
-  letter-spacing: 0.14em;
+  margin-top: 3px;
+  max-width: 16ch;
+  font-size: var(--t-2xs);
+  font-weight: 620;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-3);
 }
 
 .ov-hero-copy {
+  max-width: 42rem;
   min-width: 0;
 }
 
@@ -1755,19 +1792,28 @@ code,
   display: flex;
   flex-wrap: wrap;
   gap: var(--s3);
-  margin-top: var(--s5);
+  margin-top: var(--s4);
 }
 
+/* The companion lives in a column of its own, separated by a hairline, so
+   she reads as part of the workstation rather than a widget floating in the
+   corner. */
 .ov-hero-figure {
-  align-self: center;
+  align-self: stretch;
+  border-left: 1px solid var(--hair-soft);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   min-width: 0;
+  padding-left: var(--s6);
 }
 
 .ov-readouts {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 1px;
-  margin-bottom: var(--s8);
+  margin-bottom: var(--s6);
   background: var(--hair-soft);
   border: 1px solid var(--hair);
   border-radius: var(--r2);
@@ -1776,21 +1822,25 @@ code,
 
 .ov-readout {
   min-width: 0;
-  padding: var(--s3) var(--s4);
+  padding: var(--s3) var(--s5) var(--s4);
   background: var(--ink-150);
 }
 
 .ov-readout dt {
   font-size: var(--t-2xs);
-  font-weight: 650;
-  letter-spacing: 0.1em;
+  font-weight: 620;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
   color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ov-readout dd {
-  margin-top: 3px;
-  font: 550 var(--sm) "Cascadia Code", Consolas, monospace;
+  margin-top: var(--s1);
+  font: 560 var(--sm) "Cascadia Code", Consolas, monospace;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2244,7 +2294,7 @@ code,
     display: none;
   }
   .overview-companion .companion-motion {
-    font-size: 10px;
+    font-size: 12px;
     min-height: 24px;
     padding: 0 var(--s2);
   }
@@ -2313,7 +2363,7 @@ code,
     gap: 3px;
     min-height: 46px;
     padding: var(--s1) var(--s2);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 550;
     line-height: 1.15;
     text-align: center;
@@ -2436,4 +2486,32 @@ code,
     transition: none !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ==========================================================================
+   Display preferences (Monitor)
+   ========================================================================== */
+
+.display-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3) var(--s8);
+  margin: var(--s2) 0 var(--s3);
+}
+
+.display-settings .redact-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--text-2);
+  font-size: var(--t-sm);
+  cursor: pointer;
+}
+
+.display-settings .redact-check input {
+  accent-color: var(--cure-400);
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  cursor: pointer;
 }

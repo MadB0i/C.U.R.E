@@ -9,10 +9,10 @@
       "../dist/style.css",
       "../dist/xray.css",
       "../dist/luma.css",
-      "../dist/storage.css",
+      "../dist/storage-workstation.css",
       "../dist/luma.js",
       "../dist/xray.js",
-      "../dist/storage-core.js",
+      "../dist/storage-workstation.js",
       "../dist/app.js"
     ]
   },

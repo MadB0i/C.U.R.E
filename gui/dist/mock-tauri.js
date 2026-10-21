@@ -1,13 +1,29 @@
 (function () {
   "use strict";
 
-  if (window.__TAURI__) {
+  /* The mock replaces the Tauri API outright, so a build that ships it
+     never reaches the real backend.
+
+     The guard below is the opposite case: a shell that has the real API
+     must not be silently swapped for sample data, because that would make
+     a test look like it exercised the engine when it did not. The public
+     demo sets `__CURE_FORCE_MOCK` to say, deliberately, that this build
+     is the sample-data one. */
+  if (window.__TAURI__ && !window.__CURE_FORCE_MOCK) {
     console.warn("[mock-tauri] real window.__TAURI__ detected; mock disabled");
     return;
   }
 
   const listeners = Object.create(null);
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  /* Note on the runtime's low-level bridge. The Tauri runtime injects
+     `window.__TAURI_INTERNALS__` into every window, and its `invoke`
+     property is non-writable and non-configurable — it cannot be
+     replaced from a page, and assigning to it in strict mode throws.
+     That route is therefore closed in the *build*, not here: the public
+     demo is compiled without an invoke handler, so every command is
+     refused by the runtime whichever door it comes through. */
 
   function emit(name, payload) {
     const set = listeners[name];
@@ -254,121 +270,820 @@
     return __mockQuarantine.map((r) => ({ ...r }));
   }
 
-  // ---- disk cleanup mock --------------------------------------------------
+  // ---- storage workstation mock ------------------------------------------
+  //
+  // Deterministic, clearly-labelled SAMPLE DATA for the browser test harness.
+  // Every number here is invented; none of it came from a real machine, and
+  // the shell that loads this file says so in the wordmark.
+  //
+  //   __CURE_MOCK_STORAGE_ERROR      make storage_scan reject
+  //   __CURE_MOCK_STORAGE_DELAY_MS   how long the scan pretends to take
+  //   __CURE_MOCK_STORAGE_EMPTY      report a machine with nothing to reclaim
+  //   __CURE_MOCK_STORAGE_PARTIAL    report an incomplete scan (unreadable roots)
+  //   __CURE_MOCK_STORAGE_LOCKED     report one locked file at execution time
+  //   __CURE_MOCK_STORAGE_STALE      make one queued item go stale before execute
+  if (window.__CURE_MOCK_STORAGE_ERROR === undefined)
+    window.__CURE_MOCK_STORAGE_ERROR = false;
+  if (window.__CURE_MOCK_STORAGE_DELAY_MS === undefined)
+    window.__CURE_MOCK_STORAGE_DELAY_MS = 900;
+  if (window.__CURE_MOCK_STORAGE_EMPTY === undefined)
+    window.__CURE_MOCK_STORAGE_EMPTY = false;
+  if (window.__CURE_MOCK_STORAGE_PARTIAL === undefined)
+    window.__CURE_MOCK_STORAGE_PARTIAL = false;
+  if (window.__CURE_MOCK_STORAGE_LOCKED === undefined)
+    window.__CURE_MOCK_STORAGE_LOCKED = false;
+  if (window.__CURE_MOCK_STORAGE_STALE === undefined)
+    window.__CURE_MOCK_STORAGE_STALE = false;
 
-  //   __CURE_MOCK_CLEANUP_FAILURES  when true, run_cleanup reports one locked file
-  //   __CURE_MOCK_CLEANUP_DELAY_MS  how long run_cleanup pretends to take
-  if (window.__CURE_MOCK_CLEANUP_FAILURES === undefined) {
-    window.__CURE_MOCK_CLEANUP_FAILURES = false;
-  }
-  if (window.__CURE_MOCK_CLEANUP_DELAY_MS === undefined) {
-    window.__CURE_MOCK_CLEANUP_DELAY_MS = 750;
-  }
-  if (window.__CURE_MOCK_OVERLAY_HITS === undefined) {
-    window.__CURE_MOCK_OVERLAY_HITS = 1;
-  }
+  const KB = 1024;
+  const MB = 1024 * 1024;
+  const GB = 1024 * 1024 * 1024;
 
-  const CLEANUP_CATEGORIES = [
+  /* Deterministic ages in seconds-since-epoch, anchored so captures are
+     byte-stable across runs. */
+  const MOCK_NOW = 1760000000;
+  const daysAgo = (d) => MOCK_NOW - d * 86400;
+
+  const SAMPLE_FILES = [
     {
-      key: "temp",
-      label: "Temp files",
-      item_count: 1242,
-      total_bytes: 6871947674,
+      path: "C:\\Users\\bob\\AppData\\Local\\Temp\\sess-8f21a0.tmp",
+      name: "sess-8f21a0.tmp",
+      size: 18 * MB,
+      modified: daysAgo(0.2),
+      cls: "user_temp",
+      clsLabel: "User temp files",
+      tier: "safe_to_review",
+      reasons: [
+        "in a location the operating system treats as temporary",
+        "regenerable by the program that wrote it; individual files are still listed before anything is removed",
+      ],
     },
     {
-      key: "browser_cache",
-      label: "Browser caches",
-      item_count: 2,
-      total_bytes: 283115776,
+      path: "C:\\Users\\bob\\AppData\\Local\\Temp\\chrome\\CrRendererChild\\index.dat",
+      name: "index.dat",
+      size: 6 * MB,
+      modified: daysAgo(1.1),
+      cls: "user_temp",
+      clsLabel: "User temp files",
+      tier: "safe_to_review",
+      reasons: ["in a location the operating system treats as temporary"],
     },
-    { key: "recycle_bin", label: "Recycle Bin", item_count: 0, total_bytes: 0 },
     {
-      key: "windows_old",
-      label: "Windows.old",
-      item_count: 1,
-      total_bytes: 32851861504,
+      path: "C:\\Users\\bob\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Cache\\Cache_Data\\f_00001",
+      name: "f_00001",
+      size: 41 * MB,
+      modified: daysAgo(0.4),
+      cls: "browser_cache",
+      clsLabel: "Browser caches",
+      tier: "safe_to_review",
+      reasons: [
+        "a named cache directory inside a browser profile",
+        "regenerable by the program that wrote it; individual files are still listed before anything is removed",
+      ],
     },
-  ];
-
-  const CLEANUP_DOWNLOADS = [
     {
-      path: "C:\\Users\\bob\\Downloads\\setup_toolkit.exe",
-      name: "setup_toolkit.exe",
-      size_bytes: 48923136,
-      age_days: 63,
+      path: "C:\\Users\\bob\\AppData\\Local\\Microsoft\\Edge\\User Data\\Profile 2\\Cache\\data_2",
+      name: "data_2",
+      size: 27 * MB,
+      modified: daysAgo(0.9),
+      cls: "browser_cache",
+      clsLabel: "Browser caches",
+      tier: "safe_to_review",
+      reasons: ["a named cache directory inside a browser profile"],
+    },
+    {
+      path: "C:\\Windows\\Temp\\mpv_9c1e.tmp",
+      name: "mpv_9c1e.tmp",
+      size: 212 * MB,
+      modified: daysAgo(3.4),
+      cls: "windows_temp",
+      clsLabel: "Windows temp files",
+      tier: "safe_to_review",
+      reasons: ["in a location the operating system treats as temporary"],
+    },
+    {
+      path: "C:\\Users\\bob\\AppData\\Local\\CrashDumps\\chrome.exe.10428.dmp",
+      name: "chrome.exe.10428.dmp",
+      size: 640 * MB,
+      modified: daysAgo(11),
+      cls: "crash_dumps",
+      clsLabel: "Crash dumps",
+      tier: "safe_to_review",
+      reasons: ["diagnostic output regenerated by the next failure"],
+    },
+    {
+      path: "C:\\Windows\\Logs\\CBS\\CBS.log",
+      name: "CBS.log",
+      size: 96 * MB,
+      modified: daysAgo(0.7),
+      cls: "diagnostic_logs",
+      clsLabel: "Diagnostic logs",
+      tier: "safe_to_review",
+      reasons: ["diagnostic output regenerated by the next failure"],
+    },
+    {
+      path: "C:\\$Recycle.Bin\\S-1-5-21-1004336348-1177238915-682003330-1001\\$R3KQ7ZP.tmp",
+      name: "$R3KQ7ZP.tmp",
+      size: 1.4 * GB,
+      modified: daysAgo(6),
+      cls: "recycle_bin",
+      clsLabel: "Recycle Bin",
+      tier: "safe_to_review",
+      reasons: ["a deleted-item payload the shell itself already moved here"],
+    },
+    {
+      path: "C:\\$Recycle.Bin\\S-1-5-21-1004336348-1177238915-682003330-1001\\$R9WD2LM.iso",
+      name: "$R9WD2LM.iso",
+      size: 3.1 * GB,
+      modified: daysAgo(19),
+      cls: "recycle_bin",
+      clsLabel: "Recycle Bin",
+      tier: "safe_to_review",
+      reasons: ["a deleted-item payload the shell itself already moved here"],
     },
     {
       path: "C:\\Users\\bob\\Downloads\\driver_pack_2024.msi",
       name: "driver_pack_2024.msi",
-      size_bytes: 12582912,
-      age_days: 41,
+      size: 512 * MB,
+      modified: daysAgo(41),
+      cls: "user_selected",
+      clsLabel: "Selected location",
+      tier: "review_carefully",
+      reasons: [
+        "the user chose this location; intent is not known",
+        "classified as review carefully",
+      ],
     },
     {
-      path: "C:\\Users\\bob\\Downloads\\old-installer.exe",
-      name: "old-installer.exe",
-      size_bytes: 2097152,
-      age_days: 122,
+      path: "C:\\Users\\bob\\Downloads\\quarterly-archive.zip",
+      name: "quarterly-archive.zip",
+      size: 2.2 * GB,
+      modified: daysAgo(88),
+      cls: "user_selected",
+      clsLabel: "Selected location",
+      tier: "review_carefully",
+      reasons: ["the user chose this location; intent is not known"],
+    },
+    {
+      path: "C:\\Users\\bob\\project\\node_modules\\left-pad\\index.js",
+      name: "index.js",
+      size: 3 * KB,
+      modified: daysAgo(220),
+      cls: "dev_cache",
+      clsLabel: "Developer build caches",
+      tier: "review_carefully",
+      reasons: ["developer build output — regenerated by the toolchain"],
+    },
+    {
+      path: "C:\\Users\\bob\\project\\node_modules\\moment\\package.json",
+      name: "package.json",
+      size: 2 * KB,
+      modified: daysAgo(220),
+      cls: "dev_cache",
+      clsLabel: "Developer build caches",
+      tier: "review_carefully",
+      reasons: ["developer build output — regenerated by the toolchain"],
+    },
+    {
+      path: "C:\\Program Files\\Vendor Suite\\runtime.dll",
+      name: "runtime.dll",
+      size: 88 * MB,
+      modified: daysAgo(300),
+      cls: "other",
+      clsLabel: "Other",
+      tier: "protected",
+      reasons: ["inside an installed application directory"],
+    },
+    {
+      path: "C:\\Windows\\WinSxS\\amd64_placeholder.manifest",
+      name: "amd64_placeholder.manifest",
+      size: 4 * KB,
+      modified: daysAgo(500),
+      cls: "other",
+      clsLabel: "Other",
+      tier: "protected",
+      reasons: ["`windows/winsxs` is required by Windows itself"],
+    },
+    {
+      path: "C:\\Users\\bob\\AppData\\Local\\RetiredVendor\\cache.bin",
+      name: "cache.bin",
+      size: 148 * MB,
+      modified: daysAgo(430),
+      cls: "abandoned_app_data",
+      clsLabel: "Possibly unused app data",
+      tier: "unknown",
+      reasons: [
+        "newest file inside was modified 430 days ago",
+        "no installed program lists this location",
+        "application data is never a deletion recommendation; age alone proves nothing",
+      ],
     },
   ];
 
-  function snapshotCleanupMock() {
+  const SAMPLE_DUPLICATES = [
+    {
+      id: "9f2a1c4d7e8b0a61:5368709120:3",
+      sha256: "9f2a1c4d7e8b0a6138bd4f2e9a7c0516d8e3f4b2a6c9d0e1f2a3b4c5d6e7f80",
+      size: 5 * 1024 * MB,
+      reclaim: 5 * 1024 * MB,
+      copies: [
+        {
+          path: "C:\\Users\\bob\\Videos\\archive-2023.mp4",
+          modified: daysAgo(210),
+          kept: true,
+          tier: "review_carefully",
+          why: "kept: the most recent copy, or the one outside a disposable location",
+        },
+        {
+          path: "C:\\Users\\bob\\Downloads\\archive-2023.mp4",
+          modified: daysAgo(210),
+          kept: false,
+          tier: "review_carefully",
+          why: "user-visible file in a downloads folder",
+        },
+        {
+          path: "D:\\MediaBackup\\archive-2023.mp4",
+          modified: daysAgo(210),
+          kept: false,
+          tier: "protected",
+          why: "this engine will not propose removing this copy",
+        },
+      ],
+    },
+    {
+      id: "3c8b7a2e1d5f9046:2147483648:2",
+      sha256: "3c8b7a2e1d5f9046112233445566778899aabbccddeeff0011223344556677",
+      size: 2 * 1024 * MB,
+      reclaim: 2 * 1024 * MB,
+      copies: [
+        {
+          path: "C:\\Users\\bob\\AppData\\Local\\Temp\\staging-video.tmp",
+          modified: daysAgo(1.4),
+          kept: true,
+          tier: "safe_to_review",
+          why: "kept: the most recent copy, or the one outside a disposable location",
+        },
+        {
+          path: "C:\\Users\\bob\\AppData\\Local\\Temp\\staging-video-copy.tmp",
+          modified: daysAgo(1.6),
+          kept: false,
+          tier: "safe_to_review",
+          why: "in a location the operating system treats as temporary",
+        },
+      ],
+    },
+  ];
+
+  const SAMPLE_ROOTS = [
+    {
+      label: "User temp",
+      cls: "user_temp",
+      resolved: true,
+      bytes: 24 * MB,
+      files: 2,
+    },
+    {
+      label: "Windows temp",
+      cls: "windows_temp",
+      resolved: true,
+      bytes: 212 * MB,
+      files: 1,
+    },
+    {
+      label: "Google Chrome cache",
+      cls: "browser_cache",
+      resolved: true,
+      bytes: 41 * MB,
+      files: 1,
+    },
+    {
+      label: "Microsoft Edge cache",
+      cls: "browser_cache",
+      resolved: true,
+      bytes: 27 * MB,
+      files: 1,
+    },
+    {
+      label: "Recycle Bin",
+      cls: "recycle_bin",
+      resolved: true,
+      bytes: 4.5 * 1024 * MB,
+      files: 2,
+    },
+    {
+      label: "Crash dumps",
+      cls: "crash_dumps",
+      resolved: true,
+      bytes: 640 * MB,
+      files: 1,
+    },
+    {
+      label: "Diagnostic logs",
+      cls: "diagnostic_logs",
+      resolved: true,
+      bytes: 96 * MB,
+      files: 1,
+    },
+    {
+      label: "Previous Windows install",
+      cls: "windows_old",
+      resolved: false,
+      reason: "not present on this machine",
+      bytes: 0,
+      files: 0,
+    },
+    {
+      label: "Windows Update cache",
+      cls: "windows_update_cache",
+      resolved: false,
+      reason: "not present on this machine",
+      bytes: 0,
+      files: 0,
+    },
+    {
+      label: "Downloads",
+      cls: "user_selected",
+      resolved: true,
+      bytes: 2.7 * 1024 * MB,
+      files: 2,
+    },
+  ];
+
+  function mockScanFiles() {
+    return SAMPLE_FILES.map(function (f) {
+      return {
+        id: f.path.toLowerCase().replace(/\\/g, "/"),
+        path: f.path,
+        name: f.name,
+        parent: f.path.slice(0, f.path.lastIndexOf("\\")),
+        extension: (f.name.split(".").pop() || "").toLowerCase(),
+        size_logical: f.size,
+        size_allocated: f.size,
+        modified_unix: f.modified,
+        accessed_unix: null,
+        created_unix: f.modified,
+        hard_link_count: 1,
+        is_read_only: false,
+        is_hidden: false,
+        class: f.cls,
+        class_label: f.clsLabel,
+        tier: f.tier,
+        tier_label: TIER_TEXT[f.tier],
+        bulk_eligible: f.tier === "safe_to_review",
+        reasons: f.reasons.slice(),
+      };
+    });
+  }
+
+  /* The folder list the engine measured.
+
+     It is derived from the sample files the same way the real walk derives
+     it from the disk: every directory that holds a measured file, and the
+     directories above it, each carrying the bytes of everything below it.
+     Without this the map has nothing to drill into, and the drill-down
+     would only ever be exercised against a real machine. */
+  function mockScanFolders(files) {
+    const rows = new Map();
+    const add = (path, file) => {
+      let row = rows.get(path);
+      if (!row) {
+        row = {
+          id: path.toLowerCase().replace(/\\/g, "/"),
+          path: path,
+          name: path.slice(path.lastIndexOf("\\") + 1),
+          depth: 0,
+          size_allocated: 0,
+          size_logical: 0,
+          file_count: 0,
+          dir_count: 0,
+          class: file.class,
+          tier: file.tier,
+          incomplete: false,
+        };
+        rows.set(path, row);
+      }
+      /* The most cautious member decides the folder's tier, exactly as the
+         engine does for a category. */
+      const order = ["safe_to_review", "review_carefully", "unknown", "protected"];
+      if (order.indexOf(file.tier) > order.indexOf(row.tier)) row.tier = file.tier;
+      row.size_allocated += file.size_allocated;
+      row.size_logical += file.size_logical;
+      row.file_count += 1;
+      row.dir_count += 1;
+      return row;
+    };
+    for (const file of files) {
+      let path = file.parent;
+      let depth = 0;
+      while (path && path.length > 3) {
+        const row = add(path, file);
+        row.depth = depth;
+        const i = path.lastIndexOf("\\");
+        if (i <= 2) break;
+        path = path.slice(0, i);
+        depth += 1;
+      }
+    }
+    return Array.from(rows.values());
+  }
+
+  const TIER_TEXT = {
+    safe_to_review: "Safe to review",
+    review_carefully: "Review carefully",
+    protected: "Protected",
+    unknown: "Unknown",
+  };
+
+  let mockStorageScanId = "mock-scan-0001";
+  /* The approved plan, exactly as the real backend keeps it: the UI never
+     sends a selection to execute, it sends the digest of the plan it saw. */
+  let mockApprovedPlan = null;
+
+  function buildMockStorageScan(depth) {
+    mockStorageScanId += "-r";
+    const files = window.__CURE_MOCK_STORAGE_EMPTY ? [] : mockScanFiles();
+    const byClass = new Map();
+    for (const f of files) {
+      const row = byClass.get(f.class) || {
+        key: f.class,
+        label: f.class_label,
+        tier: f.tier,
+        item_count: 0,
+        bytes_allocated: 0,
+        bytes_logical: 0,
+      };
+      /* The most cautious member wins, exactly as the engine does. */
+      if (TIER_TEXT[f.tier] && row.tier !== f.tier) {
+        if (["protected", "unknown", "review_carefully", "safe_to_review"].indexOf(f.tier) >
+          ["protected", "unknown", "review_carefully", "safe_to_review"].indexOf(row.tier)) {
+          row.tier = f.tier;
+        }
+      }
+      row.item_count += 1;
+      row.bytes_allocated += f.size_allocated;
+      row.bytes_logical += f.size_logical;
+      byClass.set(f.class, row);
+    }
+
+    const dupeReclaim = window.__CURE_MOCK_STORAGE_EMPTY
+      ? 0
+      : SAMPLE_DUPLICATES.reduce((s, d) => s + d.reclaim, 0);
+    const safe = files
+      .filter((f) => f.tier === "safe_to_review")
+      .reduce((s, f) => s + f.size_allocated, 0);
+    const careful = files
+      .filter((f) => f.tier === "review_carefully")
+      .reduce((s, f) => s + f.size_allocated, 0);
+    const prot = files
+      .filter((f) => f.tier === "protected" || f.tier === "unknown")
+      .reduce((s, f) => s + f.size_allocated, 0);
+
+    const partial = window.__CURE_MOCK_STORAGE_PARTIAL;
+    const folders = mockScanFolders(files);
+    const failures = partial
+      ? [
+          {
+            path: "C:\\System Volume Information",
+            reason: "access denied",
+          },
+          {
+            path: "C:\\ProgramData\\Vendor\\cache",
+            reason: "access denied",
+          },
+        ]
+      : [];
+
     return {
-      categories: CLEANUP_CATEGORIES.map((c) => ({ ...c })),
-      downloads: CLEANUP_DOWNLOADS.map((d) => ({ ...d })),
-      total_bytes:
-        CLEANUP_CATEGORIES.reduce((sum, c) => sum + c.total_bytes, 0) +
-        CLEANUP_DOWNLOADS.reduce((sum, d) => sum + d.size_bytes, 0),
+      scan_id: mockStorageScanId,
+      duration_ms: window.__CURE_MOCK_STORAGE_DELAY_MS,
+      headline: {
+        /* The headline is the union of the removable files. The duplicate
+           figure is a subset of it and is never added on top. */
+        safe_bytes: safe,
+        careful_bytes: careful,
+        duplicate_bytes: dupeReclaim,
+        duplicate_bulk_bytes: dupeReclaim,
+        certainty: partial ? "lower_bound" : "measured",
+        certainty_label: partial ? "At least" : "Measured",
+        incomplete: !!partial,
+        safe_bytes_label: humanBytes(safe),
+        careful_bytes_label: humanBytes(careful),
+      },
+      files_total: files.length,
+      tier_counts: {
+        safe_to_review: files.filter((f) => f.tier === "safe_to_review").length,
+        review_carefully: files.filter((f) => f.tier === "review_carefully").length,
+        protected: files.filter((f) => f.tier === "protected").length,
+        unknown: files.filter((f) => f.tier === "unknown").length,
+      },
+      protected_bytes: prot,
+      duplicate_reclaimable_bytes: dupeReclaim,
+      summaries: Array.from(byClass.values()),
+      coverage: {
+        completeness: partial
+          ? "Partial — some locations could not be read"
+          : "Complete for the roots scanned",
+        files_seen: files.length,
+        dirs_seen: files.length * 3,
+        permission_denied_dirs: partial ? 2 : 0,
+        permission_denied_files: 0,
+        reparse_points_skipped: 3,
+        skipped_links: [],
+        locked_or_vanished: 1,
+        duration_ms: window.__CURE_MOCK_STORAGE_DELAY_MS,
+        cancelled: false,
+        volume_total_bytes: 512 * 1024 * MB,
+        volume_free_bytes: 88 * 1024 * MB,
+        volume_label: "SampleVolume",
+        failures: failures,
+        roots: SAMPLE_ROOTS.map((r) => ({
+          path: "C:\\" + r.label.replace(/[^a-z0-9]+/gi, "\\"),
+          label: r.label,
+          class: r.cls,
+          is_catalogue: true,
+          resolved: r.resolved,
+          reason: r.reason || "",
+          files_seen: r.files,
+          bytes_allocated: r.bytes,
+          incomplete: false,
+        })),
+      },
+      duplicate_coverage: {
+        files_considered: files.length,
+        size_buckets: 4,
+        partial_hash_groups: 2,
+        full_hash_groups: 2,
+        verified_sets: window.__CURE_MOCK_STORAGE_EMPTY ? 0 : SAMPLE_DUPLICATES.length,
+        skipped_oversize: 1,
+        skipped_hardlinked: 0,
+        skipped_changed_during_scan: 0,
+        skipped_unreadable: 0,
+        bytes_hashed: 4 * 1024 * MB,
+        truncated: false,
+        summary: "Checked " + files.length + " files in full.",
+      },
+      files: files,
+      folders: folders,
+      large_files: files,
+      large_folders: folders
+        .slice()
+        .sort((a, b) => b.size_allocated - a.size_allocated)
+        .slice(0, 12),
+      duplicates: window.__CURE_MOCK_STORAGE_EMPTY
+        ? []
+        : SAMPLE_DUPLICATES.map(function (d) {
+            return {
+              id: d.id,
+              size_allocated: d.size,
+              sha256: d.sha256,
+              reclaimable_bytes: d.reclaim,
+              protected_copies: d.copies.filter((c) => c.tier === "protected").length,
+              copies: d.copies.map(function (c) {
+                return {
+                  id: c.path.toLowerCase().replace(/\\/g, "/"),
+                  path: c.path,
+                  name: c.path.slice(c.path.lastIndexOf("\\") + 1),
+                  parent: c.path.slice(0, c.path.lastIndexOf("\\")),
+                  size_allocated: d.size,
+                  modified_unix: c.modified,
+                  tier: c.tier,
+                  tier_label: TIER_TEXT[c.tier],
+                  class_label: "Selected location",
+                  is_kept_candidate: c.kept,
+                  reasons: [c.why],
+                };
+              }),
+            };
+          }),
+      abandoned: window.__CURE_MOCK_STORAGE_EMPTY
+        ? []
+        : [
+            {
+              path: "C:\\Users\\bob\\AppData\\Local\\RetiredVendor",
+              app_name: "RetiredVendor",
+              size_allocated: 148 * MB,
+              file_count: 912,
+              days_since_change: 430,
+              tier: "unknown",
+              tier_label: "Unknown",
+              reasons: [
+                "newest file inside was modified 430 days ago",
+                "no installed program lists this location",
+              ],
+              caveat:
+                "No file here has been deleted or modified by C.U.R.E. An application that is still installed but idle, keeps state on another volume, or holds a licence tied to this folder will all look exactly the same to this measurement.",
+              removable: false,
+            },
+          ],
     };
   }
 
-  function scanCleanupMock() {
-    return delay(420).then(snapshotCleanupMock);
+  function humanBytes(n) {
+    if (n >= 1024 * 1024 * 1024) return (n / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+    if (n >= 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + " MB";
+    if (n >= 1024) return Math.round(n / 1024) + " KB";
+    return n + " B";
   }
 
-  function runCleanupMock(args) {
-    window.__CURE_LAST_CLEANUP_CALL = JSON.parse(JSON.stringify(args || {}));
-    return delay(window.__CURE_MOCK_CLEANUP_DELAY_MS).then(() => {
-      const categories = args.categories || [];
-      const downloads = args.download_paths || args.downloadPaths || [];
-      const result = {
-        attempted: 0,
-        deleted: 0,
-        failed: 0,
-        bytes_freed: 0,
-        failures: [],
-      };
-      // Model actual file counts and the subsequent rescan, not category counts.
-      for (const cat of CLEANUP_CATEGORIES) {
-        if (!categories.includes(cat.key) || !cat.item_count) continue;
-        result.attempted += cat.item_count;
-        const locked =
-          window.__CURE_MOCK_CLEANUP_FAILURES && result.failed === 0;
-        const remainingBytes = locked
-          ? Math.ceil(cat.total_bytes / cat.item_count)
-          : 0;
-        result.deleted += cat.item_count - (locked ? 1 : 0);
-        result.bytes_freed += cat.total_bytes - remainingBytes;
-        cat.item_count = locked ? 1 : 0;
-        cat.total_bytes = remainingBytes;
-        if (locked) {
-          result.failed = 1;
-          result.failures.push({
-            path: "C:\\Windows\\Temp\\locked-by-running-process.tmp",
-            reason:
-              "The process cannot access the file because it is being used by another process. (os error 32)",
-          });
-        }
+  function storagePreviewMock(args) {
+    const paths = (args && (args.paths || args.paths_)) || [];
+    const files = mockScanFiles();
+    const items = [];
+    const refused = [];
+    for (const p of paths) {
+      const f = files.find((x) => x.path.toLowerCase() === String(p).toLowerCase());
+      if (!f) {
+        refused.push({
+          path: p,
+          name: String(p).split(/[\\/]/).pop(),
+          size_allocated: 0,
+          size_label: "0 B",
+          tier: "unknown",
+          tier_label: "Unknown",
+          class_label: "Other",
+          reasons: ["not present in the current scan"],
+          stale: true,
+        });
+        continue;
       }
-      for (let i = CLEANUP_DOWNLOADS.length - 1; i >= 0; i--) {
-        if (!downloads.includes(CLEANUP_DOWNLOADS[i].path)) continue;
-        result.attempted++;
-        result.deleted++;
-        result.bytes_freed += CLEANUP_DOWNLOADS[i].size_bytes;
-        CLEANUP_DOWNLOADS.splice(i, 1);
+      const stale =
+        window.__CURE_MOCK_STORAGE_STALE && items.length === 0 ? true : false;
+      if (f.tier === "protected" || f.tier === "unknown") {
+        refused.push({
+          path: f.path,
+          name: f.name,
+          size_allocated: f.size_allocated,
+          size_label: humanBytes(f.size_allocated),
+          tier: f.tier,
+          tier_label: f.tier_label,
+          class_label: f.class_label,
+          reasons: f.reasons.concat(["refused: " + f.tier_label.toLowerCase()]),
+          stale: stale,
+        });
+        continue;
       }
-      window.__CURE_LAST_CLEANUP_RESULT = { ...result };
-      return result;
+      items.push({
+        path: f.path,
+        name: f.name,
+        size_allocated: stale ? 0 : f.size_allocated,
+        size_label: humanBytes(stale ? 0 : f.size_allocated),
+        tier: f.tier,
+        tier_label: f.tier_label,
+        class_label: f.class_label,
+        reasons: f.reasons,
+        stale: stale,
+      });
+    }
+    const estimated = items.reduce((s, i) => s + i.size_allocated, 0);
+    const careful = items.filter((i) => i.tier === "review_carefully").length;
+    let consequence =
+      "Nothing in this selection can be removed. See the refused list for why.";
+    if (items.length) {
+      consequence =
+        "Removes " +
+        items.length +
+        (items.length === 1 ? " file" : " files") +
+        " permanently, about " +
+        humanBytes(estimated) +
+        ". This is a direct delete: there is no quarantine copy and no undo.";
+      if (careful) {
+        consequence +=
+          " " + careful + " of them are user files that were selected individually.";
+      }
+    }
+    const plan = {
+      scan_id: mockStorageScanId,
+      plan_id: "plan-mock-" + items.length + "-" + refused.length,
+      items: items,
+      refused: refused,
+      estimated_bytes: estimated,
+      estimated_label: humanBytes(estimated),
+      certainty: "measured",
+      certainty_label: "Measured",
+      consequence: consequence,
+      confirmation_phrase: "REMOVE",
+    };
+    mockApprovedPlan = plan;
+    return Promise.resolve({
+      scan_id: mockStorageScanId,
+      plan_id: "plan-mock-" + items.length + "-" + refused.length,
+      items: items,
+      refused: refused,
+      estimated_bytes: estimated,
+      estimated_label: humanBytes(estimated),
+      certainty: "measured",
+      certainty_label: "Measured",
+      consequence: consequence,
+      confirmation_phrase: "REMOVE",
     });
+  }
+
+  function storageExecuteMock(args) {
+    /* The backend keeps the approved plan. The UI sends back the digest of
+       the plan it approved and the phrase that approves it; it cannot ask
+       for a different selection. */
+    const plan = mockApprovedPlan;
+    if (!plan) {
+      return Promise.reject(
+        new Error("There is no approved plan. Review the removal preview first."),
+      );
+    }
+    if (args && args.planId && args.planId !== plan.plan_id) {
+      return Promise.reject(
+        new Error(
+          "That approval is for a different plan. Review the removal preview again.",
+        ),
+      );
+    }
+    if (args && args.confirmPhrase !== "REMOVE") {
+      return Promise.reject(new Error("Type REMOVE to confirm."));
+    }
+    /* Real removal takes measurable time. Returning instantly would hide the
+       working pose and make it impossible to observe that nothing is
+       fabricated while an operation is in flight. */
+    return delay(window.__CURE_MOCK_STORAGE_EXEC_MS).then(function () {
+      return finishStorageExecute(args, plan);
+    });
+  }
+
+  function finishStorageExecute(args, plan) {
+    const files = mockScanFiles();
+    window.__CURE_LAST_STORAGE_CALL = JSON.parse(JSON.stringify(args || {}));
+    const deleted = [];
+    const refused = [];
+    const failures = [];
+    let bytes = 0;
+    let estimated = 0;
+
+    const items = plan.items || [];
+    for (const item of items) {
+      const p = item.path;
+      const f = files.find((x) => x.path.toLowerCase() === String(p).toLowerCase());
+      if (!f || f.tier === "protected" || f.tier === "unknown") {
+        refused.push({
+          path: p,
+          name: String(p).split(/[\\/]/).pop(),
+          size_allocated: 0,
+          size_label: "0 B",
+          tier: "unknown",
+          tier_label: "Unknown",
+          class_label: "Other",
+          reasons: ["refused: not deletable"],
+          stale: true,
+        });
+        continue;
+      }
+      if (window.__CURE_MOCK_STORAGE_LOCKED && failures.length === 0 &&
+        f.name.indexOf("CBS.log") >= 0) {
+        failures.push({
+          path: f.path,
+          reason: "locked by another process",
+        });
+        estimated += f.size_allocated;
+        continue;
+      }
+      deleted.push(f.path);
+      bytes += f.size_allocated;
+      estimated += f.size_allocated;
+    }
+
+    const freeBefore = 88 * 1024 * MB;
+    const freeAfter = freeBefore + bytes;
+    return {
+      scan_id: mockStorageScanId,
+      plan_id: plan.plan_id,
+      planned: items.length,
+      attempted: deleted.length + failures.length,
+      deleted: deleted.length,
+      refused: refused.length,
+      failed: failures.length,
+      bytes_removed_estimate: bytes,
+      bytes_removed_label: humanBytes(bytes),
+      bytes_uncertain: 0,
+      bytes_uncertain_label: "0 B",
+      bytes_estimated: estimated,
+      bytes_estimated_label: humanBytes(estimated),
+      finished_unix: MOCK_NOW,
+      volumes: [
+        {
+          root: "C:\\",
+          free_before: freeBefore,
+          free_after: freeAfter,
+          delta: bytes,
+          delta_label: "+" + humanBytes(bytes) + " free",
+          files_removed: deleted.length,
+        },
+      ],
+      note:
+        deleted.length +
+        " file(s) confirmed removed. The " +
+        humanBytes(bytes) +
+        " figure is what those files occupied on disk before they were deleted. " +
+        "The volume's free-space change is a separate observation of the whole drive; " +
+        "other software writing at the same time affects it.",
+      failures: failures,
+      refused_items: refused,
+    };
   }
 
   async function runAutoScan() {
@@ -804,10 +1519,93 @@
                 );
               }
             });
-          case "scan_cleanup":
-            return scanCleanupMock();
-          case "run_cleanup":
-            return runCleanupMock(args);
+          case "storage_available_roots":
+            return Promise.resolve([
+              {
+                path: "C:\\",
+                label: "Drive C",
+                exists: true,
+                is_drive: true,
+                total_bytes: 512 * 1024 * 1024 * 1024,
+                free_bytes: 88 * 1024 * 1024 * 1024,
+                volume_label: "SampleVolume",
+                selectable: true,
+              },
+              {
+                path: "D:\\",
+                label: "Drive D",
+                exists: true,
+                is_drive: true,
+                total_bytes: 2048 * 1024 * 1024 * 1024,
+                free_bytes: 1024 * 1024 * 1024 * 1024,
+                volume_label: "BackupVolume",
+                selectable: true,
+              },
+              {
+                path: "C:\\Users\\bob",
+                label: "Profile",
+                exists: true,
+                is_drive: false,
+                total_bytes: 512 * 1024 * 1024 * 1024,
+                free_bytes: 88 * 1024 * 1024 * 1024,
+                volume_label: "SampleVolume",
+                selectable: true,
+              },
+            ]);
+          case "storage_scan":
+            if (window.__CURE_MOCK_STORAGE_ERROR)
+              return Promise.reject(
+                new Error("The storage scan could not complete. Nothing was changed."),
+              );
+            window.__CURE_STORAGE_DONE = false;
+            // Real progress events, matching the shape the engine emits, so
+            // the UI's progress handling is exercised rather than skipped.
+            //
+            // The counters are derived from the sample data, so the figures
+            // on screen while the scan runs are the same figures the scan
+            // reports when it finishes. A demo that counted up to numbers
+            // the result did not contain would be showing sample data that
+            // does not exist.
+            const sample = window.__CURE_MOCK_STORAGE_EMPTY ? [] : mockScanFiles();
+            const sampleBytes = sample.reduce((s, f) => s + f.size_allocated, 0);
+            const sampleDirs = sample.length * 3;
+            const steps = 6;
+            let step = 0;
+            const tick = () => {
+              step += 1;
+              const walking = step <= 3;
+              const done = step / steps;
+              emit("storage-progress", {
+                scan_id: "mock-scan-progress",
+                phase: step >= steps ? "finished" : walking ? "walking" : "hashing",
+                root_label: step % 2 === 0 ? "Recycle Bin" : "User temp",
+                current_path: "C:\\Users\\bob\\AppData\\Local\\Temp\\f" + step,
+                dirs_seen: walking ? Math.round(sampleDirs * done) : 0,
+                files_seen: walking
+                  ? Math.round(sample.length * done)
+                  : Math.round(sample.length * done),
+                bytes_seen: Math.round(sampleBytes * done),
+                elapsed_ms: step * 120,
+                eta_ms: step >= 2 ? (steps - step) * 120 : null,
+              });
+              if (step < steps) {
+                setTimeout(tick, window.__CURE_MOCK_STORAGE_DELAY_MS / steps);
+              }
+            };
+            tick();
+            return delay(window.__CURE_MOCK_STORAGE_DELAY_MS).then(function () {
+              window.__CURE_STORAGE_DONE = true;
+              return buildMockStorageScan(args && args.depth);
+            });
+          case "storage_cancel":
+            return Promise.resolve();
+          case "storage_preview":
+            return storagePreviewMock(args);
+          case "storage_execute":
+            return storageExecuteMock(args);
+          case "storage_reveal":
+            window.__CURE_LAST_REVEAL = args && args.path;
+            return Promise.resolve(args && args.path);
           case "kill_high_risk_processes":
             return delay(350).then(function () {
               var procs = (args && args.processes) || [];

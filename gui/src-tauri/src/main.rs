@@ -1,31 +1,53 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
-use std::path::{Path, PathBuf};
-use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
-    Arc, Mutex,
-};
-
-use serde::Serialize;
-#[cfg(feature = "desktop-e2e")]
-use tauri::Listener;
-use tauri::{AppHandle, Emitter, Manager, State};
-
 use cure_core::canary::{shadow_wipe_reason, CanaryAlert};
-use cure_core::cleanup as disk_cleanup;
 use cure_core::model::{PersistenceEntry, PersistenceSource, RiskLevel, ScoredEntry};
 use cure_core::overlay::{self, WindowDesc};
 use cure_core::process_scan::{self, ProcessInfo, ProcessScore};
 use cure_core::ransom_detect::{self, RansomFinding as RansomFindingCore};
 use cure_core::signature::SignatureStatus;
+use cure_core::storage;
 use cure_core::{baseline, quarantine, risk, scanners};
+use serde::Serialize;
+use std::path::{Path, PathBuf};
+use std::sync::{
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    Arc, Mutex,
+};
+#[cfg(feature = "desktop-e2e")]
+use tauri::Listener;
+use tauri::{AppHandle, Emitter, Manager, State};
+
+/// Tell Windows that this process is per-monitor DPI aware.
+///
+/// Without this, Windows treats the process as DPI-unaware on a scaled
+/// display: it hands the window a client area measured in *physical* pixels
+/// but lays the page out as if those were *logical* pixels, and then paints
+/// the page at the display's scale factor. The result is an application
+/// drawn 25 % too large for its own window, with the right-hand quarter of
+/// the interface — including the companion — clipped off the screen.
+///
+/// The call has to happen before the first window exists, which is why it
+/// is the first thing `main` does. If a manifest has already declared the
+/// process aware, the call fails and is ignored: the awareness is already
+/// correct.
+#[cfg(windows)]
+fn declare_dpi_awareness() {
+    use windows::Win32::UI::HiDpi::{
+        SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+    };
+    // SAFETY: setting the process DPI awareness context is safe before any
+    // window or device context exists.
+    let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+}
+
+#[cfg(not(windows))]
+fn declare_dpi_awareness() {}
 
 #[derive(Debug, Clone, Serialize)]
 struct ProgressEvent {
     stage: String,
     message: String,
 }
-
 #[derive(Serialize)]
 struct ScanSummary {
     total: usize,
@@ -39,7 +61,6 @@ struct ScanSummary {
     source_states: Vec<cure_core::report::CoverageRow>,
     elevated: bool,
 }
-
 #[derive(Serialize)]
 struct ProcessFinding {
     name: String,
@@ -49,7 +70,6 @@ struct ProcessFinding {
     risk: String,
     reasons: Vec<String>,
 }
-
 #[derive(Serialize)]
 struct RansomFinding {
     finding_type: String,
@@ -60,13 +80,11 @@ struct RansomFinding {
     // remote content; the ransom help panel names the resource as plain
     // text for the operator to type into a browser themselves.
 }
-
 #[derive(Serialize)]
 struct KillReport {
     killed: Vec<ProcessFinding>,
     failed: Vec<String>,
 }
-
 fn emit_stage(app: &AppHandle, stage: &str, message: impl Into<String>) {
     let _ = app.emit(
         "scan-progress",
@@ -76,7 +94,6 @@ fn emit_stage(app: &AppHandle, stage: &str, message: impl Into<String>) {
         },
     );
 }
-
 fn arg_value(name: &str) -> Option<String> {
     let args: Vec<String> = std::env::args().collect();
     args.iter()
@@ -84,20 +101,16 @@ fn arg_value(name: &str) -> Option<String> {
         .and_then(|pos| args.get(pos + 1))
         .cloned()
 }
-
 const RESURFACE_DELAY_MS: u64 = 1200;
-
 fn launched_by_watcher() -> bool {
     arg_value("--data-dir").is_some()
 }
-
 fn surface_above_overlays(handle: &AppHandle) {
     if let Some(window) = handle.get_webview_window("main") {
         let _ = window.set_always_on_top(true);
         let _ = window.set_focus();
     }
 }
-
 fn resolve_data_dir() -> PathBuf {
     // Explicit override first (portable/USB workflows, tests). Otherwise an
     // app-owned directory — NEVER the folder holding the executable, which
@@ -116,30 +129,20 @@ fn resolve_data_dir() -> PathBuf {
     let _ = std::fs::create_dir_all(&owned);
     owned
 }
-
 fn startup_root() -> PathBuf {
     arg_value("--startup-root")
         .map(PathBuf::from)
         .unwrap_or_else(scanners::startup::default_startup_root)
 }
-
 fn tasks_root() -> PathBuf {
     arg_value("--tasks-root")
         .map(PathBuf::from)
         .unwrap_or_else(scanners::scheduled_tasks::default_tasks_root)
 }
-
 const SCAN_TARGET_TOTAL_MS: u64 = 5000;
 const SCAN_MIN_PER_ITEM_MS: u64 = 15;
 const SCAN_MAX_PER_ITEM_MS: u64 = 250;
-
-// Live process enumeration lives in cure_core::process_scan
-// (shared with the CLI report) — pure scoring stays there too.
-
-// ---------------------------------------------------------------------------
-// Ransom-detection folder scanning (OS glue: read-only directory walks)
-// ---------------------------------------------------------------------------
-
+// Live process enumeration lives in cure_core::process_scan// (shared with the CLI report) — pure scoring stays there too.// ---------------------------------------------------------------------------// Ransom-detection folder scanning (OS glue: read-only directory walks)// ---------------------------------------------------------------------------
 fn user_folder_candidates() -> Vec<PathBuf> {
     let mut folders = Vec::new();
     if let Ok(home) = std::env::var("USERPROFILE") {
@@ -153,11 +156,9 @@ fn user_folder_candidates() -> Vec<PathBuf> {
     }
     folders
 }
-
 fn read_dir_entries(folder: &Path) -> Vec<cure_core::ransom_detect::DirEntry> {
     cure_core::ransom_detect::read_dir_entries(folder)
 }
-
 /// Kill a process by PID.  Returns Ok(()) on success.
 #[cfg(windows)]
 fn kill_process_by_pid(pid: u32) -> Result<(), String> {
@@ -170,12 +171,10 @@ fn kill_process_by_pid(pid: u32) -> Result<(), String> {
     }
     Ok(())
 }
-
 #[cfg(not(windows))]
 fn kill_process_by_pid(_pid: u32) -> Result<(), String> {
     Err("process killing not supported on this platform".to_string())
 }
-
 #[derive(Debug, Clone, Serialize)]
 struct ItemScannedEvent {
     stage: String,
@@ -185,7 +184,6 @@ struct ItemScannedEvent {
     risk: String,
     score: i32,
 }
-
 #[derive(Debug, Clone, Serialize)]
 struct ProcessFlaggedEvent {
     stage: String,
@@ -194,7 +192,6 @@ struct ProcessFlaggedEvent {
     risk: String,
     score: i32,
 }
-
 #[derive(Debug, Clone, Serialize)]
 struct RansomFoundEvent {
     stage: String,
@@ -202,12 +199,10 @@ struct RansomFoundEvent {
     path: String,
     detail: String,
 }
-
 #[tauri::command]
 async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     let data_dir = resolve_data_dir();
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("cannot create data dir: {e}"))?;
-
     emit_stage(&app, "registry", "Reading Run / RunOnce autoruns");
     #[allow(unused_mut)]
     let mut entries: Vec<PersistenceEntry> = Vec::new();
@@ -226,7 +221,6 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         "Registry autoruns",
         "Windows-only source",
     ));
-
     emit_stage(&app, "startup", "Walking the per-user Startup folder");
     entries.extend(scanners::startup::scan(&startup_root()));
     emit_stage(
@@ -235,12 +229,10 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         "Walking the machine-wide Startup folder",
     );
     entries.extend(scanners::startup::scan_common());
-
     emit_stage(&app, "tasks", "Parsing scheduled task definitions");
     let task_report = scanners::scheduled_tasks::scan_report(&tasks_root());
     record_source_state(&app, &mut source_states, tasks_state_row(&task_report));
     entries.extend(task_report.entries);
-
     emit_stage(&app, "services", "Enumerating auto-start services");
     let service_report = scanners::services::scan_report();
     record_source_state(
@@ -250,7 +242,6 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     );
     let service_records = service_report.records;
     entries.extend(service_records.iter().map(|r| r.entry.clone()));
-
     #[cfg(windows)]
     {
         emit_stage(&app, "wmi", "Querying WMI event subscriptions");
@@ -268,7 +259,6 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         "WMI subscriptions",
         "Windows-only source",
     ));
-
     let count = entries.len();
     emit_stage(
         &app,
@@ -288,7 +278,6 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
             risk::score_entry(e, exe_path.as_deref())
         })
         .collect();
-
     // Service scoring hits the disk per image (Authenticode), so batch it
     // with progress like the process scan. Services are NEVER auto-cleaned
     // (see the review rule below) — detection only.
@@ -344,16 +333,12 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
             }
         }
     }
-
     emit_stage(&app, "item-scan", "Inspecting each persistence entry");
-
     let per_item_ms = (SCAN_TARGET_TOTAL_MS / std::cmp::max(count, 1) as u64)
         .clamp(SCAN_MIN_PER_ITEM_MS, SCAN_MAX_PER_ITEM_MS);
-
     let high_risk_cleaned = Vec::new();
     let mut suspicious_for_review = Vec::new();
     let mut safe = 0usize;
-
     for s in scored.iter() {
         let _ = app.emit(
             "scan-progress",
@@ -367,7 +352,6 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
             },
         );
         tokio::time::sleep(std::time::Duration::from_millis(per_item_ms)).await;
-
         // NO automatic remediation here: even HighRisk findings only land in
         // the review queue. Relocation happens exclusively through the
         // explicit per-item confirmation path (`quarantine_entry`), which
@@ -380,20 +364,16 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
             RiskLevel::Safe => safe += 1,
         }
     }
-
     // ── live process scan ──────────────────────────────────────────────
-
     emit_stage(&app, "process-scan", "Enumerating running processes");
     let processes = process_scan::enumerate_processes();
     let mut process_findings: Vec<ProcessFinding> = Vec::new();
-
     if !processes.is_empty() {
         emit_stage(
             &app,
             "process-scan",
             format!("Checking {} running processes", processes.len()),
         );
-
         // Scoring hits the disk (WinVerifyTrust + SHA-256 per exe), so run it
         // in blocking batches and surface progress between them — otherwise a
         // few hundred processes freeze the UI with no feedback for minutes.
@@ -433,7 +413,6 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
                 Err(e) => return Err(format!("process scan failed: {e}")),
             }
         }
-
         let suspicious_idx = process_scan::pick_suspicious_processes(&scored_procs);
         for &idx in &suspicious_idx {
             let (info, ps) = &scored_procs[idx];
@@ -458,9 +437,7 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
             process_findings.push(finding);
         }
     }
-
     // ── ransom detection ───────────────────────────────────────────────
-
     emit_stage(
         &app,
         "ransom-detect",
@@ -470,10 +447,8 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         .into_iter()
         .map(|f| (f.clone(), read_dir_entries(&f)))
         .collect();
-
     let ransom_core_findings = ransom_detect::scan_folders(&folders);
     let mut ransom_findings: Vec<RansomFinding> = Vec::new();
-
     for f in &ransom_core_findings {
         let rf = match f {
             RansomFindingCore::Note(note) => {
@@ -504,7 +479,6 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
                 suspected_family: None,
             },
         };
-
         let _ = app.emit(
             "scan-progress",
             RansomFoundEvent {
@@ -516,11 +490,9 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         );
         ransom_findings.push(rf);
     }
-
     emit_stage(&app, "done", "Saving baseline");
     baseline::save_baseline(&data_dir.join("baseline.json"), &entries)
         .map_err(|e| format!("cannot write baseline: {e}"))?;
-
     let total = high_risk_cleaned.len() + suspicious_for_review.len() + safe;
     Ok(ScanSummary {
         total,
@@ -533,11 +505,7 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         elevated: cure_core::elevation::is_elevated(),
     })
 }
-
-/// Coverage row for the scan summary. Non-OK states surface the scanner's
-/// own reason so a failed check never renders as a clean zero.
-/// Thin wrappers over `cure_core::report::source_state_row` (shared with
-/// the CLI report so both surfaces stay consistent).
+/// Coverage row for the scan summary. Non-OK states surface the scanner's/// own reason so a failed check never renders as a clean zero./// Thin wrappers over `cure_core::report::source_state_row` (shared with/// the CLI report so both surfaces stay consistent).
 fn record_source_state(
     app: &AppHandle,
     rows: &mut Vec<cure_core::report::CoverageRow>,
@@ -553,7 +521,6 @@ fn record_source_state(
     );
     rows.push(row);
 }
-
 fn state_row(
     area: &str,
     status: &cure_core::elevation::SourceStatus,
@@ -561,7 +528,6 @@ fn state_row(
 ) -> cure_core::report::CoverageRow {
     cure_core::report::source_state_row(area, status, ok_detail)
 }
-
 fn registry_state_row(
     reg: &scanners::registry::RegistryScanReport,
 ) -> cure_core::report::CoverageRow {
@@ -571,7 +537,6 @@ fn registry_state_row(
         format!("{} values", reg.values_read),
     )
 }
-
 fn tasks_state_row(
     task_report: &scanners::scheduled_tasks::TaskScanReport,
 ) -> cure_core::report::CoverageRow {
@@ -581,7 +546,6 @@ fn tasks_state_row(
         format!("{} files", task_report.files_seen),
     )
 }
-
 fn services_state_row(
     service_report: &scanners::services::ServiceScanReport,
 ) -> cure_core::report::CoverageRow {
@@ -591,7 +555,6 @@ fn services_state_row(
         format!("{} services", service_report.records.len()),
     )
 }
-
 fn wmi_state_row(wmi_report: &scanners::wmi::WmiScanReport) -> cure_core::report::CoverageRow {
     state_row(
         "WMI subscriptions",
@@ -599,7 +562,6 @@ fn wmi_state_row(wmi_report: &scanners::wmi::WmiScanReport) -> cure_core::report
         format!("{} entries", wmi_report.entries.len()),
     )
 }
-
 fn find_current_entry(id: &str) -> Option<PersistenceEntry> {
     if let Some(entry) = scanners::collect_all(&startup_root(), &tasks_root())
         .into_iter()
@@ -612,7 +574,6 @@ fn find_current_entry(id: &str) -> Option<PersistenceEntry> {
         .map(|record| record.entry)
         .find(|entry| entry.id == id)
 }
-
 #[tauri::command]
 fn quarantine_entry(id: String, _name: String, _command: String) -> Result<String, String> {
     let data_dir = resolve_data_dir();
@@ -644,7 +605,6 @@ fn quarantine_entry(id: String, _name: String, _command: String) -> Result<Strin
         record.quarantine_path.display()
     ))
 }
-
 #[tauri::command]
 fn undo_entry(id: String) -> Result<(), String> {
     // Scoped restore (see cli cmd_undo): only under the scanned roots. The
@@ -655,7 +615,6 @@ fn undo_entry(id: String) -> Result<(), String> {
         .map(|_| ())
         .map_err(|e| e.to_string())
 }
-
 #[derive(Serialize)]
 struct QuarantineRecordDto {
     id: String,
@@ -670,9 +629,7 @@ struct QuarantineRecordDto {
     acl_captured: bool,
     security_notes: Vec<String>,
 }
-
-/// Everything currently in quarantine (newest last). Powers the Quarantine
-/// view; undo actions go through `undo_entry` one record at a time.
+/// Everything currently in quarantine (newest last). Powers the Quarantine/// view; undo actions go through `undo_entry` one record at a time.
 #[tauri::command]
 fn list_quarantine() -> Result<Vec<QuarantineRecordDto>, String> {
     Ok(quarantine::list_records(&resolve_data_dir())
@@ -692,11 +649,7 @@ fn list_quarantine() -> Result<Vec<QuarantineRecordDto>, String> {
         })
         .collect())
 }
-
-/// Forensic details for one finding (shortcut resolution, task metadata,
-/// publisher/signature) — strictly read-only enrichment for display.
-/// The id must come from a fresh scan; unknown ids are rejected, so the
-/// webview cannot turn this into an arbitrary-path inspection oracle.
+/// Forensic details for one finding (shortcut resolution, task metadata,/// publisher/signature) — strictly read-only enrichment for display./// The id must come from a fresh scan; unknown ids are rejected, so the/// webview cannot turn this into an arbitrary-path inspection oracle.
 #[tauri::command]
 fn entry_details(id: String) -> Result<cure_core::entry_details::EntryDetails, String> {
     let Some(entry) = find_current_entry(&id) else {
@@ -706,11 +659,7 @@ fn entry_details(id: String) -> Result<cure_core::entry_details::EntryDetails, S
     };
     Ok(cure_core::entry_details::for_entry(&entry))
 }
-
-/// Reveal a finding's file in Explorer (selects it, opens nothing).
-/// Strict id-based lookup like `entry_details`; registry/service/WMI and
-/// other non-file locations are refused. Direct argv to explorer — no
-/// shell parsing, so spaces and metacharacters in paths are inert.
+/// Reveal a finding's file in Explorer (selects it, opens nothing)./// Strict id-based lookup like `entry_details`; registry/service/WMI and/// other non-file locations are refused. Direct argv to explorer — no/// shell parsing, so spaces and metacharacters in paths are inert.
 #[tauri::command]
 fn reveal_location(id: String) -> Result<String, String> {
     let Some(entry) = find_current_entry(&id) else {
@@ -738,21 +687,16 @@ fn reveal_location(id: String) -> Result<String, String> {
         .map_err(|e| format!("cannot open explorer: {e}"))?;
     Ok(target)
 }
-
-/// Explicit security-report export (JSON/TXT, optional redaction).
-/// Runs fresh scans itself so coverage states are honest; remediates
-/// nothing. Returns the written file path for the footer message.
+/// Explicit security-report export (JSON/TXT, optional redaction)./// Runs fresh scans itself so coverage states are honest; remediates/// nothing. Returns the written file path for the footer message.
 #[tauri::command]
 async fn export_report(format: String, redact: bool) -> Result<String, String> {
     use cure_core::report::{CoverageRow, ReportOptions, ScanInput};
-
     let format = format.to_ascii_lowercase();
     if format != "json" && format != "txt" {
         return Err("unknown format: use json or txt".to_string());
     }
     let data_dir = resolve_data_dir();
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("cannot create data dir: {e}"))?;
-
     let mut entries: Vec<PersistenceEntry> = Vec::new();
     let mut coverage: Vec<CoverageRow> = Vec::new();
     #[cfg(windows)]
@@ -789,7 +733,6 @@ async fn export_report(format: String, redact: bool) -> Result<String, String> {
         "WMI subscriptions",
         "Windows-only source",
     ));
-
     let mut scored: Vec<ScoredEntry> = entries
         .iter()
         .filter(|e| e.source != PersistenceSource::WindowsService)
@@ -821,7 +764,6 @@ async fn export_report(format: String, redact: bool) -> Result<String, String> {
             hash.as_deref(),
         ));
     }
-
     let processes = process_scan::enumerate_processes();
     let mut scored_procs = Vec::new();
     for info in &processes {
@@ -832,13 +774,11 @@ async fn export_report(format: String, redact: bool) -> Result<String, String> {
             process_scan::score_process(info, &sig, hash.as_deref()),
         ));
     }
-
     let folders: Vec<(PathBuf, Vec<cure_core::ransom_detect::DirEntry>)> = user_folder_candidates()
         .into_iter()
         .map(|f| (f.clone(), read_dir_entries(&f)))
         .collect();
     let ransom = cure_core::ransom_detect::scan_folders(&folders);
-
     let count = |source: PersistenceSource| entries.iter().filter(|e| e.source == source).count();
     // State rows (registry/tasks/services/WMI) are already in `coverage`
     // from the collection block above; append the static rows here.
@@ -904,7 +844,6 @@ async fn export_report(format: String, redact: bool) -> Result<String, String> {
                 .to_string(),
         ));
     }
-
     let report = cure_core::report::assemble(
         ScanInput {
             persistence: scored,
@@ -924,12 +863,7 @@ async fn export_report(format: String, redact: bool) -> Result<String, String> {
     let out_path = data_dir.join(&filename);
     std::fs::write(&out_path, body).map_err(|e| format!("cannot write report: {e}"))?;
     Ok(out_path.to_string_lossy().into_owned())
-}
-
-// ---------------------------------------------------------------------------
-// Post-login incident investigation (observation only — see core::incident)
-// ---------------------------------------------------------------------------
-
+} // ---------------------------------------------------------------------------// Post-login incident investigation (observation only — see core::incident)// ---------------------------------------------------------------------------
 #[derive(Serialize, Clone)]
 struct IncidentProgressEvent {
     stage: String,
@@ -937,21 +871,15 @@ struct IncidentProgressEvent {
     processes: usize,
     windows: usize,
 }
-
-/// Run a post-login incident observation: collect current persistence
-/// findings, observe process/window activity for the validated duration,
-/// correlate, and return the verdict. Observation installs nothing and
-/// modifies nothing; durations are restricted to 15/30/60/120 seconds.
+/// Run a post-login incident observation: collect current persistence/// findings, observe process/window activity for the validated duration,/// correlate, and return the verdict. Observation installs nothing and/// modifies nothing; durations are restricted to 15/30/60/120 seconds.
 #[tauri::command]
 async fn start_incident_observation(
     app: AppHandle,
     duration_secs: u64,
 ) -> Result<cure_core::incident::ObservationResult, String> {
     use cure_core::incident;
-
     let duration_secs = incident::validate_duration(duration_secs)?;
     let elevated = cure_core::elevation::is_elevated();
-
     // Fresh findings for correlation (scoring unnecessary — correlation
     // works on command/location/name).
     let mut findings: Vec<incident::StartupRef> =
@@ -964,11 +892,9 @@ async fn start_incident_observation(
         finding.aux_pid = record.pid;
         findings.push(finding);
     }
-
     let started_at = std::time::SystemTime::now();
     let started_rfc = cure_core::incident::rfc3339(started_at);
     let investigation_id = incident::new_investigation_id();
-
     let duration = std::time::Duration::from_secs(duration_secs);
     let progress_app = app.clone();
     let live = tokio::task::spawn_blocking(move || {
@@ -986,7 +912,6 @@ async fn start_incident_observation(
     })
     .await
     .map_err(|e| format!("observation failed: {e}"))?;
-
     // First pass without command lines, then fetch them for correlated
     // processes only (bounded) and re-correlate — command lines can only
     // upgrade PARTIAL matches to STRONG, never invent DIRECT ones.
@@ -1036,7 +961,6 @@ async fn start_incident_observation(
             truncated: live.truncated,
         });
     }
-
     let timeline = incident::build_timeline(
         started_at,
         duration_secs,
@@ -1060,10 +984,7 @@ async fn start_incident_observation(
         truncated: live.truncated,
     })
 }
-
-/// Export an observation result as JSON/TXT incident report (explicit;
-/// remediates nothing). The result is passed back in — the backend keeps
-/// no observation state between commands.
+/// Export an observation result as JSON/TXT incident report (explicit;/// remediates nothing). The result is passed back in — the backend keeps/// no observation state between commands.
 #[tauri::command]
 async fn export_incident_report(
     result: cure_core::incident::ObservationResult,
@@ -1071,14 +992,12 @@ async fn export_incident_report(
     redact: bool,
 ) -> Result<String, String> {
     use cure_core::report::{CoverageRow, ReportOptions};
-
     let format = format.to_ascii_lowercase();
     if format != "json" && format != "txt" {
         return Err("unknown format: use json or txt".to_string());
     }
     let data_dir = resolve_data_dir();
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("cannot create data dir: {e}"))?;
-
     // Fresh persistence scoring so the export's findings stand on their own.
     let mut entries: Vec<PersistenceEntry> = Vec::new();
     #[cfg(windows)]
@@ -1104,7 +1023,6 @@ async fn export_incident_report(
             risk::score_entry(e, exe_path.as_deref())
         })
         .collect();
-
     let coverage = vec![
         CoverageRow::checked(
             "Startup folder",
@@ -1158,10 +1076,7 @@ async fn export_incident_report(
     std::fs::write(&out_path, body).map_err(|e| format!("cannot write report: {e}"))?;
     Ok(out_path.to_string_lossy().into_owned())
 }
-
-/// Confirm-before-kill hardening: a PID can be recycled between the scan
-/// and the user's confirmation click. Refuse to kill when the PID no longer
-/// belongs to the process the user actually approved.
+/// Confirm-before-kill hardening: a PID can be recycled between the scan/// and the user's confirmation click. Refuse to kill when the PID no longer/// belongs to the process the user actually approved.
 #[cfg(windows)]
 fn pid_still_matches(
     pid: u32,
@@ -1176,7 +1091,6 @@ fn pid_still_matches(
         None => Err(format!("{approved_name} (pid {pid}) already exited")),
     }
 }
-
 #[cfg(not(windows))]
 fn pid_still_matches(
     _pid: u32,
@@ -1187,18 +1101,15 @@ fn pid_still_matches(
     // produces the platform error, as before.
     Ok(())
 }
-
 #[tauri::command]
 fn kill_high_risk_processes(processes: Vec<(String, u32)>) -> Result<KillReport, String> {
     let mut killed = Vec::new();
     let mut failed = Vec::new();
-
     // Snapshot once so every decision below uses the same process table.
     let live: std::collections::HashMap<u32, String> = process_scan::enumerate_processes()
         .into_iter()
         .map(|p| (p.pid, p.name))
         .collect();
-
     for (name, pid) in processes {
         if let Err(reason) = pid_still_matches(pid, &name, &live) {
             failed.push(reason);
@@ -1220,10 +1131,8 @@ fn kill_high_risk_processes(processes: Vec<(String, u32)>) -> Result<KillReport,
             }
         }
     }
-
     Ok(KillReport { killed, failed })
 }
-
 #[tauri::command]
 fn open_quarantine_folder() -> Result<String, String> {
     let dir = resolve_data_dir().join("quarantine");
@@ -1234,7 +1143,6 @@ fn open_quarantine_folder() -> Result<String, String> {
         .map_err(|e| format!("cannot open explorer: {e}"))?;
     Ok(dir.to_string_lossy().into_owned())
 }
-
 #[tauri::command]
 fn view_log() -> Result<String, String> {
     let path = resolve_data_dir().join("baseline.json");
@@ -1244,20 +1152,13 @@ fn view_log() -> Result<String, String> {
     open_with_default_handler(&path)?;
     Ok(path.to_string_lossy().into_owned())
 }
-
-/// Open a file with its registered handler via ShellExecuteW("open").
-///
-/// Deliberately NOT `cmd /C start ...`: cmd.exe re-parses its command line,
-/// so a data dir containing shell metacharacters (`&`, `^`, …) would become
-/// command injection. The path here is passed as structured data, never
-/// through a shell — spaces and metacharacters are inert.
+/// Open a file with its registered handler via ShellExecuteW("open").////// Deliberately NOT `cmd /C start ...`: cmd.exe re-parses its command line,/// so a data dir containing shell metacharacters (`&`, `^`, …) would become/// command injection. The path here is passed as structured data, never/// through a shell — spaces and metacharacters are inert.
 #[cfg(windows)]
 fn open_with_default_handler(path: &Path) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use windows::core::{w, PCWSTR};
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-
     let wide: Vec<u16> = path
         .as_os_str()
         .encode_wide()
@@ -1283,7 +1184,6 @@ fn open_with_default_handler(path: &Path) -> Result<(), String> {
         ))
     }
 }
-
 #[cfg(not(windows))]
 fn open_with_default_handler(path: &Path) -> Result<(), String> {
     Err(format!(
@@ -1291,150 +1191,947 @@ fn open_with_default_handler(path: &Path) -> Result<(), String> {
         path.display()
     ))
 }
-
 #[tauri::command]
 fn exit_app(app: AppHandle) {
     app.exit(0);
-}
-
-// ---------------------------------------------------------------------------
-// disk cleanup
-// ---------------------------------------------------------------------------
-
-const CLEANUP_DOWNLOADS_AGE_DAYS: u32 = 30;
-
-#[derive(Serialize)]
-struct CleanupCategorySummary {
-    key: String,
-    label: String,
-    item_count: usize,
-    total_bytes: u64,
-}
-
-#[derive(Serialize)]
-struct CleanupDownloadItem {
-    path: String,
-    name: String,
-    size_bytes: u64,
-    age_days: u64,
-}
-
-#[derive(Serialize)]
-struct CleanupScanSummary {
-    categories: Vec<CleanupCategorySummary>,
-    downloads: Vec<CleanupDownloadItem>,
-    total_bytes: u64,
-}
-
-fn downloads_age_days(path: &Path) -> u64 {
-    std::fs::metadata(path)
-        .ok()
-        .and_then(|md| md.modified().ok())
-        .and_then(|m| std::time::SystemTime::now().duration_since(m).ok())
-        .map(|d| d.as_secs() / 86_400)
-        .unwrap_or(0)
-}
-
-fn scan_cleanup_candidates() -> (
-    Vec<disk_cleanup::CleanupCandidate>,
-    Vec<disk_cleanup::CleanupCandidate>,
-) {
-    let safe = disk_cleanup::scan_all();
-    let downloads = disk_cleanup::scan_old_downloads(CLEANUP_DOWNLOADS_AGE_DAYS);
-    (safe, downloads)
-}
-
-#[tauri::command]
-fn scan_cleanup() -> Result<CleanupScanSummary, String> {
-    let (safe, downloads) = scan_cleanup_candidates();
-
-    let categories = disk_cleanup::summarize(&safe)
-        .into_iter()
-        .filter(|row| row.category != disk_cleanup::CleanupCategory::DownloadsInstaller)
-        .map(|row| CleanupCategorySummary {
-            key: row.category.key().to_string(),
-            label: row.category.label().to_string(),
-            item_count: row.item_count,
-            total_bytes: row.total_bytes,
-        })
-        .collect();
-
-    let download_items: Vec<CleanupDownloadItem> = downloads
-        .iter()
-        .map(|candidate| CleanupDownloadItem {
-            path: candidate.path.to_string_lossy().into_owned(),
-            name: candidate
-                .path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned(),
-            size_bytes: candidate.size_bytes,
-            age_days: downloads_age_days(&candidate.path),
-        })
-        .collect();
-
-    let total_bytes = safe.iter().map(|c| c.size_bytes).sum::<u64>()
-        + downloads.iter().map(|c| c.size_bytes).sum::<u64>();
-
-    Ok(CleanupScanSummary {
-        categories,
-        downloads: download_items,
-        total_bytes,
-    })
-}
-
-#[derive(Serialize)]
-struct CleanupResultDto {
-    attempted: usize,
-    deleted: usize,
-    failed: usize,
-    bytes_freed: u64,
-    failures: Vec<CleanupFailureDto>,
-}
-
-#[derive(Serialize)]
+} // ---------------------------------------------------------------------------// storage workstation//// The GUI never sees a raw delete instruction. It sends a *selection*, gets// back a plan it must show the operator, and only then asks the engine to// execute that exact plan. The backend holds the plan, so the caller cannot// substitute a different selection between preview and execution.//// The legacy `scan_cleanup` / `run_cleanup` commands lived here once. They// were removed because they were reachable over IPC with no confirmation, no// preview and no receipt: an unguarded permanent-delete endpoint sitting// next to a carefully gated one. The CLI's own `cure cleanup` path is// unaffected and still lives in `cure_core::cleanup`.// ---------------------------------------------------------------------------
+#[derive(Serialize, Clone)]
 struct CleanupFailureDto {
     path: String,
     reason: String,
 }
+/// Held for the lifetime of the process: the last scan, the plan the/// operator approved, and the flag that cancels a scan in flight.
+#[derive(Default)]
+struct StorageState {
+    last_scan: Mutex<Option<storage::StorageScan>>,
+    /// The plan shown in the confirmation dialog. Execution runs *this*
+    /// plan, not a plan rebuilt from whatever the caller sends, so what is
+    /// removed is exactly what was approved.
+    approved_plan: Mutex<Option<storage::CleanupPlan>>,
+    cancel: Mutex<Option<Arc<AtomicBool>>>,
+    running: AtomicBool,
+}
+/// Progress relayed from the engine to the webview.
+#[derive(Clone, Serialize)]
+struct StorageProgressDto {
+    scan_id: String,
+    phase: String,
+    root_label: String,
+    current_path: String,
+    dirs_seen: u64,
+    files_seen: u64,
+    bytes_seen: u64,
+    elapsed_ms: u64,
+    eta_ms: Option<u64>,
+}
+impl From<storage::ScanProgress> for StorageProgressDto {
+    fn from(p: storage::ScanProgress) -> Self {
+        StorageProgressDto {
+            scan_id: p.scan_id,
+            phase: p.phase,
+            root_label: p.root_label,
+            current_path: p.current_path,
+            dirs_seen: p.dirs_seen,
+            files_seen: p.files_seen,
+            bytes_seen: p.bytes_seen,
+            elapsed_ms: p.elapsed_ms,
+            eta_ms: p.eta_ms,
+        }
+    }
+}
+/// One row the operator can act on, with the decision already made.
+#[derive(Serialize)]
+struct StorageFileDto {
+    id: String,
+    path: String,
+    name: String,
+    parent: String,
+    extension: String,
+    size_logical: u64,
+    size_allocated: u64,
+    modified_unix: Option<u64>,
+    accessed_unix: Option<u64>,
+    created_unix: Option<u64>,
+    hard_link_count: Option<u32>,
+    is_read_only: bool,
+    is_hidden: bool,
+    class: String,
+    class_label: String,
+    tier: String,
+    tier_label: String,
+    /// True when the tier permits appearing in a bulk action.
+    bulk_eligible: bool,
+    reasons: Vec<String>,
+}
+fn storage_file_dto(f: &storage::FileRecord) -> StorageFileDto {
+    StorageFileDto {
+        id: storage::tiers::normalize(&f.path),
+        path: f.path.to_string_lossy().into_owned(),
+        name: f
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        parent: f
+            .path
+            .parent()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        extension: f.extension.clone(),
+        size_logical: f.size_logical,
+        size_allocated: f.reclaimable_bytes(),
+        modified_unix: f.modified_unix,
+        accessed_unix: f.accessed_unix,
+        created_unix: f.created_unix,
+        hard_link_count: f.hard_link_count,
+        is_read_only: f.is_read_only,
+        is_hidden: f.is_hidden,
+        class: f.class.key().to_string(),
+        class_label: f.class.label().to_string(),
+        tier: f.tier.key().to_string(),
+        tier_label: f.tier.label().to_string(),
+        bulk_eligible: f.tier.allows_bulk_recommendation(),
+        reasons: f.reasons.clone(),
+    }
+}
+/// A folder for the treemap. Deep trees are pruned to the largest children so/// the payload stays proportional to what is actually on screen.
+#[derive(Serialize)]
+struct StorageFolderDto {
+    id: String,
+    path: String,
+    name: String,
+    depth: usize,
+    size_allocated: u64,
+    size_logical: u64,
+    file_count: u64,
+    class: String,
+    tier: String,
+    incomplete: bool,
+}
+#[derive(Serialize)]
+struct StorageDuplicateCopyDto {
+    id: String,
+    path: String,
+    name: String,
+    parent: String,
+    size_allocated: u64,
+    modified_unix: Option<u64>,
+    tier: String,
+    tier_label: String,
+    class_label: String,
+    is_kept_candidate: bool,
+    reasons: Vec<String>,
+}
+#[derive(Serialize)]
+struct StorageDuplicateSetDto {
+    id: String,
+    size_allocated: u64,
+    sha256: String,
+    reclaimable_bytes: u64,
+    protected_copies: usize,
+    copies: Vec<StorageDuplicateCopyDto>,
+}
+#[derive(Serialize)]
+struct StorageAbandonedDto {
+    path: String,
+    app_name: String,
+    size_allocated: u64,
+    file_count: u64,
+    days_since_change: Option<u64>,
+    tier: String,
+    tier_label: String,
+    reasons: Vec<String>,
+    caveat: String,
+    /// Always false. Present so the UI cannot offer the action by omission.
+    removable: bool,
+}
+#[derive(Serialize)]
+struct StorageSummaryDto {
+    key: String,
+    label: String,
+    tier: String,
+    item_count: u64,
+    bytes_allocated: u64,
+    bytes_logical: u64,
+}
+#[derive(Serialize)]
+struct StorageRootDto {
+    path: String,
+    label: String,
+    class: String,
+    is_catalogue: bool,
+    resolved: bool,
+    reason: String,
+    files_seen: u64,
+    bytes_allocated: u64,
+    incomplete: bool,
+}
+#[derive(Serialize)]
+struct StorageCoverageDto {
+    completeness: String,
+    files_seen: u64,
+    dirs_seen: u64,
+    permission_denied_dirs: u64,
+    permission_denied_files: u64,
+    reparse_points_skipped: u64,
+    locked_or_vanished: u64,
+    overlapping_roots_dropped: u64,
+    notes: Vec<String>,
+    duration_ms: u64,
+    cancelled: bool,
+    volume_total_bytes: Option<u64>,
+    volume_free_bytes: Option<u64>,
+    volume_label: Option<String>,
+    failures: Vec<CleanupFailureDto>,
+    /// Links deliberately not followed. Not failures: not following a link
+    /// is the policy working.
+    skipped_links: Vec<CleanupFailureDto>,
+    roots: Vec<StorageRootDto>,
+}
+#[derive(Serialize)]
+struct StorageHeadlineDto {
+    safe_bytes: u64,
+    careful_bytes: u64,
+    certainty: String,
+    certainty_label: String,
+    incomplete: bool,
+    safe_bytes_label: String,
+    careful_bytes_label: String,
+}
+#[derive(Serialize)]
+struct StorageTierCountsDto {
+    safe_to_review: u64,
+    review_carefully: u64,
+    protected: u64,
+    unknown: u64,
+}
 
+#[derive(Serialize)]
+struct StorageScanDto {
+    scan_id: String,
+    duration_ms: u64,
+    headline: StorageHeadlineDto,
+    protected_bytes: u64,
+    duplicate_reclaimable_bytes: u64,
+    summaries: Vec<StorageSummaryDto>,
+    coverage: StorageCoverageDto,
+    duplicate_coverage: storage::DuplicateCoverage,
+    files: Vec<StorageFileDto>,
+    /// How many files the scan measured in total. The list above is bounded,
+    /// so this is the honest count behind it.
+    files_total: u64,
+    /// The per-tier counts, also from the whole measurement rather than from
+    /// the bounded list.
+    tier_counts: StorageTierCountsDto,
+    folders: Vec<StorageFolderDto>,
+    large_files: Vec<StorageFileDto>,
+    large_folders: Vec<StorageFolderDto>,
+    duplicates: Vec<StorageDuplicateSetDto>,
+    abandoned: Vec<StorageAbandonedDto>,
+}
+/// The most file rows the interface is given in one payload.
+///
+/// A deep scan of a whole drive measures hundreds of thousands of files.
+/// The interface shows the largest of them, so the rest are counted rather
+/// than transmitted.
+const MAX_FILES_TO_UI: usize = 20_000;
+
+/// Drives and well-known roots the operator may add to a scan.
+#[derive(Serialize)]
+struct StorageRootOptionDto {
+    path: String,
+    label: String,
+    exists: bool,
+    is_drive: bool,
+    total_bytes: Option<u64>,
+    free_bytes: Option<u64>,
+    volume_label: Option<String>,
+    /// `true` for volumes and folders the user would authorise explicitly.
+    selectable: bool,
+}
+/// Validate a folder the operator typed, so it can be added to a scan.
+///
+/// The picker offers drives and well-known locations, but a project on
+/// `D:\Projects` is exactly the kind of place a storage tool needs to look,
+/// and the operator is the only one who knows where it is.
 #[tauri::command]
-fn run_cleanup(
-    categories: Vec<String>,
-    download_paths: Vec<String>,
-) -> Result<CleanupResultDto, String> {
-    let (safe, downloads) = scan_cleanup_candidates();
-
-    let mut targets: Vec<disk_cleanup::CleanupCandidate> = safe
-        .into_iter()
-        .filter(|c| categories.iter().any(|key| key == c.category.key()))
-        .collect();
-    targets.extend(downloads.into_iter().filter(|candidate| {
-        let as_str = candidate.path.to_string_lossy();
-        download_paths.iter().any(|p| p == &as_str)
-    }));
-
-    let result = disk_cleanup::delete_candidates(&targets);
-    Ok(CleanupResultDto {
-        attempted: result.attempted,
-        deleted: result.deleted,
-        failed: result.failed,
-        bytes_freed: result.bytes_freed,
-        failures: result
-            .failures
-            .into_iter()
-            .map(|f| CleanupFailureDto {
-                path: f.path.to_string_lossy().into_owned(),
-                reason: f.reason,
-            })
-            .collect(),
+fn storage_validate_root(path: String) -> Result<StorageRootOptionDto, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("Type a folder path.".to_string());
+    }
+    let target = PathBuf::from(trimmed);
+    let metadata = std::fs::symlink_metadata(&target)
+        .map_err(|e| format!("That folder could not be read: {e}"))?;
+    if !metadata.is_dir() {
+        return Err("That path is not a folder.".to_string());
+    }
+    if storage::fsx::is_reparse_point(&metadata) {
+        return Err(
+            "That path is a link or junction. Add the folder it points to instead.".to_string(),
+        );
+    }
+    let space = storage::fsx::volume_space(&target);
+    Ok(StorageRootOptionDto {
+        label: target
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| trimmed.to_string()),
+        path: target.to_string_lossy().into_owned(),
+        exists: true,
+        is_drive: false,
+        total_bytes: space.as_ref().map(|v| v.total_bytes),
+        free_bytes: space.as_ref().map(|v| v.free_bytes),
+        volume_label: space.and_then(|v| v.label),
+        selectable: true,
     })
 }
 
+/// List candidate roots: fixed drives plus the profile's real user folders.
+#[tauri::command]
+fn storage_available_roots() -> Result<Vec<StorageRootOptionDto>, String> {
+    let mut out: Vec<StorageRootOptionDto> = Vec::new();
+    for letter in b'A'..=b'Z' {
+        let root = PathBuf::from(format!("{}:\\", letter as char));
+        let Ok(md) = std::fs::metadata(&root) else {
+            continue;
+        };
+        if !md.is_dir() {
+            continue;
+        }
+        let space = storage::fsx::volume_space(&root);
+        out.push(StorageRootOptionDto {
+            label: format!("Drive {}", letter as char),
+            path: root.to_string_lossy().into_owned(),
+            exists: true,
+            is_drive: true,
+            total_bytes: space.as_ref().map(|v| v.total_bytes),
+            free_bytes: space.as_ref().map(|v| v.free_bytes),
+            volume_label: space.and_then(|v| v.label),
+            selectable: true,
+        });
+    }
+    // The removable/external drives a USB rescue copy sits on are the whole
+    // point of the watcher; offer them explicitly rather than hiding them in
+    // an OS dialog the operator may not know to open.
+    for (key, label) in [
+        ("USERPROFILE", "Profile"),
+        ("LOCALAPPDATA", "App data (local)"),
+        ("APPDATA", "App data (roaming)"),
+        ("TEMP", "Temp"),
+        ("SystemDrive", "Windows drive"),
+    ] {
+        let Some(p) = std::env::var_os(key).map(PathBuf::from) else {
+            continue;
+        };
+        if p.as_os_str().is_empty() || out.iter().any(|o| o.path == p.to_string_lossy()) {
+            continue;
+        }
+        let exists = p.is_dir();
+        let space = storage::fsx::volume_space(&p);
+        out.push(StorageRootOptionDto {
+            label: label.to_string(),
+            path: p.to_string_lossy().into_owned(),
+            exists,
+            is_drive: false,
+            total_bytes: space.as_ref().map(|v| v.total_bytes),
+            free_bytes: space.as_ref().map(|v| v.free_bytes),
+            volume_label: space.and_then(|v| v.label),
+            selectable: true,
+        });
+    }
+    Ok(out)
+}
+/// Run a storage scan. Blocking work runs on a worker thread; progress and/// the finished scan are relayed through events, never invented by the UI.
+#[tauri::command]
+async fn storage_scan(
+    app: AppHandle,
+    state: State<'_, StorageState>,
+    depth: String,
+    roots: Vec<String>,
+    find_duplicates: bool,
+    find_abandoned: bool,
+) -> Result<StorageScanDto, String> {
+    if state
+        .running
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err("A storage scan is already running.".to_string());
+    }
+    let depth = storage::catalog::ScanDepth::parse(&depth);
+    let extra: Vec<PathBuf> = roots
+        .iter()
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())
+        .collect();
+    let options = storage::ScanOptions {
+        walk_limits: storage::catalog::limits_for(depth),
+        ..storage::ScanOptions {
+            depth,
+            extra_roots: extra,
+            find_duplicates,
+            find_abandoned,
+            ..storage::ScanOptions::default()
+        }
+    };
+    let scan_id = storage::new_scan_id();
+    let cancel = Arc::new(AtomicBool::new(false));
+    *state
+        .cancel
+        .lock()
+        .map_err(|_| "storage state is poisoned".to_string())? = Some(Arc::clone(&cancel));
+    let relay = app.clone();
+    let progress_scan_id = scan_id.clone();
+    let worker = std::thread::spawn(move || {
+        let mut last_emit = std::time::Instant::now();
+        let result = storage::scan(&options, &cancel, &progress_scan_id, |progress| {
+            // Throttle: the engine can emit far faster than a UI can use,
+            // and an unthrottled event stream makes the app feel slow.
+            if last_emit.elapsed().as_millis() < 100 && progress.phase != storage::PHASE_FINISHED {
+                return;
+            }
+            last_emit = std::time::Instant::now();
+            let _ = relay.emit("storage-progress", StorageProgressDto::from(progress));
+        });
+        (result, options.depth)
+    });
+    let (scan, _depth) = tauri::async_runtime::spawn_blocking(move || worker.join())
+        .await
+        .map_err(|_| "the storage worker thread could not be joined".to_string())?
+        .map_err(|_| "the storage worker thread panicked".to_string())?;
+    state.running.store(false, Ordering::SeqCst);
+    *state
+        .cancel
+        .lock()
+        .map_err(|_| "storage state is poisoned".to_string())? = None;
+    let dto = storage_scan_dto(&scan);
+    *state
+        .last_scan
+        .lock()
+        .map_err(|_| "storage state is poisoned".to_string())? = Some(scan);
+    Ok(dto)
+}
+fn storage_scan_dto(scan: &storage::StorageScan) -> StorageScanDto {
+    let headline = scan.headline();
+    let coverage = &scan.coverage;
+    StorageScanDto {
+        scan_id: scan.scan_id.clone(),
+        duration_ms: coverage.duration_ms,
+        headline: StorageHeadlineDto {
+            safe_bytes: headline.safe_bytes,
+            careful_bytes: headline.careful_bytes,
+            certainty: format!("{:?}", headline.certainty).to_lowercase(),
+            certainty_label: headline.certainty.label().to_string(),
+            incomplete: headline.incomplete,
+            safe_bytes_label: storage::human_bytes(headline.safe_bytes),
+            careful_bytes_label: storage::human_bytes(headline.careful_bytes),
+        },
+        protected_bytes: scan.protected_bytes,
+        duplicate_reclaimable_bytes: scan.duplicate_reclaimable_bytes,
+        summaries: scan
+            .summaries
+            .iter()
+            .map(|s| StorageSummaryDto {
+                key: s.class.key().to_string(),
+                label: s.class.label().to_string(),
+                tier: s.tier.key().to_string(),
+                item_count: s.item_count,
+                bytes_allocated: s.bytes_allocated,
+                bytes_logical: s.bytes_logical,
+            })
+            .collect(),
+        coverage: StorageCoverageDto {
+            completeness: coverage.completeness().to_string(),
+            files_seen: coverage.files_seen,
+            dirs_seen: coverage.dirs_seen,
+            permission_denied_dirs: coverage.permission_denied_dirs,
+            permission_denied_files: coverage.permission_denied_files,
+            reparse_points_skipped: coverage.reparse_points_skipped,
+            locked_or_vanished: coverage.locked_or_vanished,
+            overlapping_roots_dropped: coverage.overlapping_roots_dropped,
+            notes: coverage.notes(),
+            duration_ms: coverage.duration_ms,
+            cancelled: coverage.cancelled,
+            volume_total_bytes: coverage.volume_total_bytes,
+            volume_free_bytes: coverage.volume_free_bytes,
+            volume_label: coverage.volume_label.clone(),
+            failures: coverage
+                .failures
+                .iter()
+                .map(|f| CleanupFailureDto {
+                    path: f.path.to_string_lossy().into_owned(),
+                    reason: f.reason.clone(),
+                })
+                .collect(),
+            skipped_links: coverage
+                .skipped_links
+                .iter()
+                .map(|f| CleanupFailureDto {
+                    path: f.path.to_string_lossy().into_owned(),
+                    reason: f.reason.clone(),
+                })
+                .collect(),
+            roots: coverage
+                .roots
+                .iter()
+                .map(|r| StorageRootDto {
+                    path: r.path.to_string_lossy().into_owned(),
+                    label: r.label.clone(),
+                    class: r.class.key().to_string(),
+                    is_catalogue: true,
+                    resolved: r.resolved,
+                    reason: r.reason.clone(),
+                    files_seen: r.files_seen,
+                    bytes_allocated: r.bytes_allocated,
+                    incomplete: r.incomplete,
+                })
+                .collect(),
+        },
+        duplicate_coverage: scan.duplicate_coverage.clone(),
+        /* The measured set can be hundreds of thousands of files. Sending
+        all of them over IPC would make the window slow to open for no
+        gain: the interface only ever shows the largest ones. The count
+        that was measured travels with the list so nothing is implied
+        that did not happen. */
+        files: scan
+            .files
+            .iter()
+            .take(MAX_FILES_TO_UI)
+            .map(storage_file_dto)
+            .collect(),
+        files_total: scan.distinct_file_count,
+        tier_counts: StorageTierCountsDto {
+            safe_to_review: scan.safe_file_count,
+            review_carefully: scan.careful_file_count,
+            protected: scan.protected_file_count,
+            unknown: scan.protected_file_count.saturating_sub(
+                scan.files
+                    .iter()
+                    .filter(|f| f.tier == storage::SafetyTier::Unknown)
+                    .count() as u64,
+            ),
+        },
+        folders: scan
+            .folders
+            .iter()
+            .map(|f| StorageFolderDto {
+                id: storage::tiers::normalize(&f.path),
+                path: f.path.to_string_lossy().into_owned(),
+                name: f
+                    .path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| f.path.to_string_lossy().into_owned()),
+                depth: f.depth,
+                size_allocated: f.size_allocated,
+                size_logical: f.size_logical,
+                file_count: f.file_count,
+                class: f.class.key().to_string(),
+                tier: f.tier.key().to_string(),
+                incomplete: f.incomplete,
+            })
+            .collect(),
+        large_files: scan.large_files.iter().map(storage_file_dto).collect(),
+        large_folders: scan
+            .large_folders
+            .iter()
+            .map(|f| StorageFolderDto {
+                id: storage::tiers::normalize(&f.path),
+                path: f.path.to_string_lossy().into_owned(),
+                name: f
+                    .path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| f.path.to_string_lossy().into_owned()),
+                depth: f.depth,
+                size_allocated: f.size_allocated,
+                size_logical: f.size_logical,
+                file_count: f.file_count,
+                class: f.class.key().to_string(),
+                tier: f.tier.key().to_string(),
+                incomplete: f.incomplete,
+            })
+            .collect(),
+        duplicates: scan
+            .duplicates
+            .iter()
+            .map(|d| StorageDuplicateSetDto {
+                id: d.id.clone(),
+                size_allocated: d.size_allocated,
+                sha256: d.sha256.clone(),
+                reclaimable_bytes: d.reclaimable_bytes,
+                protected_copies: d.protected_copies,
+                copies: d
+                    .copies
+                    .iter()
+                    .map(|c| StorageDuplicateCopyDto {
+                        id: storage::tiers::normalize(&c.path),
+                        path: c.path.to_string_lossy().into_owned(),
+                        name: c
+                            .path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default(),
+                        parent: c
+                            .path
+                            .parent()
+                            .map(|p| p.to_string_lossy().into_owned())
+                            .unwrap_or_default(),
+                        size_allocated: d.size_allocated,
+                        modified_unix: c.modified_unix,
+                        tier: c.tier.key().to_string(),
+                        tier_label: c.tier.label().to_string(),
+                        class_label: c.class.label().to_string(),
+                        is_kept_candidate: c.is_kept_candidate,
+                        reasons: c.reasons.clone(),
+                    })
+                    .collect(),
+            })
+            .collect(),
+        abandoned: scan
+            .abandoned
+            .iter()
+            .map(|a| StorageAbandonedDto {
+                path: a.path.to_string_lossy().into_owned(),
+                app_name: a.app_name.clone(),
+                size_allocated: a.size_allocated,
+                file_count: a.file_count,
+                days_since_change: a.days_since_change,
+                tier: a.tier.key().to_string(),
+                tier_label: a.tier.label().to_string(),
+                reasons: a.reasons.clone(),
+                caveat: a.caveat.clone(),
+                removable: false,
+            })
+            .collect(),
+    }
+}
+/// Ask the engine to stop. Safe to call at any time, including when no scan/// is running.
+#[tauri::command]
+fn storage_cancel(state: State<'_, StorageState>) -> Result<(), String> {
+    if let Some(flag) = state
+        .cancel
+        .lock()
+        .map_err(|_| "storage state is poisoned".to_string())?
+        .as_ref()
+    {
+        flag.store(true, Ordering::SeqCst);
+    }
+    Ok(())
+}
+#[derive(Serialize)]
+struct StoragePlanDto {
+    scan_id: String,
+    items: Vec<StoragePlanItemDto>,
+    refused: Vec<StoragePlanItemDto>,
+    estimated_bytes: u64,
+    estimated_label: String,
+    certainty: String,
+    certainty_label: String,
+    consequence: String,
+    /// The digest of the approved selections. The UI passes this back when
+    /// the operator confirms, so the backend runs this exact plan.
+    plan_id: String,
+    /// The phrase the operator must type to approve this plan.
+    confirmation_phrase: String,
+}
+#[derive(Serialize, Clone)]
+struct StoragePlanItemDto {
+    path: String,
+    name: String,
+    size_allocated: u64,
+    size_label: String,
+    tier: String,
+    tier_label: String,
+    class_label: String,
+    reasons: Vec<String>,
+    stale: bool,
+}
+fn storage_plan_dto(plan: &storage::CleanupPlan) -> StoragePlanDto {
+    let to_item = |i: &storage::PlanItem| StoragePlanItemDto {
+        path: i.path.to_string_lossy().into_owned(),
+        name: i
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| i.path.to_string_lossy().into_owned()),
+        size_allocated: i.size_allocated,
+        size_label: storage::human_bytes(i.size_allocated),
+        tier: i.tier.key().to_string(),
+        tier_label: i.tier.label().to_string(),
+        class_label: i.class.label().to_string(),
+        reasons: i.reasons.clone(),
+        stale: i.stale,
+    };
+    StoragePlanDto {
+        scan_id: plan.scan_id.clone(),
+        items: plan.items.iter().map(to_item).collect(),
+        refused: plan.refused.iter().map(to_item).collect(),
+        estimated_bytes: plan.estimated_bytes,
+        estimated_label: storage::human_bytes(plan.estimated_bytes),
+        certainty: format!("{:?}", plan.estimated_certainty).to_lowercase(),
+        certainty_label: plan.estimated_certainty.label().to_string(),
+        consequence: plan.consequence.clone(),
+        plan_id: plan.plan_id.clone(),
+        confirmation_phrase: plan.confirmation_phrase.clone(),
+    }
+}
+/// Build the preview for a selection. This is the only thing the operator/// sees before anything is removed, so it carries the full consequence text.////// The plan is retained by the backend. Execution runs this exact plan, so/// what is removed is exactly what was shown and approved.
+#[tauri::command]
+fn storage_preview(
+    state: State<'_, StorageState>,
+    paths: Vec<String>,
+) -> Result<StoragePlanDto, String> {
+    let plan = {
+        let guard = state
+            .last_scan
+            .lock()
+            .map_err(|_| "storage state is poisoned".to_string())?;
+        let scan = guard
+            .as_ref()
+            .ok_or_else(|| "Run a storage scan before selecting anything.".to_string())?;
+        let selection: Vec<storage::SelectionItem> = paths
+            .iter()
+            .map(|p| storage::SelectionItem {
+                path: PathBuf::from(p),
+                expected_size: None,
+                bulk: false,
+            })
+            .collect();
+        storage::build_plan(scan, &selection)
+    };
+    let dto = storage_plan_dto(&plan);
+    *state
+        .approved_plan
+        .lock()
+        .map_err(|_| "storage state is poisoned".to_string())? = Some(plan);
+    Ok(dto)
+}
+#[derive(Serialize, Clone)]
+struct StorageVolumeDeltaDto {
+    root: String,
+    free_before: Option<u64>,
+    free_after: Option<u64>,
+    delta: Option<i64>,
+    delta_label: String,
+    files_removed: usize,
+}
+#[derive(Serialize, Clone)]
+struct StorageReceiptDto {
+    scan_id: String,
+    plan_id: String,
+    planned: usize,
+    attempted: usize,
+    deleted: usize,
+    refused: usize,
+    failed: usize,
+    /// What the removed files occupied on disk before they were removed.
+    bytes_removed_estimate: u64,
+    bytes_removed_label: String,
+    /// The part of the figure above whose reclaim could not be promised.
+    bytes_uncertain: u64,
+    bytes_uncertain_label: String,
+    /// The pre-delete estimate for everything that reached the delete stage.
+    bytes_estimated: u64,
+    bytes_estimated_label: String,
+    finished_unix: u64,
+    volumes: Vec<StorageVolumeDeltaDto>,
+    /// One sentence stating exactly what the figures above mean.
+    note: String,
+    failures: Vec<CleanupFailureDto>,
+    refused_items: Vec<StoragePlanItemDto>,
+}
+/// Execute the plan the operator approved.////// The caller passes back the `plan_id` it was shown and the phrase that/// approves it. The backend runs the retained plan, verifies its digest, and/// refuses anything that no longer matches the live filesystem. The caller/// cannot substitute a different selection: it never supplies one.
+#[tauri::command]
+fn storage_execute(
+    app: AppHandle,
+    state: State<'_, StorageState>,
+    plan_id: String,
+    confirm_phrase: String,
+) -> Result<StorageReceiptDto, String> {
+    if !confirm_phrase.eq_ignore_ascii_case(storage::CONFIRM_PHRASE) {
+        return Err(format!("Type {} to confirm.", storage::CONFIRM_PHRASE));
+    }
+    let plan = {
+        let guard = state
+            .approved_plan
+            .lock()
+            .map_err(|_| "storage state is poisoned".to_string())?;
+        let plan = guard.as_ref().ok_or_else(|| {
+            "There is no approved plan. Review the removal preview first.".to_string()
+        })?;
+        if plan.plan_id != plan_id {
+            return Err(
+                "That approval is for a different plan. Review the removal preview again."
+                    .to_string(),
+            );
+        }
+        plan.clone()
+    };
+    let cancel = Arc::new(AtomicBool::new(false));
+    let receipt = {
+        let guard = state
+            .last_scan
+            .lock()
+            .map_err(|_| "storage state is poisoned".to_string())?;
+        let scan = guard
+            .as_ref()
+            .ok_or_else(|| "Run a storage scan before removing anything.".to_string())?;
+        if plan.items.is_empty() {
+            return Err(format!(
+                "Nothing in that selection can be removed. {}",
+                plan.refused
+                    .first()
+                    .and_then(|i| i.reasons.last().cloned())
+                    .unwrap_or_else(|| "Check the refused list.".to_string())
+            ));
+        }
+        storage::execute_plan(scan, &plan, &cancel)
+    };
+    // Drop the stored scan and the approved plan: both describe a
+    // filesystem that has just changed. The next action must be built from a
+    // fresh measurement.
+    if let Ok(mut guard) = state.last_scan.lock() {
+        *guard = None;
+    }
+    if let Ok(mut guard) = state.approved_plan.lock() {
+        *guard = None;
+    }
+    let dto = storage_receipt_dto(&receipt);
+    let _ = app.emit("storage-receipt", dto.clone());
+    Ok(dto)
+}
+fn storage_receipt_dto(receipt: &storage::CleanupReceipt) -> StorageReceiptDto {
+    StorageReceiptDto {
+        scan_id: receipt.scan_id.clone(),
+        plan_id: String::new(),
+        planned: receipt.planned,
+        attempted: receipt.attempted,
+        deleted: receipt.deleted,
+        refused: receipt.refused,
+        failed: receipt.failed,
+        bytes_removed_estimate: receipt.bytes_removed_estimate,
+        bytes_removed_label: storage::human_bytes(receipt.bytes_removed_estimate),
+        bytes_uncertain: receipt.bytes_uncertain,
+        bytes_uncertain_label: storage::human_bytes(receipt.bytes_uncertain),
+        bytes_estimated: receipt.bytes_estimated,
+        bytes_estimated_label: storage::human_bytes(receipt.bytes_estimated),
+        finished_unix: receipt.finished_unix,
+        volumes: receipt
+            .volumes
+            .iter()
+            .map(|v| StorageVolumeDeltaDto {
+                root: v.root.clone(),
+                free_before: v.free_before,
+                free_after: v.free_after,
+                delta: v.delta,
+                delta_label: match v.delta {
+                    Some(d) if d >= 0 => {
+                        format!("+{} free", storage::human_bytes(d as u64))
+                    }
+                    Some(d) => format!(
+                        "{} free (other writes landed too)",
+                        storage::human_bytes(d.unsigned_abs())
+                    ),
+                    None => "not readable".to_string(),
+                },
+                files_removed: v.files_removed,
+            })
+            .collect(),
+        note: receipt.note.clone(),
+        failures: receipt
+            .failures
+            .iter()
+            .map(|f| CleanupFailureDto {
+                path: f.path.to_string_lossy().into_owned(),
+                reason: f.reason.clone(),
+            })
+            .collect(),
+        refused_items: receipt
+            .refused_items
+            .iter()
+            .map(|i| StoragePlanItemDto {
+                path: i.path.to_string_lossy().into_owned(),
+                name: i
+                    .path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                size_allocated: i.size_allocated,
+                size_label: storage::human_bytes(i.size_allocated),
+                tier: i.tier.key().to_string(),
+                tier_label: i.tier.label().to_string(),
+                class_label: i.class.label().to_string(),
+                reasons: i.reasons.clone(),
+                stale: i.stale,
+            })
+            .collect(),
+    }
+}
+/// Show a storage path in Windows Explorer.////// Read-only by construction: it selects a path rather than opening or/// executing anything, and it never passes the path through a shell. The path/// is a single argument to `explorer`, not a command line.
+#[tauri::command]
+fn storage_reveal(path: String) -> Result<String, String> {
+    /* An empty path means "the folder C.U.R.E keeps its own records in".
+    The button that used to sit on the coverage tab promised exactly that
+    and did nothing, so the command now answers it for real. */
+    let target = if path.trim().is_empty() {
+        let dir = resolve_data_dir();
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+        dir
+    } else {
+        PathBuf::from(&path)
+    };
+    if !target.exists() {
+        return Err("That path no longer exists.".to_string());
+    }
+    // A directory is opened directly; a file is selected inside Explorer.
+    let mut command = std::process::Command::new("explorer");
+    if target.is_dir() {
+        command.arg(&target);
+    } else {
+        command.arg(format!("/select,{}", target.display()));
+    }
+    command
+        .spawn()
+        .map_err(|e| format!("cannot open explorer: {e}"))?;
+    Ok(target.to_string_lossy().into_owned())
+}
 fn main() {
-    tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![
+    // Before anything creates a window: see `declare_dpi_awareness`.
+    declare_dpi_awareness();
+    let context = tauri::generate_context!();
+
+    // The public demo build has no backend.
+    //
+    // The demo ships the deterministic sample backend in its frontend, and
+    // the real engine must not be reachable from it. The Tauri runtime
+    // injects a low-level IPC bridge into every window, so replacing the
+    // application's own API is not enough: `window.__TAURI_INTERNALS__` can
+    // still call the engine. The demo is therefore built with **no invoke
+    // handler at all**, so every command — through either route — is
+    // refused.
+    //
+    // The switch is the build's own identifier rather than a cargo feature,
+    // because a feature has to be remembered at build time and the demo
+    // configuration is the thing that says "this is the demo".
+    let demo_build = context.config().identifier.contains(".demo");
+    if demo_build {
+        eprintln!(
+            "[cure-demo] public demo build: the engine is not reachable; \
+             every command is answered by the deterministic sample backend"
+        );
+    }
+
+    let builder = tauri::Builder::default();
+    let builder = if demo_build {
+        // Returning `false` means "this command is not handled here", which
+        // the runtime reports as an unknown command. Nothing reaches the
+        // engine, and the sample backend in the frontend answers instead.
+        builder.invoke_handler(|_invoke| false)
+    } else {
+        builder.invoke_handler(tauri::generate_handler![
             run_auto_scan,
             list_overlay_candidates,
             close_overlay_window,
@@ -1451,13 +2148,22 @@ fn main() {
             open_quarantine_folder,
             view_log,
             exit_app,
-            scan_cleanup,
-            run_cleanup,
+            storage_scan,
+            storage_cancel,
+            storage_preview,
+            storage_execute,
+            storage_reveal,
+            storage_available_roots,
+            storage_validate_root,
             start_canary_guard,
             stop_canary_guard,
             canary_status
         ])
+    };
+
+    builder
         .manage(CanaryState::new())
+        .manage(StorageState::default())
         .setup(|app| {
             if launched_by_watcher() {
                 let handle = app.handle().clone();
@@ -1473,18 +2179,9 @@ fn main() {
             maybe_start_exit_driver(app.handle().clone());
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running cure-gui");
-}
-
-// ---------------------------------------------------------------------------
-// suspicious-overlay dismissal (runs when the user presses Start Rescue)
-//
-// OS glue only: enumeration, style/process interrogation, close/terminate.
-// The DECISION (which windows deserve closing) lives in
-// cure_core::overlay and is unit-tested there.
-// ---------------------------------------------------------------------------
-
+} // ---------------------------------------------------------------------------// suspicious-overlay dismissal (runs when the user presses Start Rescue)//// OS glue only: enumeration, style/process interrogation, close/terminate.// The DECISION (which windows deserve closing) lives in// cure_core::overlay and is unit-tested there.// ---------------------------------------------------------------------------
 #[derive(Serialize)]
 struct OverlayCandidateDto {
     hwnd: isize,
@@ -1497,13 +2194,11 @@ struct OverlayCandidateDto {
     height: i32,
     coverage_pct: f64,
 }
-
 #[derive(Serialize)]
 struct OverlayCandidateList {
     checked: usize,
     candidates: Vec<OverlayCandidateDto>,
 }
-
 fn signature_text(sig: &SignatureStatus) -> String {
     match sig {
         SignatureStatus::ValidSigned => "signed",
@@ -1516,31 +2211,24 @@ fn signature_text(sig: &SignatureStatus) -> String {
     }
     .to_string()
 }
-
-/// Persistent per-app allowlist ("Don't ask again for this app"), stored as
-/// JSON next to the other app-owned data. Missing/corrupt file = empty list
-/// (fail open to *asking*, never to silent closing).
+/// Persistent per-app allowlist ("Don't ask again for this app"), stored as/// JSON next to the other app-owned data. Missing/corrupt file = empty list/// (fail open to *asking*, never to silent closing).
 fn overlay_allowlist_path() -> PathBuf {
     resolve_data_dir().join("overlay-allowlist.json")
 }
-
 fn load_overlay_allowlist() -> Vec<cure_core::overlay::AllowEntry> {
     load_overlay_allowlist_from(&overlay_allowlist_path())
 }
-
 fn load_overlay_allowlist_from(path: &Path) -> Vec<cure_core::overlay::AllowEntry> {
     std::fs::read_to_string(path)
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or_default()
 }
-
 fn save_overlay_allowlist(entries: &[cure_core::overlay::AllowEntry]) -> Result<(), String> {
     let dir = resolve_data_dir();
     std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create data dir: {e}"))?;
     save_overlay_allowlist_to(&dir.join("overlay-allowlist.json"), entries)
 }
-
 fn save_overlay_allowlist_to(
     path: &Path,
     entries: &[cure_core::overlay::AllowEntry],
@@ -1551,9 +2239,7 @@ fn save_overlay_allowlist_to(
     let json = serde_json::to_string_pretty(entries).map_err(|e| format!("encode error: {e}"))?;
     std::fs::write(path, json).map_err(|e| format!("write error: {e}"))
 }
-
-/// List overlay candidates for per-window confirmation. Matches are SHOWN,
-/// never closed here — closing is a separate per-window command below.
+/// List overlay candidates for per-window confirmation. Matches are SHOWN,/// never closed here — closing is a separate per-window command below.
 #[tauri::command]
 fn list_overlay_candidates() -> Result<OverlayCandidateList, String> {
     #[cfg(not(windows))]
@@ -1563,7 +2249,6 @@ fn list_overlay_candidates() -> Result<OverlayCandidateList, String> {
             candidates: Vec::new(),
         });
     }
-
     #[cfg(windows)]
     {
         use cure_core::overlay::OverlayCandidate;
@@ -1603,10 +2288,7 @@ fn list_overlay_candidates() -> Result<OverlayCandidateList, String> {
         })
     }
 }
-
-/// Close a single candidate window the operator confirmed.
-/// `force = false`: graceful `WM_CLOSE` only. `force = true`: terminate the
-/// owning process (explicit per-window Force-close button only).
+/// Close a single candidate window the operator confirmed./// `force = false`: graceful `WM_CLOSE` only. `force = true`: terminate the/// owning process (explicit per-window Force-close button only).
 #[tauri::command]
 fn close_overlay_window(hwnd: isize, force: bool) -> Result<CloseResult, String> {
     #[cfg(not(windows))]
@@ -1614,7 +2296,6 @@ fn close_overlay_window(hwnd: isize, force: bool) -> Result<CloseResult, String>
         let _ = (hwnd, force);
         return Err("overlay closing is Windows-only".to_string());
     }
-
     #[cfg(windows)]
     {
         let result = do_close_overlay_window(hwnd, force)?;
@@ -1631,10 +2312,7 @@ fn close_overlay_window(hwnd: isize, force: bool) -> Result<CloseResult, String>
         Ok(result)
     }
 }
-
-/// "Don't ask again for this app": pin the binary currently at `path` by
-/// (normalized full path, SHA-256) so future matches skip it. Fails when
-/// the file cannot be hashed — unhashable binaries stay askable.
+/// "Don't ask again for this app": pin the binary currently at `path` by/// (normalized full path, SHA-256) so future matches skip it. Fails when/// the file cannot be hashed — unhashable binaries stay askable.
 #[tauri::command]
 fn allowlist_overlay(path: String) -> Result<String, String> {
     let target = PathBuf::from(&path);
@@ -1653,7 +2331,6 @@ fn allowlist_overlay(path: String) -> Result<String, String> {
     log_overlay_action(&format!("allowlisted {path} (sha256 {hash})"));
     Ok(format!("allowlisted (this binary only): {path}"))
 }
-
 #[cfg(windows)]
 fn is_under_windows_dir(path: &Path) -> bool {
     let windir = std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".to_string());
@@ -1662,12 +2339,10 @@ fn is_under_windows_dir(path: &Path) -> bool {
         .to_ascii_lowercase()
         .starts_with(&windir.to_ascii_lowercase())
 }
-
 #[cfg(windows)]
 fn overlay_log_path() -> PathBuf {
     resolve_data_dir().join("overlay-dismissal.log")
 }
-
 #[cfg(windows)]
 fn log_overlay_action(line: &str) {
     use std::io::Write as _;
@@ -1683,12 +2358,7 @@ fn log_overlay_action(line: &str) {
         let _ = writeln!(f, "{secs} [overlay] {line}");
     }
 }
-
-/// Enumerate visible top-level windows and describe each one. Pure glue:
-/// every judgement call is delegated to cure_core::overlay. Unattributable
-/// windows (no PID / unresolvable owner binary) are skipped here and can
-/// never become candidates — the matcher additionally refuses pid-0/empty
-/// owners as defense in depth.
+/// Enumerate visible top-level windows and describe each one. Pure glue:/// every judgement call is delegated to cure_core::overlay. Unattributable/// windows (no PID / unresolvable owner binary) are skipped here and can/// never become candidates — the matcher additionally refuses pid-0/empty/// owners as defense in depth.
 #[cfg(windows)]
 fn collect_window_candidates() -> Result<Vec<(isize, WindowDesc, SignatureStatus)>, String> {
     use cure_core::overlay::WindowRect;
@@ -1705,12 +2375,10 @@ fn collect_window_candidates() -> Result<Vec<(isize, WindowDesc, SignatureStatus
         GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, GWL_EXSTYLE, GWL_STYLE,
         SM_CXSCREEN, SM_CYSCREEN, WS_CAPTION, WS_EX_TOPMOST,
     };
-
     let mut out: Vec<(isize, WindowDesc, SignatureStatus)> = Vec::new();
     let own_exe = std::env::current_exe()
         .ok()
         .and_then(|e| e.canonicalize().ok());
-
     extern "system" fn callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
         unsafe {
             let list = lparam.0 as *mut Vec<isize>;
@@ -1720,14 +2388,12 @@ fn collect_window_candidates() -> Result<Vec<(isize, WindowDesc, SignatureStatus
         }
         true.into()
     }
-
     let mut hwnds: Vec<isize> = Vec::new();
     let list_ptr = &mut hwnds as *mut _ as isize;
     unsafe {
         EnumWindows(Some(callback), LPARAM(list_ptr))
             .map_err(|e| format!("EnumWindows failed: {e}"))?;
     }
-
     for raw in hwnds {
         let hwnd = HWND(raw as *mut core::ffi::c_void);
         unsafe {
@@ -1735,12 +2401,10 @@ fn collect_window_candidates() -> Result<Vec<(isize, WindowDesc, SignatureStatus
             let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
             let is_topmost = exstyle & WS_EX_TOPMOST.0 != 0;
             let is_borderless = style & WS_CAPTION.0 == 0;
-
             let len = GetWindowTextLengthW(hwnd);
             let mut buf = vec![0u16; (len + 1) as usize];
             GetWindowTextW(hwnd, &mut buf);
             let title = String::from_utf16_lossy(&buf[..len as usize]);
-
             let mut pid = 0u32;
             GetWindowThreadProcessId(hwnd, Some(&mut pid));
             if pid == 0 {
@@ -1765,13 +2429,11 @@ fn collect_window_candidates() -> Result<Vec<(isize, WindowDesc, SignatureStatus
                 }
                 Err(_) => continue, // protected process -> leave it alone
             };
-
             let canonical =
                 std::fs::canonicalize(&process_path).unwrap_or_else(|_| process_path.clone());
             let is_own = own_exe.as_ref() == Some(&canonical);
             let is_system = is_under_windows_dir(&process_path);
             let signature = cure_core::signature::check_signature(&process_path);
-
             // Window rect (for the coverage gate + the confirmation card).
             let mut rc = RECT::default();
             let rect = if GetWindowRect(hwnd, &mut rc).is_ok() {
@@ -1811,7 +2473,6 @@ fn collect_window_candidates() -> Result<Vec<(isize, WindowDesc, SignatureStatus
                     }
                 }
             }
-
             out.push((
                 raw,
                 WindowDesc {
@@ -1831,10 +2492,7 @@ fn collect_window_candidates() -> Result<Vec<(isize, WindowDesc, SignatureStatus
     }
     Ok(out)
 }
-
-/// Request a graceful close (`WM_CLOSE` only — never terminate). Returns
-/// whether the window is gone afterwards (checked after a short wait so the
-/// UI can report honestly instead of assuming).
+/// Request a graceful close (`WM_CLOSE` only — never terminate). Returns/// whether the window is gone afterwards (checked after a short wait so the/// UI can report honestly instead of assuming).
 #[cfg(windows)]
 fn request_close(hwnd_raw: isize) -> bool {
     use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -1849,10 +2507,7 @@ fn request_close(hwnd_raw: isize) -> bool {
         !IsWindow(hwnd).as_bool()
     }
 }
-
-/// Explicit, per-window "Force close": terminate the owning process.
-/// Only ever called from the frontend's Force-close button for a window the
-/// operator already reviewed — never as an automatic fallback.
+/// Explicit, per-window "Force close": terminate the owning process./// Only ever called from the frontend's Force-close button for a window the/// operator already reviewed — never as an automatic fallback.
 #[cfg(windows)]
 fn force_close(hwnd_raw: isize) -> Result<bool, String> {
     use windows::Win32::Foundation::HWND;
@@ -1875,10 +2530,7 @@ fn force_close(hwnd_raw: isize) -> Result<bool, String> {
         Ok(true)
     }
 }
-
-/// Close one candidate window. `force = false` posts `WM_CLOSE` and reports
-/// whether the window went away; `force = true` terminates the owning
-/// process (explicit operator action only).
+/// Close one candidate window. `force = false` posts `WM_CLOSE` and reports/// whether the window went away; `force = true` terminates the owning/// process (explicit operator action only).
 #[cfg(windows)]
 fn do_close_overlay_window(hwnd_raw: isize, force: bool) -> Result<CloseResult, String> {
     if force {
@@ -1895,27 +2547,11 @@ fn do_close_overlay_window(hwnd_raw: isize, force: bool) -> Result<CloseResult, 
         })
     }
 }
-
 #[derive(Serialize)]
 struct CloseResult {
     closed: bool,
     terminated: bool,
-}
-
-// NOTE: the old auto-closing `dismiss_overlays` command was removed in the
-// overlay-safety pass: candidates are listed (`list_overlay_candidates`)
-// and each close is a separate, operator-confirmed `close_overlay_window`
-// call (graceful by default, explicit per-window force only).
-
-// ---------------------------------------------------------------------------
-// E2E driver (test-only, inert unless CURE_E2E_CLEANUP is set)
-//
-// Drives the REAL webview UI (real invoke() plumbing, real backend deletes)
-// through one full disk-cleanup flow, then emits the outcome as an event and
-// exits. Never active in normal launches; exists to close the audit gap of
-// cleanup being verified mock-only.
-// ---------------------------------------------------------------------------
-
+} // NOTE: the old auto-closing `dismiss_overlays` command was removed in the// overlay-safety pass: candidates are listed (`list_overlay_candidates`)// and each close is a separate, operator-confirmed `close_overlay_window`// call (graceful by default, explicit per-window force only).// ---------------------------------------------------------------------------// E2E driver (test-only, inert unless CURE_E2E_CLEANUP is set)//// Drives the REAL webview UI (real invoke() plumbing, real backend deletes)// through one full disk-cleanup flow, then emits the outcome as an event and// exits. Never active in normal launches; exists to close the audit gap of// cleanup being verified mock-only.// ---------------------------------------------------------------------------
 #[cfg(feature = "desktop-e2e")]
 const E2E_RUNNER_JS: &str = r##"(async () => {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1952,62 +2588,79 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
       throw new Error("security results never appeared");
     }
     // The seed remains review-only until this explicit confirmation.
-    const quarantineButton=document.querySelector("#review-cards .quarantine-btn");
-    if(!quarantineButton)throw new Error("sandbox file-backed finding not available for quarantine");
+    const quarantineButton = document.querySelector("#review-cards .quarantine-btn");
+    if (!quarantineButton) throw new Error("sandbox file-backed finding not available for quarantine");
     quarantineButton.click();
-    if(!await waitFor(()=>!document.getElementById("confirm-overlay").classList.contains("hidden")))throw new Error("quarantine confirmation missing");
+    if (!await waitFor(() => !document.getElementById("confirm-overlay").classList.contains("hidden")))
+      throw new Error("quarantine confirmation missing");
     document.getElementById("confirm-ok").click();
-    if(!await waitFor(()=>quarantineButton.textContent==="Quarantined"))throw new Error("explicit quarantine never completed");
+    if (!await waitFor(() => quarantineButton.textContent === "Quarantined"))
+      throw new Error("explicit quarantine never completed");
     // Footer success paths: a scan just completed, so the quarantine folder
     // and baseline log both exist on disk for the real backend to open.
     const quarantineMsg = await clickFoot("btn-quarantine-folder");
     const logMsg = await clickFoot("btn-view-log");
     await wait(600);
-    document.getElementById("nav-scan").click();
-    document.getElementById("start-cleanup-btn").click();
-    if (!await waitFor(() =>
-      !document.getElementById("cleanup-view").classList.contains("hidden") &&
-      !document.getElementById("cleanup-idle").classList.contains("hidden"))) {
-      throw new Error("cleanup view never showed idle state");
+
+    // ---- the Storage Workstation, against the REAL backend --------------
+    // The destructive removal is deliberately NOT driven from here: it needs
+    // a file the run owns, and the native harness (testing/native) does
+    // that inside an isolated fixture. What this driver proves is that the
+    // real engine measures the machine and that the preview opens.
+    document.getElementById("nav-cleanup").click();
+    if (!await waitFor(() => !document.getElementById("cleanup-view").classList.contains("hidden"))) {
+      throw new Error("storage view never appeared");
     }
-    document.getElementById("cleanup-scan-btn").click();
-    if (!await waitFor(() =>
-      !document.getElementById("cleanup-body").classList.contains("hidden"))) {
-      throw new Error("cleanup scan never loaded");
+    if (!await waitFor(() => !document.getElementById("sw-scan").disabled)) {
+      throw new Error("storage scan button never became ready");
     }
+    document.getElementById("sw-scan").click();
+    if (!await waitFor(() => document.getElementById("sw-progress").getClientRects().length > 0, 10000)) {
+      throw new Error("storage progress never appeared");
+    }
+    if (!await waitFor(() => document.getElementById("sw-progress").classList.contains("hidden"), 300000)) {
+      throw new Error("storage scan never finished");
+    }
+    await wait(500);
+    const storageStatus = document.getElementById("sw-status-text").textContent.trim();
+    if (!storageStatus) throw new Error("storage status never reported");
+    document.getElementById("sw-tab-coverage").click();
+    if (!await waitFor(() => document.querySelectorAll("#sw-roots-body tr").length > 0, 30000)) {
+      throw new Error("storage coverage never listed the measured roots");
+    }
+    const measuredRoots = document.querySelectorAll("#sw-roots-body tr").length;
+    const measuredFiles = (document.getElementById("sw-large-count") || {}).textContent || "";
+    // The preview must open and must not execute anything on its own.
+    document.getElementById("sw-tab-large").click();
     await wait(400);
-    const boxes = document.querySelectorAll("#cleanup-dl-list input[type=checkbox]");
-    if (boxes.length) boxes[0].click();
-    const btn = document.getElementById("cleanup-btn");
-    btn.click();
-    // V3: destructive actions share an explicit confirm dialog.
-    if (!await waitFor(() => !document.getElementById("confirm-overlay").classList.contains("hidden"))) {
-      throw new Error("cleanup confirm dialog never appeared");
+    const queueable = document.querySelector("#sw-large-body .sw-queue-btn");
+    if (queueable) {
+      queueable.click();
+      await wait(300);
+      document.getElementById("sw-tab-queue").click();
+      await wait(300);
+      document.getElementById("sw-preview-btn").click();
+      if (!await waitFor(() => !document.getElementById("sw-preview-overlay").classList.contains("hidden"))) {
+        throw new Error("storage removal preview never appeared");
+      }
+      if (!document.getElementById("sw-preview-confirm").disabled) {
+        throw new Error("removal was confirmable without typing the word");
+      }
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await wait(300);
     }
-    document.getElementById("confirm-ok").click();
-    if (!await waitFor(() => document.getElementById("cleanup-status").textContent.startsWith("Freed"), 60000)) {
-      throw new Error("cleanup status never showed Freed");
-    }
-    // Snapshot now: leaving the cleanup view (quarantine check below) resets
-    // the transient result line by design.
-    const finalCleanupStatus = document.getElementById("cleanup-status").textContent;
-    await wait(300);
+
     // Quarantine view vs the REAL backend: the sandbox startup root is seeded
     // with a HighRisk .bat, which the explicit confirmed action above quarantined.
-    // Listing it and undoing it through the UI proves list_quarantine,
-    // quarantine (confirmed path), and undo_entry end to end.
     document.getElementById("nav-quarantine").click();
-    if (!await waitFor(() =>
-      !document.getElementById("view-quarantine").classList.contains("hidden"))) {
+    if (!await waitFor(() => !document.getElementById("view-quarantine").classList.contains("hidden"))) {
       throw new Error("quarantine view never appeared");
     }
-    if (!await waitFor(() =>
-      document.querySelectorAll("#q-list .q-row").length >= 1, 30000)) {
+    if (!await waitFor(() => document.querySelectorAll("#q-list .q-row").length >= 1, 30000)) {
       throw new Error("quarantine list never showed the confirmed quarantine seed");
     }
     document.querySelector("#q-list .q-undo").click();
-    if (!await waitFor(() =>
-      document.querySelectorAll("#q-list .q-row").length === 0, 30000)) {
+    if (!await waitFor(() => document.querySelectorAll("#q-list .q-row").length === 0, 30000)) {
       throw new Error("undo never cleared the quarantine list");
     }
     await wait(300);
@@ -2022,8 +2675,7 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
     ];
     for (const [nav, view] of smokeViews) {
       (nav === "canary-secondary" ? document.querySelector('[data-route="view-canary"]') : document.getElementById(nav)).click();
-      if (!await waitFor(() =>
-        !document.getElementById(view).classList.contains("hidden"))) {
+      if (!await waitFor(() => !document.getElementById(view).classList.contains("hidden"))) {
         throw new Error(view + " never appeared");
       }
       await wait(200);
@@ -2036,8 +2688,7 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
     // land in the sandboxed profile; the TRIGGERED path via real filesystem
     // events stays a manual/VM test — see TESTING.md §5.)
     document.getElementById("can-toggle").click();
-    if (!await waitFor(() =>
-      document.getElementById("can-state").textContent === "ACTIVE", 15000)) {
+    if (!await waitFor(() => document.getElementById("can-state").textContent === "ACTIVE", 15000)) {
       throw new Error("canary guard never became ACTIVE");
     }
     // Incident observation vs the REAL backend: 15 s window, then assert a
@@ -2057,18 +2708,16 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
       correlations: Array.isArray(incident.correlations) ? incident.correlations.length : 0,
     };
     document.getElementById("nav-results").click();
-    if (!await waitFor(() =>
-      !document.getElementById("results-view").classList.contains("hidden"))) {
+    if (!await waitFor(() => !document.getElementById("results-view").classList.contains("hidden"))) {
       throw new Error("results view never re-appeared");
     }
     await wait(300);
     emit({
       ok: true,
-      status: finalCleanupStatus,
-      pill: document.getElementById("cleanup-status-text").textContent,
-      downloadsTicked: boxes.length > 0,
-      cleanupConfirmed: true,
-      failures: Array.from(document.querySelectorAll("#cleanup-failures li")).map((li) => li.textContent),
+      status: storageStatus,
+      pill: storageStatus,
+      storageVerified: { roots: measuredRoots, files: measuredFiles },
+      cleanupConfirmed: false,
       footer: { preScanLogMsg, quarantineMsg, logMsg },
       quarantineVerified: true,
       viewsVerified: { posture, auditCards },
@@ -2078,8 +2727,7 @@ const E2E_RUNNER_JS: &str = r##"(async () => {
   } catch (err) {
     emit({ ok: false, error: String(err) });
   }
-})();"##;
-
+})()"##;
 #[cfg(feature = "desktop-e2e")]
 fn maybe_start_e2e_driver(handle: AppHandle) {
     if std::env::var("CURE_E2E_CLEANUP").is_err() {
@@ -2097,26 +2745,9 @@ fn maybe_start_e2e_driver(handle: AppHandle) {
             let _ = window.eval(E2E_RUNNER_JS);
         }
     });
-}
-
-// Exit-button driver (test-only, inert unless CURE_E2E_EXIT is set).
-// Clicks the real Exit footer button after load; the outer harness asserts
-// the process actually terminates. Kept separate from the cleanup driver so
-// each run has exactly one terminal action.
+} // Exit-button driver (test-only, inert unless CURE_E2E_EXIT is set).// Clicks the real Exit footer button after load; the outer harness asserts// the process actually terminates. Kept separate from the cleanup driver so// each run has exactly one terminal action.
 #[cfg(feature = "desktop-e2e")]
-const E2E_EXIT_RUNNER_JS: &str = r##"(async () => {
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-  const waitFor = async (f, t = 30000) => {
-    for (let i = 0; i < t / 100; i++) { if (f()) return true; await wait(100); }
-    return false;
-  };
-  if (!await waitFor(() => document.getElementById("btn-exit") !== null)) {
-    return;
-  }
-  await wait(500);
-  document.getElementById("btn-exit").click();
-})();"##;
-
+const E2E_EXIT_RUNNER_JS: &str = r##"(async () => {  const wait = (ms) => new Promise((r) => setTimeout(r, ms));  const waitFor = async (f, t = 30000) => {    for (let i = 0; i < t / 100; i++) { if (f()) return true; await wait(100); }    return false;  };  if (!await waitFor(() => document.getElementById("btn-exit") !== null)) {    return;  }  await wait(500);  document.getElementById("btn-exit").click();})();"##;
 #[cfg(feature = "desktop-e2e")]
 fn maybe_start_exit_driver(handle: AppHandle) {
     if std::env::var("CURE_E2E_EXIT").is_err() {
@@ -2128,21 +2759,14 @@ fn maybe_start_exit_driver(handle: AppHandle) {
             let _ = window.eval(E2E_EXIT_RUNNER_JS);
         }
     });
-}
-
-// ---------------------------------------------------------------------------
-// Ransomware canary guard — real-time folder monitoring + process tripwire
-// ---------------------------------------------------------------------------
-
+} // ---------------------------------------------------------------------------// Ransomware canary guard — real-time folder monitoring + process tripwire// ---------------------------------------------------------------------------
 struct CanaryGuard {
     stop: Arc<AtomicBool>,
     alert_count: Arc<AtomicUsize>,
 }
-
 struct CanaryState {
     guard: Mutex<Option<CanaryGuard>>,
 }
-
 impl CanaryState {
     fn new() -> Self {
         Self {
@@ -2150,7 +2774,6 @@ impl CanaryState {
         }
     }
 }
-
 #[derive(serde::Serialize, Clone)]
 struct CanaryAlertEvent {
     kind: String,
@@ -2160,7 +2783,6 @@ struct CanaryAlertEvent {
     at_secs: u64,
     severity: u8,
 }
-
 #[tauri::command]
 fn start_canary_guard(state: State<'_, CanaryState>, app: AppHandle) -> Result<String, String> {
     {
@@ -2169,31 +2791,25 @@ fn start_canary_guard(state: State<'_, CanaryState>, app: AppHandle) -> Result<S
             return Ok("already-active".into());
         }
     }
-
     let stop = Arc::new(AtomicBool::new(false));
     let alert_count = Arc::new(AtomicUsize::new(0));
-
     let dirs = user_folder_candidates();
     for dir in &dirs {
         if dir.is_dir() {
             cure_dirwatch::plant_decoys(dir);
         }
     }
-
     let watch_dirs: Vec<PathBuf> = dirs.into_iter().filter(|d| d.is_dir()).collect();
     for dir in &watch_dirs {
         spawn_dir_watcher(dir.clone(), app.clone(), stop.clone(), alert_count.clone());
     }
-
     spawn_tripwire_poller(app.clone(), stop.clone(), alert_count.clone());
-
     {
         let mut g = state.guard.lock().map_err(|e| e.to_string())?;
         *g = Some(CanaryGuard { stop, alert_count });
     }
     Ok("started".into())
 }
-
 #[tauri::command]
 fn stop_canary_guard(state: State<'_, CanaryState>) -> Result<String, String> {
     let mut g = state.guard.lock().map_err(|e| e.to_string())?;
@@ -2204,7 +2820,6 @@ fn stop_canary_guard(state: State<'_, CanaryState>) -> Result<String, String> {
         Ok("not-active".into())
     }
 }
-
 #[tauri::command]
 fn canary_status(state: State<'_, CanaryState>) -> Result<serde_json::Value, String> {
     let g = state.guard.lock().map_err(|e| e.to_string())?;
@@ -2214,14 +2829,7 @@ fn canary_status(state: State<'_, CanaryState>) -> Result<serde_json::Value, Str
         .map(|g| g.alert_count.load(Ordering::Relaxed))
         .unwrap_or(0);
     Ok(serde_json::json!({ "active": active, "alert_count": count }))
-}
-
-// Directory watching lives in cure_dirwatch (shared with cure-watch, same
-// engine, same Win32 acquisition loop); the GUI only adapts alerts into
-// Tauri events here. The GUI keeps its own user_folder_candidates() because
-// its ransom-scan path needs pre-filtered existing dirs — a different
-// contract from the shared helper.
-
+} // Directory watching lives in cure_dirwatch (shared with cure-watch, same// engine, same Win32 acquisition loop); the GUI only adapts alerts into// Tauri events here. The GUI keeps its own user_folder_candidates() because// its ransom-scan path needs pre-filtered existing dirs — a different// contract from the shared helper.
 fn spawn_dir_watcher(
     dir: PathBuf,
     app: AppHandle,
@@ -2275,7 +2883,6 @@ fn spawn_dir_watcher(
         });
     });
 }
-
 fn spawn_tripwire_poller(app: AppHandle, stop: Arc<AtomicBool>, _alert_count: Arc<AtomicUsize>) {
     std::thread::spawn(move || {
         while !stop.load(Ordering::Relaxed) {
@@ -2309,18 +2916,15 @@ fn spawn_tripwire_poller(app: AppHandle, stop: Arc<AtomicBool>, _alert_count: Ar
         }
     });
 }
-
 #[cfg(test)]
 #[cfg(windows)]
 mod overlay_fixture_tests {
     use super::*;
     use std::process::Command;
-
     fn fake_overlay_bin() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../testing/fake-overlay/target/release/fake-overlay.exe")
     }
-
     #[test]
     #[ignore = "needs an interactive desktop session: spawns real windows (fake-overlay + notepad) and closes one. Run locally via testing/run-gui-desktop-tests.bat; never in CI."]
     fn overlay_fixture_dismisses_fake_overlay_and_spares_notepad() {
@@ -2329,15 +2933,12 @@ mod overlay_fixture_tests {
             bin.exists(),
             "fake-overlay.exe not built yet — run: cargo build --release -p fake-overlay"
         );
-
         // 1. Spawn fake-overlay (borderless topmost window, unsigned binary)
         let mut overlay_proc = Command::new(&bin).spawn().expect("spawn fake-overlay");
         std::thread::sleep(std::time::Duration::from_secs(2));
-
         // 2. Spawn notepad (legitimate topmost=false, borderless=false)
         let mut notepad_proc = Command::new("notepad.exe").spawn().expect("spawn notepad");
         std::thread::sleep(std::time::Duration::from_secs(1));
-
         // 3. Collect all window candidates
         let candidates = collect_window_candidates().expect("collect_window_candidates failed");
         assert!(
@@ -2345,7 +2946,6 @@ mod overlay_fixture_tests {
             "expected at least 2 window candidates, got {}",
             candidates.len()
         );
-
         // 4. Check that pick_overlays flags the fake-overlay but not notepad
         // (allowlist empty: nothing pre-approved on a test box).
         let scored: Vec<cure_core::overlay::OverlayCandidate> = candidates
@@ -2357,7 +2957,6 @@ mod overlay_fixture_tests {
             })
             .collect();
         let picks = overlay::pick_overlays(&scored, &[]);
-
         let overlay_name = bin.file_stem().unwrap().to_string_lossy().to_string();
         let mut found_overlay = false;
         for &idx in &picks {
@@ -2382,7 +2981,6 @@ mod overlay_fixture_tests {
             found_overlay,
             "fake-overlay was not detected as a suspicious overlay"
         );
-
         // 5. Graceful close of the fake-overlay (default path: WM_CLOSE
         // only, no termination — the fixture's DefWindowProc handles it).
         let (hwnd_raw, _, _) = candidates
@@ -2404,14 +3002,12 @@ mod overlay_fixture_tests {
             !is_window_alive(*hwnd_raw),
             "fake-overlay process still alive after close_overlay"
         );
-
         // 6. Kill notepad (cleanup) and reap both children so the test
         // leaves no zombies behind.
         let _ = notepad_proc.kill();
         let _ = notepad_proc.wait();
         let _ = overlay_proc.try_wait();
     }
-
     fn is_window_alive(hwnd_raw: isize) -> bool {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::IsWindow;
@@ -2419,12 +3015,10 @@ mod overlay_fixture_tests {
         unsafe { IsWindow(hwnd).as_bool() }
     }
 }
-
 #[cfg(test)]
 #[cfg(windows)]
 mod data_dir_tests {
     use super::*;
-
     #[test]
     fn default_data_dir_is_app_owned_never_exe_adjacent() {
         // Under `cargo test` no --data-dir flag is present, so this asserts
@@ -2446,14 +3040,11 @@ mod data_dir_tests {
         assert_ne!(dir, PathBuf::from("."));
     }
 }
-
 #[cfg(test)]
 #[cfg(windows)]
 mod overlay_allowlist_store_tests {
     use super::*;
-
     use cure_core::overlay::AllowEntry;
-
     #[test]
     fn missing_or_corrupt_file_means_empty_allowlist() {
         let dir = tempfile::tempdir().unwrap();
@@ -2462,7 +3053,6 @@ mod overlay_allowlist_store_tests {
         std::fs::write(&path, b"{not json").unwrap();
         assert!(load_overlay_allowlist_from(&path).is_empty());
     }
-
     #[test]
     fn roundtrip_preserves_entries() {
         let dir = tempfile::tempdir().unwrap();
@@ -2474,7 +3064,6 @@ mod overlay_allowlist_store_tests {
         save_overlay_allowlist_to(&path, &entries).unwrap();
         assert_eq!(load_overlay_allowlist_from(&path), entries);
     }
-
     #[test]
     fn duplicates_are_the_callers_job_to_avoid() {
         // save/load is a dumb store; dedup lives in allowlist_overlay.

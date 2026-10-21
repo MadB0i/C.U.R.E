@@ -1,4 +1,4 @@
-﻿(function () {
+(function () {
   "use strict";
 
   const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -19,7 +19,6 @@
   const feedCountEl = document.getElementById("feed-count");
   const scanView = document.getElementById("scan-view");
   const resultsView = document.getElementById("results-view");
-  const cleanupView = document.getElementById("cleanup-view");
   const landingView = document.getElementById("landing-view");
 
   // ---- UI V2 session state (all derived from real backend responses) ----
@@ -80,24 +79,104 @@
   }
 
   // Topbar session context — real scan metadata only, never invented.
+  //
+  // The console measures two different things, so the topbar says which one
+  // it is reporting. "LAST SCAN" on its own is ambiguous: a Rescue scan
+  // counts inspected layers, a storage scan counts measured bytes.
+  let lastStorageScan = null;
+  let storageScanRunning = false;
+
   function renderSessionMeta(summary) {
     const el = document.getElementById("session-meta");
     if (!el) return;
-    if (!summary) {
-      el.textContent = "NO SCAN THIS SESSION";
+
+    const rescueWhen = lastScanAt ? lastScanAt.getTime() : 0;
+    const storageWhen = lastStorageScan ? lastStorageScan.at : 0;
+
+    /* A storage scan that is running says so. The topbar is the one place
+       that is true for the whole application, so it is where the operator
+       finds out that a measurement is in flight. */
+    if (storageScanRunning) {
+      el.textContent = "STORAGE SCAN · MEASURING…";
+      el.setAttribute("data-scan", "storage");
       return;
     }
+
+    if (!summary && !lastStorageScan) {
+      el.textContent = "NO SCAN THIS SESSION";
+      el.removeAttribute("data-scan");
+      return;
+    }
+
+    const parts = [];
+    if (lastStorageScan && storageWhen >= rescueWhen) {
+      parts.push(storageClause(lastStorageScan, true));
+      if (summary) parts.push(rescueClause(summary, false));
+    } else {
+      parts.push(rescueClause(summary, true));
+      if (lastStorageScan) parts.push(storageClause(lastStorageScan, false));
+    }
+    el.textContent = parts.join("  ·  ");
+    el.setAttribute(
+      "data-scan",
+      lastStorageScan && storageWhen >= rescueWhen ? "storage" : "rescue",
+    );
+  }
+
+  /* The newest scan is spelled out; an older one of the other kind is
+     named but not detailed, so the line still fits on one row. */
+  function storageClause(record, full) {
+    const when = new Date(record.at).toLocaleTimeString();
+    if (!full) {
+      const gb = (record.bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+      return "STORAGE " + when + " · " + gb;
+    }
+    const gb = (record.bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+    return (
+      "STORAGE SCAN " +
+      when +
+      " · " +
+      gb +
+      " MEASURED" +
+      (record.incomplete ? " · PARTIAL" : "") +
+      " · " +
+      (record.files || 0).toLocaleString() +
+      " FILES"
+    );
+  }
+
+  function rescueClause(summary, full) {
     const review = (summary.suspicious_for_review || []).length;
     const when = lastScanAt ? lastScanAt.toLocaleTimeString() : "—";
-    el.textContent =
-      "LAST SCAN " +
+    if (!full) return "RESCUE " + when;
+    return (
+      "RESCUE SCAN " +
       when +
       " · " +
       summary.total +
       " CHECKED · " +
       review +
-      " TO REVIEW";
+      " TO REVIEW"
+    );
   }
+
+  // The storage workstation publishes its own measurement here, so the
+  // topbar can name the kind of scan it is reporting.
+  window.CureTopbar = {
+    storageScan: function (record) {
+      lastStorageScan = record;
+      storageScanRunning = false;
+      renderSessionMeta(lastSummary);
+    },
+    storageScanStarted: function () {
+      storageScanRunning = true;
+      renderSessionMeta(lastSummary);
+    },
+    storageScanFinished: function () {
+      storageScanRunning = false;
+      renderSessionMeta(lastSummary);
+    },
+  };
 
   // Topbar clock — real local system time, refreshed every 15 s.
   function tickClock() {
@@ -467,9 +546,9 @@
       );
       logEvent("action", "Quarantined: " + scored.entry.name);
       // Supporting state after a completed, confirmed action — never before.
-      window.CureCompanion.seal(
-        "Sealed: " + scored.entry.name + " · Undo available",
-      );
+      if (window.CureCompanion) {
+        window.CureCompanion.seal("Sealed: " + scored.entry.name + " - undo available");
+      }
       await refreshQuarantineCount();
       if (evidenceSelected === scored)
         renderEvidence(scored, evidenceCache.get(scored.entry.id));
@@ -781,13 +860,18 @@
     document
       .getElementById("companion-result")
       .classList.toggle("hidden", trouble > 0);
-    window.CureCompanion.result(
-      coverageIncomplete(summary) ? "review" : "success",
-      coverageIncomplete(summary) ? "Coverage incomplete" : "Collection ended",
-      coverageIncomplete(summary)
-        ? "Review the collection limitations below."
-        : "No findings in collected evidence.",
-    );
+    // LUMA reflects the real outcome: an incomplete collection is a review
+    // state even when nothing was flagged, and a clean collection with full
+    // coverage is the only thing that reads as success.
+    if (window.CureCompanion) {
+      if (coverageIncomplete(summary)) {
+        window.CureCompanion.review(trouble, "Review the collection limitations below.");
+      } else if (trouble > 0) {
+        window.CureCompanion.discovering(trouble, "Findings in collected evidence.");
+      } else {
+        window.CureCompanion.cleanup("success", "Nothing flagged", "No findings in collected evidence.");
+      }
+    }
     renderResultsCoverage(summary);
 
     countUp(document.getElementById("stat-cleaned"), sessionQuarantined);
@@ -1015,7 +1099,7 @@
     "view-audit": "Investigate / Persistence",
     "view-processes": "Investigate / Processes",
     "view-quarantine": "Quarantine",
-    "cleanup-view": "Disk Cleanup",
+    "cleanup-view": "Storage Workstation",
     "view-eventlog": "Monitor",
     "view-canary": "Monitor / Canary",
     "view-incident": "Incident Investigation",
@@ -1069,32 +1153,28 @@
     }
   }
 
-  // Sidebar navigation. Cleanup entry/exit reuse the existing open/close
-  // paths so pill save/restore and the armed-button state stay consistent.
+  // Sidebar navigation. The Storage Workstation is an ordinary view now: no
+  // open/close ceremony, no pill save/restore, nothing to unwind.
   async function navTo(viewId) {
     if (viewId === "scan-center") {
-      if (cleanupState.open)
-        closeCleanup(
-          ["running", "preparing"].includes(scanPhase) ? scanView : landingView,
-        );
-      else
-        showViewInstant(
-          ["running", "preparing"].includes(scanPhase) ? scanView : landingView,
-        );
-      return;
-    }
-    if (viewId === "cleanup-view") {
-      await openCleanup();
-      showViewInstant(cleanupView);
+      showViewInstant(
+        ["running", "preparing"].includes(scanPhase) ? scanView : landingView,
+      );
       return;
     }
     const el = document.getElementById(viewId);
     if (!el) return;
-    if (cleanupState.open) closeCleanup(el);
-    else showViewInstant(el);
+    showViewInstant(el);
     if (viewId === "view-overview" && lastSummary) renderOverview(lastSummary);
     if (viewId === "view-quarantine") refreshQuarantine();
     if (viewId === "view-eventlog") renderEventLog();
+    if (viewId === "cleanup-view" && window.CureStorageWorkstation) {
+      /* Opening the workstation performs no measurement, so its companion
+         returns to a settled pose rather than continuing a pose left behind
+         by a rescue scan. */
+      window.CureStorageWorkstation.idle();
+      window.CureStorageWorkstation.redraw();
+    }
     document
       .querySelectorAll("[data-route]")
       .forEach((btn) =>
@@ -1339,6 +1419,22 @@
     });
   }
 
+  const companionPref = document.getElementById("pref-companion");
+  if (companionPref) {
+    companionPref.addEventListener("change", (ev) => {
+      if (window.CureCompanion) window.CureCompanion.setVisible(ev.target.checked);
+    });
+  }
+  const motionPref = document.getElementById("pref-companion-motion");
+  if (motionPref) {
+    motionPref.addEventListener("change", (ev) => {
+      /* The box reads "Pause companion motion", so a ticked box means the
+         motion is paused. */
+      if (window.CureCompanion) window.CureCompanion.setMotionPaused(ev.target.checked);
+    });
+  }
+  syncCompanionVisibility();
+
   document
     .getElementById("btn-quarantine-folder")
     .addEventListener("click", async () => {
@@ -1514,7 +1610,7 @@
     showCanaryAlert();
   });
 
-  // ---- disk cleanup (separate flow / own view) ----------------------------
+  // ---- byte formatting shared by the overview and the storage rail -------
 
   function fmtBytes(n) {
     if (n >= 1073741824) return (n / 1073741824).toFixed(1) + " GB";
@@ -1522,43 +1618,6 @@
     if (n >= 1024) return Math.round(n / 1024) + " KB";
     return n + " B";
   }
-
-  const cleanupEls = {
-    backBtn: document.getElementById("cleanup-back"),
-    statusLine: document.getElementById("cleanup-status-line"),
-    statusText: document.getElementById("cleanup-status-text"),
-    subline: document.getElementById("cleanup-subline"),
-    idle: document.getElementById("cleanup-idle"),
-    scanBtn: document.getElementById("cleanup-scan-btn"),
-    loading: document.getElementById("cleanup-loading"),
-    body: document.getElementById("cleanup-body"),
-    total: document.getElementById("cleanup-total"),
-    grid: document.getElementById("cleanup-grid"),
-    downloads: document.getElementById("cleanup-downloads"),
-    dlList: document.getElementById("cleanup-dl-list"),
-    btn: document.getElementById("cleanup-btn"),
-    btnLabel: document.getElementById("cleanup-btn-label"),
-    status: document.getElementById("cleanup-status"),
-    failures: document.getElementById("cleanup-failures"),
-    stage: document.getElementById("cleanup-operation"),
-    queue: document.getElementById("cleanup-queue"),
-    panel: document.getElementById("cleanup-panel"),
-  };
-  function setCleanupBtnLabel(t) {
-    if (cleanupEls.btnLabel) cleanupEls.btnLabel.textContent = t;
-    else cleanupEls.btn.textContent = t;
-  }
-  const cleanupState = {
-    summary: null,
-    selectedCats: new Set(),
-    checkedDownloads: new Set(),
-    running: false,
-    open: false,
-    outcome: null,
-    savedPill: null,
-  };
-  /* Real session facts only. Overview never triggers a disk measurement. */
-  const sessionCleanup = { measured: false, last: null, freed: 0 };
 
   const sweepState = {
     findings: [],
@@ -1573,583 +1632,6 @@
     btn.disabled = !enabled;
     btn.textContent = "Terminate selected (" + sweepState.checked.size + ")";
   }
-
-  function setCleanupPill(state, text) {
-    cleanupEls.statusLine.className = "pill " + state;
-    cleanupEls.statusText.textContent = text;
-    const pose =
-      state === "error" || state === "warn"
-        ? "review"
-        : cleanupPhase === "done-ok"
-          ? "success"
-          : state === "scanning"
-            ? "scan"
-            : "idle";
-    window.CureCompanion.cleanup(
-      pose,
-      pose === "success"
-        ? "Cleanup ended"
-        : pose === "review"
-          ? "Review cleanup result"
-          : pose === "scan"
-            ? "Measuring candidates"
-            : cleanupPhase === "ready"
-              ? "Selection ready"
-              : "Ready to measure",
-      text,
-    );
-  }
-
-  // Cleanup has no progress API: show an honest busy state, never estimated bytes.
-  function startCleanupOperation() {
-    cleanupEls.stage.classList.remove("hidden");
-    cleanupEls.queue.classList.remove("hidden");
-    renderCleanupQueue();
-    document.getElementById("stage-main").scrollTop = 0;
-    window.CureStorage.running();
-    window.CureCompanion.cleanup(
-      "cleanup",
-      "Cleanup in progress",
-      "Deleting confirmed selections. Waiting for the engine result.",
-    );
-  }
-  function finishCleanupOperation() {
-    cleanupEls.stage.classList.add("hidden");
-    cleanupEls.queue.classList.add("hidden");
-  }
-  function resetCleanupOperation() {
-    cleanupEls.stage.classList.add("hidden");
-    cleanupEls.queue.classList.add("hidden");
-  }
-
-  /* What is queued is exactly what the operator confirmed — real selections,
-     real byte totals from the measurement. No estimated progress. */
-  function renderCleanupQueue() {
-    const list = document.getElementById("cleanup-queue-list");
-    if (!list || !cleanupState.summary) return;
-    list.replaceChildren();
-    for (const cat of cleanupState.summary.categories) {
-      if (cat.item_count === 0 || !cleanupState.selectedCats.has(cat.key))
-        continue;
-      const row = document.createElement("div");
-      row.className = "cq-row";
-      const name = document.createElement("span");
-      name.textContent = cat.label;
-      const meta = document.createElement("b");
-      meta.textContent = "queued · " + fmtBytes(cat.total_bytes);
-      row.append(name, meta);
-      list.append(row);
-    }
-    for (const dl of cleanupState.summary.downloads) {
-      if (!cleanupState.checkedDownloads.has(dl.path)) continue;
-      const row = document.createElement("div");
-      row.className = "cq-row";
-      const name = document.createElement("span");
-      name.textContent = dl.name;
-      const meta = document.createElement("b");
-      meta.textContent = "queued · " + fmtBytes(dl.size_bytes);
-      row.append(name, meta);
-      list.append(row);
-    }
-  }
-
-  // ---- cleanup state / rendering -------------------------------------------
-
-  // Clear a stale cleanup result when the selection changes or the
-  // view closes. Destructive confirmation now goes through requestConfirm.
-  function resetCleanupResult() {
-    cleanupEls.status.textContent = "";
-    cleanupEls.status.classList.add("hidden");
-    cleanupEls.status.classList.remove("cleanup-ok", "cleanup-fail");
-    if (cleanupPhase === "done-ok" || cleanupPhase === "done-fail") {
-      cleanupPhase = "ready";
-      setCleanupStep(1);
-    }
-    updateCleanupButton();
-  }
-
-  function cleanupSelectionBytes() {
-    let bytes = 0;
-    for (const cat of cleanupState.summary.categories) {
-      if (cat.item_count > 0 && cleanupState.selectedCats.has(cat.key)) {
-        bytes += cat.total_bytes;
-      }
-    }
-    for (const dl of cleanupState.summary.downloads) {
-      if (cleanupState.checkedDownloads.has(dl.path)) bytes += dl.size_bytes;
-    }
-    return bytes;
-  }
-
-  function updateCleanupButton() {
-    const s = cleanupState.summary;
-    const anyCat =
-      s &&
-      s.categories.some(
-        (c) => c.item_count > 0 && cleanupState.selectedCats.has(c.key),
-      );
-    const anyDl = cleanupState.checkedDownloads.size > 0;
-    const enabled = (anyCat || anyDl) && !cleanupState.running;
-    cleanupEls.btn.disabled = !enabled;
-    if (!cleanupState.running) {
-      cleanupEls.btn.classList.remove("btn-active");
-    }
-    if (!cleanupState.running && s) {
-      const selB = cleanupSelectionBytes();
-      setCleanupBtnLabel(
-        selB > 0 ? "Clean up • " + fmtBytes(selB) : "Clean up",
-      );
-    } else if (!cleanupState.running) {
-      setCleanupBtnLabel("Clean up");
-    }
-    window.CureStorage.selectionChanged(
-      cleanupState.selectedCats,
-      cleanupState.checkedDownloads,
-    );
-    renderCleanupSummary();
-  }
-
-  let cleanupPhase = "idle"; // idle | ready | running | done-ok | done-fail
-
-  // 3-step pipeline strip (Candidates → Confirmation → Cleanup).
-  function setCleanupStep(n, allDone) {
-    document.querySelectorAll("#cleanup-steps .step").forEach((li) => {
-      const k = Number(li.dataset.step);
-      li.classList.toggle("done", allDone ? true : k < n);
-      li.classList.toggle("current", !allDone && k === n);
-    });
-  }
-
-  // Live summary panel — counts come straight from the scan summary and
-  // the current selection. Never invented.
-  function renderCleanupSummary() {
-    const probe = document.getElementById("cs-total-items");
-    if (!probe) return;
-    const set = (id, v) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = v;
-    };
-    const s = cleanupState.summary;
-    if (!s) {
-      set("cs-total-items", "—");
-      set("cs-total-size", "—");
-      set("cs-selected", "—");
-      const st0 = document.getElementById("cs-status");
-      if (st0) {
-        st0.textContent = "Idle";
-        st0.classList.remove("on", "bad");
-      }
-      return;
-    }
-    const totalN =
-      s.categories.reduce((n, c) => n + c.item_count, 0) + s.downloads.length;
-    let selN = 0,
-      selB = 0;
-    for (const c of s.categories) {
-      if (c.item_count > 0 && cleanupState.selectedCats.has(c.key)) {
-        selN += c.item_count;
-        selB += c.total_bytes;
-      }
-    }
-    selN += cleanupState.checkedDownloads.size;
-    for (const dl of s.downloads) {
-      if (cleanupState.checkedDownloads.has(dl.path)) selB += dl.size_bytes;
-    }
-    set("cs-total-items", String(totalN));
-    set("cs-total-size", fmtBytes(s.total_bytes));
-    set("cs-selected", selN + " items · " + fmtBytes(selB));
-    if (cleanupPhase === "ready")
-      window.CureCompanion.cleanup(
-        "idle",
-        "Selection ready",
-        "Selected: " +
-          selN +
-          " items · " +
-          fmtBytes(selB) +
-          ". Confirmation required.",
-      );
-    const labels = {
-      idle: "Idle",
-      ready: "Ready",
-      running: "Cleaning…",
-      "done-ok": "Complete",
-      "done-fail": "Attention",
-    };
-    const st = document.getElementById("cs-status");
-    if (st) {
-      st.textContent = labels[cleanupPhase] || "—";
-      st.classList.toggle("on", cleanupPhase !== "idle");
-      st.classList.toggle("bad", cleanupPhase === "done-fail");
-    }
-  }
-
-  function renderCleanup(summary, keepResult = false) {
-    cleanupState.summary = summary;
-    cleanupState.selectedCats = new Set();
-    cleanupState.checkedDownloads = new Set();
-    cleanupState.running = false;
-    if (!keepResult) {
-      cleanupPhase = "ready";
-      setCleanupStep(1);
-    }
-
-    cleanupEls.loading.classList.add("hidden");
-    cleanupEls.body.classList.remove("hidden");
-    if (!keepResult) {
-      cleanupEls.status.textContent = "";
-      cleanupEls.status.classList.add("hidden");
-      cleanupEls.failures.classList.add("hidden");
-      cleanupEls.failures.innerHTML = "";
-    }
-
-    const itemCount = summary.categories.reduce((n, c) => n + c.item_count, 0);
-    cleanupEls.total.innerHTML =
-      "<span>≈ <b>" +
-      fmtBytes(summary.total_bytes) +
-      "</b> reclaimable across " +
-      (itemCount + summary.downloads.length) +
-      " items</span>";
-    cleanupEls.subline.textContent =
-      (itemCount + summary.downloads.length) +
-      ((itemCount + summary.downloads.length) === 1
-        ? " cleanable item found on this machine"
-        : " cleanable items found on this machine");
-    if (!keepResult) {
-      sessionCleanup.measured = true;
-      sessionCleanup.last = summary;
-      updateOverviewReclaimable();
-    }
-
-    cleanupEls.grid.innerHTML = "";
-    window.CureStorage.setDownloads(cleanupState.checkedDownloads);
-    const maxCatBytes = Math.max(
-      1,
-      ...summary.categories.map((c) => c.total_bytes),
-    );
-    for (const cat of summary.categories) {
-      const card = document.createElement("button");
-      card.type = "button";
-      card.className = "cleanup-cat";
-      card.dataset.key = cat.key;
-      card.disabled = cat.item_count === 0;
-      const on = cat.item_count > 0;
-      if (on) cleanupState.selectedCats.add(cat.key);
-      card.classList.toggle("on", on);
-      card.classList.toggle("off", !on);
-      card.setAttribute("aria-pressed", String(on));
-      card.setAttribute(
-        "aria-label",
-        cat.label +
-          " — " +
-          fmtBytes(cat.total_bytes) +
-          ", " +
-          cat.item_count +
-          " items",
-      );
-      card.title = on
-        ? "Click to skip this category"
-        : cat.item_count === 0
-          ? "Nothing found in this category"
-          : "Currently skipped — click to include";
-      const top = document.createElement("span");
-      top.className = "cc-top";
-      const name = document.createElement("span");
-      name.className = "cc-name";
-      name.textContent = cat.label;
-      const included = document.createElement("span");
-      included.className = "cc-state";
-      included.textContent = on ? "Included" : "Skipped";
-      top.append(name, included);
-      const size = document.createElement("span");
-      size.className = "cc-size";
-      size.textContent = fmtBytes(cat.total_bytes);
-      const count = document.createElement("span");
-      count.className = "cc-count";
-      count.textContent =
-        cat.item_count + (cat.item_count === 1 ? " item" : " items");
-      const bar = document.createElement("span");
-      bar.className = "cc-bar";
-      bar.setAttribute("aria-hidden", "true");
-      const fill = document.createElement("i");
-      fill.style.width =
-        Math.max(
-          cat.item_count === 0 ? 0 : 6,
-          Math.round((cat.total_bytes / maxCatBytes) * 100),
-        ) + "%";
-      bar.appendChild(fill);
-      card.append(top, size, count, bar);
-      card.addEventListener("click", () => {
-        if (card.disabled) return;
-        const nowOn = !cleanupState.selectedCats.has(cat.key);
-        if (nowOn) cleanupState.selectedCats.add(cat.key);
-        else cleanupState.selectedCats.delete(cat.key);
-        included.textContent = nowOn ? "Included" : "Skipped";
-        card.classList.toggle("on", nowOn);
-        card.classList.toggle("off", !nowOn);
-        card.setAttribute("aria-pressed", String(nowOn));
-        card.title = nowOn
-          ? "Click to skip this category"
-          : "Currently skipped — click to include";
-        resetCleanupResult();
-      });
-      cleanupEls.grid.appendChild(card);
-    }
-
-    cleanupEls.downloads.classList.toggle(
-      "hidden",
-      summary.downloads.length === 0,
-    );
-    cleanupEls.dlList.innerHTML = "";
-    for (const dl of summary.downloads) {
-      const li = document.createElement("li");
-      li.className = "dl-item";
-      const box = document.createElement("input");
-      box.type = "checkbox";
-      box.dataset.path = dl.path;
-      box.setAttribute(
-        "aria-label",
-        "Delete " + dl.name + " (" + fmtBytes(dl.size_bytes) + ")",
-      );
-      box.addEventListener("change", () => {
-        if (box.checked) cleanupState.checkedDownloads.add(dl.path);
-        else cleanupState.checkedDownloads.delete(dl.path);
-        resetCleanupResult();
-      });
-      const name = document.createElement("span");
-      name.className = "dl-name";
-      name.textContent = dl.name;
-      name.title = dl.path;
-      const meta = document.createElement("span");
-      meta.className = "dl-meta";
-      meta.textContent =
-        fmtBytes(dl.size_bytes) + " · " + dl.age_days + "d old";
-      li.append(box, name, meta);
-      cleanupEls.dlList.appendChild(li);
-    }
-
-    updateCleanupButton();
-    window.CureStorage.measured(
-      summary,
-      cleanupState.selectedCats,
-      cleanupState.checkedDownloads,
-    );
-  }
-
-  async function startCleanupScan(keepResult = false) {
-    cleanupEls.idle.classList.add("hidden");
-    cleanupEls.body.classList.add("hidden");
-    cleanupEls.loading.classList.remove("hidden");
-    cleanupEls.loading.textContent = "measuring reclaimable space…";
-    if (!keepResult) {
-      window.CureStorage.measuring();
-      setCleanupPill("scanning", "measuring reclaimable space…");
-    }
-    try {
-      const summary = await invoke("scan_cleanup");
-      renderCleanup(summary, keepResult);
-      if (keepResult) {
-        // The engine's own rescan is the only source of the post-cleanup ring.
-        window.CureStorage.result(
-          cleanupState.outcome,
-          summary,
-          cleanupState.checkedDownloads,
-        );
-        sessionCleanup.measured = true;
-        sessionCleanup.last = summary;
-        updateOverviewReclaimable();
-        return;
-      }
-      setCleanupPill(
-        "clean",
-        "Disk scan complete — " +
-          fmtBytes(summary.total_bytes) +
-          " reclaimable",
-      );
-    } catch (err) {
-      cleanupEls.loading.textContent =
-        "disk cleanup unavailable: " + cleanErrText(err, "Collection failed");
-      if (!keepResult) {
-        window.CureStorage.idle();
-        setCleanupPill("error", "Disk cleanup unavailable");
-      }
-    }
-  }
-
-  function showCleanupIdle() {
-    resetCleanupOperation();
-    cleanupPhase = "idle";
-    setCleanupStep(1);
-    cleanupEls.stage.classList.add("hidden");
-    cleanupEls.body.classList.add("hidden");
-    cleanupEls.loading.classList.add("hidden");
-    cleanupEls.idle.classList.remove("hidden");
-    window.CureStorage.idle();
-    // A new cleanup session rotates Luma's cleanup variant.
-    window.CureCompanion.beginSession("cleanup");
-    setCleanupPill("idle", "Disk cleanup — ready when you are");
-  }
-
-  async function openCleanup() {
-    if (cleanupState.open) return;
-    cleanupState.open = true;
-    cleanupState.savedPill = {
-      cls: statusPill.className,
-      text: statusText.textContent,
-    };
-    showCleanupIdle();
-    await switchView(currentView(), cleanupView);
-    setNav("cleanup-view");
-  }
-
-  function closeCleanup(backTo) {
-    if (!cleanupState.open) return;
-    cleanupState.open = false;
-    resetCleanupResult();
-    resetCleanupOperation();
-    cleanupEls.stage.classList.add("hidden");
-    if (cleanupState.savedPill) {
-      statusPill.className = cleanupState.savedPill.cls;
-      statusText.textContent = cleanupState.savedPill.text;
-    }
-    const target = backTo && backTo.classList ? backTo : resultsView;
-    switchView(cleanupView, target);
-    if (target.id) setNav(target.id);
-  }
-
-  cleanupEls.openBtn?.addEventListener("click", openCleanup);
-  cleanupEls.backBtn.addEventListener("click", () => closeCleanup(resultsView));
-  cleanupEls.scanBtn.addEventListener("click", () => startCleanupScan(false));
-
-  cleanupEls.btn.addEventListener("click", async () => {
-    if (cleanupState.running || cleanupEls.btn.disabled) return;
-    const selBytes = cleanupSelectionBytes();
-    const selCats = (cleanupState.summary.categories || [])
-      .filter((c) => c.item_count > 0 && cleanupState.selectedCats.has(c.key))
-      .map((c) => c.label || c.key);
-    if (cleanupState.checkedDownloads.size > 0) {
-      selCats.push(
-        cleanupState.checkedDownloads.size + " selected download(s)",
-      );
-    }
-    setCleanupStep(2);
-    const ok = await requestConfirm({
-      kicker: "Confirm disk cleanup",
-      title: "Permanently delete selected files?",
-      facts: [
-        ["Selection", selCats.join(", ") || "Nothing selected"],
-        ["Amount", fmtBytes(selBytes)],
-        ["Action", "Permanently delete the selected files to free disk space."],
-        ["Reversible", "No — deleted files are not recoverable."],
-      ],
-      note: "Only the selected categories and checked downloads are deleted. Quarantined items are never touched.",
-      okLabel: "Delete " + fmtBytes(selBytes),
-    });
-    if (!ok) {
-      setCleanupStep(1);
-      return;
-    }
-    cleanupPhase = "running";
-    setCleanupStep(3);
-    renderCleanupSummary();
-    cleanupState.running = true;
-    cleanupEls.btn.disabled = true;
-    cleanupEls.btn.classList.add("btn-active");
-    setCleanupBtnLabel("Cleaning…");
-    const expected = cleanupSelectionBytes();
-    startCleanupOperation(expected);
-    let outcome = null;
-    try {
-      const result = await invoke("run_cleanup", {
-        categories: Array.from(cleanupState.selectedCats),
-        downloadPaths: Array.from(cleanupState.checkedDownloads),
-      });
-      outcome = result;
-      finishCleanupOperation(result.bytes_freed);
-      cleanupPhase = result.failed ? "done-fail" : "done-ok";
-      sessionCleanup.freed += result.bytes_freed;
-      setCleanupStep(3, true);
-      setCleanupPill(
-        result.failed ? "warn" : "clean",
-        "Freed " +
-          fmtBytes(result.bytes_freed) +
-          (result.failed
-            ? " — " + result.failed + " item(s) locked or failed"
-            : ""),
-      );
-      cleanupEls.status.textContent =
-        "Freed " +
-        fmtBytes(result.bytes_freed) +
-        " — deleted " +
-        result.deleted +
-        " of " +
-        result.attempted +
-        (result.failed ? ", " + result.failed + " locked or failed" : "");
-      window.CureCompanion.cleanup(
-        result.failed ? "review" : "success",
-        result.failed ? "Cleanup needs review" : "Cleanup ended",
-        cleanupEls.status.textContent,
-      );
-      cleanupEls.status.classList.remove("hidden");
-      cleanupEls.status.classList.toggle("cleanup-ok", !result.failed);
-      cleanupEls.status.classList.toggle("cleanup-fail", !!result.failed);
-      if (!result.failed && cleanupEls.panel) {
-        cleanupEls.panel.classList.add("cleanup-success");
-
-        setTimeout(() => {
-          if (cleanupEls.panel)
-            cleanupEls.panel.classList.remove("cleanup-success");
-        }, 1400);
-      }
-      logEvent(
-        "action",
-        "cleanup: freed " +
-          fmtBytes(result.bytes_freed) +
-          ", deleted " +
-          result.deleted +
-          " of " +
-          result.attempted +
-          (result.failed ? ", " + result.failed + " failed" : ""),
-      );
-      if (result.failures.length > 0) {
-        cleanupEls.failures.innerHTML = "";
-        for (const failure of result.failures) {
-          const li = document.createElement("li");
-          li.className = "cf-card";
-          const badge = document.createElement("span");
-          badge.className = "cf-badge";
-          badge.textContent = "locked · skipped";
-          const p = document.createElement("span");
-          p.className = "cf-path selectable";
-          p.textContent = failure.path;
-          p.title = failure.path;
-          const r = document.createElement("span");
-          r.className = "cf-reason selectable";
-          r.textContent = failure.reason;
-          li.append(badge, p, r);
-          cleanupEls.failures.appendChild(li);
-        }
-        cleanupEls.failures.classList.remove("hidden");
-      }
-    } catch (err) {
-      outcome = { failed: 1, bytes_freed: 0, deleted: 0, attempted: 0, failures: [] };
-      finishCleanupOperation(0);
-      cleanupPhase = "done-fail";
-      setCleanupStep(3, true);
-      setCleanupPill("error", "Disk cleanup failed");
-      cleanupEls.status.textContent =
-        "cleanup failed: " + cleanErrText(err, "Collection failed");
-      cleanupEls.status.classList.remove("hidden");
-      cleanupEls.status.classList.remove("cleanup-ok");
-      cleanupEls.status.classList.add("cleanup-fail");
-      updateOverviewReclaimable();
-    } finally {
-      cleanupState.running = false;
-      cleanupEls.btn.classList.remove("btn-active");
-      cleanupState.outcome = outcome;
-      // One engine rescan feeds both the category table and the storage ring.
-      await startCleanupScan(true);
-    }
-  });
 
   var killBtn = document.getElementById("kill-procs-btn");
   var killStatus = document.getElementById("kill-procs-status");
@@ -2367,44 +1849,90 @@
     if (tone) el.classList.add(tone);
   }
 
-  /* Disk reclaimable on Overview reflects only what this session really
-   measured. The overview never triggers a disk walk of its own. */
+  /* Reclaimable space on Overview reflects only what the Storage Workstation
+     really measured in this session. The overview never walks a disk itself. */
   function updateOverviewReclaimable() {
     const el = document.getElementById("ov-reclaimable");
     if (!el) return;
-    if (!sessionCleanup.measured || !sessionCleanup.last) {
+    const ws = window.CureStorageWorkstation;
+    const scan = ws && ws.state ? ws.state.scan : null;
+    if (!scan || !scan.headline) {
       el.textContent = "Not measured";
       el.classList.remove("is-ok");
       return;
     }
     el.textContent =
-      fmtBytes(sessionCleanup.last.total_bytes) +
-      (sessionCleanup.freed > 0 ? " · " + fmtBytes(sessionCleanup.freed) + " freed" : "");
-    el.classList.toggle("is-ok", sessionCleanup.freed > 0);
+      scan.headline.safe_bytes_label +
+      (scan.duplicate_reclaimable_bytes
+        ? " incl. " + fmtBytes(scan.duplicate_reclaimable_bytes) + " duplicates"
+        : "");
+    el.classList.toggle("is-ok", scan.headline.safe_bytes > 0);
   }
 
-  /* Overview dial: the share of the nine inspection layers that actually
-     reported coverage. Never an estimate — no collectors, no arc. */
-  const DIAL_R = 52;
+  /* Overview dial: the nine inspection layers, one segment each.
+
+     The earlier version drew a single ring and a coverage arc, which before
+     the first scan was a large empty circle. Nine segments say what the
+     ring could not: how many of the machine's layers have actually
+     reported. */
+  const DIAL_R = 48;
+  const DIAL_CX = 60;
+  const DIAL_CY = 60;
+  const DIAL_LAYERS = 9;
+  function dialSegmentPath(index) {
+    const slot = 360 / DIAL_LAYERS;
+    const gap = 13;
+    const a0 = ((index * slot + gap / 2 - 90) * Math.PI) / 180;
+    const a1 = ((index * slot + slot - gap / 2 - 90) * Math.PI) / 180;
+    const x0 = DIAL_CX + Math.cos(a0) * DIAL_R;
+    const y0 = DIAL_CY + Math.sin(a0) * DIAL_R;
+    const x1 = DIAL_CX + Math.cos(a1) * DIAL_R;
+    const y1 = DIAL_CY + Math.sin(a1) * DIAL_R;
+    return "M" + x0.toFixed(2) + " " + y0.toFixed(2) +
+           " A" + DIAL_R + " " + DIAL_R + " 0 0 1 " + x1.toFixed(2) + " " + y1.toFixed(2);
+  }
+  function ensureDialSegments() {
+    let group = document.getElementById("ov-dial-segments");
+    if (!group) return null;
+    if (group.childElementCount !== DIAL_LAYERS) {
+      group.replaceChildren();
+      for (let i = 0; i < DIAL_LAYERS; i++) {
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", dialSegmentPath(i));
+        path.setAttribute("class", "ov-dial-segment");
+        group.appendChild(path);
+      }
+    }
+    return group;
+  }
   function paintOverviewDial(ovStates, tone) {
-    const arc = document.getElementById("ov-dial-arc");
     const value = document.getElementById("ov-dial-value");
-    if (!arc || !value) return;
-    const total = 9;
-    const checked = (ovStates || []).filter(function (row) {
+    const group = ensureDialSegments();
+    if (!value) return;
+    const total = DIAL_LAYERS;
+    const rows = ovStates || [];
+    const checked = rows.filter(function (row) {
       const st = row.state;
       const key = typeof st === "string" ? st : Object.keys(st || {})[0];
       return key === "Checked" || key === "Available";
     }).length;
-    const circumference = 2 * Math.PI * DIAL_R;
-    arc.style.strokeDasharray = String(circumference);
-    arc.style.strokeDashoffset = String(
-      circumference * (1 - (ovStates && ovStates.length ? checked / total : 0)),
-    );
-    arc.classList.remove("is-warn", "is-bad");
-    if (tone === "is-warn") arc.classList.add("is-warn");
-    if (tone === "is-bad") arc.classList.add("is-bad");
-    value.textContent = ovStates && ovStates.length ? checked + "/" + total : "—";
+    if (group) {
+      const segments = group.children;
+      for (let i = 0; i < segments.length; i++) {
+        const lit = i < checked;
+        segments[i].setAttribute(
+          "class",
+          "ov-dial-segment" +
+            (lit ? " is-lit" : "") +
+            (tone && lit ? " is-" + tone.replace("is-", "") : ""),
+        );
+      }
+    }
+    value.textContent = rows.length ? checked + "/" + total : "\u2014";
+    const label = document.getElementById("ov-dial-label");
+    if (label) {
+      label.textContent = "Layers";
+    }
   }
 
   function covRow(name, detail, level) {
@@ -2449,18 +1977,30 @@
     el.textContent = "No login observation recorded this session.";
   }
 
+  /* The companion's place in the hero is the application's decision: when
+     she is hidden the hero closes the gap she leaves rather than keeping an
+     empty column open. */
+  function syncCompanionVisibility() {
+    const api = window.CureCompanion;
+    const visible = api ? api.isVisible() : true;
+    const hero = document.querySelector(".ov-hero");
+    if (hero) hero.setAttribute("data-companion-hidden", String(!visible));
+    const pref = document.getElementById("pref-companion");
+    if (pref) pref.checked = visible;
+    const motion = document.getElementById("pref-companion-motion");
+    if (motion) motion.checked = api ? api.isMotionPaused() : false;
+  }
+
+  window.addEventListener("cure-companion-visibility", syncCompanionVisibility);
+
   function renderOverview(summary) {
     const t = troubleCounts(summary);
-    window.CureCompanion.overview(
-      t.findings > 0 || coverageIncomplete(summary) ? "review" : "success",
-      t.critical > 0
-        ? "High risk · Review evidence"
-        : t.findings > 0
-          ? "Review required"
-          : coverageIncomplete(summary)
-            ? "Coverage incomplete"
-            : "Collection ended",
-    );
+    if (window.CureCompanion) {
+      if (t.critical > 0) window.CureCompanion.discovering(t.critical, "High risk - review evidence");
+      else if (t.findings > 0) window.CureCompanion.discovering(t.findings, "Review required");
+      else if (coverageIncomplete(summary)) window.CureCompanion.review(0, "Coverage incomplete");
+      else window.CureCompanion.idle("Nothing flagged");
+    }
     const posture = document.getElementById("ov-posture");
     const subline = document.getElementById("ov-subline");
     const beacon = document.getElementById("ov-beacon");

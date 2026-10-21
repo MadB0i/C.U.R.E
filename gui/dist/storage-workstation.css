@@ -1,0 +1,1374 @@
+/* ==========================================================================
+   STORAGE WORKSTATION
+   Sits on the shared graphite ramp from style.css. Depth comes from surface
+   elevation and hairline weight, not from borders everywhere.
+   ========================================================================== */
+
+.sw-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3);
+  padding: var(--s3) 0 var(--s2);
+}
+
+.sw-depth {
+  background: var(--surface-sunken);
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  display: inline-flex;
+  padding: 2px;
+}
+
+.sw-chip {
+  background: transparent;
+  border: 0;
+  border-radius: var(--r1);
+  color: var(--text-2);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--t-sm);
+  font-weight: 560;
+  padding: var(--s1) var(--s3);
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+
+.sw-chip:hover {
+  color: var(--text);
+}
+
+.sw-chip.is-on {
+  background: var(--cure-tint-soft);
+  box-shadow: inset 0 0 0 1px var(--cure-line);
+  color: var(--cure-300);
+}
+
+.sw-chip:focus-visible {
+  outline: 2px solid var(--cure-400);
+  outline-offset: 2px;
+}
+
+.sw-depth-note {
+  flex: 1 1 22ch;
+  font-size: var(--t-xs);
+  margin: 0;
+  min-width: 18ch;
+}
+
+.sw-roots {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  padding-bottom: var(--s3);
+}
+
+.sw-roots-label {
+  color: var(--text-3);
+  font-size: var(--t-2xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sw-chip.is-on {
+  cursor: pointer;
+}
+
+/* ---- live progress ------------------------------------------------------ */
+
+.sw-progress {
+  background:
+    radial-gradient(120% 180% at 12% 0%, rgba(139, 111, 240, 0.09), transparent 62%),
+    var(--ink-150);
+  border: 1px solid var(--hair);
+  border-radius: var(--r3);
+  margin-bottom: var(--s5);
+  padding: var(--s5);
+  overflow: hidden;
+  position: relative;
+}
+
+/* ---- the scanning visual --------------------------------------------- */
+
+/* A stylised platter with a beam travelling across it. It is decoration
+   around real figures, never a substitute for them. */
+.sw-scan-console {
+  align-items: center;
+  display: grid;
+  gap: var(--s6);
+  grid-template-columns: minmax(0, 200px) minmax(0, 1fr);
+}
+
+.sw-scan-visual {
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  height: 92px;
+  overflow: hidden;
+  position: relative;
+  background:
+    radial-gradient(120% 160% at 50% 120%, rgba(139, 111, 240, 0.22), transparent 70%),
+    var(--surface-sunken);
+}
+
+/* Concentric rings: a platter seen from above. */
+.sw-scan-platter {
+  position: absolute;
+  inset: -40% -10%;
+  border-radius: 50%;
+  background:
+    repeating-radial-gradient(
+      circle at 50% 50%,
+      rgba(255, 255, 255, 0.1) 0 1px,
+      transparent 1px 13px
+    );
+  opacity: 1;
+  animation: sw-platter 9s linear infinite;
+}
+
+/* The beam: a soft violet band travelling across the platter. */
+.sw-scan-beam {
+  position: absolute;
+  top: -30%;
+  bottom: -30%;
+  width: 34%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(139, 111, 240, 0.5) 42%,
+    rgba(233, 236, 241, 0.32) 50%,
+    rgba(139, 111, 240, 0.5) 58%,
+    transparent
+  );
+  filter: blur(7px);
+  will-change: transform;
+  animation: sw-beam 2.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+/* A thin leading edge, so the beam has a direction. */
+.sw-scan-sweep {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    rgba(233, 236, 241, 0.75),
+    transparent
+  );
+  will-change: transform;
+  animation: sw-sweep 2.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+@keyframes sw-beam {
+  0% { transform: translateX(-140%); }
+  100% { transform: translateX(420%); }
+}
+
+@keyframes sw-sweep {
+  0% { transform: translateX(-40%); opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { transform: translateX(430%); opacity: 0; }
+}
+
+@keyframes sw-platter {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ---- the readout ------------------------------------------------------ */
+
+.sw-scan-readout {
+  min-width: 0;
+}
+
+.sw-scan-stage {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3);
+}
+
+.sw-scan-eta {
+  color: var(--text-3);
+  font-size: var(--t-2xs);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.sw-scan-stage-name {
+  color: var(--text);
+  font-size: var(--sm);
+  font-weight: 620;
+  letter-spacing: 0.01em;
+}
+
+.sw-scan-counters {
+  display: grid;
+  gap: var(--s5);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: var(--s4) 0 0;
+  max-width: 34rem;
+}
+
+/* During the duplicate pass there are no folders being walked, so the
+   folder counter would read a permanent zero. It steps out of the way
+   instead of showing a number that means nothing. */
+.sw-scan-counters[data-phase="hash"] > div:nth-child(2) {
+  display: none;
+}
+
+.sw-scan-counters[data-phase="hash"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 24rem;
+}
+
+.sw-scan-counters dt {
+  color: var(--text-3);
+  font-size: var(--t-2xs);
+  font-weight: 620;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.sw-scan-counters dd {
+  color: var(--text);
+  font: 560 var(--sm) "Cascadia Code", Consolas, monospace;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- the stage rail --------------------------------------------------- */
+
+.sw-scan-stages {
+  display: grid;
+  gap: var(--s3);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  list-style: none;
+  margin: var(--s5) 0 0;
+  padding: 0;
+}
+
+.sw-scan-stages li {
+  border-top: 2px solid var(--hair);
+  color: var(--text-3);
+  font-size: var(--t-2xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  padding-top: var(--s2);
+  text-transform: uppercase;
+  transition: color 220ms var(--ease-out), border-color 220ms var(--ease-out);
+}
+
+.sw-scan-stages li[data-state="done"] {
+  border-top-color: rgba(139, 111, 240, 0.45);
+  color: var(--text-2);
+}
+
+.sw-scan-stages li[data-state="active"] {
+  border-top-color: var(--cure-400);
+  color: var(--text);
+}
+
+.sw-scan-stages li[data-state="active"]::after {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: var(--s2);
+  border-radius: 50%;
+  background: var(--cure-400);
+  vertical-align: middle;
+  animation: sw-pulse 1.5s var(--ease-out) infinite;
+}
+
+.sw-scan-stages li[data-state="cancelled"] {
+  border-top-color: var(--warning);
+  color: var(--warning);
+}
+
+@keyframes sw-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+/* The treemap is revealed with a sweep once the measurement is real. */
+.sw-treemap-wrap[data-reveal="1"] .sw-treemap {
+  animation: sw-reveal 780ms var(--ease-out) both;
+}
+
+@keyframes sw-reveal {
+  from { clip-path: inset(0 100% 0 0); opacity: 0.35; }
+  to { clip-path: inset(0 0 0 0); opacity: 1; }
+}
+
+.sw-progress-row {
+  align-items: baseline;
+  display: flex;
+  font-size: var(--t-xs);
+  gap: var(--s3);
+  margin-top: var(--s2);
+}
+
+#sw-progress-phase {
+  color: var(--cure-300);
+  font-weight: 600;
+}
+
+/* ---- tabs --------------------------------------------------------------- */
+
+.sw-tabs {
+  border-bottom: 1px solid var(--hair);
+  display: flex;
+  /* Wraps rather than scrolls: a horizontally clipped tab strip hides its own
+     destinations from anyone reading left to right, and at narrow widths the
+     labels are short enough that two rows cost less than a hidden control. */
+  flex-wrap: wrap;
+  gap: var(--s1);
+  margin-bottom: var(--s4);
+}
+
+.sw-tab {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--t-sm);
+  font-weight: 560;
+  padding: var(--s2) var(--s3);
+  white-space: nowrap;
+}
+
+.sw-tab:hover { color: var(--text-2); }
+.sw-tab.is-on { border-bottom-color: var(--cure-400); color: var(--text); }
+.sw-tab:focus-visible { outline: 2px solid var(--cure-400); outline-offset: -2px; }
+
+.sw-tab-count {
+  background: var(--surface-3);
+  border-radius: 999px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  margin-left: var(--s1);
+  padding: 1px var(--s2);
+}
+
+.sw-tab.is-on .sw-tab-count {
+  background: var(--cure-tint-soft);
+  color: var(--cure-300);
+}
+
+.sw-panel { min-height: 220px; min-width: 0; }
+
+/* ---- headline ----------------------------------------------------------- */
+
+.sw-headline-card {
+  align-items: center;
+  background:
+    radial-gradient(120% 160% at 8% 0%, var(--ambient-cool), transparent 62%),
+    var(--surface-2);
+  border-top: 1px solid var(--hair);
+  border-radius: 0;
+  box-shadow: var(--shadow-2);
+  display: grid;
+  gap: var(--s4);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  margin-bottom: var(--s4);
+  padding: var(--s4);
+}
+
+.sw-headline-figure { flex: 0 0 auto; }
+
+/* LUMA's caption is the only prose in this card; keeping it to two lines
+   stops her from dictating the height of the primary number. */
+.sw-headline-figure .luma-figure { max-width: 15rem; }
+.sw-headline-figure .luma-detail { max-width: 28ch; }
+
+.sw-headline-amount {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: clamp(1.9rem, 4.4vw, 2.9rem);
+  font-weight: 640;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.sw-headline-label {
+  color: var(--cure-300);
+  font-size: var(--t-xs);
+  font-weight: 620;
+  letter-spacing: 0.1em;
+  margin-top: var(--s2);
+  text-transform: uppercase;
+}
+
+.sw-headline-note {
+  font-size: var(--t-sm);
+  margin: var(--s2) 0 0;
+  max-width: 58ch;
+}
+
+.sw-headline-split {
+  display: grid;
+  gap: var(--s3);
+  margin: 0;
+  min-width: 12ch;
+}
+
+.sw-headline-split dt {
+  color: var(--text-3);
+  font-size: var(--t-2xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.sw-headline-split dd {
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-md);
+  margin: 2px 0 0;
+}
+
+/* ---- map + rail --------------------------------------------------------- */
+
+.sw-map-split {
+  display: grid;
+  gap: var(--s4);
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 290px);
+}
+
+.sw-treemap-wrap { min-width: 0; }
+
+.sw-treemap {
+  background: var(--surface-sunken);
+  border-top: 1px solid var(--hair);
+  border-radius: 0;
+  height: clamp(300px, 46vh, 460px);
+  overflow: hidden;
+  position: relative;
+}
+
+.sw-treemap canvas { display: block; }
+
+.sw-treemap-hint {
+  font-size: var(--t-xs);
+  margin: var(--s2) 0 0;
+}
+
+.sw-rail {
+  background: var(--surface-2);
+  border-top: 1px solid var(--hair);
+  border-radius: 0;
+  min-width: 0;
+  padding: var(--s4);
+}
+
+.sw-tiers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+  list-style: none;
+  margin: 0 0 var(--s3);
+  padding: 0;
+}
+
+.sw-tier {
+  background: var(--surface-3);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--text-2);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: var(--t-2xs);
+  gap: var(--s1);
+  padding: 3px var(--s2);
+}
+
+.sw-tier.is-on {
+  background: var(--cure-tint-soft);
+  border-color: var(--cure-line);
+  color: var(--cure-300);
+}
+
+.sw-tier-n {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+}
+
+.sw-classes { list-style: none; margin: 0; padding: 0; }
+
+.sw-class { padding: var(--s2) 0; }
+.sw-class + .sw-class { border-top: 1px solid var(--hair-soft); }
+
+.sw-class-head {
+  align-items: baseline;
+  display: flex;
+  gap: var(--s2);
+  justify-content: space-between;
+}
+
+/* The category is the headline of the row; the tier is a quiet note beside
+   it, and the measured size sits on the same line as the name so the eye
+   does not have to travel to find the number it came for. */
+.sw-class-name {
+  color: var(--text);
+  font-size: var(--t-sm);
+  font-weight: 600;
+}
+
+.sw-class-bar {
+  background: var(--surface-sunken);
+  border-radius: 999px;
+  display: block;
+  height: 4px;
+  margin: var(--s1) 0 5px;
+  overflow: hidden;
+}
+
+.sw-class-bar i { display: block; height: 100%; border-radius: 999px; }
+
+.sw-class-value {
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  letter-spacing: 0.01em;
+}
+
+.sw-legend-note {
+  border-top: 1px solid var(--hair-soft);
+  font-size: var(--t-2xs);
+  margin-top: var(--s3);
+  padding-top: var(--s3);
+}
+
+/* ---- tier chips --------------------------------------------------------- */
+
+.tier-chip {
+  border: 1px solid var(--hair);
+  border-radius: 999px;
+  font-size: var(--t-2xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 1px var(--s2);
+  white-space: nowrap;
+}
+
+.tier-safe_to_review {
+  background: rgba(99, 199, 154, 0.1);
+  border-color: rgba(99, 199, 154, 0.3);
+  color: var(--ok);
+}
+
+.tier-review_carefully {
+  background: rgba(224, 164, 88, 0.1);
+  border-color: rgba(224, 164, 88, 0.32);
+  color: var(--warning);
+}
+
+.tier-protected {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--hair-strong);
+  color: var(--text-2);
+}
+
+.tier-unknown {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--hair-strong);
+  color: var(--text-2);
+}
+
+/* ---- tables ------------------------------------------------------------- */
+
+.sw-toolbar {
+  align-items: center;
+  display: flex;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
+}
+
+.sw-sort {
+  align-items: center;
+  color: var(--text-3);
+  display: inline-flex;
+  font-size: var(--t-xs);
+  gap: var(--s2);
+}
+
+.sw-sort select,
+.sw-confirm input {
+  background: var(--surface-3);
+  border: 1px solid var(--hair);
+  border-radius: var(--r1);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--t-sm);
+  padding: var(--s1) var(--s2);
+}
+
+.sw-sort select:focus-visible,
+.sw-confirm input:focus-visible { outline: 2px solid var(--cure-400); outline-offset: 1px; }
+
+.sw-table-wrap {
+  background: var(--surface-2);
+  border-top: 1px solid var(--hair);
+  border-radius: 0;
+  max-height: min(58vh, 560px);
+  max-width: 100%;
+  overflow: auto;
+}
+
+/* A scrollable region must be reachable by keyboard, so the wrapper is
+   focusable and named rather than being a mouse-only affordance. */
+.sw-table-wrap:focus-visible,
+.sw-failures:focus-visible {
+  outline: 2px solid var(--cure-400);
+  outline-offset: 2px;
+}
+
+.sw-table {
+  border-collapse: collapse;
+  font-size: var(--t-sm);
+  /* Fixed layout so long paths wrap inside their column instead of forcing
+     the whole table wider than the window. */
+  table-layout: fixed;
+  width: 100%;
+}
+
+.sw-table td,
+.sw-table th {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.sw-table col.sw-col-name { width: 34%; }
+.sw-table col.sw-col-class { width: 15%; }
+.sw-table col.sw-col-tier { width: 14%; }
+.sw-table col.sw-col-date { width: 16%; }
+.sw-table col.sw-col-size { width: 12%; }
+.sw-table col.sw-col-act { width: 9%; }
+
+.sw-table thead th {
+  background: var(--surface-3);
+  /* Verified against --surface-3 by the axe pass; --text-3 fails AA here. */
+  color: var(--text-2);
+  font-size: var(--t-2xs);
+  font-weight: 620;
+  letter-spacing: 0.07em;
+  padding: var(--s2) var(--s3);
+  position: sticky;
+  text-align: left;
+  text-transform: uppercase;
+  top: 0;
+  z-index: 1;
+}
+
+.sw-table td {
+  border-top: 1px solid var(--hair-soft);
+  padding: var(--s2) var(--s3);
+  vertical-align: top;
+}
+
+.sw-table tbody tr:hover { background: var(--cure-tint-soft); }
+.sw-table .num { text-align: right; }
+
+.sw-file-name {
+  background: none;
+  border: 0;
+  color: var(--text);
+  cursor: pointer;
+  display: block;
+  font: inherit;
+  font-weight: 560;
+  padding: 0;
+  text-align: left;
+}
+
+.sw-file-name:hover { color: var(--cure-300); text-decoration: underline; }
+.sw-file-name:focus-visible { outline: 2px solid var(--cure-400); outline-offset: 2px; }
+
+.sw-file-parent {
+  color: var(--text-3);
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  overflow-wrap: anywhere;
+}
+
+.sw-num { font-family: var(--font-mono); white-space: nowrap; }
+.sw-muted { color: var(--text-2); }
+
+.sw-queue-btn {
+  background: var(--surface-3);
+  border: 1px solid var(--hair);
+  border-radius: var(--r1);
+  color: var(--text-2);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--t-2xs);
+  font-weight: 600;
+  padding: 3px var(--s2);
+  white-space: nowrap;
+}
+
+.sw-queue-btn:hover { border-color: var(--cure-line); color: var(--text); }
+.sw-queue-btn.is-on {
+  background: rgba(224, 164, 88, 0.14);
+  border-color: rgba(224, 164, 88, 0.42);
+  color: var(--warning);
+}
+.sw-queue-btn:focus-visible { outline: 2px solid var(--cure-400); outline-offset: 2px; }
+
+.sw-no-action {
+  color: var(--text-3);
+  font-size: var(--t-2xs);
+  opacity: 0.72;
+}
+
+.sw-link {
+  background: none;
+  border: 0;
+  color: var(--cure-400);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--t-2xs);
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.sw-link:hover { color: var(--cure-300); }
+.sw-link:focus-visible { outline: 2px solid var(--cure-400); outline-offset: 2px; }
+
+.sw-empty {
+  color: var(--text-3);
+  font-size: var(--t-sm);
+  padding: var(--s3);
+}
+
+.visually-hidden {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+/* ---- duplicates --------------------------------------------------------- */
+
+.sw-dupe-head { margin-bottom: var(--s3); }
+.sw-dupe-head p { font-size: var(--t-xs); margin: 0; }
+
+.sw-dupe-list { display: grid; gap: var(--s3); }
+
+.sw-dupe {
+  background: var(--surface-2);
+  border-top: 1px solid var(--hair);
+  border-radius: 0;
+  padding: var(--s4);
+}
+
+.sw-dupe-head {
+  align-items: baseline;
+  display: flex;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
+}
+
+.sw-dupe-title { font-size: var(--t-md); margin: 0; }
+.sw-dupe-size { color: var(--cure-300); font-family: var(--font-mono); font-size: var(--t-sm); }
+.sw-dupe-hash { color: var(--text-3); font-family: var(--font-mono); font-size: var(--t-2xs); margin-left: auto; }
+
+.sw-dupe-copies { list-style: none; margin: 0; padding: 0; }
+
+.sw-dupe-copy {
+  border-top: 1px solid var(--hair-soft);
+  display: grid;
+  gap: var(--s2);
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: var(--s2) 0;
+}
+
+/* The kept copy is marked with an edge accent rather than a background wash:
+   tinting the row shifted the effective contrast of its text, and a border
+   reads more cleanly at a glance. */
+.sw-dupe-copy.is-kept {
+  border-left: 2px solid rgba(99, 199, 154, 0.55);
+  padding-left: var(--s3);
+}
+
+.sw-dupe-copy-name { display: block; font-size: var(--t-sm); font-weight: 560; }
+.sw-dupe-copy-path {
+  color: var(--text-2);
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  overflow-wrap: anywhere;
+}
+
+.sw-dupe-copy-facts {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  justify-content: flex-end;
+}
+
+.sw-kept-tag {
+  background: rgba(99, 199, 154, 0.12);
+  border: 1px solid rgba(99, 199, 154, 0.3);
+  border-radius: 999px;
+  color: var(--ok);
+  font-size: var(--t-2xs);
+  padding: 1px var(--s2);
+}
+
+.sw-reasons {
+  color: var(--text-2);
+  font-size: var(--t-2xs);
+  grid-column: 1 / -1;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sw-reasons li { padding-left: var(--s3); position: relative; }
+.sw-reasons li::before {
+  color: var(--text-3);
+  content: "—";
+  left: 0;
+  position: absolute;
+}
+
+/* ---- queue -------------------------------------------------------------- */
+
+.sw-queue-head { margin-bottom: var(--s3); }
+.sw-queue-head p { font-size: var(--t-xs); margin: 4px 0 0; }
+
+.sw-queue-groups { display: grid; gap: var(--s3); }
+
+.sw-queue-group {
+  background: var(--surface-2);
+  border-top: 1px solid var(--hair);
+  border-radius: 0;
+  padding: var(--s3) var(--s4);
+}
+
+.sw-queue-group-head {
+  align-items: center;
+  display: flex;
+  gap: var(--s2);
+}
+
+.sw-queue-group-title { font-size: var(--t-md); margin: 0; }
+.sw-queue-group-n { color: var(--text-3); font-family: var(--font-mono); font-size: var(--t-xs); }
+
+.sw-queue-warn {
+  background: rgba(224, 164, 88, 0.08);
+  border-left: 2px solid rgba(224, 164, 88, 0.5);
+  color: var(--warning);
+  font-size: var(--t-xs);
+  margin: var(--s2) 0;
+  padding: var(--s2) var(--s3);
+}
+
+.sw-queue-list { list-style: none; margin: var(--s2) 0 0; padding: 0; }
+
+.sw-queue-item {
+  align-items: baseline;
+  border-top: 1px solid var(--hair-soft);
+  display: grid;
+  gap: var(--s2);
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: var(--s2) 0;
+}
+
+.sw-queue-name { font-size: var(--t-sm); overflow-wrap: anywhere; }
+.sw-queue-path {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  grid-column: 1;
+  overflow-wrap: anywhere;
+}
+.sw-queue-item .sw-drop { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+
+.sw-queue-actions {
+  display: flex;
+  gap: var(--s2);
+  margin-top: var(--s4);
+}
+
+/* ---- coverage ----------------------------------------------------------- */
+
+.sw-sub-title { margin-top: var(--s5); }
+
+.sw-stat-rows {
+  background: var(--surface-2);
+  border-top: 1px solid var(--hair);
+  border-radius: 0;
+  display: grid;
+  gap: var(--s3);
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  margin: 0 0 var(--s4);
+  padding: var(--s4);
+}
+
+.sw-stat-rows dt {
+  color: var(--text-3);
+  font-size: var(--t-2xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.sw-stat-rows dd {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  margin: 3px 0 0;
+}
+
+.sw-badge {
+  background: var(--surface-3);
+  border: 1px solid var(--hair);
+  border-radius: 999px;
+  font-size: var(--t-2xs);
+  padding: 1px var(--s2);
+}
+
+.sw-badge-ok {
+  background: rgba(99, 199, 154, 0.1);
+  border-color: rgba(99, 199, 154, 0.3);
+  color: var(--ok);
+}
+
+.sw-badge-note {
+  color: var(--text-3);
+  font-size: var(--t-2xs);
+  margin-left: var(--s2);
+}
+
+.sw-failures {
+  background: var(--surface-2);
+  border-top: 1px solid var(--hair);
+  border-radius: 0;
+  list-style: none;
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: var(--s2) var(--s4);
+}
+
+.sw-badge-note { color: var(--text-2); }
+.sw-stat-rows dd { color: var(--text); }
+
+.sw-failure {
+  border-top: 1px solid var(--hair-soft);
+  display: grid;
+  gap: var(--s2);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  padding: var(--s2) 0;
+}
+
+.sw-failure-path { font-family: var(--font-mono); font-size: var(--t-2xs); overflow-wrap: anywhere; }
+.sw-failure-reason { color: var(--warning); font-size: var(--t-2xs); }
+.sw-empty { color: var(--text-2); }
+
+/* ---- inspector ---------------------------------------------------------- */
+
+.sw-inspector {
+  background: var(--surface-2);
+  border-top: 1px solid var(--hair);
+  border-radius: 0;
+  margin-top: var(--s4);
+  padding: var(--s4);
+}
+
+.sw-inspector-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.icon-btn {
+  background: none;
+  border: 0;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: var(--t-lg);
+  line-height: 1;
+  padding: 0 var(--s1);
+}
+
+.icon-btn:hover { color: var(--text); }
+.icon-btn:focus-visible { outline: 2px solid var(--cure-400); outline-offset: 2px; }
+
+.sw-facts {
+  display: grid;
+  gap: var(--s2) var(--s4);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin: var(--s3) 0;
+}
+
+.sw-facts dt {
+  color: var(--text-3);
+  font-size: var(--t-2xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.sw-facts dd {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.sw-inspector-why { margin-top: var(--s3); }
+.sw-inspector-actions { display: flex; gap: var(--s2); margin-top: var(--s4); }
+
+/* ---- dialogs ------------------------------------------------------------ */
+
+.sw-preview-modal,
+.sw-receipt-modal {
+  max-height: 86vh;
+  max-width: min(880px, 92vw);
+  overflow: auto;
+  width: 100%;
+}
+
+.sw-preview-consequence {
+  background: rgba(224, 164, 88, 0.08);
+  border-left: 2px solid rgba(224, 164, 88, 0.55);
+  color: var(--warning);
+  font-size: var(--t-sm);
+  margin: var(--s3) 0;
+  padding: var(--s3);
+}
+
+.sw-preview-columns {
+  display: grid;
+  gap: var(--s4);
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  margin: var(--s4) 0;
+}
+
+.sw-preview-list {
+  background: var(--surface-sunken);
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  list-style: none;
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: var(--s2);
+}
+
+.sw-plan-row {
+  border-top: 1px solid var(--hair-soft);
+  display: grid;
+  gap: var(--s1) var(--s2);
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: var(--s2);
+}
+
+.sw-plan-row:first-child { border-top: 0; }
+.sw-plan-name { font-size: var(--t-xs); overflow-wrap: anywhere; }
+.sw-plan-size { color: var(--text-3); font-family: var(--font-mono); font-size: var(--t-2xs); text-align: right; }
+.sw-plan-tags { align-items: center; display: flex; gap: var(--s2); grid-column: 1 / -1; }
+.sw-preview-refused .sw-plan-size { color: var(--warning); }
+
+.sw-confirm {
+  align-items: center;
+  color: var(--text-2);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: var(--t-sm);
+  gap: var(--s2);
+  justify-content: space-between;
+}
+
+.sw-confirm input {
+  font-family: var(--font-mono);
+  letter-spacing: 0.12em;
+  min-width: 12ch;
+  text-transform: uppercase;
+}
+
+.sw-receipt-figure {
+  color: var(--ok);
+  font-family: var(--font-mono);
+  font-size: clamp(1.6rem, 3.4vw, 2.2rem);
+  font-weight: 640;
+  line-height: 1;
+  margin-top: var(--s3);
+}
+
+.sw-receipt-label { color: var(--text-2); font-size: var(--t-sm); }
+
+.sw-receipt-rows {
+  display: grid;
+  gap: var(--s2) var(--s4);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin: var(--s4) 0;
+}
+
+.sw-receipt-rows dt {
+  color: var(--text-3);
+  font-size: var(--t-2xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.sw-receipt-rows dd {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  margin: 2px 0 0;
+}
+
+/* ---- responsive --------------------------------------------------------- */
+
+@media (max-width: 1080px) {
+  .sw-headline-card { grid-template-columns: auto minmax(0, 1fr); }
+  .sw-headline-split { grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 900px) {
+  .sw-map-split { grid-template-columns: minmax(0, 1fr); }
+  .sw-treemap { height: 320px; }
+  .sw-headline-card { grid-template-columns: minmax(0, 1fr); }
+  .sw-headline-figure { display: none; }
+  .sw-headline-split { grid-template-columns: minmax(0, 1fr); }
+  .sw-dupe-copy { grid-template-columns: minmax(0, 1fr); }
+  .sw-dupe-copy-facts { justify-content: flex-start; }
+  .sw-failure { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* A stopped scan stops moving. */
+.sw-progress[data-cancelled="1"] .sw-scan-beam,
+.sw-progress[data-cancelled="1"] .sw-scan-sweep,
+.sw-progress[data-cancelled="1"] .sw-scan-platter {
+  animation: none;
+  opacity: 0.16;
+}
+
+.sw-progress[data-failed="1"] .sw-scan-beam,
+.sw-progress[data-failed="1"] .sw-scan-sweep,
+.sw-progress[data-failed="1"] .sw-scan-platter {
+  animation: none;
+  opacity: 0.12;
+}
+
+.sw-scan-stages li[data-state="failed"] {
+  border-top-color: var(--danger);
+  color: var(--danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Every part of the scanning display stops moving. The figures stay: they
+     are the measurement, and the measurement is the point. */
+  .sw-scan-beam,
+  .sw-scan-sweep,
+  .sw-scan-platter,
+  .sw-scan-stages li[data-state="active"]::after {
+    animation: none !important;
+  }
+  .sw-scan-beam { transform: translateX(120%); opacity: 0.35; }
+  .sw-scan-sweep { transform: translateX(120%); opacity: 0.4; }
+  .sw-treemap-wrap[data-reveal="1"] .sw-treemap { animation: none; }
+}
+
+/* The biggest-folders table sits under the largest-files table and needs a
+   little air above it, or the two tables read as one. */
+.sw-folders-title {
+  margin-top: var(--s6);
+}
+/* The coverage tab's untouched state. It says what will happen and offers
+   the one action that starts it. */
+.sw-empty-panel {
+  align-items: flex-start;
+  border-top: 1px solid var(--hair);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  padding: var(--s6) 0;
+}
+
+/* A folder the operator names by hand. */
+.sw-custom-root {
+  align-items: center;
+  display: inline-flex;
+  gap: var(--s2);
+}
+
+.sw-custom-root-input {
+  background: var(--surface-sunken);
+  border: 1px solid var(--hair);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--t-sm);
+  min-width: 16rem;
+  padding: var(--s1) var(--s2);
+}
+
+.sw-custom-root-input::placeholder {
+  color: var(--text-2);
+  opacity: 0.8;
+}
+/* While a scan is running, the headline shows what has been measured so
+   far. It is given the amber accent of an in-progress reading, so the
+   number cannot be mistaken for a finished total. */
+.sw-headline-card[data-scanning="1"] .sw-headline-amount {
+  color: var(--warning);
+}
+
+.sw-headline-card[data-scanning="1"] .sw-headline-label {
+  color: var(--warning);
+}
+
+.sw-headline-card[data-scanning="1"] {
+  background:
+    radial-gradient(120% 160% at 8% 0%, rgba(224, 164, 88, 0.09), transparent 62%),
+    var(--surface-2);
+}
+
+/* ---------- the map drill-down ------------------------------------------ */
+
+/* Where the map is looking. The trail is the only way back, so it is
+   always visible while a drill is open. */
+.sw-crumbs {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+  margin-bottom: var(--s3);
+  min-height: 22px;
+}
+
+.sw-crumb {
+  appearance: none;
+  background: none;
+  border: 0;
+  color: var(--cure-300);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--t-2xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 2px var(--s1);
+  border-radius: var(--r1);
+}
+
+.sw-crumb:hover {
+  background: var(--surface-3);
+  color: var(--cure-200);
+}
+
+.sw-crumb:focus-visible {
+  outline: 2px solid var(--cure-400);
+  outline-offset: 1px;
+}
+
+.sw-crumb-sep {
+  color: var(--text-3);
+  font-size: var(--t-2xs);
+}
+
+.sw-crumb-current {
+  color: var(--text-2);
+  font-size: var(--t-2xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The full location of what the map is looking at. It is the last thing
+   in the trail and it is the least important, so it is the quietest. */
+.sw-crumb-path {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  opacity: 0.85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40ch;
+  direction: rtl;
+  text-align: left;
+}
+
+/* Hover detail for a map tile. */
+.sw-map-tip {
+  background: rgba(12, 10, 20, 0.96);
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--r2);
+  box-shadow: var(--shadow-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 240px;
+  padding: var(--s2) var(--s3);
+  pointer-events: none;
+  position: absolute;
+  z-index: 4;
+}
+
+.sw-map-tip-line {
+  color: var(--text-2);
+  font-size: var(--t-2xs);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sw-map-tip-line:first-child {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* The map says whether the measurement is complete or partial, and what
+   the difference is. A partial measurement must never be mistakable for a
+   total. */
+.sw-map-badge {
+  align-items: baseline;
+  border-left: 2px solid var(--cure-400);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: var(--s3);
+  padding-left: var(--s3);
+}
+
+.sw-map-badge.is-partial {
+  border-left-color: var(--warning);
+}
+
+.sw-map-badge.is-complete {
+  border-left-color: var(--ok);
+}
+
+.sw-map-badge-label {
+  color: var(--text);
+  font-size: var(--t-2xs);
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.sw-map-badge.is-partial .sw-map-badge-label {
+  color: var(--warning);
+}
+
+.sw-map-badge.is-complete .sw-map-badge-label {
+  color: var(--ok);
+}
