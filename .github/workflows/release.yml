@@ -41,41 +41,85 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cargo test --manifest-path gui/src-tauri/Cargo.toml
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo clippy --manifest-path gui/src-tauri/Cargo.toml --all-targets -- -D warnings
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo fmt --manifest-path gui/src-tauri/Cargo.toml --check
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Verify the browser quality suite
+        shell: pwsh
+        run: |
+          node --check gui/dist/app.js
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node --check gui/dist/luma.js
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node --check gui/dist/storage-workstation.js
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node --check gui/dist/xray.js
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node --check gui/dist/mock-tauri.js
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m pip install -r gui/devtools/requirements.txt
+          python -m playwright install chromium
+          Push-Location gui/devtools
+          npm ci
+          if ($LASTEXITCODE) { Pop-Location; exit $LASTEXITCODE }
+          Pop-Location
+          python gui/devtools/evidence-console.py all
 
       - name: Build production binaries with private build paths remapped
         shell: pwsh
         run: ./tools/build-release.ps1
 
-      - name: Stage binaries
+      - name: Stage the candidate
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path staging -Force
-          Copy-Item gui/src-tauri/target/release/cure-gui.exe staging/
-          Copy-Item target/release/cure.exe staging/
-          Copy-Item target/release/cure-watch.exe staging/
-          Copy-Item README.md, LICENSE, SECURITY.md staging/
-          Copy-Item docs/RELEASE-NOTES-0.2.0.md staging/RELEASE-NOTES.md
-          New-Item -ItemType Directory -Path staging/docs/media -Force
-          Copy-Item docs/screenshots staging/docs/ -Recurse
-          Copy-Item docs/media/demo.gif staging/docs/media/
-          @("Version: $env:GITHUB_REF_NAME", "Source commit: $env:GITHUB_SHA", 'Unsigned binaries.') | Set-Content -Encoding ascii staging/BUILD-INFO.txt
-          $binarySums = Get-ChildItem staging/*.exe | Sort-Object Name | ForEach-Object {
+          New-Item -ItemType Directory -Path candidate/portable/docs/media -Force
+          Copy-Item gui/src-tauri/target/release/cure-gui.exe candidate/portable/
+          Copy-Item target/release/cure.exe candidate/portable/
+          Copy-Item target/release/cure-watch.exe candidate/portable/
+          Copy-Item README.md, LICENSE, SECURITY.md candidate/portable/
+          Copy-Item docs/RELEASE-NOTES-0.2.0.md candidate/portable/RELEASE-NOTES.md
+          New-Item -ItemType Directory -Path candidate/portable/docs/screenshots -Force
+          Copy-Item docs/screenshots/*.png candidate/portable/docs/screenshots/
+          Copy-Item docs/media/demo.gif candidate/portable/docs/media/
+          @("Version: $env:GITHUB_REF_NAME", "Source commit: $env:GITHUB_SHA", 'Unsigned binaries.') |
+            Set-Content -Encoding ascii candidate/portable/BUILD-INFO.txt
+          $binarySums = Get-ChildItem candidate/portable/*.exe | Sort-Object Name | ForEach-Object {
             "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)"
           }
-          $binarySums | Set-Content -Encoding ascii staging/SHA256SUMS.txt
-          Compress-Archive -Path staging/* -DestinationPath cure-$env:GITHUB_REF_NAME.zip
-          $zip = Get-Item "cure-$env:GITHUB_REF_NAME.zip"
+          $binarySums | Set-Content -Encoding ascii candidate/portable/SHA256SUMS.txt
+          Compress-Archive -Path candidate/portable/* -DestinationPath "candidate/cure-$env:GITHUB_REF_NAME.zip"
+          $zip = Get-Item "candidate/cure-$env:GITHUB_REF_NAME.zip"
           $allSums = @($binarySums) + "$((Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($zip.Name)"
-          $allSums | Set-Content -Encoding ascii SHA256SUMS.txt
+          $allSums | Set-Content -Encoding ascii candidate/SHA256SUMS.txt
+
+      - name: Audit the candidate (blocking)
+        shell: pwsh
+        run: |
+          # The audit is a gate, not a report: a candidate that does not pass
+          # it is never published.
+          python tools/audit-candidate.py candidate
+          if ($LASTEXITCODE) { throw 'The candidate failed the release audit.' }
+
+      - name: Build the Windows installer
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          projectPath: gui/src-tauri
+          args: --bundles nsis
+          tauriScript: npm run tauri
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            cure-${{ github.ref_name }}.zip
-            staging/cure-gui.exe
-            staging/cure.exe
-            staging/cure-watch.exe
-            SHA256SUMS.txt
+            candidate/cure-${{ github.ref_name }}.zip
+            candidate/portable/cure-gui.exe
+            candidate/portable/cure.exe
+            candidate/portable/cure-watch.exe
+            candidate/SHA256SUMS.txt
+            gui/src-tauri/target/release/bundle/nsis/*.exe
           body_path: docs/RELEASE-NOTES-0.2.0.md
           generate_release_notes: true

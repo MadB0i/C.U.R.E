@@ -92,11 +92,82 @@ jobs:
       - name: GUI clippy
         run: cargo clippy --all-targets -- -D warnings
         working-directory: gui/src-tauri
+      - name: Native smoke test (launches the real window, then closes it)
+        shell: pwsh
+        run: |
+          # Proves the release binary actually starts and creates a window.
+          # The app owns its data under %LOCALAPPDATA%\CURE and must not
+          # write anything next to the executable.
+          $exe = "$PWD/gui/src-tauri/target/release/cure-gui.exe"
+          $before = Get-ChildItem "$PWD/gui/src-tauri/target/release" -File |
+            Select-Object -ExpandProperty Name
+          $proc = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 15
+          $proc.Refresh()
+          if ($proc.HasExited) {
+            Write-Error "cure-gui.exe exited early with code $($proc.ExitCode)"
+            exit 1
+          }
+          $proc | Select-Object Id, @{n='WorkingSetMB';e={[math]::Round($_.WorkingSet64/1MB,1)}},
+                                 @{n='Threads';e={$_.Threads.Count}},
+                                 @{n='Window';e={$_.MainWindowTitle}} | Format-List
+          if (-not $proc.MainWindowTitle) {
+            Write-Error "cure-gui.exe started but opened no window"
+            Stop-Process -Id $proc.Id -Force
+            exit 1
+          }
+          Stop-Process -Id $proc.Id -Force
+          Start-Sleep -Seconds 2
+          $after = Get-ChildItem "$PWD/gui/src-tauri/target/release" -File |
+            Select-Object -ExpandProperty Name
+          $new = Compare-Object $before $after |
+            Where-Object { $_.SideIndicator -eq '=>' -and $_.InputObject -like '*.json' }
+          if ($new) {
+            Write-Error "GUI wrote state next to the executable: $($new.InputObject -join ', ')"
+            exit 1
+          }
+          Write-Output 'native smoke test passed; no exe-adjacent state files'
+      - name: Native end-to-end journey
+        shell: pwsh
+        run: |
+          # The browser suite proves the interface; this proves the product.
+          # It drives the real release binary through the real webview and
+          # the real Rust backend, and the only file it ever removes is one
+          # it created itself inside the system temporary directory.
+          python -m pip install -r gui/devtools/requirements.txt
+          python -m playwright install chromium
+          python testing/native/native-e2e.py --shots native-captures
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
       - name: Upload cure-gui artifact
         uses: actions/upload-artifact@v4
         with:
           name: cure-gui
           path: gui/src-tauri/target/release/cure-gui.exe
+          retention-days: 14
+
+  build-cli:
+    name: Build CLI and exercise the storage engine
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: workspace
+      - name: Build cure.exe (release)
+        run: cargo build --release -p cure_cli
+      - name: Storage engine end-to-end on a synthetic tree
+        run: |
+          # Exercises walk → classify → hash-verify → report on a clean
+          # runner, with no dependence on whatever the machine happens to hold.
+          .\target\release\cure.exe storage bench --files 2000 --size 4096 --copies 4
+      - name: Upload cure.exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cure-cli
+          path: target/release/cure.exe
           retention-days: 14
 
   build-watch:
