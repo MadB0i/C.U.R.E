@@ -26,6 +26,22 @@ FIXED = datetime(2026, 10, 4, 3, 30, tzinfo=timezone.utc)
 checks = []
 
 
+
+def companion_running(page):
+    """Animations still running inside a companion stage.
+
+    The check is scoped to the companion on purpose: a colour transition on a
+    navigation icon is the interface settling, not a loop that failed to stop.
+    """
+    return page.evaluate("""() => {
+        const stages = [...document.querySelectorAll('.luma-stage')];
+        return document.getAnimations()
+            .filter((a) => a.playState === 'running')
+            .filter((a) => a.effect && a.effect.target &&
+                            stages.some((s) => s.contains(a.effect.target)))
+            .length;
+    }""")
+
 def check(condition, label):
     assert condition, label
     checks.append(label)
@@ -153,32 +169,38 @@ def core_flow(browser, size=(900, 600), reduced=False, capture=False, video=Fals
     check(page.locator(".nav button:disabled").count() == 0, "no disabled primary navigation")
     check(page.locator(".nav-number").count() == 0, "navigation carries no numeric labels")
     check([t.strip() for t in page.locator(".nav .nav-item span").all_inner_texts()] ==
-          ["Overview", "Rescue", "Investigate", "Quarantine", "Disk Cleanup", "Monitor"],
+          ["Overview", "Rescue", "Investigate", "Quarantine", "Storage", "Monitor"],
           "primary destinations are icon and title only")
     check(page.locator("#xray-canvas").count() == 1, "system x-ray canvas present")
-    check(page.locator("[data-companion='overview'] .companion-art").count() == 1,
-          "Luma is present in the overview")
+    check(page.locator("[data-companion='overview'] .luma-svg").count() == 1,
+          "LUMA is present in the overview")
     keyboard(page)
     start_scan(page)
     page.wait_for_function("document.querySelectorAll('#log .item-line').length >= 2")
-    layout(page, "scan " + str(size))
+    # Mid-scan identity checks run immediately: the mock collection finishes
+    # in ~5s regardless of how long layout settles take, so anything that
+    # asserts on a live scan must not queue behind a settle wait.
     check(page.locator("#xray-field").get_attribute("data-running") == "true",
           "x-ray reports the real running state")
     check(int(page.locator("#xray-inspected").inner_text()) >= 2,
           "instrument panel uses the collected item count")
     box = page.locator("#xray-canvas").bounding_box()
     store = page.locator("#xray-canvas").evaluate("c => c.width")
-    check(box["height"] >= 150 and store >= box["width"] and store > 0,
+    check(box is not None and box["height"] >= 150 and store >= box["width"] and store > 0,
           "x-ray renders into a real backing store at " + str(size))
+    # The scan view's own still (and the palette gate's reference frame) is a
+    # live-collection frame, not the finished report.
     if capture:
         shot(page, DOCS / "02-scan.png")
     else:
         shot(page, SHOTS / ("scan-reduced.png" if reduced else "scan.png"))
+    layout(page, "scan " + str(size))
+    page.wait_for_function("window.__CURE_SCAN_DONE === true")
     check(page.locator("#sweep-items").inner_text().startswith("2 ") or
           int(page.locator("#sweep-items").inner_text().split()[0]) >= 2, "sweep uses collected item count")
     check(page.locator("#sweep-sources li").count() == 9, "all nine inspection layers reported")
     if reduced:
-        check(page.evaluate("document.getAnimations().filter(a=>a.playState==='running').length") == 0, "reduced motion has no running animation")
+        check(companion_running(page) == 0, "reduced motion has no running companion animation")
     finish_scan(page)
     layout(page, "findings " + str(size))
     axe(page, "findings")
@@ -275,7 +297,15 @@ def states(browser, capture=False):
                 expect(page.locator("#ov-posture")).to_have_text("Coverage incomplete")
                 check("ACCESS DENIED" in page.locator("#ov-coverage").inner_text(), "access denied communicated in text")
             if name in ("partial", "partial-findings"):
-                check(page.locator('[data-companion="overview"]').get_attribute('data-state') == 'review', 'incomplete collection never gives satisfied companion')
+                # The invariant is that an incomplete collection never reads
+                # as satisfied. Which concerned pose she takes depends on
+                # whether real findings exist alongside the missing coverage.
+                companion = page.locator('[data-companion="overview"]').get_attribute('data-state')
+                check(companion in ("review", "discovering"),
+                      "incomplete collection never gives satisfied companion: " + str(companion))
+            if name == "partial":
+                check(page.locator('[data-companion="overview"]').get_attribute('data-state') == 'review',
+                      "an empty but incomplete collection puts LUMA into review, not discovery")
             if name == "partial-findings":
                 expect(page.locator("#status-text")).to_have_text("Review required · Coverage incomplete")
                 check("complete" not in page.locator("#status-text").inner_text().lower().replace("incomplete", ""), "partial coverage with findings never claims scan complete")
@@ -303,45 +333,227 @@ def states(browser, capture=False):
 
 
 def secondary(browser):
-    ctx, page, errors = open_page(browser, (900, 600), sweep=True, canary_alert=True, cleanup_failures=True)
+    ctx, page, errors = open_page(browser, (900, 600), sweep=True, canary_alert=True,
+                                  storage_locked=True)
     start_scan(page);finish_scan(page)
     # Individual process termination stays explicit and separate from scan/quarantine.
     page.locator("#nav-processes").click()
     page.locator(".kill-one").first.click()
     expect(page.locator("#confirm-overlay")).to_be_visible()
     page.keyboard.press("Escape")
-    # Disk Cleanup is a primary destination, reached directly.
+    # Storage Workstation is a primary destination, reached directly.
     page.locator("#nav-cleanup").click()
-    expect(page.locator("#cleanup-idle")).to_be_visible()
-    check(page.locator("#storage-reclaimable").inner_text() == "—",
-          "unmeasured cleanup never invents reclaimable bytes")
-    check(page.locator("#storage-legend .st-value").evaluate_all('(es)=>es.every(e=>e.textContent==="Not measured")'),
-          "every category stays explicitly unmeasured before the engine reports")
-    check(page.locator("#storage-core").bounding_box()["height"] >= 180,
-          "storage core occupies the cleanup stage rather than leaving it empty")
-    layout(page, "cleanup idle")
-    page.locator("#cleanup-scan-btn").click()
-    expect(page.locator("#cleanup-body")).to_be_visible()
-    check(page.locator("#storage-reclaimable").inner_text() != "—",
-          "reclaimable total comes from the engine measurement")
-    check(page.locator("#storage-legend .st-value").evaluate_all('(es)=>es.every(e=>e.textContent!=="Not measured")'),
-          "category breakdown reflects measured engine data")
-    check(page.locator("[data-companion='cleanup']").get_attribute("data-variant", ).startswith("clean-"),
-          "cleanup companion rotates through real cleanup variants")
-    page.locator(".cleanup-cat").first.click()
-    page.locator("#cleanup-btn").click()
-    expect(page.locator("#confirm-overlay")).to_be_visible()
-    page.locator("#confirm-ok").click()
-    expect(page.locator("#confirm-overlay")).to_be_hidden()
-    check(page.locator("#cleanup-queue").is_visible(), "queued removals are listed during cleanup")
-    check("Freed" not in page.locator("#storage-freed-wrap").inner_text(),
-          "busy cleanup never fabricates reclaimed bytes")
-    expect(page.locator("#cleanup-status")).to_be_visible()
-    check(page.evaluate("window.__CURE_LAST_CLEANUP_CALL !== undefined"), "cleanup runs only confirmed selections")
-    expect(page.locator("#storage-freed-wrap")).to_be_visible()
-    check("Reclaimed" in page.locator("#storage-freed-wrap").inner_text(),
-          "reclaimed receipt uses the engine's own bytes_freed")
-    layout(page, "cleanup");axe(page, "cleanup")
+    expect(page.locator("#sw-panel-map")).to_be_visible()
+    check(page.locator("#sw-amount").inner_text() == "—",
+          "an unmeasured workstation never invents reclaimable bytes")
+    check(page.locator("#sw-amount-label").inner_text().strip().lower() == "not measured",
+          "the headline states that nothing has been measured")
+    check(page.locator("#sw-treemap-hint").inner_text().strip() != "",
+          "the map explains itself before it has anything to draw")
+    check(page.locator("#sw-classes li").count() == 0,
+          "no category is listed before the engine reports one")
+    check(page.locator("#sw-preview-btn").is_disabled(),
+          "there is no path to removal without a measured scan")
+    layout(page, "storage idle");axe(page, "storage idle")
+
+    page.locator("#sw-scan").click()
+    expect(page.locator("#sw-progress")).to_be_visible()
+    check(page.locator("#sw-cancel").is_visible(), "a running scan can be stopped")
+    layout(page, "storage scanning")
+    # While the scan is running the summary must not claim that nothing has
+    # been measured. The engine is measuring, and the figures on screen are
+    # the ones it reported.
+    check(page.locator("#sw-amount").inner_text() != "—",
+          "the headline shows the engine's live measurement while scanning")
+    check("Not measured" not in page.locator("#sw-amount-label").inner_text(),
+          "a running scan never says the machine is not measured: "
+          + page.locator("#sw-amount-label").inner_text())
+    check("Run a scan" not in page.locator("#sw-amount-note").inner_text(),
+          "a running scan does not tell the operator to run a scan: "
+          + page.locator("#sw-amount-note").inner_text()[:80])
+    check("measured" in page.locator("#sw-amount-label").inner_text().lower(),
+          "the running summary is labelled as a measurement in progress: "
+          + page.locator("#sw-amount-label").inner_text())
+    # The companion must not repeat the state it is already showing.
+    companion_copy = page.locator('[data-companion="storage"]')
+    title = companion_copy.locator(".luma-title").inner_text().strip().lower()
+    detail = companion_copy.locator(".luma-detail").inner_text().strip().lower()
+    check(title != detail,
+          "the companion does not repeat the same label twice: "
+          + title + " / " + detail)
+    check("scan" not in detail,
+          "the companion does not print the bare word 'scan': " + detail)
+    # The topbar names the kind of scan that is running.
+    check("STORAGE" in page.locator("#session-meta").inner_text(),
+          "the topbar says a storage measurement is in flight: "
+          + page.locator("#session-meta").inner_text())
+    # The panel is already on screen, so wait for the real completion signal:
+    # the progress strip is only hidden once the engine has returned.
+    expect(page.locator("#sw-progress")).to_be_hidden(timeout=20000)
+    check(page.locator("#sw-amount").inner_text() != "—",
+          "the headline comes from the engine measurement")
+    check(page.locator("#sw-progress").is_hidden(), "progress is dismissed when the scan ends")
+    check(page.locator("#sw-classes li").count() > 0,
+          "measured categories are listed")
+    check(page.locator("#sw-treemap canvas").count() == 1, "the map renders into a canvas")
+    # The map is a drill-down, and the trail is the way back.
+    page.locator("#sw-tab-map").click()
+    expect(page.locator("#sw-panel-map")).to_be_visible()
+    check(page.locator("#sw-breadcrumbs").inner_text().strip() != "",
+          "the map says where it is looking even before it is drilled into")
+    tiles = page.evaluate("""() => (window.CureStorageWorkstation.state.treemapCells||[])
+        .map(c=>({x:c.x,y:c.y,w:c.w,h:c.h,kind:c.item.class.kind}))
+        .sort((a,b)=>b.w*b.h-a.w*a.h)""")
+    check(len(tiles) > 1, "the map draws more than one tile: " + str(len(tiles)))
+    if tiles:
+        canvas = page.locator("#sw-treemap-canvas")
+        canvas.scroll_into_view_if_needed()
+        page.wait_for_timeout(300)
+        box = canvas.bounding_box()
+        biggest = tiles[0]
+        page.mouse.move(box["x"] + biggest["x"] + biggest["w"] / 2,
+                        box["y"] + biggest["y"] + biggest["h"] / 2)
+        page.wait_for_timeout(400)
+        tip = page.locator("#sw-map-tip")
+        expect(tip).to_be_visible()
+        tip_text = tip.text_content()
+        check(len(tip_text.strip()) > 0, "hovering a tile says something about it")
+        check("%" in tip_text or "files" in tip_text,
+              "the hover detail says how much the tile is: " + tip_text[:90])
+        page.mouse.click(box["x"] + biggest["x"] + biggest["w"] / 2,
+                         box["y"] + biggest["y"] + biggest["h"] / 2)
+        page.wait_for_timeout(400)
+        check(page.locator("#sw-breadcrumbs").inner_text().strip() != "All categories",
+              "drilling in writes the trail: "
+              + page.locator("#sw-breadcrumbs").inner_text())
+        page.locator("#sw-breadcrumbs button").first.click()
+        page.wait_for_timeout(300)
+        check(page.locator("#sw-breadcrumbs").inner_text().strip() == "All categories",
+              "the trail goes back to the top")
+    # The map is not the only route into the drill: the folder table is.
+    check(page.locator("#sw-folders-body .sw-file-name").count() > 0,
+          "the biggest folders table is a second route into the map")
+    page.locator("#sw-tab-large").click()
+    page.wait_for_timeout(200)
+    page.locator("#sw-folders-body .sw-file-name").first.click()
+    page.wait_for_timeout(400)
+    check(page.locator("#sw-breadcrumbs").inner_text().strip() != "All categories",
+          "a folder in the table opens the map at that folder: "
+          + page.locator("#sw-breadcrumbs").inner_text())
+    check(page.locator("#sw-panel-map").is_visible(),
+          "opening a folder from the table brings the map forward")
+    page.locator("#sw-breadcrumbs button").first.click()
+    page.wait_for_timeout(300)
+
+    # Every row carries its tier, and protected/unknown rows offer no action.
+    check(page.locator("#sw-large-body tr .tier-chip").count() > 0,
+          "each measured file shows its safety tier")
+    check(page.locator("#sw-large-body .sw-no-action").count() > 0,
+          "protected and uncertain files offer no removal action")
+    check(page.locator("#sw-large-body .sw-queue-btn").count() > 0,
+          "reviewable files offer a per-item action")
+
+    # Duplicates are only reported after full-content verification.
+    page.locator("#sw-tab-dupes").click()
+    expect(page.locator("#sw-panel-dupes")).to_be_visible()
+    dupe_coverage = page.locator("#sw-dupe-coverage").inner_text()
+    check("in full" in dupe_coverage,
+          "duplicate coverage states what was actually verified: " + dupe_coverage[:80])
+    check("SHA-256" in dupe_coverage,
+          "duplicate coverage names the verification method: " + dupe_coverage[:120])
+    check(page.locator("#sw-dupe-list .sw-dupe").count() >= 1, "verified duplicate groups shown")
+    check(page.locator("#sw-dupe-list .sw-kept-tag").count() >= 1,
+          "each duplicate group names the copy that would be kept")
+    layout(page, "storage duplicates");axe(page, "storage duplicates")
+
+    # Coverage must be inspectable and must not read as clean when partial.
+    page.locator("#sw-tab-coverage").click()
+    expect(page.locator("#sw-panel-coverage")).to_be_visible()
+    check(page.locator("#sw-roots-body tr").count() > 0, "every root and its outcome is listed")
+    check(page.locator("#sw-stat-rows dt").count() > 0, "the coverage report is populated")
+    layout(page, "storage coverage");axe(page, "storage coverage")
+
+    # Queue a reviewable file, preview it, and refuse to confirm without the word.
+    page.locator("#sw-tab-large").click()
+    page.locator("#sw-large-body .sw-queue-btn").first.click()
+    expect(page.locator("#sw-queue-badge")).to_have_text("1")
+    page.locator("#sw-tab-queue").click()
+    expect(page.locator("#sw-queue-groups")).to_be_visible()
+    page.locator("#sw-preview-btn").click()
+    expect(page.locator("#sw-preview-overlay")).to_be_visible()
+    check("no undo" in page.locator("#sw-preview-consequence").inner_text(),
+          "the preview states the consequence in plain language")
+    check(page.locator("#sw-preview-confirm").is_disabled(),
+          "removal cannot be confirmed without typing the word")
+    check(page.evaluate("window.__CURE_LAST_STORAGE_CALL === undefined"),
+          "opening the preview executes nothing")
+    page.locator("#sw-confirm-input").fill("rem")
+    check(page.locator("#sw-preview-confirm").is_disabled(),
+          "a partial confirmation word is still refused")
+    page.locator("#sw-confirm-input").fill("REMOVE")
+    check(page.locator("#sw-preview-confirm").is_enabled(),
+          "the exact confirmation word enables removal")
+    layout(page, "storage preview");axe(page, "storage preview")
+    # The confirmation dialog must keep the keyboard inside it. A keyboard
+    # user must not be able to Tab out of the "type REMOVE" dialog into the
+    # page behind it.
+    trapped = page.evaluate("""() => {
+      const ov = document.getElementById('sw-preview-overlay');
+      const inside = [];
+      for (let i = 0; i < 16; i++) {
+        const a = document.activeElement;
+        inside.push(!!(a && ov.contains(a)));
+      }
+      return inside;
+    }""")
+    check(page.evaluate("""() => {
+      const ov = document.getElementById('sw-preview-overlay');
+      ov.focus();
+      const ev = new KeyboardEvent('keydown', {key: 'Tab', bubbles: true});
+      let stayed = true;
+      for (let i = 0; i < 16; i++) {
+        document.dispatchEvent(ev);
+        const a = document.activeElement;
+        if (!a || !ov.contains(a)) { stayed = false; break; }
+      }
+      return stayed;
+    }"""), "the removal dialog keeps the keyboard inside it")
+    check(page.evaluate("""() => {
+      const ov = document.getElementById('sw-preview-overlay');
+      const bg = [...document.querySelectorAll('#stage-main > *')]
+        .filter((n) => !ov.contains(n) && n.id !== 'cleanup-view');
+      return bg.every((n) => n.inert === true);
+    }"""), "the page behind the removal dialog is inert")
+    check(page.locator("#sw-status-text").get_attribute("aria-live") == "polite",
+          "the storage status is announced when it changes")
+    page.keyboard.press("Escape")
+    check(page.evaluate("window.__CURE_LAST_STORAGE_CALL === undefined"),
+          "cancelling the preview executes nothing")
+    expect(page.locator("#sw-preview-overlay")).to_be_hidden()
+    check(page.evaluate("""() => {
+      const ov = document.getElementById('sw-preview-overlay');
+      const bg = [...document.querySelectorAll('#stage-main > *')]
+        .filter((n) => !ov.contains(n) && n.id !== 'cleanup-view');
+      return bg.every((n) => n.inert === false);
+    }"""), "the page behind the dialog is interactive again afterwards")
+
+    # Execute for real, then read the receipt.
+    page.locator("#sw-preview-btn").click()
+    page.locator("#sw-confirm-input").fill("REMOVE")
+    page.locator("#sw-preview-confirm").click()
+    expect(page.locator("#sw-receipt-overlay")).to_be_visible(timeout=15000)
+    check(page.evaluate("window.__CURE_LAST_STORAGE_CALL !== undefined"),
+          "removal runs only after an exact confirmation")
+    check(page.locator("#sw-receipt-rows dd").count() >= 4,
+          "the receipt reports estimate, verification, volume change and refusals")
+    check(page.locator("#sw-receipt-amount").inner_text() != "—",
+          "the receipt reports verified reclaimed bytes")
+    layout(page, "storage receipt");axe(page, "storage receipt")
+    page.locator("#sw-receipt-close").click()
+    expect(page.locator("#sw-receipt-overlay")).to_be_hidden()
+    check(page.locator("#sw-amount-label").inner_text().strip().lower() == "not measured",
+          "the scan is invalidated after a change, not left stale on screen")
+
     page.locator("#nav-eventlog").click()
     page.locator("#view-eventlog [data-route='view-canary']").click()
     page.locator("#can-toggle").click()
@@ -366,19 +578,34 @@ def responsive(browser):
         for nav in ["nav-overview", "nav-scan", "nav-results", "nav-quarantine", "nav-eventlog", "nav-cleanup"]:
             page.locator("#" + nav).click()
             if nav == "nav-quarantine":expect(page.locator("#q-empty")).to_be_visible()
-            if nav == "nav-cleanup":expect(page.locator("#cleanup-idle")).to_be_visible()
+            if nav == "nav-cleanup":expect(page.locator("#sw-panel-map")).to_be_visible()
             layout(page, nav + str(size))
+        # Every workstation tab must survive the smallest supported window.
+        if size == (900, 600):
+            for tab in ["sw-tab-large", "sw-tab-dupes", "sw-tab-queue", "sw-tab-coverage"]:
+                page.locator("#" + tab).click()
+                layout(page, "storage " + tab + str(size))
+            page.locator("#sw-scan").click()
+            expect(page.locator("#sw-progress")).to_be_hidden(timeout=20000)
+            page.locator("#sw-tab-large").click()
+            check(page.locator("#sw-large-body tr").count() > 0,
+                  "the largest-files table renders at the minimum window")
+            layout(page, "storage populated " + str(size))
+            page.locator("#nav-overview").click()
         # Desktop hero composition must not push critical information away.
         if size[0] >= 900:
             page.locator("#nav-scan").click()
             page.get_by_role("button", name="Start Rescue Scan", exact=True).click()
             page.wait_for_function("document.querySelectorAll('#log .item-line').length >= 1")
-            layout(page, "scan hero " + str(size))
+            # The readout empties once the collection finishes, so measure
+            # the live composition before waiting out the scan.
             check(page.locator("#xray-core-readout").bounding_box()["y"] +
                   page.locator("#xray-core-readout").bounding_box()["height"] <= size[1],
                   "x-ray readout stays inside the viewport at " + str(size))
             check(page.locator(".instrument").bounding_box()["y"] <= size[1],
                   "live instrument panel is above the fold at " + str(size))
+            page.wait_for_function("window.__CURE_SCAN_DONE === true")
+            layout(page, "scan hero " + str(size))
             page.locator("#nav-overview").click()
         page.locator("#nav-overview").click()
         shot(page, SHOTS / ("overview-%sx%s.png" % size))
@@ -386,7 +613,7 @@ def responsive(browser):
 
 
 def demo_flow(browser):
-    ctx,page,errors=open_page(browser,(1440,900),video=True,cleanup_delay_ms=1800)
+    ctx,page,errors=open_page(browser,(1440,900),video=True,storage_delay_ms=1800)
     page.wait_for_timeout(1800)  # Intentional presentation beats, not test synchronization.
     start_scan(page);finish_scan(page)
     page.wait_for_timeout(900)
@@ -404,16 +631,32 @@ def demo_flow(browser):
     page.locator('#q-list .q-undo').click()
     expect(page.locator('#q-receipt')).to_contain_text('Restored:')
     page.wait_for_timeout(1200)
-    # Cleanup is a separate, explicitly confirmed action; all video data is labelled mock data.
+    # Storage is a separate, explicitly confirmed action. All video data is
+    # labelled mock data and the confirmation states that removal is permanent.
     page.locator('#nav-cleanup').click()
-    page.locator('#cleanup-scan-btn').click();expect(page.locator('#cleanup-body')).to_be_visible()
-    page.locator('.cleanup-cat.on').filter(has_text='Browser caches').click()
-    page.locator('.cleanup-cat.on').filter(has_text='Windows.old').click()
-    page.locator('#cleanup-btn').click();expect(page.locator('#confirm-overlay')).to_be_visible()
-    page.wait_for_timeout(1200);page.locator('#confirm-ok').click()
-    expect(page.locator('[data-companion="cleanup"]')).to_have_attribute('data-state','cleanup')
+    page.wait_for_timeout(700)
+    page.locator('#sw-scan').click()
+    expect(page.locator('#sw-panel-map')).to_be_visible(timeout=15000)
+    page.wait_for_timeout(1500)
+    page.locator('#sw-tab-dupes').click()
+    page.wait_for_timeout(1400)
+    page.locator('#sw-tab-large').click()
+    page.locator('#sw-large-body .sw-queue-btn').first.click()
+    page.wait_for_timeout(600)
+    page.locator('#sw-tab-queue').click()
+    page.wait_for_timeout(700)
+    page.locator('#sw-preview-btn').click()
+    expect(page.locator('#sw-preview-overlay')).to_be_visible()
+    page.wait_for_timeout(1600)
+    page.locator('#sw-confirm-input').fill('REMOVE')
+    page.locator('#sw-preview-confirm').click()
+    # The engine call is real from the UI's point of view; wait for the pose
+    # rather than assuming it is already there.
+    expect(page.locator('[data-companion="storage"]')).to_have_attribute('data-state','cleanup')
     page.wait_for_timeout(1000)
-    expect(page.locator('[data-companion="cleanup"]')).to_have_attribute('data-state','success')
+    expect(page.locator('[data-companion="storage"]')).to_have_attribute('data-state','success')
+    page.wait_for_timeout(1600)
+    expect(page.locator('#sw-receipt-overlay')).to_be_visible()
     page.wait_for_timeout(1200)
     path=page.video.path();ctx.close()
     Path(path).replace(ROOT/'docs/media/demo.webm')
@@ -423,145 +666,408 @@ def demo_flow(browser):
 def companion_flow(browser, capture=False):
     # The character is presentation only: pause/reduced motion and backend truth matter.
     for failed in [False, True]:
-        ctx,page,errors=open_page(browser,(1440,900) if capture else (900,600),cleanup_failures=failed,cleanup_delay_ms=2400)
+        ctx,page,errors=open_page(browser,(1440,900) if capture else (900,600),storage_locked=failed)
         stage=page.locator('[data-companion="overview"]')
         check(stage.get_attribute('data-state')=='idle','welcome pose before any scan')
-        check(page.locator('.companion-art').evaluate_all('(es)=>es.every(e=>e.getAttribute("aria-hidden")==="true" && e.getAttribute("focusable")==="false")'),'art does not enter accessibility or focus trees')
-        stage.get_by_role('button',name='Pause motion for Luma').click()
-        check(page.locator('.companion').evaluate_all('(es)=>es.every(e=>e.dataset.paused==="true")'),'pause applies to every companion stage')
+        check(page.locator('.luma-svg').evaluate_all('(es)=>es.every(e=>e.getAttribute("aria-hidden")==="true" && e.getAttribute("focusable")==="false")'),'art does not enter accessibility or focus trees')
+        # The character area carries one control and one label.
+        companion_buttons=stage.locator('.luma-controls button')
+        check(companion_buttons.count()==1,'the companion has exactly one control')
+        check(companion_buttons.first.inner_text().strip().lower()=='hide','the only companion control is Hide')
+        check(stage.locator('.luma-kind').is_hidden(),'the duplicated state eyebrow is gone')
+        check(stage.locator('.luma-title').is_visible(),'one readable state label remains')
+        # Hide removes her from the visible area and the hero closes the gap
+        # she left; the preference brings her back.
+        companion_buttons.first.click()
+        check(page.evaluate("""() => {
+            const h = document.querySelector('[data-companion="overview"]');
+            const hero = document.querySelector('.ov-hero');
+            return h && h.hidden === true &&
+                   hero.getAttribute('data-companion-hidden') === 'true' &&
+                   getComputedStyle(hero).gridTemplateColumns.split(' ').length === 2;
+        }"""),'hiding the companion closes the hero column')
+        check(page.evaluate("""() => {
+            const stages = [...document.querySelectorAll('.luma-stage')];
+            return document.getAnimations().filter(a=>a.playState==='running')
+                .filter(a=>a.effect&&a.effect.target&&stages.some(s=>s.contains(a.effect.target))).length;
+        }""")==0,'a hidden companion stops animating')
+        page.locator('#nav-eventlog').click()
+        # Hiding her cleared the preference box, so bringing her back is a
+        # tick rather than a clear.
+        page.locator('#pref-companion').check()
+        check(page.evaluate("""() => {
+            const h = document.querySelector('[data-companion="overview"]');
+            return h && h.hidden === false;
+        }"""),'the preference brings the companion back')
+        page.locator('#nav-overview').click()
+        # The motion preference lives in the display preferences, and still
+        # governs every companion.
+        page.locator('#nav-eventlog').click()
+        expect(page.locator('#view-eventlog')).to_be_visible()
+        page.locator('#pref-companion-motion').check()
+        check(page.locator('.luma-stage').evaluate_all('(es)=>es.every(e=>e.dataset.paused==="true")'),'pause applies to every companion stage')
         check(page.evaluate('window.CureSweep.motionPaused()'),'one pause gesture governs the whole presentation')
-        check(page.evaluate('document.getAnimations().filter(a=>a.playState==="running").length')==0,'pausing stops every running loop')
+        check(companion_running(page)==0,'pausing stops every running companion loop')
         page.reload();expect(page.locator('#view-overview')).to_be_visible()
-        check(stage.get_attribute('data-paused')=='true','motion preference survives reload')
-        stage.get_by_role('button',name='Resume motion for Luma').click()
+        page.locator('#nav-eventlog').click()
+        check(stage.locator('.luma-stage').get_attribute('data-paused')=='true','motion preference survives reload')
+        page.locator('#pref-companion-motion').uncheck()
         page.emulate_media(reduced_motion='reduce')
-        expect(stage.locator('.companion-reduced')).to_be_visible()
-        check(page.locator('.companion').evaluate_all('(es)=>es.every(e=>e.dataset.paused==="true")'),'live reduced-motion preference stops companion')
-        check(page.evaluate('document.getAnimations().filter(a=>a.playState==="running").length')==0,'reduced motion has no ongoing loops')
+        # The note lives in the Overview, so look at it where it is visible.
+        page.locator('#nav-overview').click()
+        expect(stage.locator('.luma-reduced')).to_be_visible()
+        check(page.locator('.luma-stage').evaluate_all('(es)=>es.every(e=>e.dataset.paused==="true")'),'live reduced-motion preference stops companion')
+        check(companion_running(page)==0,'reduced motion has no ongoing companion loops')
         page.emulate_media(reduced_motion='no-preference')
         page.locator('#nav-scan').click();page.get_by_role('button',name='Start Rescue Scan',exact=True).click()
         page.wait_for_function("document.querySelectorAll('#log .item-line').length >= 1")
-        check(page.locator('[data-companion="scan"]').get_attribute('data-variant')=='scan-console','first scan session uses the console variant')
+        check(page.locator('[data-companion="scan"]').get_attribute('data-state')=='scan',
+              'LUMA reflects the real running collection')
         # Let collection finish before leaving the view; a scan that is still
         # running legitimately returns the operator to the findings screen.
         finish_scan(page)
         page.locator('#nav-cleanup').click()
-        clean=page.locator('[data-companion="cleanup"]')
-        check(clean.get_attribute('data-state')=='idle','cleanup idle never starts sweeping activity')
-        page.locator('#cleanup-scan-btn').click();expect(page.locator('#cleanup-body')).to_be_visible()
-        page.locator('#cleanup-btn').click();expect(page.locator('#confirm-overlay')).to_be_visible()
-        check(page.locator('#confirm-overlay .companion').count()==0,'serious confirmation contains no assistant artwork')
-        check(page.evaluate('window.__CURE_LAST_CLEANUP_CALL===undefined'),'confirmation does not execute cleanup')
+        clean=page.locator('[data-companion="storage"]')
+        # Opening the workstation performs no work, so LUMA must not be in a
+        # working pose. Which calm pose she holds depends on the last real
+        # result; what matters is that nothing is pretending to run.
+        opening_state=clean.get_attribute('data-state')
+        check(opening_state not in ('scan','cleanup','quarantine','discovering'),
+              'storage idle never starts sweeping activity: '+str(opening_state))
+        check(opening_state in ('idle','review','success','failure','cancelled'),
+              'storage idle holds a settled pose: '+str(opening_state))
+        page.locator('#sw-scan').click()
+        expect(page.locator('#sw-progress')).to_be_visible(timeout=15000)
+        check(clean.get_attribute('data-state')=='scan','LUMA reflects a storage measurement in progress')
+        expect(page.locator('#sw-progress')).to_be_hidden(timeout=20000)
+        check(clean.get_attribute('data-state')=='discovering',
+              'LUMA reacts to the real measured count once results land: '
+              + str(clean.get_attribute('data-state')))
+        page.locator('#sw-tab-large').click()
+        page.locator('#sw-large-body .sw-queue-btn').first.click()
+        check(clean.get_attribute('data-state')=='review',
+              'queuing an item puts LUMA into a calm review pose')
+        page.locator('#sw-tab-queue').click()
+        expect(page.locator('#sw-queue-groups')).to_be_visible()
+        expect(page.locator('#sw-queue-badge')).to_have_text('1')
+        page.locator('#sw-preview-btn').click();expect(page.locator('#sw-preview-overlay')).to_be_visible()
+        check(page.locator('#sw-preview-overlay .luma-stage').count()==0,
+              'serious confirmation contains no assistant artwork')
+        check(page.evaluate('window.__CURE_LAST_STORAGE_CALL===undefined'),'confirmation does not execute removal')
         page.keyboard.press('Escape')
-        check(page.evaluate('window.__CURE_LAST_CLEANUP_CALL===undefined'),'cancel leaves cleanup uninvoked')
-        page.locator('#cleanup-btn').click();page.locator('#confirm-ok').click()
+        check(page.evaluate('window.__CURE_LAST_STORAGE_CALL===undefined'),'cancel leaves removal uninvoked')
+        page.locator('#sw-preview-btn').click();page.locator('#sw-confirm-input').fill('REMOVE')
+        page.locator('#sw-preview-confirm').click()
         expect(clean).to_have_attribute('data-state','cleanup')
-        expect(clean.locator('.companion-detail')).to_contain_text('Waiting for the engine result')
-        check('Freed' not in clean.inner_text(),'busy pose never fabricates reclaimed bytes')
-        check(page.locator('.cleanup-cat .cc-state').evaluate_all('(es)=>es.every(e=>["Included","Skipped"].includes(e.textContent))'),'cleanup category selection is explicit in text')
-        check(page.locator('.cleanup-summary').is_visible(),'actual cleanup summary stays available at minimum window')
-        layout(page,'companion cleanup running');axe(page,'companion cleanup running')
-        if capture and not failed:
-            page.locator('#stage-main').evaluate('e=>e.scrollTop=0');shot(page,DOCS/'08-cleanup.png')
-        expect(page.locator('#cleanup-status')).to_be_visible(timeout=15000)
-        expect(clean).to_have_attribute('data-state','review' if failed else 'success')
-        check(clean.locator('.companion-detail').inner_text()==page.locator('#cleanup-status').inner_text(),'companion result uses exact engine receipt')
-        # Wait for the normal post-action measurement to resolve before public capture.
-        expect(page.locator('#cleanup-body')).to_be_visible()
-        page.wait_for_function('document.querySelector("#cleanup-subline").textContent.startsWith('+repr('4' if failed else '3')+')')
-        check(page.evaluate('window.__CURE_LAST_CLEANUP_RESULT.attempted')==1245,'cleanup fixture reports files rather than category count')
-        if capture and not failed:shot(page,DOCS/'09-cleanup-result.png')
+        expect(page.locator('#sw-receipt-overlay')).to_be_visible(timeout=15000)
+        expect(clean).to_have_attribute('data-state','success')
+        check(clean.locator('.luma-detail').inner_text()==
+              page.locator('#sw-receipt-label').inner_text(),
+              'companion result uses the exact engine receipt')
+        # Close the receipt before capturing anything else: it is modal, so
+        # leaving it open would put the next screenshots behind a dialog.
+        page.locator('#sw-receipt-close').click()
+        expect(page.locator('#sw-receipt-overlay')).to_be_hidden()
+        if capture:
+            # Public storage screenshots. All figures are labelled mock data.
+            page.locator('#nav-cleanup').click()
+            page.locator('#sw-scan').click()
+            expect(page.locator('#sw-progress')).to_be_hidden(timeout=20000)
+            page.wait_for_timeout(700)
+            # The map is the point of this capture: make sure the tab strip is
+            # on it, whatever the earlier flow left selected.
+            page.locator('#sw-tab-map').click()
+            page.wait_for_timeout(500)
+            page.locator('#stage-main').evaluate('e=>e.scrollTop=0')
+            shot(page, DOCS/'08-storage-map.png')
+            page.locator('#sw-tab-large').click()
+            page.locator('#sw-large-body .sw-queue-btn').first.click()
+            page.locator('#sw-tab-queue').click()
+            page.wait_for_timeout(400)
+            page.locator('#sw-preview-btn').click()
+            expect(page.locator('#sw-preview-overlay')).to_be_visible()
+            page.wait_for_timeout(500)
+            shot(page, DOCS/'09-storage-preview.png')
+            page.keyboard.press('Escape')
+            expect(page.locator('#sw-preview-overlay')).to_be_hidden()
         page.locator('#nav-quarantine').click()
-        check(page.locator('#view-quarantine .companion,#evidence-body .companion').count()==0,'evidence and archive remain free of assistant artwork')
+        check(page.locator('#view-quarantine .luma-stage,#evidence-body .luma-stage').count()==0,
+              'evidence and archive remain free of assistant artwork')
         check(not errors,'companion flow has no runtime or remote errors: '+str(errors));ctx.close()
+
+
+def storage_failure(browser):
+    """A scan that breaks must leave the screen saying so, not stuck.
+
+    The failure path once threw a missing-method error inside the
+    companion's own adapter, which swallowed the engine's message and
+    left the headline claiming the machine was still being measured.
+    """
+    ctx, page, errors = open_page(browser, (1440, 900), storage_error=True)
+    page.locator("#nav-cleanup").click()
+    page.wait_for_timeout(600)
+    page.locator("#sw-scan").click()
+    expect(page.locator("#sw-status-text")).to_have_text("Failed", timeout=20000)
+    page.wait_for_timeout(400)
+    check(page.locator("#sw-amount").inner_text() == "—",
+          "a failed scan reports no measurement at all")
+    check("not measured" in page.locator("#sw-amount-label").inner_text().lower(),
+          "a failed scan says the machine is not measured: "
+          + page.locator("#sw-amount-label").inner_text())
+    check("did not complete" in page.locator("#sw-amount-note").inner_text(),
+          "a failed scan says why: " + page.locator("#sw-amount-note").inner_text()[:80])
+    check("did not complete" in page.locator("#sw-subline").inner_text(),
+          "a failed scan says why in the subline: "
+          + page.locator("#sw-subline").inner_text()[:80])
+    check(page.locator("#sw-classes li").count() == 0,
+          "a failed scan leaves no categories from the attempt that broke")
+    check(page.evaluate("() => (window.CureStorageWorkstation.state.treemapCells||[]).length") == 0,
+          "a failed scan leaves no map from the attempt that broke")
+    check(page.locator('[data-companion="storage"]').get_attribute("data-state") == "failure",
+          "the companion takes the failure pose, not the scanning one")
+    check(page.locator("#sw-progress").is_hidden(),
+          "the progress panel is dismissed when the scan breaks")
+    layout(page, "storage failed");axe(page, "storage failed")
+    check(not errors, "a failed scan raises no runtime error: " + str(errors))
+    ctx.close()
 
 
 def luma_states(browser):
     """Every authored state must be reachable, distinct and restrained."""
     ctx,page,errors=open_page(browser,(1440,900))
-    # Measured here, on the overview, because a hidden view reports no box.
+    overview=page.locator('[data-companion="overview"]')
     overview_w=page.evaluate(
-        "() => Math.round(document.querySelector('[data-companion=\"overview\"] .luma-node')"
+        "() => Math.round(document.querySelector('[data-companion=\"overview\"] .luma-stage')"
         ".getBoundingClientRect().width)")
-    check(0<overview_w<=96,'node stays small on the overview: '+str(overview_w))
-    # Each variant must still rotate, so the node is not one frozen loop.
-    seen=[]
-    for i in range(3):
-        start_scan(page)
-        if i==0:
-            # Measured mid-scan, while the stage is on screen and has a box.
-            expect(page.locator('[data-companion="scan"] .luma-node')).to_be_visible()
-            scan_w=page.evaluate(
-                "() => Math.round(document.querySelector('[data-companion=\"scan\"] .luma-node')"
-                ".getBoundingClientRect().width)")
-            check(0<scan_w<=96,'node stays secondary to the scan field data: '+str(scan_w))
-        finish_scan(page)
-        seen.append(page.locator('[data-companion="scan"]').get_attribute('data-variant'))
-    check(seen==['scan-console','scan-scanner','scan-lens'],
-          'scan sessions rotate through all three scan variants: '+str(seen))
-    # Cleanup variants rotate the same way. Navigation is confirmed to have landed
-    # before the next click, so the view under test is never mid-transition.
-    cseen=[]
-    for _ in range(3):
-        goto_view(page, '#nav-cleanup', 'cleanup-view')
-        cseen.append(page.locator('[data-companion="cleanup"]').get_attribute('data-variant'))
-        goto_view(page, '#nav-overview', 'view-overview')
-    check(cseen==['clean-sweep','clean-sort','clean-recycle'],
-          'cleanup sessions rotate through all three cleanup variants: '+str(cseen))
+    check(0<overview_w<=160,'LUMA stays secondary on the overview: '+str(overview_w))
+
+    # The rig is actually built: head, ears, both eyes, tail joints and paws.
+    rig=page.evaluate("""() => {
+        const svg=document.querySelector('[data-companion="overview"] .luma-svg');
+        return {head:svg.querySelectorAll('.lm-head').length,
+                ears:svg.querySelectorAll('.lm-ear').length,
+                eyes:svg.querySelectorAll('.lm-eye').length,
+                irises:svg.querySelectorAll('.lm-iris').length,
+                glints:svg.querySelectorAll('.lm-glint').length,
+                lids:svg.querySelectorAll('.lm-lid').length,
+                tailJoints:svg.querySelectorAll('.lm-tail-base,.lm-tail-1,.lm-tail-2,.lm-tail-tip').length,
+                paws:svg.querySelectorAll('.lm-paw').length,
+                brows:svg.querySelectorAll('.lm-brow').length,
+                whiskers:svg.querySelectorAll('.lm-whisker').length};
+      }""")
+    check(all(v>=1 for v in rig.values()),
+          'the character is a rigged figure, not a single shape: '+str(rig))
+    check(rig['eyes']==2 and rig['lids']==2,
+          'both eyes exist and both can blink: '+str(rig))
+    check(rig['tailJoints']==4,'the tail is articulated across four joints')
+    check(rig['paws']==2,'both front paws are rigged')
+
+    # The character must be a ginger tabby, with the cream belly, the white
+    # socks and the tabby markings the art direction calls for.
+    coat=page.evaluate("""() => {
+        const host=document.querySelector('[data-companion="overview"]');
+        const cs=getComputedStyle(host);
+        const svg=host.querySelector('.luma-svg');
+        return {
+          fur: cs.getPropertyValue('--luma-fur').trim(),
+          cream: cs.getPropertyValue('--luma-cream').trim(),
+          sock: cs.getPropertyValue('--luma-sock').trim(),
+          stripe: cs.getPropertyValue('--luma-stripe').trim(),
+          stripes: svg.querySelectorAll('.lm-stripe').length,
+          rings: svg.querySelectorAll('.lm-tail-ring').length,
+          socks: svg.querySelectorAll('.lm-sock').length,
+          asleep: svg.querySelectorAll('.lm-asleep').length,
+          awake: svg.querySelectorAll('.lm-awake').length,
+        }; }""")
+    check(coat['stripes']>=10,'the tabby markings are drawn: '+str(coat['stripes']))
+    check(coat['rings']>=3,'the tail is ringed: '+str(coat['rings']))
+    check(coat['socks']>=2,'the paws have white socks: '+str(coat['socks']))
+    check(coat['asleep']==1 and coat['awake']==1,
+          'there is a real curled sleeping pose, not a sitting cat with closed eyes')
+
+    # The rim light must actually paint something. The earlier version
+    # traced a path out and back along the same curve, which has zero area.
+    rim=page.evaluate("""() => {
+        const svg=document.querySelector('[data-companion="overview"] .luma-svg');
+        const rim=svg.querySelector('.lm-body-rim');
+        if(!rim) return {present:false};
+        const b=rim.getBBox();
+        return {present:true, w:Math.round(b.width), h:Math.round(b.height),
+                filled: rim.getAttribute('fill') !== 'none'}; }""")
+    check(rim['present'] and rim['w']>2 and rim['h']>2,
+          'the rim light covers a real area: '+str(rim))
+
+    # The lid must be a curved eyelid, not a rectangle wider than the eye.
+    lid=page.evaluate("""() => {
+        const svg=document.querySelector('[data-companion="overview"] .luma-svg');
+        const eye=svg.querySelector('.lm-eye');
+        const lid=svg.querySelector('.lm-lid-fill');
+        const eb=eye.getBoundingClientRect(), lb=lid.getBoundingClientRect();
+        return {tag: lid.tagName, eyeW: Math.round(eb.width),
+                lidW: Math.round(lb.width)}; }""")
+    check(lid['tag']!='rect' and lid['lidW']<=lid['eyeW']+2,
+          'the eyelid is shaped like an eye, not a visor: '+str(lid))
+
+    # Petting: only the cat you touched reacts, and the artwork is the hit
+    # region rather than an empty square.
+    pet=page.evaluate("""() => {
+        const stages=[...document.querySelectorAll('[data-companion] .luma-stage')];
+        const before=stages.map(s=>s.querySelector('.luma-svg').classList.contains('lm-pulse'));
+        const svg=stages[0].querySelector('.luma-svg');
+        const shape=svg.querySelector('.lm-body-shape');
+        const r=shape.getBoundingClientRect();
+        shape.dispatchEvent(new MouseEvent('click', {
+          bubbles:true, clientX:r.left+r.width/2, clientY:r.top+r.height/2}));
+        const after=stages.map(s=>s.querySelector('.luma-svg').classList.contains('lm-pulse'));
+        // A click on the empty corner of the canvas is not a pet.
+        stages.forEach(s=>s.querySelector('.luma-svg').classList.remove('lm-pulse'));
+        const empty=svg.getBoundingClientRect();
+        svg.dispatchEvent(new MouseEvent('click', {
+          bubbles:true, clientX:empty.left+2, clientY:empty.top+2}));
+        const corner=stages.map(s=>s.querySelector('.luma-svg').classList.contains('lm-pulse'));
+        return {before, after, corner}; }""")
+    check(sum(pet['after'])==1,
+          'petting one cat purrs one cat: '+str(pet['after']))
+    check(sum(pet['corner'])==0,
+          'clicking empty space is not a pet: '+str(pet['corner']))
+
+    # Keyboard: the companion is a real control.
+    kbd=page.evaluate("""() => {
+        const stage=document.querySelector('[data-companion="overview"] .luma-stage');
+        return {role: stage.getAttribute('role'),
+                tabindex: stage.getAttribute('tabindex'),
+                label: stage.getAttribute('aria-label')}; }""")
+    check(kbd['role']=='button' and kbd['tabindex']=='0' and bool(kbd['label']),
+          'the companion can be reached and operated from the keyboard: '+str(kbd))
+
+    # The storage companion keeps its own persona: a global event must not
+    # overwrite it.
+    scoped=page.evaluate("""() => {
+        const storage=document.querySelector('[data-companion="storage"]');
+        const before=storage.getAttribute('data-state');
+        window.CureCompanion.seal('global probe');
+        const after=storage.getAttribute('data-state');
+        return {before, after}; }""")
+    check(scoped['before']==scoped['after'],
+          'a global event does not overwrite a screen-specific companion: '+str(scoped))
+
+    # Each state must be visually distinct: prop geometry plus brow angle.
+    probe=page.evaluate("""() => {
+        const stage=document.querySelector('[data-companion="overview"]');
+        const states=['idle','scan','discovering','review','cleanup','quarantine',
+                      'success','failure','cancelled','sleeping'];
+        return states.map(s => {
+          window.CureCompanion.idle(null);
+          const fn={idle:()=>window.CureCompanion.idle('probe'),
+                    discovering:()=>window.CureCompanion.discovering(3,'probe'),
+                    review:()=>window.CureCompanion.review(2,'probe'),
+                    quarantine:()=>window.CureCompanion.seal('probe'),
+                    failure:()=>window.CureCompanion.failed('probe'),
+                    cancelled:()=>window.CureCompanion.cancelled('probe'),
+                    sleeping:()=>window.CureCompanion.sleep(),
+                    cleanup:()=>window.CureCompanion.cleanup('cleanup','probe','probe'),
+                    success:()=>window.CureCompanion.cleanup('success','probe','probe'),
+                    scan:()=>window.CureCompanion.scan('scan','probe')}[s];
+          fn();
+          const svg=stage.querySelector('.luma-svg');
+          const prop=svg.querySelector('.lm-prop');
+          const brow=svg.querySelector('.lm-brow-l');
+          return {state:svg.getAttribute('data-state'),
+                  props:prop.children.length,
+                  shape:prop.firstElementChild?prop.firstElementChild.tagName:'none',
+                  brow:getComputedStyle(brow).transform};
+        });
+      }""")
+    check(len(set(p["state"] for p in probe))==10,
+          'all ten authored states are reachable: '+str([p["state"] for p in probe]))
+    signatures=[p["state"]+'|'+str(p["props"])+'|'+p["shape"]+'|'+p["brow"] for p in probe]
+    check(len(set(signatures))==10,
+          'every companion state has its own visual treatment: '+str(len(set(signatures))))
+    props={p["state"]:p["props"] for p in probe}
+    check(props['idle']==0,'idle carries no prop')
+    check(all(props[s]>0 for s in
+              ['scan','discovering','review','cleanup','quarantine','success',
+               'failure','cancelled','sleeping']),
+          'every active state has its own prop: '+str(props))
+
+    # LUMA must never invent a reaction to a finding that does not exist.
+    page.evaluate("window.CureCompanion.discovering(0,'nothing found')")
+    expect(overview).to_have_attribute('data-state','idle')
+    check('nothing found' in overview.locator('.luma-detail').inner_text(),
+          'a zero finding count returns LUMA to idle with the real detail')
+
+    # Restraint: vector only, no text, no raster, no glow filter.
+    restraint=page.evaluate("""() => {
+        const svg=document.querySelector('[data-companion="overview"] .luma-svg');
+        const cs=getComputedStyle(svg);
+        return {texts: svg.querySelectorAll('text').length,
+                filters: svg.querySelectorAll('filter').length,
+                images: svg.querySelectorAll('image').length,
+                filter: cs.filter,
+                aria: svg.getAttribute('aria-hidden'),
+                focusable: svg.getAttribute('focusable'),
+                tspan: svg.querySelectorAll('tspan').length};
+      }""")
+    check(restraint['texts']==0 and restraint['images']==0 and restraint['tspan']==0,
+          'the figure carries no text or raster data of its own: '+str(restraint))
+    check(restraint['filters']==0 and restraint['filter']=='none',
+          'the figure renders without any glow filter: '+str(restraint['filter']))
+    check(restraint['aria']=='true' and restraint['focusable']=='false',
+          'the figure stays out of the accessibility and focus trees: '+str(restraint))
+
+    # She is interactive: clicking her produces a reaction, and it is not a
+    # state change (so a pet can never be mistaken for a finding).
+    page.evaluate("window.CureCompanion.idle(null)")
+    overview.locator('.luma-stage').first.click()
+    check(page.evaluate("document.querySelector('[data-companion=\"overview\"] .luma-svg')"
+                        ".classList.contains('lm-pulse')"),
+          'clicking LUMA produces a reaction')
+    check(overview.get_attribute('data-state')=='idle',
+          'a pet does not change her state into a finding')
+
+    # Sleeping is a real state and returns cleanly. The character area
+    # carries one control now (Hide), so the state is driven through the
+    # companion's own interface.
+    page.evaluate("window.CureCompanion.sleep()")
+    expect(overview).to_have_attribute('data-state','sleeping')
+    page.evaluate("window.CureCompanion.wake()")
+    expect(overview).to_have_attribute('data-state','idle')
+
     # Seal appears only after a completed, confirmed quarantine.
-    check(page.locator('[data-companion="result"]').get_attribute('data-state')!='seal',
-          'no seal state before any quarantine')
+    check(page.locator('[data-companion="result"]').get_attribute('data-state')!='quarantine',
+          'no quarantine pose before any quarantine')
+    start_scan(page);finish_scan(page)
     goto_view(page, '#nav-results', 'results-view')
-    # The review cards animate in, so their buttons have no stable box until the
-    # entrance finishes. Same settled-geometry wait the layout checks use; the
-    # assertions below are unchanged.
     settled(page)
+    # Deliberate: LUMA is withheld from a findings-dense screen so she never
+    # competes with evidence. She still receives state changes.
+    check(page.locator('#companion-result').is_hidden(),
+          'LUMA stays out of the way on a findings-dense screen')
     btn = page.locator('#review-cards .quarantine-btn').first
     expect(btn).to_be_visible()
     btn.click()
     page.locator('#confirm-ok').click()
-    expect(page.locator('[data-companion="result"]')).to_have_attribute('data-state','seal')
-    # LUMA is an instrument, not a character or a data source: no text to read,
-    # no filter to bloom, and nothing large enough to compete with the numbers.
-    restraint=page.evaluate("""() => {
-        const node=document.querySelector('[data-companion="result"] .luma-node');
-        const cs=getComputedStyle(node);
-        return {texts: node.querySelectorAll('text').length,
-                filters: node.querySelectorAll('filter').length,
-                images: node.querySelectorAll('image').length,
-                filter: cs.filter,
-                aria: node.getAttribute('aria-hidden'),
-                focusable: node.getAttribute('focusable')};
-      }""")
-    check(restraint['texts']==0 and restraint['images']==0,
-          'node carries no text or raster data of its own: '+str(restraint))
-    check(restraint['filters']==0 and restraint['filter']=='none',
-          'node renders without any glow filter: '+str(restraint['filter']))
-    check(restraint['aria']=='true' and restraint['focusable']=='false',
-          'node stays out of the accessibility and focus trees: '+str(restraint))
-    # Every state must read differently: one ring colour plus one animated
-    # layer, so a repeated signature would mean two states look alike.
-    signatures=page.evaluate("""() => {
-        const stage=document.querySelector('[data-companion="result"]');
-        return ['idle','scan','cleanup','review','success','seal'].map(s => {
-          window.CureCompanion.result(s, 'probe', '');
-          const ring=stage.querySelector('.ln-ring');
-          const core=stage.querySelector('.ln-core');
-          return [getComputedStyle(ring).stroke, getComputedStyle(ring).opacity,
-                  getComputedStyle(core).fill,
-                  getComputedStyle(stage.querySelector('.ln-sweep')).display,
-                  getComputedStyle(stage.querySelector('.ln-segs')).display].join('|');
-        });
-      }""")
-    check(len(set(signatures))==5,
-          'every companion state has its own visual treatment: '+str(len(set(signatures))))
+    expect(page.locator('[data-companion="result"]')).to_have_attribute('data-state','quarantine')
+
+    # Blinking and breathing actually run when motion is allowed. Measured on
+    # the overview, because a hidden view reports no running animations.
+    goto_view(page, '#nav-overview', 'view-overview')
+    page.evaluate("window.CureCompanion.idle(null)")
+    page.wait_for_timeout(400)
+    running=page.evaluate("""() => document.getAnimations()
+        .filter(a => a.playState === 'running'
+                     && a.effect && a.effect.target
+                     && String(a.effect.target.getAttribute('class')||'').includes('lm-'))
+        .length""")
+    check(running>0,'LUMA is genuinely animating when motion is allowed: '+str(running))
+
     check(not errors,'luma state runtime: '+str(errors));ctx.close()
 
 
 def palette_and_assets():
     """Offline asset guard plus a measured, restrained palette check."""
-    shipped=["index.html","style.css","xray.css","luma.css","storage.css",
-             "app.js","luma.js","xray.js","storage-core.js"]
+    shipped=["index.html","style.css","xray.css","luma.css","storage-workstation.css",
+             "app.js","luma.js","xray.js","storage-workstation.js"]
     for name in shipped:
         body=(ROOT/"gui/dist"/name).read_text(encoding="utf-8")
         hits=[l for l in body.splitlines()
@@ -673,7 +1179,7 @@ def main():
             core_flow(browser,reduced=True);states(browser);secondary(browser);responsive(browser)
         if mode=="capture":states(browser,capture=True)
         if mode in ("all","verify","capture"):companion_flow(browser,capture=mode=="capture")
-        if mode in ("all","verify"):luma_states(browser)
+        if mode in ("all","verify"):luma_states(browser);storage_failure(browser)
         if mode=="layout":responsive(browser)
         if mode=="pixel":core_flow(browser);pixel()
         if mode=="all":pixel()

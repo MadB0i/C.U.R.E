@@ -65,7 +65,7 @@ Use labelled mock data:
 node tools/docs-capture/capture.mjs
 node tools/docs-capture/demo.mjs
 ffmpeg -y -ss 0.75 -i docs/media/demo.webm -an -c:v libx264 -crf 20 -pix_fmt yuv420p docs/media/demo.mp4
-ffmpeg -y -ss 0.75 -i docs/media/demo.webm -vf "fps=8,scale=1100:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse" docs/media/demo.gif
+ffmpeg -y -ss 0.75 -i docs/media/demo.webm -vf "fps=6,scale=900:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=96[p];[b][p]paletteuse=dither=bayer:bayer_scale=4" -loop 0 docs/media/demo.gif
 ```
 
 Screenshots fix time/timezone, disable entrance motion, and wait on actual
