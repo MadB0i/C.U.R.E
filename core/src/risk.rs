@@ -164,6 +164,28 @@ pub fn score_with_signals(
     signature: SignatureStatus,
     hash_match: Option<&str>,
 ) -> ScoredEntry {
+    score_with_expander(entry, signature, hash_match, &expand_command)
+}
+
+/// Production `%VAR%` expansion used by [`score_with_signals`].
+fn expand_command(command: &str) -> String {
+    crate::scanners::services::expand_env_vars(command)
+}
+
+/// Same scorer with an injectable expander.
+///
+/// The expansion seam exists so tests can pin `%TEMP%` to a fixture value.
+/// Expansion reads the *host* environment, so a test that asserted the real
+/// `%TEMP%` lands in a drop zone would pass on a default Windows profile and
+/// fail wherever the OS relocated TEMP (non-standard deployment roots, CI
+/// sandboxes, containers). The heuristic under test is "expand before you
+/// match", not "this machine's TEMP is under AppData\Local\Temp".
+fn score_with_expander(
+    entry: &PersistenceEntry,
+    signature: SignatureStatus,
+    hash_match: Option<&str>,
+    expand: &dyn Fn(&str) -> String,
+) -> ScoredEntry {
     let mut score: i32 = 0;
     let mut reasons: Vec<String> = Vec::new();
 
@@ -171,7 +193,7 @@ pub fn score_with_signals(
     // arguments alike) before any heuristic sees it, so `%TEMP%\payload.exe`
     // matches the drop-zone tokens. Same helper services use for ImagePath;
     // identity off Windows (tests stay platform-independent there).
-    let expanded_command = crate::scanners::services::expand_env_vars(&entry.command);
+    let expanded_command = expand(&entry.command);
     let command_norm = normalize(&expanded_command);
     let program_norm = normalize(extract_program_path(&expanded_command));
 
@@ -467,6 +489,7 @@ pub fn attack_info_for(source: &PersistenceSource) -> AttackInfo {
 mod tests {
     use super::*;
     use crate::model::PersistenceSource;
+    use std::path::PathBuf;
 
     fn entry(name: &str, command: &str) -> PersistenceEntry {
         PersistenceEntry::new(PersistenceSource::StartupFolder, name, command, "")
@@ -883,8 +906,11 @@ mod tests {
         if !source.is_file() {
             return;
         }
-        let dir = tempfile::tempdir().unwrap();
-        let copy = dir.path().join("tampered-chkdsk.exe");
+        // The fixture lives in a directory the test itself shapes into a drop
+        // zone. Using the ambient %TEMP% instead made this test pass only on
+        // profiles where Windows keeps TEMP under AppData\Local\Temp.
+        let (_dir, zone) = drop_zone_fixture();
+        let copy = zone.join("tampered-chkdsk.exe");
         let mut bytes = std::fs::read(&source).unwrap();
         let flip_at = bytes.len() / 2;
         bytes[flip_at] ^= 0xFF;
@@ -907,6 +933,25 @@ mod tests {
     }
 
     // ---- helpers (unchanged) ----
+
+    /// A throwaway directory shaped to look like `…\AppData\Local\Temp`.
+    ///
+    /// Drop-zone scoring is component-wise on the *path string*, so the tests
+    /// that need a drop zone must control the path rather than inherit
+    /// whatever `%TEMP%` the host happens to use. The returned `TempDir` must
+    /// be held by the caller for the test's lifetime.
+    #[cfg(windows)]
+    fn drop_zone_fixture() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let zone = dir
+            .path()
+            .join("AppData")
+            .join("Local")
+            .join("Temp")
+            .join("cure-fixture");
+        std::fs::create_dir_all(&zone).unwrap();
+        (dir, zone)
+    }
 
     #[test]
     fn quoted_and_unquoted_paths_are_extracted() {
@@ -1164,13 +1209,16 @@ mod tests {
     fn lolbin_cmd_percent_temp_expands_to_drop_zone() {
         // %TEMP% must expand before token matching (F-LOLBIN-1 step 3), so
         // the drop-zone heuristic fires and discounts are withheld.
+        // The expansion is pinned to a fixture value so this never depends on
+        // where the running machine keeps its TEMP.
         let entry = crate::model::PersistenceEntry::new(
             crate::model::PersistenceSource::RegistryRun,
             "test",
             r"C:\Windows\System32\cmd.exe /c %TEMP%\payload.exe",
             "HKCU\\Run",
         );
-        let scored = score_with_signals(&entry, SignatureStatus::ValidSigned, None);
+        let expand = |s: &str| s.replace("%TEMP%", r"C:\Users\fixture\AppData\Local\Temp");
+        let scored = score_with_expander(&entry, SignatureStatus::ValidSigned, None, &expand);
         assert!(
             scored.reasons.iter().any(|r| r.starts_with("+30")),
             "expanded %TEMP% must hit the drop-zone token: {:?}",
@@ -1181,6 +1229,47 @@ mod tests {
             RiskLevel::Safe,
             "cmd with %TEMP% payload must not be Safe even when signed: {:?}",
             scored.reasons
+        );
+    }
+
+    /// The seam above must not have been papered over: the real expander
+    /// still expands, and an UNEXPANDED `%TEMP%` still fails to match.
+    #[cfg(windows)]
+    #[test]
+    fn expansion_seam_matches_production_behaviour() {
+        let entry = crate::model::PersistenceEntry::new(
+            crate::model::PersistenceSource::RegistryRun,
+            "test",
+            r"C:\Windows\System32\cmd.exe /c %TEMP%\payload.exe",
+            "HKCU\\Run",
+        );
+        let identity = |s: &str| s.to_string();
+        let pinned = |s: &str| s.replace("%TEMP%", r"C:\Users\fixture\AppData\Local\Temp");
+
+        // With a fixture drop zone the pinned expander fires the heuristic.
+        assert!(
+            score_with_expander(&entry, SignatureStatus::ValidSigned, None, &pinned)
+                .reasons
+                .iter()
+                .any(|r| r.starts_with("+30"))
+        );
+
+        // Without expansion the literal `%TEMP%` is not a drop-zone token:
+        // proves the +30 comes from expansion, not from the constant.
+        assert!(
+            !score_with_expander(&entry, SignatureStatus::ValidSigned, None, &identity)
+                .reasons
+                .iter()
+                .any(|r| r.starts_with("+30"))
+        );
+
+        // The real expander is wired in and is not the identity function
+        // (unless the environment genuinely defines %TEMP%, which Windows does).
+        let expanded = expand_command(&entry.command);
+        assert!(
+            !expanded.contains("%TEMP%"),
+            "production expansion left %TEMP% unexpanded: {:?}",
+            expanded
         );
     }
 

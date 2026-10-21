@@ -293,12 +293,20 @@ mod tests {
     #[test]
     fn lnk_unsigned_dummy_must_not_score_safe() {
         let startup = temp_startup_in_repo();
-        // Place unsigned target in a real drop zone (Temp) with a long
-        // random-looking name so heuristics fire. The .lnk itself lives in
-        // the repo startup dir (no drop zone), so scoring the .lnk path
-        // would incorrectly be Safe.
-        let target_dir = tempfile::tempdir().unwrap();
-        let target = target_dir.path().join("a7x9k2p9q1w2b3.exe");
+        // Place unsigned target in a real drop zone with a long random-looking
+        // name so heuristics fire. The .lnk itself lives in the repo startup
+        // dir (no drop zone), so scoring the .lnk path would incorrectly be
+        // Safe. The drop zone is shaped by the test rather than borrowed from
+        // the host %TEMP%, so the assertion holds wherever TEMP lives.
+        let dir = tempfile::tempdir().unwrap();
+        let target_dir = dir
+            .path()
+            .join("AppData")
+            .join("Local")
+            .join("Temp")
+            .join("cure-fixture");
+        std::fs::create_dir_all(&target_dir).unwrap();
+        let target = target_dir.join("a7x9k2p9q1w2b3.exe");
         // Copy current test binary (unsigned PE) as dummy; signature will be Unsigned
         let src = std::env::current_exe().unwrap();
         std::fs::copy(&src, &target).unwrap();
