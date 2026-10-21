@@ -2,6 +2,8 @@ use std::error::Error;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use clap::{Parser, Subcommand};
@@ -104,6 +106,50 @@ enum Command {
         #[command(subcommand)]
         action: CleanupAction,
     },
+    /// Read-only storage intelligence: measure, verify duplicates, benchmark.
+    ///
+    /// Nothing under `storage` removes a file. Deletion lives in the desktop
+    /// app, where every target is previewed and individually confirmed.
+    Storage {
+        #[command(subcommand)]
+        action: StorageAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum StorageAction {
+    /// Measure the catalogue roots and print what was found.
+    Scan {
+        #[arg(long, default_value = "quick", help = "quick or deep")]
+        depth: String,
+        /// Extra drive or folder to measure. May be repeated.
+        #[arg(long = "root", value_name = "PATH")]
+        roots: Vec<PathBuf>,
+        /// Report abandoned-looking application data (deep scan only).
+        #[arg(long)]
+        abandoned: bool,
+        #[arg(long, help = "print the full scan as JSON")]
+        json: bool,
+    },
+    /// Verified duplicate groups under one or more roots.
+    Duplicates {
+        #[arg(long = "root", value_name = "PATH", required = true)]
+        roots: Vec<PathBuf>,
+        #[arg(long, default_value_t = 25, help = "rows to print")]
+        limit: usize,
+    },
+    /// Reproducible throughput benchmark on a synthetic tree.
+    ///
+    /// Builds its own fixture, so the number does not depend on whatever else
+    /// the machine happens to be doing.
+    Bench {
+        #[arg(long, default_value_t = 20_000, help = "files to synthesise")]
+        files: usize,
+        #[arg(long, default_value_t = 4096, help = "bytes per file")]
+        size: usize,
+        #[arg(long, default_value_t = 4, help = "identical copies per group")]
+        copies: usize,
+    },
 }
 
 #[derive(Subcommand)]
@@ -200,6 +246,22 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
                 downloads_age_days,
                 dism,
             } => cmd_cleanup_run(*include_downloads, *downloads_age_days, *dism),
+        },
+        Command::Storage { action } => match action {
+            StorageAction::Scan {
+                depth,
+                roots,
+                abandoned,
+                json,
+            } => cmd_storage_scan(depth, roots.clone(), *abandoned, *json),
+            StorageAction::Duplicates { roots, limit } => {
+                cmd_storage_duplicates(roots.clone(), *limit)
+            }
+            StorageAction::Bench {
+                files,
+                size,
+                copies,
+            } => cmd_storage_bench(*files, *size, *copies),
         },
     }
 }
@@ -1303,6 +1365,356 @@ fn cmd_cleanup_run(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// storage intelligence (read-only)
+//
+// This surface exists so the engine can be verified and benchmarked without a
+// window. It measures and it reports; it never removes anything. Every
+// destructive path in this project requires the desktop preview flow.
+// ---------------------------------------------------------------------------
+
+use cure_core::storage::{self, catalog::ScanDepth};
+
+fn cmd_storage_scan(
+    depth: &str,
+    roots: Vec<PathBuf>,
+    abandoned: bool,
+    json: bool,
+) -> Result<(), Box<dyn Error>> {
+    let depth = ScanDepth::parse(depth);
+    let options = storage::ScanOptions {
+        walk_limits: storage::catalog::limits_for(depth),
+        depth,
+        extra_roots: roots,
+        find_duplicates: true,
+        find_abandoned: abandoned,
+        ..storage::ScanOptions::default()
+    };
+    let scan_id = storage::new_scan_id();
+    let cancel = Arc::new(AtomicBool::new(false));
+
+    let result = storage::scan(&options, &cancel, &scan_id, |_| {});
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+        return Ok(());
+    }
+
+    let headline = result.headline();
+    println!("C.U.R.E storage intelligence — {}", result.scan_id);
+    println!("{}", "=".repeat(60));
+    println!("completeness : {}", result.coverage.completeness());
+    println!(
+        "measured     : {} files, {} folders",
+        result.coverage.files_seen, result.coverage.dirs_seen
+    );
+    println!("duration     : {} ms", result.coverage.duration_ms);
+    if let (Some(total), Some(free)) = (
+        result.coverage.volume_total_bytes,
+        result.coverage.volume_free_bytes,
+    ) {
+        println!(
+            "volume       : {} — {} free of {}",
+            result.coverage.volume_label.as_deref().unwrap_or("unknown"),
+            storage::human_bytes(free),
+            storage::human_bytes(total)
+        );
+    }
+    println!();
+    println!(
+        "at least {} reclaimable ({})",
+        storage::human_bytes(headline.safe_bytes),
+        headline.certainty.label()
+    );
+    if headline.duplicate_bytes > 0 {
+        // Reported as a *subset*, never added to the headline: the same
+        // bytes are already inside it.
+        println!(
+            "of which     {} are byte-identical duplicate copies",
+            storage::human_bytes(headline.duplicate_bytes)
+        );
+    }
+    if headline.careful_bytes > 0 {
+        println!(
+            "plus         {} that needs individual review",
+            storage::human_bytes(headline.careful_bytes)
+        );
+    }
+    println!(
+        "never touched {} (protected or uncertain)",
+        storage::human_bytes(result.protected_bytes)
+    );
+    println!();
+
+    println!("categories");
+    println!("{}", "-".repeat(60));
+    for row in result.summaries.iter().filter(|s| s.item_count > 0) {
+        println!(
+            "  {:<26} {:>10}  {:>6} files  [{}]",
+            row.class.label(),
+            storage::human_bytes(row.bytes_allocated),
+            row.item_count,
+            row.tier.key()
+        );
+    }
+
+    if !result.large_folders.is_empty() {
+        println!();
+        println!("biggest folders");
+        println!("{}", "-".repeat(60));
+        for f in result.large_folders.iter().take(10) {
+            println!(
+                "  {:>10}  {:>6} files  {}",
+                storage::human_bytes(f.size_allocated),
+                f.file_count,
+                f.path.display()
+            );
+        }
+    }
+
+    println!();
+    println!("duplicates");
+    println!("{}", "-".repeat(60));
+    println!("  {}", result.duplicate_coverage.summary);
+    for set in result.duplicates.iter().take(10) {
+        println!(
+            "  {} copies of {}  -> {} reclaimable ({} bulk-eligible)  sha256 {}",
+            set.copies.len(),
+            storage::human_bytes(set.size_logical),
+            storage::human_bytes(set.reclaimable_bytes),
+            storage::human_bytes(set.bulk_reclaimable_bytes),
+            &set.sha256[..16]
+        );
+        for copy in &set.copies {
+            println!(
+                "      {:<18} {:<6} {}",
+                if copy.is_kept_candidate {
+                    "KEEP"
+                } else {
+                    copy.tier.key()
+                },
+                if copy.reclaim_is_certain {
+                    "exact"
+                } else {
+                    "uncertain"
+                },
+                copy.path.display()
+            );
+        }
+    }
+
+    if !result.abandoned.is_empty() {
+        println!();
+        println!("possibly unused application data — never a deletion recommendation");
+        println!("{}", "-".repeat(60));
+        for record in &result.abandoned {
+            println!(
+                "  {:<28} {:>10}  last change {} days ago",
+                record.app_name,
+                storage::human_bytes(record.size_allocated),
+                record.days_since_change.unwrap_or(0)
+            );
+        }
+    }
+
+    if !result.coverage.failures.is_empty() {
+        println!();
+        println!(
+            "locations that could not be read ({} shown)",
+            result.coverage.failures.len().min(20)
+        );
+        println!("{}", "-".repeat(60));
+        for failure in result.coverage.failures.iter().take(20) {
+            println!("  {}  —  {}", failure.path.display(), failure.reason);
+        }
+    }
+
+    println!();
+    println!("nothing was removed. Deletion happens only in the desktop app,");
+    println!("after a preview and an explicit confirmation.");
+    Ok(())
+}
+
+fn cmd_storage_duplicates(roots: Vec<PathBuf>, limit: usize) -> Result<(), Box<dyn Error>> {
+    let options = storage::ScanOptions {
+        extra_roots: roots,
+        large_file_threshold: u64::MAX,
+        ..storage::ScanOptions::default()
+    };
+    let scan_id = storage::new_scan_id();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let result = storage::scan(&options, &cancel, &scan_id, |_| {});
+
+    println!("{}", result.duplicate_coverage.summary);
+    println!("{}", "=".repeat(60));
+    if result.duplicates.is_empty() {
+        println!("no byte-identical files were verified under those roots.");
+        return Ok(());
+    }
+    let mut shown = 0;
+    for set in result.duplicates.iter().take(limit) {
+        shown += 1;
+        println!(
+            "{} copies · {} each · {} reclaimable",
+            set.copies.len(),
+            storage::human_bytes(set.size_logical),
+            storage::human_bytes(set.reclaimable_bytes)
+        );
+        println!("  sha256 {}", set.sha256);
+        for copy in &set.copies {
+            let tag = if copy.is_kept_candidate {
+                "keep"
+            } else {
+                copy.tier.key()
+            };
+            println!("  [{tag}] {}", copy.path.display());
+        }
+        println!();
+    }
+    println!(
+        "{} of {} verified group(s) shown.",
+        shown,
+        result.duplicates.len()
+    );
+    Ok(())
+}
+
+/// Build a deterministic synthetic tree, measure it, and report throughput.
+///
+/// The fixture is generated rather than reused, so the figure does not
+/// depend on disk cache state or on whatever else the machine is doing.
+fn cmd_storage_bench(files: usize, size: usize, copies: usize) -> Result<(), Box<dyn Error>> {
+    use std::io::Write;
+
+    // Deliberately NOT under %TEMP%: the catalogue already walks temp, so a
+    // fixture there would be measured inside an existing root and the
+    // throughput figure would describe two walks, not one.
+    let root = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(std::env::temp_dir)
+        .join(format!("cure-bench-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root)?;
+
+    println!("C.U.R.E storage benchmark");
+    println!("{}", "=".repeat(60));
+    println!("building fixture: {} files x {} bytes", files, size);
+
+    // `copies` identical files per group, so the duplicate stage has real
+    // work to do rather than trivially finding nothing.
+    let per_group = copies.max(1);
+    let groups = (files / per_group).max(1);
+    let build_start = std::time::Instant::now();
+    let mut written = 0usize;
+    let mut total_bytes = 0u64;
+    for g in 0..groups {
+        // The first eight bytes carry the group index, so no two groups can
+        // collide by accident. A purely positional pattern would alias every
+        // 251st group together and the benchmark would quietly measure the
+        // wrong thing.
+        let mut body: Vec<u8> = (0..size).map(|i| ((i * 31 + g) % 251) as u8).collect();
+        if size >= 8 {
+            body[..8].copy_from_slice(&(g as u64).to_le_bytes());
+        }
+        for c in 0..per_group {
+            if written >= files {
+                break;
+            }
+            let dir = root.join(format!("g{}", g % 64));
+            std::fs::create_dir_all(&dir)?;
+            let path = dir.join(format!("g{g}-c{c}.bin"));
+            let mut f = std::fs::File::create(&path)?;
+            f.write_all(&body)?;
+            written += 1;
+            total_bytes += body.len() as u64;
+        }
+    }
+    println!(
+        "fixture built in {:?} ({} files, {})",
+        build_start.elapsed(),
+        written,
+        storage::human_bytes(total_bytes)
+    );
+
+    let rss_before = peak_working_set_bytes();
+    let options = storage::ScanOptions {
+        extra_roots: vec![root.clone()],
+        // Only the fixture: the catalogue would add whatever else this
+        // machine happens to have, and the number would stop meaning
+        // anything.
+        use_catalogue: false,
+        large_file_threshold: 64 * 1024 * 1024,
+        ..storage::ScanOptions::default()
+    };
+    let scan_id = storage::new_scan_id();
+    let cancel = Arc::new(AtomicBool::new(false));
+
+    let started = std::time::Instant::now();
+    let result = storage::scan(&options, &cancel, &scan_id, |_| {});
+    let elapsed = started.elapsed();
+    let rss_after = peak_working_set_bytes();
+
+    let files_seen = result.coverage.files_seen.max(1);
+    let secs = elapsed.as_secs_f64().max(f64::MIN_POSITIVE);
+    println!();
+    println!("results");
+    println!("{}", "-".repeat(60));
+    println!("elapsed            : {elapsed:?}");
+    println!("files seen         : {}", result.coverage.files_seen);
+    println!("folders walked     : {}", result.coverage.dirs_seen);
+    println!(
+        "throughput         : {:.0} files/s   ({:.1} MB/s)",
+        files_seen as f64 / secs,
+        total_bytes as f64 / secs / (1024.0 * 1024.0)
+    );
+    println!(
+        "duplicates         : {} verified groups from {} files considered",
+        result.duplicates.len(),
+        result.duplicate_coverage.files_considered
+    );
+    println!(
+        "bytes hashed       : {}",
+        storage::human_bytes(result.duplicate_coverage.bytes_hashed)
+    );
+    println!("engine duration    : {} ms", result.coverage.duration_ms);
+    if let (Some(a), Some(b)) = (rss_before, rss_after) {
+        println!(
+            "peak working set   : {} -> {} (delta {})",
+            storage::human_bytes(a),
+            storage::human_bytes(b),
+            storage::human_bytes(b.saturating_sub(a))
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&root);
+    Ok(())
+}
+
+/// Peak working set of this process, from the OS.
+///
+/// Returns `None` where the platform will not say. A missing number is
+/// reported as missing rather than guessed.
+#[cfg(windows)]
+fn peak_working_set_bytes() -> Option<u64> {
+    use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
+    use windows::Win32::System::Threading::GetCurrentProcess;
+    let mut counters = PROCESS_MEMORY_COUNTERS {
+        cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: `counters` is correctly sized and the handle is always valid.
+    let ok = unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb) };
+    if ok.is_err() {
+        return None;
+    }
+    Some(counters.PeakWorkingSetSize as u64)
+}
+
+#[cfg(not(windows))]
+fn peak_working_set_bytes() -> Option<u64> {
+    None
+}
 fn truncate_tail(text: &str, max_chars: usize) -> String {
     if text.chars().count() <= max_chars {
         return text.to_string();

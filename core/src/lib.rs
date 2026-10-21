@@ -19,4 +19,5 @@ pub mod report;
 pub mod risk;
 pub mod scanners;
 pub mod signature;
+pub mod storage;
 pub mod threat_intel;
