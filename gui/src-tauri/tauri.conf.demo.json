@@ -1,0 +1,38 @@
+﻿{
+  "productName": "CURE Demo",
+  "identifier": "com.cure.rescue.engine.demo",
+  "build": {
+    "frontendDist": [
+      "../dist-demo/index.html",
+      "../dist-demo/style.css",
+      "../dist-demo/xray.css",
+      "../dist-demo/luma.css",
+      "../dist-demo/storage-workstation.css",
+      "../dist-demo/luma.js",
+      "../dist-demo/xray.js",
+      "../dist-demo/storage-workstation.js",
+      "../dist-demo/app.js",
+      "../dist-demo/mock-tauri.js"
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "publisher": "C.U.R.E",
+    "shortDescription": "Public demo with deterministic sample data",
+    "longDescription": "A public demonstration of the C.U.R.E interface. Every file, path and finding is deterministic sample data. Nothing in this build reads a real machine.",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English"],
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}
