@@ -31,6 +31,51 @@ in CI. Run it locally (clean VM recommended) with:
 testing\run-gui-desktop-tests.bat
 ```
 
+## 0b. Storage: the native end-to-end journey (real binary, real backend)
+
+The browser suite proves the *interface*. This proves the *product*.
+
+```powershell
+cargo build --release --manifest-path gui/src-tauri/Cargo.toml
+python testing/native/native-e2e.py
+```
+
+It launches the real release binary with the WebView2 DevTools port open
+and drives the real webview through the real Rust backend: startup,
+navigation, a real storage scan with real progress, the coverage report,
+cancellation, the preview, the typed confirmation, the removal, the
+receipt, the companion's states, reduced motion and the keyboard route.
+
+**Safety.** The only file it removes is one it created itself, inside a
+directory it created itself, inside the operating system's temporary
+directory. It removes that directory when it finishes, pass or fail. It
+installs nothing, registers nothing and changes no system setting.
+
+Options:
+
+```
+--exe PATH        the binary to test
+--shots DIR       where to write the screenshots (default docs/native-captures)
+--keep-fixture    leave the fixture behind for inspection
+--cdp-port PORT   the DevTools port to use
+```
+
+It runs in CI as the "Native end-to-end journey" step.
+
+## 0c. Release candidate audit (blocking)
+
+```powershell
+python tools/audit-candidate.py <candidate-directory>
+```
+
+The candidate must contain a `portable/` directory and one
+`cure-v*.zip`. The audit proves the file boundary is exactly what it
+should be, that the ZIP and the staged tree are byte-identical, that
+every checksum matches, and that the executables contain no builder path,
+no desktop test driver and no credential marker. The expected file set is
+derived from the repository, so a renamed screenshot cannot break the
+gate — which is what used to make it reject every new candidate.
+
 ## 1. Watcher: first-run consent
 
 On first launch `cure-watch.exe` shows a Yes/No message box:

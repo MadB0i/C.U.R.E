@@ -1,27 +1,34 @@
 # C.U.R.E
 
-### Evidence-first Windows rescue and persistence inspection.
+### Evidence-first Windows security and storage workstation.
 
-C.U.R.E shows what starts with Windows, why it was flagged,
-and what will change before you act.
+C.U.R.E shows what starts with Windows, why it was flagged, what is using
+your disk, and what will change before you act.
 
 [![CI](https://github.com/MadB0i/C.U.R.E/actions/workflows/ci.yml/badge.svg)](https://github.com/MadB0i/C.U.R.E/actions/workflows/ci.yml)
 
-![C.U.R.E Rescue Console: System X-Ray during a live collection run, sample data from the deterministic mock backend](docs/screenshots/02-scan.png)
+![C.U.R.E Storage Workstation: a squarified treemap of measured categories beside a tier-filtered ledger. Sample data from the deterministic mock backend.](docs/screenshots/08-storage-map.png)
 
 - Inspect Windows persistence points and suspicious processes.
 - Review evidence before taking action.
 - Quarantine supported files with integrity-checked undo.
+- Measure a drive properly, find verified duplicates, and reclaim space
+  through a preview you have to type a word to confirm.
 
-![Sample flow: launch, Rescue Scan, System X-Ray, finding, evidence, confirmed quarantine, undo, then a separately confirmed Disk Cleanup. Sample data.](docs/media/demo.gif)
+![Sample flow: launch, Rescue Scan, System X-Ray, finding, evidence, confirmed quarantine, undo, then a separately confirmed storage measurement and cleanup. Sample data.](docs/media/demo.gif)
 
-[Watch the same flow as MP4](docs/media/demo.mp4) · [WebM](docs/media/demo.webm)
+[Watch the same flow as MP4](docs/media/demo.mp4)
 
 Malware that survives a reboot hides in startup folders, Run keys, scheduled
 tasks, services and WMI subscriptions. C.U.R.E reads those mechanisms, scores
 every finding **with its evidence attached**, and moves — never deletes —
 files you confirm, with a recorded, byte-identical undo. Anything it will not
 touch automatically, such as the registry, is reported as guidance instead.
+
+It also measures storage the way a careful person would: every file with its
+real on-disk size, every category with the reasoning that classified it, every
+duplicate verified by reading both copies in full, and nothing removed until
+you have seen a preview and typed the word.
 
 ## What it inspects
 
@@ -35,47 +42,90 @@ touch automatically, such as the registry, is reported as guidance instead.
 | IFEO | Image File Execution Options debugger entries |
 | COM | Hijackable COM registrations |
 | Processes | Running process list and command lines |
-| Disk Cleanup | Temp files, browser caches, Recycle Bin, `Windows.old` |
 
 Scoring is heuristic: Authenticode status, path reputation, LOLBin shapes and
 local indicators, each with the reason shown beside it. Treat Suspicious and
 High as investigation leads, not verdicts.
 
+## What it measures
+
+| Area | What C.U.R.E reports |
+|---|---|
+| Known-safe caches | User and Windows temp, browser caches, Recycle Bin payloads, crash dumps, diagnostic logs |
+| Large files | Every measured file, sorted and filterable, with allocated size rather than apparent size |
+| Duplicates | Groups verified by full SHA-256 of every copy, with the copy that would be kept named |
+| Downloads | Old installers and archives, always at *review carefully* |
+| Developer caches | `node_modules`, `target`, `.nuget`, `.gradle`, build output |
+| Large folders | Every folder measured, ranked by the space it occupies |
+| Old downloads | Downloads and installers untouched for a long time — labelled by age, never called "unused" |
+| Dormant app data | Folders no installed program claims — reported, never offered for deletion |
+| Other drives | Any volume or folder you add, with overlapping roots measured once |
+| Project output | Build directories recognised wherever they live, including a project on `D:\Projects` |
+
+### Four tiers, and why "uncertain" is not "probably fine"
+
+`SAFE TO REVIEW` · `REVIEW CAREFULLY` · `PROTECTED` · `UNKNOWN`
+
+* **Safe to review** — regenerable by the program that made it. Files are
+  still listed individually before anything is removed.
+* **Review carefully** — real files you or an application created. Selectable
+  one at a time; never a bulk action.
+* **Protected** — Windows, drivers, recovery, restore points, installed
+  applications. Never proposed, never removed.
+* **Unknown** — the engine could not classify the path. Treated as
+  off-limits. Uncertainty escalates; it never resolves downward into a delete.
+
+"Potentially unused" does not mean "safe to delete". A folder no file has
+touched in a year may hold a licence, the only copy of something, or the state
+of an application you use daily. C.U.R.E says so next to the number.
+
 ## Screenshots
 
 | | |
 |---|---|
-| ![Evidence inspector showing the summary, the reasons a startup entry was flagged, its persistence source, target, signature and resolved SHA-256](docs/screenshots/04-evidence-inspector.png) | ![Disk Cleanup with a measured storage core, per-category ledger and reclaimable total](docs/screenshots/08-cleanup.png) |
-| **Evidence inspector** — why it was flagged, and what it points at. | **Disk Cleanup** — measured first, deleted only after you confirm. |
-| ![Cleanup result showing bytes freed taken from the engine receipt and the per-category outcome](docs/screenshots/09-cleanup-result.png) | ![Review required listing persistence findings with scores and reasons](docs/screenshots/03-review-required.png) |
-| **Cleanup result** — the receipt is the engine's own, not an estimate. | **Review required** — every finding carries its score and reason. |
+| ![Storage Workstation treemap with category ledger and a verified reclaimable figure](docs/screenshots/08-storage-map.png) | ![Evidence inspector showing the summary, the reasons a startup entry was flagged, its source, target, signature and SHA-256](docs/screenshots/04-evidence-inspector.png) |
+| **Storage Workstation** — measured first, removed only after you confirm. | **Evidence inspector** — why it was flagged, and what it points at. |
+| ![Cleanup queue grouped by safety tier with the preview requirement](docs/screenshots/09-storage-preview.png) | ![Review required listing persistence findings with scores and reasons](docs/screenshots/03-review-required.png) |
+| **Cleanup queue** — protected and uncertain files have no action at all. | **Review required** — every finding carries its score and reason. |
 
-All screenshots and demo media use labelled mock sample data.
+All screenshots and demo media use labelled mock sample data. Numbers in them
+are invented for the harness and were never measured on a real machine.
 
 ## Download
 
-The published release is **v0.1.0**. v0.2.0 is prepared and awaiting release.
-
 [**Releases**](https://github.com/MadB0i/C.U.R.E/releases/latest)
 
-Each release archive contains:
+Each release carries:
 
 | File | What it is |
 |---|---|
-| `cure-gui.exe` | Desktop Rescue Console (Tauri, needs WebView2) |
+| `C.U.R.E-Setup.exe` | Windows installer (NSIS), installs for the current user |
+| `cure-gui.exe` | Desktop Evidence Console (Tauri, needs WebView2) |
 | `cure.exe` | CLI scanner, quarantine and undo |
 | `cure-watch.exe` | USB watcher: consent, pairing, launch, uninstall |
 | portable ZIP | The above, no installer |
 | `SHA256SUMS.txt` | Hashes for the archive contents |
 
-Windows 10/11 with WebView2 (preinstalled on current Windows). **Binaries are
-currently unsigned.** No installer and no administrator rights are needed for
-the core flows; unelevated scans show INCOMPLETE rows instead of guessing.
+Windows 10/11 with WebView2 (preinstalled on current Windows).
+
+**The binaries are unsigned.** Windows shows a SmartScreen warning on first
+run. The installer installs for the current user, needs no administrator
+rights, **does not disable antivirus or bypass Windows security warnings**,
+and **does not install the USB watcher** — that is a separate, explicit act.
+
+No administrator rights are needed for the core flows; unelevated scans show
+INCOMPLETE rows instead of guessing.
 
 ```bat
 cure.exe --data-dir .\cure-data scan
 cure.exe --data-dir .\cure-data quarantine <id>     :: asks first
 cure.exe --data-dir .\cure-data undo <id>
+
+:: Storage measurement. Read-only: this never removes anything.
+cure.exe storage scan --depth quick
+cure.exe storage scan --depth deep --abandoned
+cure.exe storage duplicates --root D:\Media
+cure.exe storage bench --files 20000 --size 4096 --copies 4
 ```
 
 ## Safety and limitations
@@ -87,13 +137,26 @@ will not make an infected machine safe on its own.
 - **Nothing runs without you.** No auto-scan: every run starts with one
   explicit click or command. Non-interactive sessions refuse rather than guess.
 - **Local only.** No telemetry, no accounts, no cloud lookups. Certificate
-  revocation is cache-only unless you pass `--online-revocation`.
-- **Move, never delete.** Quarantine relocates with size and hash integrity
-  checks, snapshots ACLs, and restores byte-identical — or reports exactly what
-  could not be restored.
+  revocation is cache-only unless you pass `--online-revocation`. Cloud-only
+  files are never downloaded while scanning.
+- **Move, never delete — for anything suspicious.** Quarantine relocates with
+  size and hash integrity checks, snapshots ACLs, and restores
+  byte-identical — or reports exactly what could not be restored.
+- **Storage cleanup is the one permanent deletion**, and it is guarded: it
+  requires a current scan, a preview of every item with the consequences in
+  plain language, a typed confirmation word, and a re-validation of every
+  target immediately before it is removed. Anything that moved, changed
+  size, became a link, left its authorised root, or changed tier is refused
+  and listed on the receipt.
+- **Never touch.** `C:\Windows` outside named cleanable subtrees, `WinSxS`,
+  `DriverStore`, `Installer`, `System32\config`, `System Volume Information`,
+  recovery partitions, restore locations, `Program Files`, `ProgramData` and
+  the Recycle Bin's own index records are never proposed for removal.
 - **Honest gaps.** Areas that could not be read render as INCOMPLETE, never as
-  "clean". Disk Cleanup is the one permanent deletion, and it is a separate,
-  explicitly confirmed action.
+  "clean". If any location was unreadable the headline reads *at least*
+  rather than a total.
+- **Last-access timestamps are not evidence.** Windows frequently disables
+  them. C.U.R.E records them and never reasons from them.
 - **Scoring is heuristic.** Novel attacker patterns outside the known list can
   score Safe. `%VAR%` expansion depends on the process environment.
 - **Same-user code execution is out of scope.** Stopping malware already
@@ -122,15 +185,32 @@ cd gui/devtools
 npm ci && npm test && npm run layout && npm run pixel
 ```
 
+And there is a **native** end-to-end check that drives the real release
+binary through the real WebView2 webview and the real Rust backend over the
+DevTools protocol. It covers startup, navigation, a real storage scan with
+real progress, coverage, cancellation, the preview, the confirmation, the
+removal and the receipt, the companion's states, reduced motion and the
+keyboard route. The only file it ever removes is one it created itself,
+inside a directory it created itself, inside the system temporary
+directory:
+
+```powershell
+cargo build --release --manifest-path gui/src-tauri/Cargo.toml
+python testing/native/native-e2e.py
+```
+
 ## Documentation
 
+[Changelog](docs/CHANGELOG.md) ·
+[Architecture](docs/ARCHITECTURE.md) ·
+[Storage benchmarks](docs/benchmarks/storage-engine.md) ·
 [Release notes](docs/RELEASE-NOTES-0.2.0.md) ·
 [Release readiness](docs/RELEASE-READINESS-0.2.0.md) ·
 [Visual verification](docs/UI-REDESIGN-VERIFICATION.md) ·
-[Architecture](docs/ARCHITECTURE.md) ·
 [GUI verification](gui/devtools/README.md) ·
 [Real-PC validation report](docs/validation/REAL-PC-VALIDATION.md) ·
 [Manual test checklist](testing/real-pc/README-TESTING.md) ·
+[Companion verification](docs/LUMA-COMPANION-VERIFICATION.md) ·
 [Security policy](SECURITY.md)
 
 ## License

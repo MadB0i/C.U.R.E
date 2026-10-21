@@ -5,7 +5,7 @@
 | Crate | Dir | Role |
 |---|---|---|
 | `cure_core` | `core/` | Scanners, scoring, quarantine/undo, reports, signature checks. Pure logic + Windows FFI; no UI, no network. |
-| `cure_cli` | `cli/` | `cure.exe`: `scan`, `diff`, `quarantine`, `undo`, `report`, `incident`, `cleanup`. Explicit flags only. |
+| `cure_cli` | `cli/` | `cure.exe`: `scan`, `diff`, `quarantine`, `undo`, `report`, `incident`, `cleanup`, `storage`. Explicit flags only. |
 | `cure_watch` | `watch/` | `cure-watch.exe`: USB polling, token-pairing, pinned-GUI launch, consent, self-install/`--uninstall`, canary guard. |
 | `cure_dirwatch` | `winwatch/` | Shared directory watching + canary decoy planting (used by watcher and GUI). |
 | `cure_gui` | `gui/src-tauri` | Tauri v2 desktop UI (separate workspace/lockfile). Thin IPC layer over `cure_core`. |
@@ -24,7 +24,22 @@ quarantine: fresh-scan id → is_file_backed gate → confirm → Pending record
           (atomic save) → MoveFileExW → Committed → records.json
 undo:     scoped roots check → integrity (size+sha256) → move back →
           SDDL/attrs/timestamps restore (notes on gaps)
+
+storage:  catalog::roots (known-safe locations + user-selected)
+          → tiers::classify (SafetyTier + the clauses that produced it)
+          → walk::walk_root (no link following, cancellable, bounded)
+          → duplicates::find_duplicates (size → 64 KiB → full SHA-256)
+          → StorageScan { files, folders, summaries, coverage,
+                          large_files, duplicates, abandoned }
+          → build_plan (selection → items + refused, with consequences)
+          → execute_plan (re-validate every target, then remove)
+          → CleanupReceipt { verified bytes, estimate, refusals, failures }
 ```
+
+The storage engine is deliberately split the same way the persistence
+engine is: **measure**, then **plan**, then **execute**, with no phase
+skipping another. `cure storage …` in the CLI only ever reaches the first
+two; the third exists solely behind the desktop preview flow.
 
 ## Key modules (`core/src`)
 
@@ -35,6 +50,32 @@ undo:     scoped roots check → integrity (size+sha256) → move back →
 - `overlay.rs` — pure candidate matcher (topmost + borderless + non-ValidSigned + ≥90% coverage + attributed + not allowlisted). The GUI shows matches; each close is a separate confirmed command (graceful default, explicit force).
 - `threat_intel.rs` / `hash_intel.rs` — local-only providers; fixture feed is labeled DEMO and its label travels into finding reasons.
 - `report.rs`, `incident.rs`, `process_scan.rs`, `ransom_detect.rs`, `canary.rs`, `lnk.rs`, `baseline.rs`, `elevation.rs`, `entry_details.rs`, `attack.rs`, `model.rs`, `threat_intel.rs`.
+
+## Storage engine (`core/src/storage/`)
+
+| Module | Role |
+|---|---|
+| `types.rs` | The whole vocabulary: `SafetyTier`, `StorageClass`, `FileRecord`, `FolderRecord`, `ScanCoverage`, `DuplicateSet`, `AbandonedAppRecord`, `CleanupPlan`, `CleanupReceipt`. All serialisable DTOs. |
+| `tiers.rs` | `classify(path, class, ctx) -> Classification { tier, reasons }`. Provenance supplies a **floor**; only path context can raise it. Component-wise token matching, so `C:\Data` never swallows `C:\Database` and `Program FilesX` is never inside `Program Files`. |
+| `walk.rs` | The single traversal in the engine. Iterative (no recursion), never follows links, records every unreadable entry, checks a shared cancel flag at each entry boundary, and reports its depth/entry/time limits instead of silently truncating. |
+| `fsx.rs` | Platform facts `std::fs` will not give: allocated size (`GetCompressedFileSizeW`), attributes, reparse points, hard-link counts (`GetFileInformationByHandle`), volume free space. Every one degrades to "unknown", never to a guess. |
+| `catalog.rs` | The known-safe location list, resolved from the environment at scan time. Shared vendor list with `tiers` so a browser cannot be half-recognised. Reconciles overlapping roots. |
+| `duplicates.rs` | Three-stage verification. Nothing is reported that has not been read in full and hashed. |
+| `abandoned.rs` | Dormant application data, always tiered `unknown`, always with a caveat. Reads the uninstall registry to say whether an installed program claims the folder. |
+| `mod.rs` | `scan`, `build_plan`, `execute_plan`. `execute_plan` re-validates each target live and refuses anything that moved, changed size, became a link, left its authorised root, or changed tier. |
+| `reclaim.rs` | The **union** of the removable files. The category view and the duplicate view overlap, so the headline is computed from one identity table: each path contributes its bytes once, and the duplicate figure is reported as a subset of it. This is why the headline cannot over-promise. |
+| `safedelete.rs` | Race-safe removal. The file is opened, its identity on the volume is compared with the identity recorded when the plan was approved, and the *verified handle* is marked for deletion. A file that was swapped, or a parent that became a junction, is refused rather than removed. |
+
+### The tier rule, in one paragraph
+
+`safe_to_review` means *this class of file is regenerable*, and even then
+every individual file is listed before anything is removed.
+`review_carefully` means real user data: selectable, but one at a time, never
+as a bulk action. `protected` means Windows, drivers, recovery, restore
+points or installed applications — the engine never proposes removing it.
+`unknown` means the engine could not classify the path with confidence, which
+is not the same as *known to be important* and is therefore treated as
+off-limits. Uncertainty escalates; it never resolves downward into a delete.
 
 ## Watcher (`watch/src`)
 
@@ -51,3 +92,34 @@ Every mutating IPC command re-resolves fresh scan data and ignores
 frontend-supplied paths; destructive ones confirm per item. `dist/` is the
 shipped, fully-offline frontend (CI fails on remote URLs); `index.dev.html`
 + `mock-tauri.js` is the browser-runnable mock used for docs captures.
+
+### Storage commands
+
+`storage_available_roots`, `storage_scan`, `storage_cancel`,
+`storage_preview`, `storage_execute`, `storage_reveal`.
+
+`storage_scan` is the only one that runs long work; it refuses to start a
+second concurrent scan and relays `storage-progress` events rather than
+having the UI invent progress. `storage_preview` builds the plan and
+**the backend keeps it**; `storage_execute` asks for that plan by its
+`plan_id` and the exact confirmation word. The caller never supplies a
+selection, so it cannot ask for something other than what was shown, and
+the engine recomputes the plan's digest and refuses a plan whose contents
+no longer match. A mismatch means
+nothing runs. The stored scan is dropped afterwards, because its numbers no
+longer describe the filesystem. `storage_reveal` selects a path in Explorer
+and never executes anything from it.
+
+### Frontend
+
+| File | Role |
+|---|---|
+| `app.js` | Shell, navigation, persistence results, quarantine, monitor, settings. |
+| `xray.js` / `xray.css` | System X-Ray: the nine persistence layers as an instrument, driven by real coverage states. |
+| `storage-workstation.js` / `.css` | Storage Workstation: scan lifecycle, squarified treemap, file table, duplicate comparison, queue, inspector, preview, receipt. |
+| `luma.js` / `luma.css` | The companion rig, her twelve states, two poses, and the single global motion switch. |
+| `style.css` | Graphite depth ramp, violet identity accent, semantic colours, type and spacing scales. |
+
+All four are hand-written, framework-free and dependency-free. The build step
+is Tauri embedding an explicit nine-file allowlist, and `mock-tauri.js` is
+deliberately *not* on it.

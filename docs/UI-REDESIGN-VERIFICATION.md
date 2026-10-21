@@ -1,5 +1,12 @@
 # Rescue Console redesign — 2026-10-04
 
+> **Historical.** This document describes the 2026-10-04 redesign pass, which
+> predates the Storage Workstation. The current state of the application is
+> recorded in [`RELEASE-READINESS-0.2.0.md`](RELEASE-READINESS-0.2.0.md), the
+> [`ACCEPTANCE-0.2.0.md`](ACCEPTANCE-0.2.0.md) matrix and the
+> [`LUMA-COMPANION-VERIFICATION.md`](LUMA-COMPANION-VERIFICATION.md) companion
+> report. The storage screen it describes no longer exists.
+
 A major visual redesign pass. The visual identity was replaced, not tuned.
 No backend behaviour, safety semantic or honesty wording changed.
 
@@ -43,6 +50,12 @@ partial, `AccessDenied` → warn, `CheckFailed` → bad, `Unavailable`/`NotCheck
 → idle. Access denied never renders as a green dot.
 
 ### Luma (`gui/dist/luma.js`, `luma.css`)
+
+> Superseded on 2026-10-19 by a full cat rewrite of both files —
+> see [LUMA-COMPANION-VERIFICATION.md](LUMA-COMPANION-VERIFICATION.md). The
+> state vocabulary below (`scan-console`, `seal`, …) is the historical
+> pre-storage redesign; the current ten canonical states live in the
+> changelog's 2026-10-19 entry.
 
 Rebuilt from scratch as an original articulated vector operator: independent
 head, torso, upper arms, forearms, hands, hair back/front, lids, brows, irises
