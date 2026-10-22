@@ -519,7 +519,7 @@ pub fn investigate(scan: &StorageScan) -> Investigation {
     // The engine's summaries partition the measurement, so these slices add
     // up to exactly what was measured.
     let mut summaries: Vec<&super::types::ClassSummary> = scan.summaries.iter().collect();
-    summaries.sort_by(|a, b| b.bytes_allocated.cmp(&a.bytes_allocated));
+    summaries.sort_by_key(|s| std::cmp::Reverse(s.bytes_allocated));
 
     for summary in &summaries {
         if summary.bytes_allocated == 0 {
@@ -611,7 +611,7 @@ pub fn investigate(scan: &StorageScan) -> Investigation {
     // Only the outermost measured folder of each branch is used, so two
     // location leads never describe the same bytes twice.
     let mut locations = location_leads(scan, measured_bytes);
-    locations.sort_by(|a, b| b.bytes_allocated.cmp(&a.bytes_allocated));
+    locations.sort_by_key(|l| std::cmp::Reverse(l.bytes_allocated));
     locations.truncate(MAX_LOCATION_LEADS);
     for lead in locations.iter_mut() {
         lead.scope_note = format!(
@@ -624,14 +624,14 @@ pub fn investigate(scan: &StorageScan) -> Investigation {
 
     // ---- verified duplicate leads ----------------------------------------
     let mut duplicates: Vec<&DuplicateSet> = scan.duplicates.iter().collect();
-    duplicates.sort_by(|a, b| b.reclaimable_bytes.cmp(&a.reclaimable_bytes));
+    duplicates.sort_by_key(|d| std::cmp::Reverse(d.reclaimable_bytes));
     for set in duplicates.iter().take(MAX_DUPLICATE_LEADS) {
         leads.push(duplicate_lead(set, measured_bytes));
     }
 
     // ---- dormant application leads ---------------------------------------
     let mut dormant: Vec<&super::types::AbandonedAppRecord> = scan.abandoned.iter().collect();
-    dormant.sort_by(|a, b| b.size_allocated.cmp(&a.size_allocated));
+    dormant.sort_by_key(|r| std::cmp::Reverse(r.size_allocated));
     for record in dormant.iter().take(MAX_DORMANT_LEADS) {
         leads.push(dormant_lead(record, measured_bytes));
     }
@@ -745,7 +745,7 @@ pub fn investigate(scan: &StorageScan) -> Investigation {
 /// used. The result never double-counts.
 fn location_leads(scan: &StorageScan, measured_bytes: u64) -> Vec<Lead> {
     let mut folders: Vec<&FolderRecord> = scan.large_folders.iter().collect();
-    folders.sort_by(|a, b| b.size_allocated.cmp(&a.size_allocated));
+    folders.sort_by_key(|f| std::cmp::Reverse(f.size_allocated));
 
     let mut chosen: Vec<&FolderRecord> = Vec::new();
     for folder in folders {
@@ -1004,9 +1004,7 @@ fn share_of(bytes: u64, measured: u64) -> f64 {
 }
 
 fn share_percent(share: f64) -> String {
-    if share <= 0.0 {
-        "Less than 1%".to_string()
-    } else if share < 0.01 {
+    if share < 0.01 {
         "Less than 1%".to_string()
     } else {
         format!("{:.1}%", share * 100.0)
@@ -1247,7 +1245,7 @@ mod tests {
     fn categories_are_grouped_and_the_map_adds_up() {
         let scan = scan_from(vec![
             file("C:\\Temp\\a.tmp", 4 * GIB, 4 * GIB, StorageClass::UserTemp, SafetyTier::SafeToReview),
-            file("C:\\Temp\\b.tmp", 1 * GIB, 1 * GIB, StorageClass::UserTemp, SafetyTier::SafeToReview),
+            file("C:\\Temp\\b.tmp", GIB, GIB, StorageClass::UserTemp, SafetyTier::SafeToReview),
             file("C:\\Win\\System32\\drivers\\x.sys", 3 * GIB, 3 * GIB, StorageClass::Other, SafetyTier::Protected),
             file("D:\\Build\\target\\big.bin", 2 * GIB, 2 * GIB, StorageClass::DevCache, SafetyTier::ReviewCarefully),
         ]);
@@ -1278,7 +1276,7 @@ mod tests {
         let scan = scan_from(vec![file(
             "C:\\Temp\\sparse.vhd",
             8 * GIB,
-            1 * GIB,
+            GIB,
             StorageClass::UserTemp,
             SafetyTier::SafeToReview,
         )]);
@@ -1288,7 +1286,7 @@ mod tests {
             .iter()
             .find(|l| l.kind == LeadKind::Category)
             .expect("a category lead");
-        assert_eq!(lead.bytes_allocated, 1 * GIB, "allocated bytes are the real figure");
+        assert_eq!(lead.bytes_allocated, GIB, "allocated bytes are the real figure");
         assert_eq!(lead.bytes_logical, 8 * GIB, "the apparent length is kept beside it");
         assert!(lead
             .evidence
@@ -1302,8 +1300,8 @@ mod tests {
     fn origin_is_known_for_a_class_the_engine_identified() {
         let scan = scan_from(vec![file(
             "C:\\$Recycle.Bin\\S-1-5-21\\x.bin",
-            1 * GIB,
-            1 * GIB,
+            GIB,
+            GIB,
             StorageClass::RecycleBin,
             SafetyTier::SafeToReview,
         )]);
@@ -1317,8 +1315,8 @@ mod tests {
     fn origin_is_unknown_when_the_measurement_says_nothing() {
         let scan = scan_from(vec![file(
             "D:\\Things\\mystery.dat",
-            1 * GIB,
-            1 * GIB,
+            GIB,
+            GIB,
             StorageClass::Other,
             SafetyTier::Unknown,
         )]);
@@ -1336,8 +1334,8 @@ mod tests {
     fn origin_carries_the_engines_own_reasoning() {
         let mut f = file(
             "D:\\Build\\target\\x.bin",
-            1 * GIB,
-            1 * GIB,
+            GIB,
+            GIB,
             StorageClass::DevCache,
             SafetyTier::ReviewCarefully,
         );
@@ -1444,8 +1442,8 @@ mod tests {
             ),
             folder(
                 "D:\\Build\\target\\debug",
-                1 * GIB,
-                1 * GIB,
+                GIB,
+                GIB,
                 5,
                 StorageClass::DevCache,
                 SafetyTier::ReviewCarefully,
@@ -1565,7 +1563,7 @@ mod tests {
     fn a_dominant_category_is_flagged_and_promoted() {
         let scan = scan_from(vec![
             file("C:\\Temp\\a.tmp", 9 * GIB, 9 * GIB, StorageClass::UserTemp, SafetyTier::SafeToReview),
-            file("D:\\Build\\x.bin", 1 * GIB, 1 * GIB, StorageClass::DevCache, SafetyTier::ReviewCarefully),
+            file("D:\\Build\\x.bin", GIB, GIB, StorageClass::DevCache, SafetyTier::ReviewCarefully),
         ]);
         let investigation = investigate(&scan);
         assert_eq!(investigation.map.measured_bytes, 10 * GIB);
@@ -1613,8 +1611,8 @@ mod tests {
     fn a_cancelled_scan_says_so() {
         let mut scan = scan_from(vec![file(
             "C:\\Temp\\a.tmp",
-            1 * GIB,
-            1 * GIB,
+            GIB,
+            GIB,
             StorageClass::UserTemp,
             SafetyTier::SafeToReview,
         )]);
@@ -1632,8 +1630,8 @@ mod tests {
     fn permission_failures_lower_the_certainty() {
         let mut scan = scan_from(vec![file(
             "C:\\Temp\\a.tmp",
-            1 * GIB,
-            1 * GIB,
+            GIB,
+            GIB,
             StorageClass::UserTemp,
             SafetyTier::SafeToReview,
         )]);
@@ -1653,8 +1651,8 @@ mod tests {
         // than making a second one.
         let files = vec![file(
             "C:\\Temp\\a.tmp",
-            1 * GIB,
-            1 * GIB,
+            GIB,
+            GIB,
             StorageClass::UserTemp,
             SafetyTier::SafeToReview,
         )];

@@ -184,7 +184,7 @@ pub fn build(
             },
         })
         .collect();
-    categories.sort_by(|a, b| b.bytes.cmp(&a.bytes));
+    categories.sort_by_key(|c| std::cmp::Reverse(c.bytes));
 
     // Verified recovery needs an observation, not a request.
     let observed_gain: Option<u64> = receipt.and_then(|r| {
