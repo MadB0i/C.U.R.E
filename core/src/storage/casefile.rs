@@ -20,8 +20,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::detective::{Investigation, LeadKind, Significance};
-use super::types::CleanupReceipt;
 use super::human_bytes;
+use super::types::CleanupReceipt;
 
 /// How much detail the exported image carries.
 ///
@@ -480,13 +480,7 @@ mod tests {
     fn the_case_file_carries_no_path_no_user_name_and_no_file_name() {
         let scan = private_scan();
         let investigation = investigate(&scan);
-        let case = build(
-            &investigation,
-            None,
-            None,
-            false,
-            PrivacyLevel::Detailed,
-        );
+        let case = build(&investigation, None, None, false, PrivacyLevel::Detailed);
         let json = serde_json::to_string(&case).expect("the case file serialises");
 
         for secret in [
@@ -561,9 +555,7 @@ mod tests {
     fn a_notable_lead_is_described_without_naming_its_folder() {
         let mut scan = private_scan();
         scan.large_folders = vec![FolderRecord {
-            path: std::path::PathBuf::from(
-                "C:\\Users\\janedoe\\Projects\\SecretProject\\target",
-            ),
+            path: std::path::PathBuf::from("C:\\Users\\janedoe\\Projects\\SecretProject\\target"),
             depth: 1,
             size_logical: 2 * GIB,
             size_allocated: 2 * GIB,
@@ -607,9 +599,7 @@ mod tests {
                 incomplete: false,
             },
             FolderRecord {
-                path: std::path::PathBuf::from(
-                    "C:\\Users\\janedoe\\Projects\\OtherProject\\dist",
-                ),
+                path: std::path::PathBuf::from("C:\\Users\\janedoe\\Projects\\OtherProject\\dist"),
                 depth: 1,
                 size_logical: 2 * GIB,
                 size_allocated: 2 * GIB,
@@ -664,7 +654,13 @@ mod tests {
             "file:///C:/secret",
             "Users\\janedoe",
         ] {
-            let case = build(&investigation, None, Some(note), true, PrivacyLevel::Minimal);
+            let case = build(
+                &investigation,
+                None,
+                Some(note),
+                true,
+                PrivacyLevel::Minimal,
+            );
             assert!(case.summary.is_none(), "a private note survived: {note}");
             assert!(case.summary_withheld);
         }
@@ -682,7 +678,10 @@ mod tests {
             PrivacyLevel::Minimal,
         );
         assert!(case.summary.is_none());
-        assert!(!case.summary_withheld, "nothing was withheld; it was never asked for");
+        assert!(
+            !case.summary_withheld,
+            "nothing was withheld; it was never asked for"
+        );
     }
 
     // -- status ---------------------------------------------------------------
@@ -761,7 +760,13 @@ mod tests {
         let investigation = investigate(&scan);
         let mut receipt = receipt_with_delta(4 * GIB as i64);
         receipt.scan_id = "scan-a-completely-different-measurement".to_string();
-        let case = build(&investigation, Some(&receipt), None, false, PrivacyLevel::Minimal);
+        let case = build(
+            &investigation,
+            Some(&receipt),
+            None,
+            false,
+            PrivacyLevel::Minimal,
+        );
         assert!(
             case.verified_recovered_bytes.is_none(),
             "a receipt from another measurement must not verify this one"

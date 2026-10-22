@@ -1854,9 +1854,10 @@ fn storage_case_file(
             .last_investigation
             .lock()
             .map_err(|_| "storage state is poisoned".to_string())?;
-        guard.as_ref().cloned().ok_or_else(|| {
-            "Run a storage scan before exporting a case file.".to_string()
-        })?
+        guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| "Run a storage scan before exporting a case file.".to_string())?
     };
     let receipt = {
         let guard = state
@@ -1910,8 +1911,8 @@ fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
 /// Refuse anything that is not a small PNG before the export path allocates.
 fn decode_case_file_png(data_base64: &str) -> Result<Vec<u8>, String> {
     /* Refuse an oversized payload before allocating a decoding buffer for
-       it. 16 MiB of PNG is about 22.4 MiB of base64; allow a little slack
-       for padding and line breaks. */
+    it. 16 MiB of PNG is about 22.4 MiB of base64; allow a little slack
+    for padding and line breaks. */
     const MAX_CASE_FILE_B64: usize = 24 * 1024 * 1024;
     if data_base64.len() > MAX_CASE_FILE_B64 {
         return Err("the case file image is too large to write".to_string());
@@ -1943,11 +1944,9 @@ fn storage_save_case_file(name: String, data_base64: String) -> Result<String, S
         return Err("the case file has no identifier".to_string());
     }
     let dir = resolve_data_dir().join("case-files");
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("cannot create the export folder: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create the export folder: {e}"))?;
     let path = dir.join(format!("{safe}.png"));
-    std::fs::write(&path, &bytes)
-        .map_err(|e| format!("cannot write the case file: {e}"))?;
+    std::fs::write(&path, &bytes).map_err(|e| format!("cannot write the case file: {e}"))?;
     Ok(path.to_string_lossy().into_owned())
 }
 /// Ask the engine to stop. Safe to call at any time, including when no scan/// is running.

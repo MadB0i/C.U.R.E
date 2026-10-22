@@ -17,8 +17,8 @@
 //! permitted by its tier is dropped from the plan rather than deleted.
 
 pub mod abandoned;
-pub mod catalog;
 pub mod casefile;
+pub mod catalog;
 pub mod detective;
 pub mod duplicates;
 pub mod fsx;

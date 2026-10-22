@@ -27,10 +27,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
+use super::human_bytes;
 use super::types::{
     Certainty, DuplicateSet, FileRecord, FolderRecord, SafetyTier, StorageClass, StorageScan,
 };
-use super::human_bytes;
 
 // ---------------------------------------------------------------------------
 // Thresholds — the whole significance rule, in one place
@@ -453,10 +453,7 @@ fn action_for(risk: LeadRisk) -> (LeadActionKind, String) {
             LeadActionKind::ReviewAndQueue,
             "Review each item".to_string(),
         ),
-        LeadRisk::Protected => (
-            LeadActionKind::NotOffered,
-            "No removal offered".to_string(),
-        ),
+        LeadRisk::Protected => (LeadActionKind::NotOffered, "No removal offered".to_string()),
         LeadRisk::Unknown => (LeadActionKind::NotOffered, "No removal offered".to_string()),
     }
 }
@@ -530,10 +527,7 @@ pub fn investigate(scan: &StorageScan) -> Investigation {
         let share = share_of(summary.bytes_allocated, measured_bytes);
         let lead_id = format!("category:{}", class.key());
 
-        let sample_reasons = sample_reasons
-            .get(&class)
-            .cloned()
-            .unwrap_or_default();
+        let sample_reasons = sample_reasons.get(&class).cloned().unwrap_or_default();
         let origin = origin_for_class(class, &sample_reasons);
         let (action_kind, action_label) = action_for(risk);
 
@@ -546,7 +540,10 @@ pub fn investigate(scan: &StorageScan) -> Investigation {
             "{} occupies {} on the volume",
             human_bytes(summary.bytes_allocated),
             if summary.bytes_logical > summary.bytes_allocated {
-                format!(" ({} of apparent length)", human_bytes(summary.bytes_logical))
+                format!(
+                    " ({} of apparent length)",
+                    human_bytes(summary.bytes_logical)
+                )
             } else {
                 "the volume".to_string()
             }
@@ -1021,7 +1018,10 @@ fn plural(count: u64, one: &str, many: &str) -> String {
 
 fn risk_note(risk: LeadRisk, tier: SafetyTier) -> String {
     match risk {
-        LeadRisk::Safe => format!("Regenerable by the application that made it. {}.", tier.explanation()),
+        LeadRisk::Safe => format!(
+            "Regenerable by the application that made it. {}.",
+            tier.explanation()
+        ),
         LeadRisk::ReviewRequired => format!(
             "Real data that needs an individual decision. {}.",
             tier.explanation()
@@ -1244,15 +1244,48 @@ mod tests {
     #[test]
     fn categories_are_grouped_and_the_map_adds_up() {
         let scan = scan_from(vec![
-            file("C:\\Temp\\a.tmp", 4 * GIB, 4 * GIB, StorageClass::UserTemp, SafetyTier::SafeToReview),
-            file("C:\\Temp\\b.tmp", GIB, GIB, StorageClass::UserTemp, SafetyTier::SafeToReview),
-            file("C:\\Win\\System32\\drivers\\x.sys", 3 * GIB, 3 * GIB, StorageClass::Other, SafetyTier::Protected),
-            file("D:\\Build\\target\\big.bin", 2 * GIB, 2 * GIB, StorageClass::DevCache, SafetyTier::ReviewCarefully),
+            file(
+                "C:\\Temp\\a.tmp",
+                4 * GIB,
+                4 * GIB,
+                StorageClass::UserTemp,
+                SafetyTier::SafeToReview,
+            ),
+            file(
+                "C:\\Temp\\b.tmp",
+                GIB,
+                GIB,
+                StorageClass::UserTemp,
+                SafetyTier::SafeToReview,
+            ),
+            file(
+                "C:\\Win\\System32\\drivers\\x.sys",
+                3 * GIB,
+                3 * GIB,
+                StorageClass::Other,
+                SafetyTier::Protected,
+            ),
+            file(
+                "D:\\Build\\target\\big.bin",
+                2 * GIB,
+                2 * GIB,
+                StorageClass::DevCache,
+                SafetyTier::ReviewCarefully,
+            ),
         ]);
         let investigation = investigate(&scan);
 
-        assert_eq!(investigation.map.slices.len(), 3, "three classes carry bytes");
-        let summed: u64 = investigation.map.slices.iter().map(|s| s.bytes_allocated).sum();
+        assert_eq!(
+            investigation.map.slices.len(),
+            3,
+            "three classes carry bytes"
+        );
+        let summed: u64 = investigation
+            .map
+            .slices
+            .iter()
+            .map(|s| s.bytes_allocated)
+            .sum();
         assert_eq!(
             summed, investigation.map.measured_bytes,
             "the map partitions the measurement: its slices add up to what was measured"
@@ -1286,12 +1319,16 @@ mod tests {
             .iter()
             .find(|l| l.kind == LeadKind::Category)
             .expect("a category lead");
-        assert_eq!(lead.bytes_allocated, GIB, "allocated bytes are the real figure");
-        assert_eq!(lead.bytes_logical, 8 * GIB, "the apparent length is kept beside it");
-        assert!(lead
-            .evidence
-            .iter()
-            .any(|e| e.contains("apparent length")));
+        assert_eq!(
+            lead.bytes_allocated, GIB,
+            "allocated bytes are the real figure"
+        );
+        assert_eq!(
+            lead.bytes_logical,
+            8 * GIB,
+            "the apparent length is kept beside it"
+        );
+        assert!(lead.evidence.iter().any(|e| e.contains("apparent length")));
     }
 
     // -- origin attribution ---------------------------------------------------
@@ -1526,7 +1563,10 @@ mod tests {
             .evidence
             .iter()
             .any(|e| e.contains("full SHA-256 read")));
-        assert!(lead.origin.evidence.contains("does not record which application"));
+        assert!(lead
+            .origin
+            .evidence
+            .contains("does not record which application"));
     }
 
     // -- dormant applications ------------------------------------------------
@@ -1562,8 +1602,20 @@ mod tests {
     #[test]
     fn a_dominant_category_is_flagged_and_promoted() {
         let scan = scan_from(vec![
-            file("C:\\Temp\\a.tmp", 9 * GIB, 9 * GIB, StorageClass::UserTemp, SafetyTier::SafeToReview),
-            file("D:\\Build\\x.bin", GIB, GIB, StorageClass::DevCache, SafetyTier::ReviewCarefully),
+            file(
+                "C:\\Temp\\a.tmp",
+                9 * GIB,
+                9 * GIB,
+                StorageClass::UserTemp,
+                SafetyTier::SafeToReview,
+            ),
+            file(
+                "D:\\Build\\x.bin",
+                GIB,
+                GIB,
+                StorageClass::DevCache,
+                SafetyTier::ReviewCarefully,
+            ),
         ]);
         let investigation = investigate(&scan);
         assert_eq!(investigation.map.measured_bytes, 10 * GIB);

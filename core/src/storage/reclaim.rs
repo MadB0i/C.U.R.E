@@ -159,7 +159,8 @@ pub fn compute(files: &[FileRecord], duplicates: &[DuplicateSet]) -> ReclaimAcco
                 out.protected_file_count += 1;
                 match entry.tier {
                     SafetyTier::Protected => {
-                        out.protected_only_bytes = out.protected_only_bytes.saturating_add(entry.bytes);
+                        out.protected_only_bytes =
+                            out.protected_only_bytes.saturating_add(entry.bytes);
                     }
                     _ => {
                         out.unknown_bytes = out.unknown_bytes.saturating_add(entry.bytes);
