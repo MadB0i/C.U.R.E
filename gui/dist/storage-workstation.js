@@ -530,6 +530,76 @@
     if (el.addRoot) el.addRoot.disabled = running;
   }
 
+  /* Paint the summary of a finished measurement. Shared by a scan this
+     screen ran and a measurement adopted from Detective Mode, so the two
+     routes cannot drift into showing the same scan differently. */
+  function renderMeasuredHeadline(scan) {
+    if (el.headlineCard) el.headlineCard.removeAttribute("data-scanning");
+    if (!scan || !scan.headline) return;
+    const h = scan.headline;
+    if (el.amount) el.amount.textContent = h.safe_bytes_label;
+    if (el.amountLabel) el.amountLabel.textContent = h.certainty_label;
+    if (el.amountNote) {
+      el.amountNote.textContent = h.incomplete
+        ? "At least this much is recoverable. Some locations could not be read, so this is a floor rather than a total — the Coverage tab lists them."
+        : "Measured end to end across every root this scan covered.";
+    }
+    if (el.careful) el.careful.textContent = h.careful_bytes_label;
+    if (el.protectedBytes) el.protectedBytes.textContent = fmtBytes(scan.protected_bytes);
+    if (el.free) {
+      el.free.textContent = scan.coverage && scan.coverage.volume_free_bytes
+        ? fmtBytes(scan.coverage.volume_free_bytes)
+        : "unknown";
+    }
+    if (el.subline) {
+      el.subline.textContent =
+        (scan.coverage ? scan.coverage.completeness : "") +
+        " · " +
+        (scan.coverage ? scan.coverage.files_seen : 0) +
+        " files in " +
+        fmtDuration(scan.duration_ms) +
+        ".";
+    }
+  }
+
+  /* Adopt a measurement another screen already ran. This performs no I/O:
+     it is the same engine result the Detective board is reading, so the
+     two screens cannot contradict each other. */
+  function adopt(scan) {
+    if (!scan) return false;
+    state.scan = scan;
+    state.drill = null;
+    state.selected.clear();
+    state.queue.clear();
+    state.zoom = null;
+    state.lastPlan = null;
+    state.cancelled = false;
+    setStatus("Measured", "is-ok");
+    renderMeasuredHeadline(scan);
+    publishScanToTopbar(scan);
+    renderBreadcrumbs();
+    renderAll();
+    revealTreemap();
+    luma.idle("Measurement adopted from Detective Mode");
+    return true;
+  }
+
+  /* Focus a category without inventing a new measurement. Used by the
+     Detective board's "Open in Storage Workstation" action. */
+  function focusClass(classKey) {
+    if (!state.scan || !classKey) return false;
+    const summary = (state.scan.summaries || []).find((s) => s.key === classKey);
+    if (!summary) return false;
+    state.tab = "map";
+    state.tierFilter = summary.tier;
+    state.drill = { class: summary.key, label: summary.label, level: "category" };
+    setTab("map");
+    renderTierFilter();
+    renderBreadcrumbs();
+    renderAll();
+    return true;
+  }
+
   async function runScan() {
     if (state.running || !invoke) return;
     state.running = true;
@@ -579,33 +649,7 @@
       state.selected.clear();
       state.queue.clear();
       state.zoom = null;
-      if (el.headlineCard) el.headlineCard.removeAttribute("data-scanning");
-      if (scan && scan.headline) {
-        const h = scan.headline;
-        if (el.amount) el.amount.textContent = h.safe_bytes_label;
-        if (el.amountLabel) el.amountLabel.textContent = h.certainty_label;
-        if (el.amountNote) {
-          el.amountNote.textContent = h.incomplete
-            ? "At least this much is recoverable. Some locations could not be read, so this is a floor rather than a total — the Coverage tab lists them."
-            : "Measured end to end across every root this scan covered.";
-        }
-        if (el.careful) el.careful.textContent = h.careful_bytes_label;
-        if (el.protectedBytes) el.protectedBytes.textContent = fmtBytes(scan.protected_bytes);
-        if (el.free) {
-          el.free.textContent = scan.coverage && scan.coverage.volume_free_bytes
-            ? fmtBytes(scan.coverage.volume_free_bytes)
-            : "unknown";
-        }
-        if (el.subline) {
-          el.subline.textContent =
-            (scan.coverage ? scan.coverage.completeness : "") +
-            " · " +
-            (scan.coverage ? scan.coverage.files_seen : 0) +
-            " files in " +
-            fmtDuration(scan.duration_ms) +
-            ".";
-        }
-      }
+      renderMeasuredHeadline(scan);
       if (scan && scan.coverage && scan.coverage.cancelled) {
         setStatus("Cancelled", "is-warn");
         paintScanStages("final", "cancelled");
@@ -1287,11 +1331,19 @@
      scan it is reporting. */
   function publishScanToTopbar(scan) {
     if (!window.CureTopbar || !scan) return;
+    const inv = scan.investigation || {};
+    const map = inv.map || {};
     window.CureTopbar.storageScan({
       at: (scan.finished_unix || 0) * 1000,
-      bytes: scan.headline ? scan.headline.safe_bytes : 0,
+      /* The topbar says "measured", so it must show the measured total,
+         not the smaller figure that only counts removal candidates. */
+      bytes: map.measured_bytes || (scan.headline ? scan.headline.safe_bytes : 0),
       files: scan.coverage ? scan.coverage.files_seen : 0,
-      incomplete: scan.headline ? !!scan.headline.incomplete : false,
+      incomplete: map.certainty
+        ? map.certainty !== "measured"
+        : scan.headline
+          ? !!scan.headline.incomplete
+          : false,
     });
   }
 
@@ -2272,6 +2324,10 @@
       luma.review(state.queue.size, "Queued for removal");
     },
     redraw: drawTreemap,
+    /* Detective Mode hands the same measurement here instead of making the
+       operator wait through a second scan. */
+    adopt: adopt,
+    focusClass: focusClass,
     isRunning: function () {
       return state.running;
     },

@@ -182,6 +182,7 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
             "nav-scan",
             "nav-cleanup",
             "nav-quarantine",
+            "nav-detective",
             "nav-eventlog",
         ]:
             page.evaluate(
@@ -244,6 +245,12 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
             measured["roots"] > 0,
             f"the coverage tab lists the roots that were measured ({measured['roots']})",
         )
+        runner.check(
+            page.evaluate(
+                "() => (window.CureStorageWorkstation.state.scan.finished_unix || 0) > 0"
+            ),
+            "the measured scan carries its finish time",
+        )
 
         runner.step("coverage")
         page.evaluate("""() => document.getElementById('sw-tab-coverage').click()""")
@@ -257,6 +264,62 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
             })"""
         )
         runner.check(coverage["stats"] > 0, "the coverage report is populated")
+
+        runner.step("the detective board reads the same real measurement")
+        page.evaluate("""() => document.getElementById('nav-detective').click()""")
+        time.sleep(0.8)
+        # Adopt the scan the workstation just ran rather than starting a
+        # second full-disk measurement. The board is being checked, not the
+        # scanner it already exercised.
+        page.evaluate(
+            """() => {
+                const scan = window.CureStorageWorkstation.state.scan;
+                window.CureDetective.adopt(scan);
+            }"""
+        )
+        page.wait_for_selector("#dt-leads .dt-lead", timeout=30000)
+        time.sleep(1.0)
+        board = page.evaluate(
+            """() => ({
+                total: (document.getElementById('dt-map-total') || {}).innerText || '',
+                leads: document.querySelectorAll('#dt-leads .dt-lead').length,
+                arcs: document.querySelectorAll('#dt-map .dt-arc').length,
+                state: (document.querySelector('[data-companion="detective"]') || {}).dataset.state || '',
+            })"""
+        )
+        runner.check(board["total"] not in ("", "—"),
+                     f"the board leads with the measured total ({board['total']!r})")
+        runner.check(board["leads"] > 0, f"the board lists real leads ({board['leads']})")
+        runner.check(board["arcs"] > 0, "the map draws real category arcs")
+        runner.check(board["state"] in ("major", "discovering", "curious", "thinking"),
+                     f"the companion reacts to the investigation ({board['state']!r})")
+        runner.shot(page, "detective-board")
+
+        page.evaluate("""() => document.getElementById('dt-case-preview').click()""")
+        page.wait_for_selector("#dt-case-preview-stage img", timeout=15000)
+        page.evaluate(
+            """() => document.getElementById('dt-case-preview-stage')
+                .scrollIntoView({ block: 'center' })"""
+        )
+        time.sleep(0.6)
+        privacy = page.evaluate(
+            """() => {
+                const s = JSON.stringify(window.CureCaseFile.audit(
+                    window.CureDetective.state.caseFile));
+                return s.match(/[A-Za-z]:\\\\|Users|AppData|\\.tmp|\\.zip/gi) || [];
+            }"""
+        )
+        runner.check(not privacy,
+                     f"the native case file carries no path or file name ({privacy[:2]})")
+        runner.check(
+            not page.evaluate("!!window.CureDetective.state.caseFile.demo"),
+            "the native case file is not marked as demo data",
+        )
+        runner.shot(page, "detective-case-file")
+
+        # Return to the workstation, whose measurement the board adopted.
+        page.evaluate("""() => document.getElementById('nav-cleanup').click()""")
+        time.sleep(0.8)
 
         runner.step("the fixture is measured, and only the fixture is ever removed")
         page.evaluate("""() => document.getElementById('sw-tab-large').click()""")
@@ -407,7 +470,7 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
         states = page.evaluate(
             """() => {
                 const names = ['idle','scan','discovering','review','curious','thinking',
-                               'quarantine','success','failure','cancelled','sleeping'];
+                               'quarantine','success','failure','cancelled','sleeping','major'];
                 const out = [];
                 for (const n of names) {
                     const api = window.CureCompanion;
@@ -422,6 +485,7 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
                     else if (n === 'failure') api.failed('probe');
                     else if (n === 'cancelled') api.cancelled('probe');
                     else if (n === 'sleeping') api.sleep();
+                    else if (n === 'major') api.major('probe');
                     out.push(document.querySelector('[data-companion="overview"]')
                                .getAttribute('data-state'));
                 }
@@ -429,7 +493,7 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
             }"""
         )
         runner.check(
-            len(set(states)) >= 10,
+            len(set(states)) >= 12,
             f"the companion reaches every state the interface can ask for ({states})",
         )
 

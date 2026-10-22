@@ -183,7 +183,7 @@ shadow to match.
 | One cat at a time | Petting one companion purrs that companion only | Browser suite: `petting one cat purrs one cat` |
 | Keyboard | The stage is a real control: `role="button"`, `tabindex="0"`, a label, and Enter or Space pets | Browser suite: `the companion can be reached and operated from the keyboard` |
 | Scoped personas | A host that asks for its own companion keeps it. A global event never overwrites it | Browser suite: `a global event does not overwrite a screen-specific companion` |
-| Live states | All eleven interface-reachable states were driven in the **native** application | `testing/native/native-e2e.py` |
+| Live states | All twelve interface-reachable states, including the major-concentration pose, were driven in the **native** application | `testing/native/native-e2e.py` |
 | Animation tracks | Finished tracks are released whatever they animated. The earlier code only released the ones that targeted the same node, so a long session accumulated animations without bound | `luma.js` `beat()` |
 | Teardown | `CureCompanion.destroy(host)` cancels the animations, clears the timers, removes the listeners and empties the host | `luma.js` `destroy()` |
 | Multi-instance safety | Each mount builds its own rig with a unique suffix, so gradient ids never collide | Measured live: `dfur_4`, `drim_4`, `diris_4` |

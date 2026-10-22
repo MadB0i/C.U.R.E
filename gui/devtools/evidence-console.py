@@ -165,11 +165,11 @@ def core_flow(browser, size=(900, 600), reduced=False, capture=False, video=Fals
         shot(page, DOCS / "01-overview.png")
     layout(page, "idle " + str(size))
     axe(page, "idle")
-    check(page.locator(".nav .nav-item").count() == 6, "six primary destinations")
+    check(page.locator(".nav .nav-item").count() == 7, "seven primary destinations")
     check(page.locator(".nav button:disabled").count() == 0, "no disabled primary navigation")
     check(page.locator(".nav-number").count() == 0, "navigation carries no numeric labels")
     check([t.strip() for t in page.locator(".nav .nav-item span").all_inner_texts()] ==
-          ["Overview", "Rescue", "Investigate", "Quarantine", "Storage", "Monitor"],
+          ["Overview", "Rescue", "Investigate", "Quarantine", "Detective", "Storage", "Monitor"],
           "primary destinations are icon and title only")
     check(page.locator("#xray-canvas").count() == 1, "system x-ray canvas present")
     check(page.locator("[data-companion='overview'] .luma-svg").count() == 1,
@@ -663,6 +663,98 @@ def demo_flow(browser):
     check(not errors,'demo runtime: '+str(errors))
 
 
+def detective_flow(browser):
+    """The detective board must read measured evidence, not invent it."""
+    ctx,page,errors=open_page(browser,(1440,900))
+    goto_view(page,'#nav-detective','view-detective')
+    check(page.locator('#dt-subline').inner_text().startswith('Nothing is measured'),
+          'the detective board starts with no claim')
+    page.locator('#dt-investigate').click()
+    expect(page.locator('#dt-leads .dt-lead').first).to_be_visible(timeout=30000)
+    scan_calls_before=page.evaluate("(window.__CURE_MOCK_COMMANDS||[]).filter(c=>c==='storage_scan').length")
+    total=page.locator('#dt-map-total').inner_text()
+    check(total not in ('', '—'), 'the board leads with a measured total: '+total)
+    check(page.locator('#dt-leads .dt-lead').count() >= 3, 'the board lists leads from the scan')
+    check(page.locator('#dt-leads .dt-significance-major').count() >= 1,
+          'a concentration large enough to call major is marked')
+    check(page.locator('#dt-map .dt-arc').count() >= 2, 'the map draws measured category arcs')
+    check(page.locator('#dt-legend .dt-swatch').count() >= 2, 'the map has an accessible legend')
+    check(page.locator('#dt-bands .dt-band').count() >= 2, 'the bands separate removable and off-limits')
+    check(page.locator('#dt-timeline li.is-done').count() >= 2,
+          'the timeline only advances on steps that happened')
+    expect(page.locator('[data-companion="detective"]')).to_have_attribute('data-state','major')
+
+    page.locator('#dt-leads .dt-lead').filter(
+        has=page.locator('.dt-significance-major')).first.click()
+    expect(page.locator('#dt-detail-body')).to_be_visible()
+    terms=page.locator('#dt-detail-facts .dt-fact-term').all_inner_texts()
+    for wanted in ('WHERE','WHY IT MATTERS','ORIGIN','RISK','ACTION','IF REMOVED'):
+        check(wanted in terms, 'a lead explains '+wanted.lower())
+    check(page.locator('#dt-detail-title').inner_text().strip() != '', 'the lead has a title')
+
+    # The case file is a preview of the allowlisted model, nothing more.
+    page.locator('#dt-case-preview').click()
+    expect(page.locator('#dt-case-preview-stage img')).to_be_visible(timeout=10000)
+    alt=page.locator('#dt-case-preview-stage img').get_attribute('alt') or ''
+    check('Case file preview' in alt and total in alt, 'the preview names the measured total')
+    leaked=page.evaluate("""() => {
+      const s = JSON.stringify(window.CureCaseFile.audit(window.CureDetective.state.caseFile));
+      return s.match(/[A-Za-z]:\\\\|Users|AppData|\\.tmp|\\.zip|bob/gi) || [];
+    }""")
+    check(not leaked, 'the case file model carries no path, user name or file name: '+str(leaked[:3]))
+    check(page.evaluate("!!window.CureDetective.state.caseFile.demo") is False,
+          'the product case file is not marked synthetic')
+
+    page.locator('#dt-case-export').click()
+    expect(page.locator('#dt-case-status')).to_contain_text('Case file written', timeout=10000)
+    check('not uploaded' not in page.locator('#dt-case-status').inner_text().lower(),
+          'the export status names the file, not an upload')
+    check(scan_calls_before == page.evaluate(
+          "(window.__CURE_MOCK_COMMANDS||[]).filter(c=>c==='storage_scan').length"),
+          'exporting a case file does not rescan')
+
+    # Opening a lead in the workstation adopts the same measurement.
+    calls_before=page.evaluate("(window.__CURE_MOCK_COMMANDS||[]).filter(c=>c==='storage_scan').length")
+    page.get_by_role('button', name='Open in Storage Workstation').click()
+    expect(page.locator('#cleanup-view')).to_be_visible()
+    expect(page.locator('#sw-amount')).not_to_have_text('—')
+    check(calls_before == page.evaluate(
+          "(window.__CURE_MOCK_COMMANDS||[]).filter(c=>c==='storage_scan').length"),
+          'the workstation adopts the board measurement without a second scan')
+    check(not errors,'detective runtime: '+str(errors));ctx.close()
+
+
+def public_demo_flow(browser):
+    """The published demo is synthetic and has no write path."""
+    ctx=browser.new_context(viewport={'width':1440,'height':900})
+    page=ctx.new_page()
+    errors=[]
+    page.on('pageerror',lambda e:errors.append(str(e)))
+    page.on('console',lambda m:errors.append(m.text) if m.type=='error' else None)
+    page.goto((ROOT/'gui/dist-demo/index.html').as_uri())
+    page.wait_for_load_state('networkidle')
+    expect(page.locator('#view-overview .demo-banner')).to_be_visible()
+    goto_view(page,'#nav-detective','view-detective')
+    expect(page.locator('#view-detective .demo-banner')).to_be_visible()
+    page.locator('#dt-investigate').click()
+    expect(page.locator('#dt-leads .dt-lead').first).to_be_visible(timeout=30000)
+    page.locator('#dt-case-preview').click()
+    expect(page.locator('#dt-case-preview-stage img')).to_be_visible(timeout=10000)
+    check(page.evaluate("!!window.CureDetective.state.caseFile.demo"),
+          'the demo case file is marked synthetic')
+    page.locator('#dt-case-export').click()
+    expect(page.locator('#dt-case-status')).to_contain_text('Synthetic demo')
+    commands=page.evaluate("window.__CURE_MOCK_COMMANDS||[]")
+    check('storage_save_case_file' not in commands,
+          'the public demo never asks the backend to write a case file')
+    leaked=page.evaluate("""() => {
+      const s = JSON.stringify(window.CureCaseFile.audit(window.CureDetective.state.caseFile));
+      return s.match(/[A-Za-z]:\\\\|Users|AppData|\\.tmp|\\.zip|bob/gi) || [];
+    }""")
+    check(not leaked, 'the demo case file carries no path or user name: '+str(leaked[:3]))
+    check(not errors,'public demo runtime: '+str(errors));ctx.close()
+
+
 def companion_flow(browser, capture=False):
     # The character is presentation only: pause/reduced motion and backend truth matter.
     for failed in [False, True]:
@@ -1067,7 +1159,8 @@ def luma_states(browser):
 def palette_and_assets():
     """Offline asset guard plus a measured, restrained palette check."""
     shipped=["index.html","style.css","xray.css","luma.css","storage-workstation.css",
-             "app.js","luma.js","xray.js","storage-workstation.js"]
+             "detective.css","app.js","luma.js","xray.js","storage-workstation.js",
+             "casefile.js","detective.js"]
     for name in shipped:
         body=(ROOT/"gui/dist"/name).read_text(encoding="utf-8")
         hits=[l for l in body.splitlines()
@@ -1179,7 +1272,8 @@ def main():
             core_flow(browser,reduced=True);states(browser);secondary(browser);responsive(browser)
         if mode=="capture":states(browser,capture=True)
         if mode in ("all","verify","capture"):companion_flow(browser,capture=mode=="capture")
-        if mode in ("all","verify"):luma_states(browser);storage_failure(browser)
+        if mode in ("all","verify"):
+            luma_states(browser);storage_failure(browser);detective_flow(browser);public_demo_flow(browser)
         if mode=="layout":responsive(browser)
         if mode=="pixel":core_flow(browser);pixel()
         if mode=="all":pixel()

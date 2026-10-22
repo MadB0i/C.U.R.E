@@ -111,6 +111,8 @@ fn synthetic_scan(base: &Path, ctx: &tiers::TierContext, class: StorageClass) ->
         safe_reclaimable_bytes: accounting.safe_bytes,
         careful_reclaimable_bytes: accounting.careful_bytes,
         protected_bytes: accounting.protected_bytes,
+        protected_only_bytes: accounting.protected_only_bytes,
+        unknown_bytes: accounting.unknown_bytes,
         duplicate_reclaimable_bytes: accounting.duplicate_bytes,
         duplicate_bulk_reclaimable_bytes: accounting.duplicate_bulk_bytes,
         safe_file_count: accounting.safe_file_count,

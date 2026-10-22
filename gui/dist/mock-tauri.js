@@ -698,6 +698,9 @@
   /* The approved plan, exactly as the real backend keeps it: the UI never
      sends a selection to execute, it sends the digest of the plan it saw. */
   let mockApprovedPlan = null;
+  /* The latest synthetic measurement, kept only so a demo case file can be
+     rendered from the same numbers the board just showed. */
+  let mockLastScan = null;
 
   function buildMockStorageScan(depth) {
     mockStorageScanId += "-r";
@@ -753,8 +756,9 @@
         ]
       : [];
 
-    return {
+    const result = {
       scan_id: mockStorageScanId,
+      finished_unix: 1760000000,
       duration_ms: window.__CURE_MOCK_STORAGE_DELAY_MS,
       headline: {
         /* The headline is the union of the removable files. The duplicate
@@ -875,6 +879,350 @@
               removable: false,
             },
           ],
+    };
+    result.investigation = buildMockInvestigation(result);
+    mockLastScan = result;
+    return result;
+  }
+
+  /* Deterministic, synthetic investigation model. It mirrors the shape of
+     core::storage::detective so the demo and the product render the same
+     screens from the same contracts, without touching a real disk. */
+  function buildMockInvestigation(scan) {
+    const measured = (scan.summaries || []).reduce(function (sum, s) {
+      return sum + s.bytes_allocated;
+    }, 0);
+    const measuredLogical = (scan.summaries || []).reduce(function (sum, s) {
+      return sum + s.bytes_logical;
+    }, 0);
+    const slices = (scan.summaries || []).map(function (s) {
+      const band =
+        s.tier === "safe_to_review"
+          ? "regenerable"
+          : s.tier === "review_carefully"
+            ? "review"
+            : s.tier;
+      return {
+        key: s.key,
+        label: s.label,
+        tier: s.tier,
+        tier_label: TIER_TEXT[s.tier] || s.tier,
+        band: band,
+        bytes_allocated: s.bytes_allocated,
+        bytes_logical: s.bytes_logical,
+        bytes_allocated_label: humanBytes(s.bytes_allocated),
+        item_count: s.item_count,
+        share: measured > 0 ? s.bytes_allocated / measured : 0,
+        lead_id: "cat-" + s.key,
+      };
+    });
+
+    const SIGNIFICANCE = ["ordinary", "notable", "major"];
+    function significanceOf(bytes) {
+      if (bytes >= 512 * MB && measured > 0 && bytes / measured >= 0.15) {
+        return "major";
+      }
+      if (bytes >= 128 * MB) return "notable";
+      return "ordinary";
+    }
+    function bandLabel(band) {
+      return band === "regenerable"
+        ? "Regenerable"
+        : band === "review"
+          ? "Needs review"
+          : band === "protected"
+            ? "Protected"
+            : "Unknown";
+    }
+    function riskFor(tier) {
+      return tier === "safe_to_review"
+        ? "safe"
+        : tier === "review_carefully"
+          ? "review_required"
+          : tier === "protected"
+            ? "protected"
+            : "unknown";
+    }
+
+    const leads = slices.map(function (s, i) {
+      const signific = significanceOf(s.bytes_allocated);
+      const removable = s.tier === "safe_to_review" || s.tier === "review_carefully";
+      return {
+        id: "cat-" + s.key,
+        kind: "category",
+        title: s.label + " in the sample locations",
+        location: s.label,
+        location_label: s.label,
+        class: s.key,
+        tier: s.tier,
+        within: "scanned-roots",
+        scope_note: "A category, not a single file.",
+        labels: [bandLabel(s.band), s.tier === "safe_to_review" ? "Safe to review" : s.tier === "review_carefully" ? "Review carefully" : s.tier === "protected" ? "Protected" : "Unknown"],
+        bytes_allocated: s.bytes_allocated,
+        bytes_logical: s.bytes_logical,
+        bytes_allocated_label: humanBytes(s.bytes_allocated),
+        bytes_logical_label: humanBytes(s.bytes_logical),
+        item_count: s.item_count,
+        share: measured > 0 ? s.bytes_allocated / measured : 0,
+        significance: signific,
+        significance_note:
+          signific === "major"
+            ? "This is the largest concentration in the sample measurement."
+            : signific === "notable"
+              ? "Worth a look before the brush clears the rest."
+              : "Ordinary size in the sample measurement.",
+        origin: {
+          label: "Found by this measurement",
+          confidence: "high",
+          evidence:
+            "The demo scan counted these items directly; no path was read from this machine.",
+        },
+        risk: riskFor(s.tier),
+        risk_note:
+          s.tier === "safe_to_review"
+            ? "Sample data only; a real scan would still require your approval."
+            : s.tier === "review_carefully"
+              ? "Check the contents before selecting anything."
+              : "This category is never offered for removal.",
+        action_kind: removable ? "review_and_queue" : "not_offered",
+        action_label: removable ? "Review in Storage Workstation" : "Not offered for removal",
+        consequence: removable
+          ? "Nothing happens until you approve a specific plan."
+          : "The product will keep this category out of every plan.",
+        evidence: [
+          "Synthetic sample measurement, " + humanBytes(measured) + " in total.",
+          s.item_count + " sample items in this category.",
+        ],
+      };
+    });
+
+    leads.sort(function (a, b) {
+      const bySig =
+        SIGNIFICANCE.indexOf(b.significance) - SIGNIFICANCE.indexOf(a.significance);
+      return bySig || b.bytes_allocated - a.bytes_allocated;
+    });
+
+    const dupes = scan.duplicate_reclaimable_bytes || 0;
+    if (dupes > 0) {
+      leads.push({
+        id: "duplicate-1",
+        kind: "duplicate_set",
+        title: "Identical copies in the sample set",
+        location: "Sample locations",
+        location_label: "Duplicate sets",
+        class: null,
+        tier: "safe_to_review",
+        within: "scanned-roots",
+        scope_note: "Verified by full-content hash in the demo data.",
+        labels: ["Regenerable", "Byte-identical"],
+        bytes_allocated: dupes,
+        bytes_logical: dupes,
+        bytes_allocated_label: humanBytes(dupes),
+        item_count: (scan.duplicates || []).length,
+        share: measured > 0 ? dupes / measured : 0,
+        significance: significanceOf(dupes),
+        significance_note: "One copy can stay; the extra copies are the finding.",
+        origin: {
+          label: "Found by duplicate verification",
+          confidence: "high",
+          evidence: "Synthetic copies share a content hash.",
+        },
+        risk: "safe",
+        risk_note: "Keep at least one copy; the product never selects them all.",
+        action_kind: "review_and_queue",
+        action_label: "Review in Storage Workstation",
+        consequence: "Nothing is removed until you choose which copy to keep.",
+        evidence: ["Verified duplicate sets in the sample measurement."],
+      });
+    }
+
+    const dormant = scan.abandoned || [];
+    for (const a of dormant) {
+      leads.push({
+        id: "abandoned-" + a.path,
+        kind: "dormant_app",
+        title: a.app_name + " has gone quiet",
+        location: a.path,
+        location_label: a.app_name,
+        class: null,
+        tier: a.tier,
+        within: "scanned-roots",
+        scope_note: "A hint, not a verdict.",
+        labels: ["Unknown", "Idle"],
+        bytes_allocated: a.size_allocated,
+        bytes_logical: a.size_allocated,
+        bytes_allocated_label: humanBytes(a.size_allocated),
+        bytes_logical_label: humanBytes(a.size_allocated),
+        item_count: a.file_count,
+        share: measured > 0 ? a.size_allocated / measured : 0,
+        significance: significanceOf(a.size_allocated),
+        significance_note:
+          "Idle is not proof: an installed app can be quiet for months.",
+        origin: {
+          label: "Found by this measurement",
+          confidence: "medium",
+          evidence: a.reasons.slice(),
+        },
+        risk: "unknown",
+        risk_note: a.caveat,
+        action_kind: "not_offered",
+        action_label: "Not offered for removal",
+        consequence: "The product will not remove an unknown idle location.",
+        evidence: a.reasons.slice(),
+      });
+    }
+
+    const notable = leads
+      .filter(function (l) {
+        return l.significance !== "ordinary";
+      })
+      .map(function (l) {
+        return l.id;
+      });
+    const majorLead = leads.find(function (l) {
+      return l.significance === "major";
+    });
+
+    const safe = scan.headline.safe_bytes || 0;
+    const careful = scan.headline.careful_bytes || 0;
+    const candidate = safe + careful;
+    const certainty = scan.headline.incomplete ? "lower_bound" : "measured";
+
+    return {
+      investigation_id: "demo-inv-" + scan.scan_id,
+      scan_id: scan.scan_id,
+      generated_unix: 1760000000,
+      measured_bytes: measured,
+      map: {
+        measured_bytes: measured,
+        measured_bytes_label: humanBytes(measured),
+        measured_logical_bytes: measuredLogical,
+        measured_logical_label: humanBytes(measuredLogical),
+        candidate_bytes: candidate,
+        candidate_label: humanBytes(candidate),
+        safe_candidate_bytes: safe,
+        safe_candidate_label: humanBytes(safe),
+        careful_candidate_bytes: careful,
+        careful_candidate_label: humanBytes(careful),
+        protected_bytes: scan.protected_bytes || 0,
+        protected_label: humanBytes(scan.protected_bytes || 0),
+        unknown_bytes: slices.reduce(function (sum, s) {
+          return sum + (s.tier === "unknown" ? s.bytes_allocated : 0);
+        }, 0),
+        unknown_label: humanBytes(
+          slices.reduce(function (sum, s) {
+            return sum + (s.tier === "unknown" ? s.bytes_allocated : 0);
+          }, 0)
+        ),
+        slices: slices,
+        certainty: certainty,
+        completeness: scan.coverage ? scan.coverage.completeness : "",
+      },
+      headline: {
+        measured_bytes: measured,
+        measured_label: humanBytes(measured),
+        candidate_bytes: candidate,
+        candidate_label: humanBytes(candidate),
+        candidate_note:
+          "Of the storage this scan measured, " +
+          humanBytes(safe) +
+          " is regenerable and " +
+          humanBytes(careful) +
+          " needs an individual decision.",
+        lead_count: leads.length,
+        notable_count: notable.length,
+        completeness: scan.coverage ? scan.coverage.completeness : "",
+      },
+      leads: leads,
+      notable_leads: notable,
+      major_lead: majorLead ? majorLead.id : null,
+      lead_count: leads.length,
+      coverage_notes: scan.coverage ? [scan.coverage.completeness] : [],
+      evidence: {
+        files_measured: scan.files_total,
+        folders_measured: scan.coverage ? scan.coverage.dirs_seen : 0,
+        duplicate_sets_verified: (scan.duplicates || []).length,
+        duplicate_coverage_note: scan.duplicate_coverage
+          ? scan.duplicate_coverage.summary
+          : "",
+        dormant_apps: dormant.length,
+        permission_denied: scan.coverage
+          ? scan.coverage.permission_denied_dirs + scan.coverage.permission_denied_files
+          : 0,
+        links_skipped: scan.coverage ? scan.coverage.reparse_points_skipped : 0,
+        duration_ms: scan.duration_ms,
+      },
+    };
+  }
+
+  function buildMockCaseFile() {
+    const scan = mockLastScan || buildMockStorageScan("standard");
+    const inv = scan.investigation;
+    const cats = (inv.leads || []).filter(function (l) {
+      return l.kind === "category";
+    });
+    const status = "review_pending";
+    return {
+      case_id: "demo-case-" + String(scan.scan_id).replace(/[^a-z0-9]+/gi, "-"),
+      title: "THE MISSING STORAGE CASE",
+      status: status,
+      status_label: "Review pending",
+      generated_unix: 1760000000,
+      measured_bytes: inv.measured_bytes,
+      measured_label: humanBytes(inv.measured_bytes),
+      candidate_bytes: cats.reduce(function (s, l) {
+        return s + (l.action_kind === "review_and_queue" ? l.bytes_allocated : 0);
+      }, 0),
+      candidate_label: humanBytes(
+        cats.reduce(function (s, l) {
+          return s + (l.action_kind === "review_and_queue" ? l.bytes_allocated : 0);
+        }, 0)
+      ),
+      files_removed: null,
+      bytes_removed_estimate: null,
+      bytes_removed_label: null,
+      verified_recovered_bytes: null,
+      verified_recovered_label: null,
+      categories: (inv.map.slices || []).map(function (s) {
+        return {
+          key: s.key,
+          label: s.label,
+          band: s.band,
+          band_label:
+            s.band === "regenerable"
+              ? "Regenerable"
+              : s.band === "review"
+                ? "Needs review"
+                : s.band === "protected"
+                  ? "Protected"
+                  : "Unknown",
+          bytes_allocated: s.bytes_allocated,
+          bytes_label: humanBytes(s.bytes_allocated),
+          item_count: s.item_count,
+          share: inv.measured_bytes > 0 ? s.bytes_allocated / inv.measured_bytes : 0,
+          significance:
+            s.bytes_allocated >= 512 * MB &&
+            inv.measured_bytes > 0 &&
+            s.bytes_allocated / inv.measured_bytes >= 0.15
+              ? "major"
+              : s.bytes_allocated >= 128 * MB
+                ? "notable"
+                : "ordinary",
+        };
+      }),
+      notable_leads: (inv.notable_leads || []).slice(0, 4).map(function (id) {
+        const l = inv.leads.find(function (x) {
+          return x.id === id;
+        });
+        return l ? l.title : "";
+      }),
+      lead_count: inv.lead_count,
+      notable_count: inv.notable_leads.length,
+      completeness: inv.map.partial ? "partial" : "complete",
+      summary: null,
+      summary_withheld: false,
+      privacy: "standard",
+      demo: !!window.__CURE_FORCE_MOCK,
     };
   }
 
@@ -1283,6 +1631,9 @@
   window.__TAURI__ = {
     core: {
       invoke(command, args) {
+        (window.__CURE_MOCK_COMMANDS || (window.__CURE_MOCK_COMMANDS = [])).push(
+          command,
+        );
         switch (command) {
           case "list_overlay_candidates": {
             const hits = window.__CURE_MOCK_OVERLAY_HITS || 0;
@@ -1606,6 +1957,24 @@
           case "storage_reveal":
             window.__CURE_LAST_REVEAL = args && args.path;
             return Promise.resolve(args && args.path);
+          case "storage_case_file":
+            return delay(60).then(function () {
+              return buildMockCaseFile();
+            });
+          case "storage_save_case_file":
+            /* Structural boundary, not a UI preference: the public demo
+               has no code path that writes a file to disk. The dev harness
+               gets a synthetic path so it can still exercise the request. */
+            if (window.__CURE_FORCE_MOCK) {
+              return Promise.reject(
+                new Error(
+                  "This is the public demo. Case files are preview-only and are never written.",
+                ),
+              );
+            }
+            return Promise.resolve(
+              "C:\\mock\\case-files\\" + String((args && args.name) || "case") + ".png",
+            );
           case "kill_high_risk_processes":
             return delay(350).then(function () {
               var procs = (args && args.processes) || [];

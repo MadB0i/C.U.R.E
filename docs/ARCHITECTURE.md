@@ -65,6 +65,8 @@ two; the third exists solely behind the desktop preview flow.
 | `mod.rs` | `scan`, `build_plan`, `execute_plan`. `execute_plan` re-validates each target live and refuses anything that moved, changed size, became a link, left its authorised root, or changed tier. |
 | `reclaim.rs` | The **union** of the removable files. The category view and the duplicate view overlap, so the headline is computed from one identity table: each path contributes its bytes once, and the duplicate figure is reported as a subset of it. This is why the headline cannot over-promise. |
 | `safedelete.rs` | Race-safe removal. The file is opened, its identity on the volume is compared with the identity recorded when the plan was approved, and the *verified handle* is marked for deletion. A file that was swapped, or a parent that became a junction, is refused rather than removed. |
+| `detective.rs` | Turns a completed `StorageScan` into an investigation: category, location, verified-duplicate and dormant-application leads, each with where/why/origin/risk/action/consequence. It reads the scan only; it does not touch the filesystem. Significance needs both an absolute floor and a share of the measured total. |
+| `casefile.rs` | Builds the allowlisted case-file model: category labels, band labels and byte counts only. The type has no field for a path, user name, machine name or file name, and the operator note is withheld if it looks like a path. Recovery is called verified only when a receipt from the same scan observed a free-space gain. |
 
 ### The tier rule, in one paragraph
 
@@ -96,7 +98,8 @@ shipped, fully-offline frontend (CI fails on remote URLs); `index.dev.html`
 ### Storage commands
 
 `storage_available_roots`, `storage_scan`, `storage_cancel`,
-`storage_preview`, `storage_execute`, `storage_reveal`.
+`storage_preview`, `storage_execute`, `storage_reveal`,
+`storage_case_file`, `storage_save_case_file`.
 
 `storage_scan` is the only one that runs long work; it refuses to start a
 second concurrent scan and relays `storage-progress` events rather than
@@ -116,10 +119,14 @@ and never executes anything from it.
 |---|---|
 | `app.js` | Shell, navigation, persistence results, quarantine, monitor, settings. |
 | `xray.js` / `xray.css` | System X-Ray: the nine persistence layers as an instrument, driven by real coverage states. |
-| `storage-workstation.js` / `.css` | Storage Workstation: scan lifecycle, squarified treemap, file table, duplicate comparison, queue, inspector, preview, receipt. |
+| `storage-workstation.js` / `.css` | Storage Workstation: scan lifecycle, squarified treemap, file table, duplicate comparison, queue, inspector, preview, receipt. It can adopt the scan the Detective board already ran instead of measuring twice. |
+| `detective.js` / `.css` | Detective Mode: the storage map, ranked discoveries, lead evidence and the case-file controls. It reads the scan's `investigation` field; opening the view never starts a scan. |
+| `casefile.js` | Canvas renderer for the case-file PNG. It draws only the fields returned by `CureCaseFile.allowlist`, and `audit` exposes that exact allowlist for the privacy test. |
 | `luma.js` / `luma.css` | The companion rig, her twelve states, two poses, and the single global motion switch. |
 | `style.css` | Graphite depth ramp, violet identity accent, semantic colours, type and spacing scales. |
 
-All four are hand-written, framework-free and dependency-free. The build step
-is Tauri embedding an explicit nine-file allowlist, and `mock-tauri.js` is
-deliberately *not* on it.
+All are hand-written, framework-free and dependency-free. The build step is
+Tauri embedding an explicit allowlist of the shipped files, and
+`mock-tauri.js` is deliberately *not* on the production list. The public demo
+is built from the same frontend into `dist-demo/`, with its own Tauri config
+and the deterministic mock; it has no save-case-file handler.

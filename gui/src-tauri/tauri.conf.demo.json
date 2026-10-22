@@ -1,4 +1,4 @@
-﻿{
+{
   "productName": "CURE Demo",
   "identifier": "com.cure.rescue.engine.demo",
   "build": {
@@ -8,9 +8,12 @@
       "../dist-demo/xray.css",
       "../dist-demo/luma.css",
       "../dist-demo/storage-workstation.css",
+      "../dist-demo/detective.css",
       "../dist-demo/luma.js",
       "../dist-demo/xray.js",
       "../dist-demo/storage-workstation.js",
+      "../dist-demo/casefile.js",
+      "../dist-demo/detective.js",
       "../dist-demo/app.js",
       "../dist-demo/mock-tauri.js"
     ]

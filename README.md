@@ -14,6 +14,8 @@ your disk, and what will change before you act.
 - Quarantine supported files with integrity-checked undo.
 - Measure a drive properly, find verified duplicates, and reclaim space
   through a preview you have to type a word to confirm.
+- Ask **where did my storage go?** in Detective Mode: a measured map, ranked
+  discoveries with their evidence, and a privacy-safe case file you can keep.
 
 ![Sample flow: launch, Rescue Scan, System X-Ray, finding, evidence, confirmed quarantine, undo, then a separately confirmed storage measurement and cleanup. Sample data.](docs/media/demo.gif)
 
@@ -61,6 +63,25 @@ High as investigation leads, not verdicts.
 | Dormant app data | Folders no installed program claims — reported, never offered for deletion |
 | Other drives | Any volume or folder you add, with overlapping roots measured once |
 | Project output | Build directories recognised wherever they live, including a project on `D:\Projects` |
+
+### Detective Mode
+
+**Detective Mode** answers *where did my storage go?* from the same
+measurement the Storage Workstation uses. It runs no second scan and no
+filesystem reads: the map partitions the measured bytes, and each ranked
+discovery states **what** was found, **where**, **why** it matters, how the
+engine **knew**, the **size** on disk, the **risk**, the available
+**action**, and **what happens if you act**. Protected and unclassified
+storage is never offered for removal, and "dormant" is always labelled a
+hint rather than a verdict.
+
+The **case file** is a one-page PNG built from an allowlist. Its model has no
+field for a path, a user name, a machine name or a file name, and an
+operator note that looks like a path is withheld. A case is only shown as
+closed when a receipt from that same scan observed the volume's free space
+increase; a removal without that observation stays *review pending*. The
+public demo's case file is marked **SYNTHETIC DEMO** and can be previewed but
+never written.
 
 ### Four tiers, and why "uncertain" is not "probably fine"
 
@@ -189,8 +210,9 @@ And there is a **native** end-to-end check that drives the real release
 binary through the real WebView2 webview and the real Rust backend over the
 DevTools protocol. It covers startup, navigation, a real storage scan with
 real progress, coverage, cancellation, the preview, the confirmation, the
-removal and the receipt, the companion's states, reduced motion and the
-keyboard route. The only file it ever removes is one it created itself,
+removal and the receipt, the Detective board reading that same measurement,
+the case-file privacy audit, the companion's twelve states, reduced motion
+and the keyboard route. The only file it ever removes is one it created itself,
 inside a directory it created itself, inside the system temporary
 directory:
 

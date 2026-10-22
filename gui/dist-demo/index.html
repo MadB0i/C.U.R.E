@@ -11,6 +11,7 @@
     <link href="xray.css" rel="stylesheet" />
     <link href="luma.css" rel="stylesheet" />
     <link href="storage-workstation.css" rel="stylesheet" />
+    <link href="detective.css" rel="stylesheet" />
   </head>
   <body>
     <div class="fallback hidden" id="fallback">
@@ -85,6 +86,18 @@
             <svg aria-hidden="true" viewBox="0 0 24 24">
               <path d="M4 8h16v11H4zM3 4h18v4H3zM9.5 12.5h5"></path></svg
             ><span>Quarantine</span></button>
+          <button
+            aria-current="false"
+            class="nav-item"
+            data-view="view-detective"
+            id="nav-detective"
+            type="button"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <circle cx="10.5" cy="10.5" r="6.5"></circle>
+              <path d="M15.5 15.5L21 21"></path>
+              <path d="M8 10.5h5"></path></svg
+            ><span>Detective</span></button>
           <button
             aria-current="false"
             class="nav-item"
@@ -434,6 +447,199 @@
                 </div>
               </div>
             </div>
+          </section>
+
+          <!-- ============================================================
+               DETECTIVE MODE · where did my storage go?
+               ============================================================ -->
+          <section
+            aria-label="Detective Mode"
+            class="view hidden"
+            id="view-detective"
+          >
+            <div class="demo-banner" role="note"><strong>Public demo</strong> — every file, path and finding on this screen is deterministic sample data. Nothing here was read from a real machine, and nothing here is a threat detection.</div>
+            <div class="dt-head">
+              <div class="dt-head-copy">
+                <div class="eyebrow">Detective mode</div>
+                <h1 class="headline">Where did my storage go?</h1>
+                <div class="subline" id="dt-subline">
+                  Nothing is measured until you start an investigation.
+                </div>
+              </div>
+              <div class="dt-head-actions">
+                <div class="companion dt-companion" data-companion="detective"></div>
+                <button class="btn btn-primary" id="dt-investigate" type="button">
+                  Start investigation
+                </button>
+                <button class="btn btn-ghost hidden" id="dt-rescan" type="button">
+                  Measure again
+                </button>
+              </div>
+            </div>
+
+            <!-- the investigation path ----------------------------------- -->
+            <ol aria-label="Investigation progress" class="dt-timeline" id="dt-timeline">
+              <li data-step="scan"><span>Scan</span></li>
+              <li data-step="discover"><span>Discover</span></li>
+              <li data-step="investigate"><span>Investigate</span></li>
+              <li data-step="review"><span>Review</span></li>
+              <li data-step="verify"><span>Verify</span></li>
+              <li data-step="closed"><span>Case closed</span></li>
+            </ol>
+
+            <!-- the board ------------------------------------------------- -->
+            <div class="dt-board">
+              <section class="dt-panel dt-map-panel">
+                <h2 class="section-title">Storage map</h2>
+                <div class="dt-map-stage">
+                  <div
+                    aria-label="Storage map. The category list beside it carries the same figures as text."
+                    class="dt-map"
+                    id="dt-map"
+                    role="img"
+                  ></div>
+                  <div class="dt-map-core">
+                    <span class="dt-map-core-value" id="dt-map-total">—</span>
+                    <span class="dt-map-core-label">measured</span>
+                  </div>
+                </div>
+                <p class="dt-hint dim" id="dt-map-hint">
+                  Each arc is one measured category, sized by the bytes it
+                  occupies on the volume. Select one to focus the discoveries
+                  beside it.
+                </p>
+                <ul class="dt-legend" id="dt-legend"></ul>
+                <div class="dt-bands" id="dt-bands"></div>
+              </section>
+
+              <section class="dt-panel dt-leads-panel">
+                <div class="dt-leads-head">
+                  <h2 class="section-title">Ranked discoveries</h2>
+                  <div
+                    aria-label="Filter discoveries"
+                    class="dt-filters"
+                    id="dt-lead-filters"
+                    role="group"
+                  >
+                    <button
+                      aria-pressed="true"
+                      class="dt-chip is-on"
+                      data-filter="all"
+                      type="button"
+                    >
+                      All
+                    </button>
+                    <button
+                      aria-pressed="false"
+                      class="dt-chip"
+                      data-filter="category"
+                      type="button"
+                    >
+                      Categories
+                    </button>
+                    <button
+                      aria-pressed="false"
+                      class="dt-chip"
+                      data-filter="location"
+                      type="button"
+                    >
+                      Locations
+                    </button>
+                    <button
+                      aria-pressed="false"
+                      class="dt-chip"
+                      data-filter="duplicate_set"
+                      type="button"
+                    >
+                      Duplicates
+                    </button>
+                    <button
+                      aria-pressed="false"
+                      class="dt-chip"
+                      data-filter="dormant_app"
+                      type="button"
+                    >
+                      Dormant
+                    </button>
+                  </div>
+                </div>
+                <ol class="dt-leads" id="dt-leads"></ol>
+                <div class="dt-empty hidden" id="dt-empty">
+                  <p class="dt-empty-title">No clue here yet.</p>
+                  <p class="dim" id="dt-empty-note">
+                    A scan that finds nothing is a result, not a failure. It
+                    means the places this engine measured hold nothing it can
+                    put a name to.
+                  </p>
+                </div>
+              </section>
+
+              <aside
+                aria-label="Selected discovery"
+                class="dt-panel dt-detail"
+                id="dt-detail"
+              >
+                <div class="dt-detail-empty dim" id="dt-detail-empty">
+                  Select a discovery to read the evidence behind it.
+                </div>
+                <div class="hidden" id="dt-detail-body">
+                  <div class="dt-detail-kind" id="dt-detail-kind"></div>
+                  <h2 class="dt-detail-title" id="dt-detail-title"></h2>
+                  <dl class="dt-facts" id="dt-detail-facts"></dl>
+                  <div class="dt-detail-actions" id="dt-detail-actions"></div>
+                </div>
+              </aside>
+            </div>
+
+            <!-- case file ------------------------------------------------- -->
+            <section class="dt-panel dt-case" id="dt-case">
+              <div class="dt-case-copy">
+                <h2 class="section-title">Case file</h2>
+                <p class="dim">
+                  A one-page summary of what this investigation found, built
+                  from an allowlist. It carries category names and byte
+                  counts. It never carries a path, a user name, a machine
+                  name or a file name.
+                </p>
+                <div class="dt-case-controls">
+                  <label class="dt-field">
+                    <span>Privacy</span>
+                    <select id="dt-case-privacy">
+                      <option selected value="minimal">Minimal</option>
+                      <option value="detailed">Detailed</option>
+                    </select>
+                  </label>
+                  <label class="dt-check">
+                    <input id="dt-case-summary-opt" type="checkbox" />
+                    <span>Include my note</span>
+                  </label>
+                  <label class="dt-field dt-field-wide">
+                    <span>Note (optional)</span>
+                    <input
+                      id="dt-case-summary"
+                      maxlength="160"
+                      placeholder="One line about what you found"
+                      type="text"
+                    />
+                  </label>
+                </div>
+                <div class="dt-case-buttons">
+                  <button class="btn btn-primary" id="dt-case-export" type="button">
+                    Export case file
+                  </button>
+                  <button class="btn btn-ghost" id="dt-case-preview" type="button">
+                    Preview
+                  </button>
+                </div>
+                <div class="dt-case-status dim" id="dt-case-status"></div>
+              </div>
+              <div class="dt-case-preview" id="dt-case-preview-stage">
+                <p class="dim" id="dt-case-preview-note">
+                  Export to see the case file before you share it. Nothing is
+                  uploaded anywhere: the image is written to this machine only.
+                </p>
+              </div>
+            </section>
           </section>
 
           <!-- ============================================================
@@ -1933,6 +2139,8 @@
     <script src="luma.js"></script>
     <script src="xray.js"></script>
     <script src="storage-workstation.js"></script>
+    <script src="casefile.js"></script>
+    <script src="detective.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

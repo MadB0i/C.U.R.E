@@ -32,7 +32,22 @@ pub struct ReclaimAccounting {
     /// Union of bytes held by files that need individual approval.
     pub careful_bytes: u64,
     /// Union of bytes held by files that will not be touched.
+    ///
+    /// This is the *combined* figure for the two off-limits tiers, kept as
+    /// one number because "bytes this engine will never touch" is the
+    /// question most callers ask. The split is available separately in
+    /// [`Self::protected_only_bytes`] and [`Self::unknown_bytes`].
     pub protected_bytes: u64,
+    /// The part of [`Self::protected_bytes`] held by paths the engine
+    /// positively identified as operating system, driver or installed
+    /// application data.
+    pub protected_only_bytes: u64,
+    /// The part of [`Self::protected_bytes`] held by paths the engine could
+    /// not classify with confidence.
+    ///
+    /// "We could not tell" is not the same as "we know this is critical",
+    /// and the investigation board says so rather than merging the two.
+    pub unknown_bytes: u64,
     pub safe_file_count: u64,
     pub careful_file_count: u64,
     pub protected_file_count: u64,
@@ -142,6 +157,14 @@ pub fn compute(files: &[FileRecord], duplicates: &[DuplicateSet]) -> ReclaimAcco
             SafetyTier::Protected | SafetyTier::Unknown => {
                 out.protected_bytes = out.protected_bytes.saturating_add(entry.bytes);
                 out.protected_file_count += 1;
+                match entry.tier {
+                    SafetyTier::Protected => {
+                        out.protected_only_bytes = out.protected_only_bytes.saturating_add(entry.bytes);
+                    }
+                    _ => {
+                        out.unknown_bytes = out.unknown_bytes.saturating_add(entry.bytes);
+                    }
+                }
             }
         }
     }

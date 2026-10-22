@@ -187,6 +187,18 @@
         "lm-finding", g,
       );
     },
+    major: function (g) {
+      /* A large concentration: the same spark, but larger and circled, so
+         the reaction reads as "this one is big" without implying danger. */
+      const s = el("g", { class: "lm-prop-major" }, g);
+      el("circle", { cx: 0, cy: 0, r: 10.5, class: "lm-major-ring" }, s);
+      P(
+        "M0 -15 L3.6 -3.6 L15 0 L3.6 3.6 L0 15 L-3.6 3.6 L-15 0 L-3.6 -3.6 Z",
+        "lm-major-star", s,
+      );
+      P("M10 -10 L11.2 -7.2 L14 -6 L11.2 -4.8 L10 -2 L8.8 -4.8 L6 -6 L8.8 -7.2 Z",
+        "lm-major-spark", s);
+    },
     curious: function (g) {
       /* A tiny floating question mark rendered as geometry, not text —
          smaller and warmer than the failure hook. */
@@ -264,6 +276,7 @@
     idle:        "Idle",
     scan:        "Scanning",
     discovering: "Found something",
+    major:       "Major find",
     curious:     "Curious",
     thinking:    "Thinking",
     review:      "Review",
@@ -333,6 +346,27 @@
     const irisGrad = el("radialGradient", { id: "diris" + suffix, cx: "46%", cy: "30%", r: "78%" }, defs);
     el("stop", { offset: "0%",   "stop-color": "var(--luma-eye)"      }, irisGrad);
     el("stop", { offset: "100%", "stop-color": "var(--luma-eye-deep)" }, irisGrad);
+
+    /* Form shadow: the cool occlusion where the head sits on the shoulders
+       and where the body turns away from the light. One gradient, used by
+       two shapes, so the two shadows agree about where the light is. */
+    const shadeGrad = el("radialGradient", {
+      id: "dshade" + suffix,
+      gradientUnits: "userSpaceOnUse",
+      cx: "76", cy: "68", r: "58",
+    }, defs);
+    el("stop", { offset: "0%",   "stop-color": "var(--luma-shadow)", "stop-opacity": "0.5"  }, shadeGrad);
+    el("stop", { offset: "62%",  "stop-color": "var(--luma-shadow)", "stop-opacity": "0.16" }, shadeGrad);
+    el("stop", { offset: "100%", "stop-color": "var(--luma-shadow)", "stop-opacity": "0"    }, shadeGrad);
+
+    /* Belly light: the soft bounce that lifts the underside of the coat. */
+    const bellyGrad = el("radialGradient", {
+      id: "dbelly" + suffix,
+      gradientUnits: "userSpaceOnUse",
+      cx: "76", cy: "116", r: "34",
+    }, defs);
+    el("stop", { offset: "0%",   "stop-color": "var(--luma-cream)", "stop-opacity": "0.85" }, bellyGrad);
+    el("stop", { offset: "100%", "stop-color": "var(--luma-cream)", "stop-opacity": "0"    }, bellyGrad);
 
     /* The face mask: parked lids blink away above the skull silhouette. */
     const headClip = el("clipPath", { id: "dhead" + suffix }, defs);
@@ -1130,6 +1164,48 @@
       }], 3],
       [doubleBlink, 1],
     ],
+    major: [
+      /* A startle, a double-take, then a proud little lean toward it. The
+         order matters: she notices before she reacts. */
+      [() => [{
+        sel: ".lm-head",
+        keyframes: [
+          { transform: "rotate(2deg) translateY(0)",     offset: 0    },
+          { transform: "rotate(9deg) translateY(-1.5px)", offset: 0.3, easing: "cubic-bezier(.34,1.56,.64,1)" },
+          { transform: "rotate(4deg) translateY(-0.4px)", offset: 0.62 },
+          { transform: "rotate(7deg) translateY(-0.8px)", offset: 1    },
+        ],
+        opts: { duration: 1500, easing: "ease-out" },
+      }, {
+        sel: ".lm-ear-l",
+        keyframes: [
+          { transform: "rotate(-6deg)",  offset: 0    },
+          { transform: "rotate(-17deg) translateY(-1.4px)", offset: 0.28, easing: "cubic-bezier(.34,1.56,.64,1)" },
+          { transform: "rotate(-10deg)", offset: 1    },
+        ],
+        opts: { duration: 1200, easing: "ease-out" },
+      }, {
+        sel: ".lm-ear-r",
+        keyframes: [
+          { transform: "rotate(6deg)",  offset: 0    },
+          { transform: "rotate(17deg) translateY(-1.4px)", offset: 0.32, easing: "cubic-bezier(.34,1.56,.64,1)" },
+          { transform: "rotate(10deg)", offset: 1    },
+        ],
+        opts: { duration: 1240, easing: "ease-out" },
+      }, {
+        sel: ".lm-eyes",
+        keyframes: [
+          { transform: "translateX(0)",      offset: 0    },
+          { transform: "translateX(2.2px)",  offset: 0.26, easing: "ease-out" },
+          { transform: "translateX(-1.6px)", offset: 0.6  },
+          { transform: "translateX(0.8px)",  offset: 0.82 },
+          { transform: "translateX(0)",      offset: 1    },
+        ],
+        opts: { duration: 1700, easing: "ease-in-out" },
+      }], 3],
+      [doubleBlink, 1],
+      [tailFlick, 1],
+    ],
     curious: [
       [() => [{
         sel: ".lm-head",
@@ -1405,6 +1481,17 @@
       asleep = false;
       apply("discovering", count + (count === 1 ? " finding" : " findings"), detail || null);
     },
+    /* A notable clue: one finding, said out loud, rather than a count. */
+    notice: function (detail) {
+      asleep = false;
+      apply("discovering", "New clue discovered", detail || null);
+    },
+    /* The single largest concentration in the measurement. This is a
+       size statement, never a danger statement. */
+    major: function (detail) {
+      asleep = false;
+      apply("major", "Large concentration", detail || null);
+    },
     curious: function (detail) {
       asleep = false;
       apply("curious", null, detail || null);
@@ -1485,6 +1572,8 @@
           if (!count) { scopedApply("idle", null, detail || null); return; }
           scopedApply("discovering", count + (count === 1 ? " finding" : " findings"), detail || null);
         },
+        notice:      (detail)              => scopedApply("discovering", "New clue discovered",                     detail || null),
+        major:       (detail)              => scopedApply("major",       "Large concentration",                    detail || null),
         review:      (count, detail)       => scopedApply("review",     count ? count + " to review" : "Review", detail || null),
         cleanup:     (stateName, title, detail) => scopedApply(stateName || "cleanup", title || null, detail || null),
         seal:        (detail)              => scopedApply("quarantine",  null,                              detail || null),

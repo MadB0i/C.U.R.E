@@ -1204,9 +1204,22 @@ struct CleanupFailureDto {
 #[derive(Default)]
 struct StorageState {
     last_scan: Mutex<Option<storage::StorageScan>>,
-    /// The plan shown in the confirmation dialog. Execution runs *this*
-    /// plan, not a plan rebuilt from whatever the caller sends, so what is
-    /// removed is exactly what was approved.
+    /// The investigation derived from the last scan.
+    ///
+    /// It is kept separately from the scan because the scan is dropped the
+    /// moment a cleanup runs: the filesystem has changed, so the next action
+    /// must be built from a fresh measurement. The investigation is a
+    /// snapshot of what was measured, and a case file is exactly a snapshot
+    /// of what was measured.
+    last_investigation: Mutex<Option<storage::detective::Investigation>>,
+    /// The receipt from the last executed plan, when one ran.
+    ///
+    /// A case file can only claim that space was recovered when this exists,
+    /// and only when it carries an observed free-space movement.
+    last_receipt: Mutex<Option<storage::CleanupReceipt>>,
+    /// The plan the operator approved. Execution runs *this* plan, not a plan
+    /// rebuilt from whatever the caller sends, so what is removed is exactly
+    /// what was approved.
     approved_plan: Mutex<Option<storage::CleanupPlan>>,
     cancel: Mutex<Option<Arc<AtomicBool>>>,
     running: AtomicBool,
@@ -1409,6 +1422,8 @@ struct StorageTierCountsDto {
 #[derive(Serialize)]
 struct StorageScanDto {
     scan_id: String,
+    started_unix: u64,
+    finished_unix: u64,
     duration_ms: u64,
     headline: StorageHeadlineDto,
     protected_bytes: u64,
@@ -1428,6 +1443,12 @@ struct StorageScanDto {
     large_folders: Vec<StorageFolderDto>,
     duplicates: Vec<StorageDuplicateSetDto>,
     abandoned: Vec<StorageAbandonedDto>,
+    /// The investigation derived from the very same measurement.
+    ///
+    /// This is a reading of the scan above, not a second scan: the categories,
+    /// the leads and the totals all come from the numbers the engine just
+    /// produced.
+    investigation: storage::detective::Investigation,
 }
 /// The most file rows the interface is given in one payload.
 ///
@@ -1610,6 +1631,9 @@ async fn storage_scan(
         .last_scan
         .lock()
         .map_err(|_| "storage state is poisoned".to_string())? = Some(scan);
+    if let Ok(mut guard) = state.last_investigation.lock() {
+        *guard = Some(dto.investigation.clone());
+    }
     Ok(dto)
 }
 fn storage_scan_dto(scan: &storage::StorageScan) -> StorageScanDto {
@@ -1617,6 +1641,8 @@ fn storage_scan_dto(scan: &storage::StorageScan) -> StorageScanDto {
     let coverage = &scan.coverage;
     StorageScanDto {
         scan_id: scan.scan_id.clone(),
+        started_unix: scan.started_unix,
+        finished_unix: scan.finished_unix,
         duration_ms: coverage.duration_ms,
         headline: StorageHeadlineDto {
             safe_bytes: headline.safe_bytes,
@@ -1805,7 +1831,124 @@ fn storage_scan_dto(scan: &storage::StorageScan) -> StorageScanDto {
                 removable: false,
             })
             .collect(),
+        investigation: storage::detective::investigate(scan),
     }
+}
+
+/// Build the shareable case file.
+///
+/// This command reads the investigation and the last receipt and returns an
+/// allowlisted model. It cannot remove anything, it cannot read a file, and
+/// the model it returns has no field capable of holding a path, a user name
+/// or a machine name. The summary is sanitised in the engine before it is
+/// allowed through.
+#[tauri::command]
+fn storage_case_file(
+    state: State<'_, StorageState>,
+    summary: Option<String>,
+    include_summary: Option<bool>,
+    privacy: Option<String>,
+) -> Result<storage::casefile::CaseFile, String> {
+    let investigation = {
+        let guard = state
+            .last_investigation
+            .lock()
+            .map_err(|_| "storage state is poisoned".to_string())?;
+        guard.as_ref().cloned().ok_or_else(|| {
+            "Run a storage scan before exporting a case file.".to_string()
+        })?
+    };
+    let receipt = {
+        let guard = state
+            .last_receipt
+            .lock()
+            .map_err(|_| "storage state is poisoned".to_string())?;
+        guard.clone()
+    };
+    Ok(storage::casefile::build(
+        &investigation,
+        receipt.as_ref(),
+        summary.as_deref(),
+        include_summary.unwrap_or(false),
+        storage::casefile::PrivacyLevel::parse(privacy.as_deref().unwrap_or("")),
+    ))
+}
+
+/// Decode standard base64 without pulling in a dependency.
+///
+/// Only what the exported image needs: no line breaks are required, padding
+/// ends the stream, and anything outside the alphabet is refused.
+fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
+    let mut out: Vec<u8> = Vec::with_capacity(input.len() / 4 * 3 + 3);
+    let mut buffer: u32 = 0;
+    let mut bits: u32 = 0;
+    for ch in input.chars() {
+        if ch == '=' {
+            break;
+        }
+        if ch.is_ascii_whitespace() {
+            continue;
+        }
+        let value = match ch {
+            'A'..='Z' => ch as u32 - 'A' as u32,
+            'a'..='z' => ch as u32 - 'a' as u32 + 26,
+            '0'..='9' => ch as u32 - '0' as u32 + 52,
+            '+' => 62,
+            '/' => 63,
+            _ => return Err("the image data is not valid base64".to_string()),
+        };
+        buffer = (buffer << 6) | value;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(((buffer >> bits) & 0xFF) as u8);
+        }
+    }
+    Ok(out)
+}
+
+/// Refuse anything that is not a small PNG before the export path allocates.
+fn decode_case_file_png(data_base64: &str) -> Result<Vec<u8>, String> {
+    /* Refuse an oversized payload before allocating a decoding buffer for
+       it. 16 MiB of PNG is about 22.4 MiB of base64; allow a little slack
+       for padding and line breaks. */
+    const MAX_CASE_FILE_B64: usize = 24 * 1024 * 1024;
+    if data_base64.len() > MAX_CASE_FILE_B64 {
+        return Err("the case file image is too large to write".to_string());
+    }
+    let bytes = decode_base64(data_base64)?;
+    if bytes.len() < 8 || &bytes[0..8] != b"\x89PNG\r\n\x1a\n" {
+        return Err("that file is not a PNG image".to_string());
+    }
+    if bytes.len() > 16 * 1024 * 1024 {
+        return Err("the case file image is too large to write".to_string());
+    }
+    Ok(bytes)
+}
+
+/// Write an exported case file image to this machine.
+///
+/// The file name is reduced to letters, digits, dashes and underscores, so
+/// the caller cannot choose where the file lands, and the bytes are checked
+/// for the PNG signature before anything is written. Nothing is uploaded.
+#[tauri::command]
+fn storage_save_case_file(name: String, data_base64: String) -> Result<String, String> {
+    let bytes = decode_case_file_png(&data_base64)?;
+    let safe: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(64)
+        .collect();
+    if safe.is_empty() {
+        return Err("the case file has no identifier".to_string());
+    }
+    let dir = resolve_data_dir().join("case-files");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("cannot create the export folder: {e}"))?;
+    let path = dir.join(format!("{safe}.png"));
+    std::fs::write(&path, &bytes)
+        .map_err(|e| format!("cannot write the case file: {e}"))?;
+    Ok(path.to_string_lossy().into_owned())
 }
 /// Ask the engine to stop. Safe to call at any time, including when no scan/// is running.
 #[tauri::command]
@@ -1998,6 +2141,9 @@ fn storage_execute(
     if let Ok(mut guard) = state.approved_plan.lock() {
         *guard = None;
     }
+    if let Ok(mut guard) = state.last_receipt.lock() {
+        *guard = Some(receipt.clone());
+    }
     let dto = storage_receipt_dto(&receipt);
     let _ = app.emit("storage-receipt", dto.clone());
     Ok(dto)
@@ -2153,6 +2299,8 @@ fn main() {
             storage_preview,
             storage_execute,
             storage_reveal,
+            storage_case_file,
+            storage_save_case_file,
             storage_available_roots,
             storage_validate_root,
             start_canary_guard,
@@ -3073,5 +3221,56 @@ mod overlay_allowlist_store_tests {
         let one = AllowEntry::new(r"D:\Games\indie.exe", &"aa".repeat(32));
         save_overlay_allowlist_to(&path, &[one.clone(), one.clone()]).unwrap();
         assert_eq!(load_overlay_allowlist_from(&path).len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod case_file_export_tests {
+    use super::*;
+
+    #[test]
+    fn base64_decodes_the_png_signature() {
+        let bytes = decode_base64("iVBORw0KGgo=").expect("valid base64");
+        assert_eq!(&bytes[0..8], b"\x89PNG\r\n\x1a\n");
+    }
+
+    #[test]
+    fn base64_refuses_anything_outside_the_alphabet() {
+        assert!(decode_base64("not base64!").is_err());
+        assert!(decode_base64("AA*A").is_err());
+    }
+
+    #[test]
+    fn base64_ignores_line_breaks() {
+        let joined = decode_base64("iVBORw0K\r\nGgo=").expect("valid base64");
+        assert_eq!(joined, decode_base64("iVBORw0KGgo=").unwrap());
+    }
+
+    #[test]
+    fn an_oversized_payload_is_refused_before_it_is_decoded() {
+        let huge = "A".repeat(24 * 1024 * 1024 + 1);
+        let err = decode_case_file_png(&huge).expect_err("must refuse");
+        assert!(err.contains("too large"));
+    }
+
+    #[test]
+    fn a_non_png_payload_is_refused() {
+        let err = decode_case_file_png("aGVsbG8=").expect_err("must refuse");
+        assert!(err.contains("PNG"));
+    }
+
+    #[test]
+    fn a_case_file_name_cannot_choose_where_the_file_lands() {
+        // The name is reduced to a safe alphabet, so no separator and no
+        // traversal sequence can survive into the path.
+        let hostile = "../../Windows/System32/evil";
+        let safe: String = hostile
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+            .take(64)
+            .collect();
+        assert!(!safe.contains('/'));
+        assert!(!safe.contains('\\'));
+        assert!(!safe.contains(".."));
     }
 }

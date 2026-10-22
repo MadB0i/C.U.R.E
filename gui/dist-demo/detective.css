@@ -1,0 +1,827 @@
+/* ==========================================================================
+   C.U.R.E — Detective Mode
+   --------------------------------------------------------------------------
+   The board is a reading surface: a map, a ranked list of discoveries and
+   the evidence behind one of them.
+
+   The colour language is deliberately narrow. Violet is identity and stays
+   scarce. The four storage bands each own one hue, and that hue is used
+   nowhere else, so a colour on the board always means the same thing:
+
+     regenerable  teal    the application rebuilds it
+     review       amber   real data, individual decision
+     protected    blue    positively identified, never touched
+     unknown      mauve   not classified, never touched
+
+   Nothing here glows for decoration. A discovery that stands out stands out
+   because of its size, and the size is drawn from the measurement.
+   ========================================================================== */
+
+:root {
+  --dt-regenerable: #4fc79c;
+  --dt-regenerable-tint: rgba(79, 199, 156, 0.14);
+  --dt-review: #e2a45c;
+  --dt-review-tint: rgba(226, 164, 92, 0.14);
+  --dt-protected: #5f83d8;
+  --dt-protected-tint: rgba(95, 131, 216, 0.14);
+  --dt-unknown: #8a7ab0;
+  --dt-unknown-tint: rgba(138, 122, 176, 0.14);
+}
+
+/* --- head ------------------------------------------------------------- */
+
+.dt-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s6);
+  flex-wrap: wrap;
+  margin-bottom: var(--s5);
+}
+
+.dt-head-copy {
+  flex: 1 1 420px;
+  min-width: 0;
+}
+
+.dt-head-copy .headline {
+  margin: 2px 0 6px;
+}
+
+.dt-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+
+.dt-companion {
+  width: 148px;
+  /* The stage and its caption are one block. A fixed height clipped the
+     caption into the timeline below, so let the content size it. */
+  height: auto;
+  min-height: 150px;
+  flex: 0 0 auto;
+}
+
+/* --- timeline --------------------------------------------------------- */
+
+.dt-timeline {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  list-style: none;
+  margin: 0 0 var(--s5);
+  padding: 0;
+  border: 1px solid var(--hair);
+  border-radius: var(--r3);
+  background: linear-gradient(180deg, var(--surface), var(--surface-2));
+  overflow: hidden;
+}
+
+.dt-timeline li {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 10px 12px 10px 30px;
+  font-size: var(--t-xs);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-right: 1px solid var(--hair-soft);
+}
+
+.dt-timeline li:last-child {
+  border-right: 0;
+}
+
+.dt-timeline li::before {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--ink-300);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.35);
+  transition: background var(--fast) ease, box-shadow var(--fast) ease;
+}
+
+.dt-timeline li.is-done {
+  color: var(--text-2);
+}
+
+.dt-timeline li.is-done::before {
+  background: var(--cure-400);
+}
+
+.dt-timeline li.is-current {
+  color: var(--text);
+  background: linear-gradient(180deg, rgba(167, 139, 250, 0.12), transparent);
+}
+
+.dt-timeline li.is-current::before {
+  background: var(--cure-300);
+  box-shadow:
+    0 0 0 3px rgba(167, 139, 250, 0.18),
+    0 0 12px rgba(167, 139, 250, 0.55);
+}
+
+/* --- board ------------------------------------------------------------ */
+
+.dt-board {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.86fr) minmax(340px, 1.14fr) minmax(300px, 0.9fr);
+  gap: var(--s4);
+  align-items: start;
+}
+
+@media (max-width: 1240px) {
+  .dt-board {
+    grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.2fr);
+  }
+  .dt-detail {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 900px) {
+  .dt-board {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dt-panel {
+  background: linear-gradient(180deg, var(--surface), var(--surface-2));
+  border: 1px solid var(--hair);
+  border-radius: var(--r3);
+  padding: var(--s4);
+  box-shadow: var(--shadow-1);
+  min-width: 0;
+}
+
+.dt-panel .section-title {
+  margin-top: 0;
+}
+
+/* --- the map ---------------------------------------------------------- */
+
+.dt-map-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: var(--s2) 0 var(--s1);
+}
+
+.dt-map {
+  width: 100%;
+  max-width: 340px;
+  aspect-ratio: 1 / 1;
+  display: grid;
+  place-items: center;
+}
+
+.dt-map-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.dt-map-track {
+  stroke: rgba(255, 255, 255, 0.04);
+}
+
+.dt-arc {
+  transition:
+    opacity var(--fast) ease,
+    filter var(--fast) ease;
+  cursor: default;
+}
+
+.dt-arc.is-dimmed {
+  opacity: 0.28;
+}
+
+.dt-band-regenerable {
+  fill: var(--dt-regenerable);
+  background: var(--dt-regenerable);
+}
+
+.dt-band-review {
+  fill: var(--dt-review);
+  background: var(--dt-review);
+}
+
+.dt-band-protected {
+  fill: var(--dt-protected);
+  background: var(--dt-protected);
+}
+
+.dt-band-unknown {
+  fill: var(--dt-unknown);
+  background: var(--dt-unknown);
+}
+
+.dt-map-core {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  pointer-events: none;
+}
+
+.dt-map-core-value {
+  display: block;
+  font-size: var(--t-xxl);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.05;
+}
+
+.dt-map-core-label {
+  display: block;
+  font-size: var(--t-2xs);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.dt-hint {
+  font-size: var(--t-xs);
+  line-height: 1.55;
+  margin: var(--s2) 0 var(--s3);
+}
+
+/* --- legend ----------------------------------------------------------- */
+
+.dt-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border: 1px solid var(--hair-soft);
+  border-radius: var(--r2);
+  overflow: hidden;
+}
+
+.dt-legend-button {
+  display: grid;
+  grid-template-columns: 12px 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--hair-soft);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--t-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dt-legend-row:last-child .dt-legend-button {
+  border-bottom: 0;
+}
+
+.dt-legend-button:hover {
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text);
+}
+
+.dt-legend-button.is-on {
+  background: var(--cure-tint-soft);
+  color: var(--text);
+}
+
+.dt-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--ink-300);
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
+.dt-legend-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dt-legend-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.dt-legend-share {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  min-width: 42px;
+  text-align: right;
+}
+
+/* --- bands ------------------------------------------------------------ */
+
+.dt-bands {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  margin-top: var(--s4);
+}
+
+.dt-band-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s2);
+}
+
+.dt-band-label {
+  font-size: var(--t-2xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.dt-band-total {
+  font-size: var(--t-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.dt-band-track {
+  display: flex;
+  gap: 2px;
+  height: 9px;
+  margin: 6px 0 6px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dt-band-seg {
+  display: block;
+  min-width: 2px;
+  border-radius: 3px;
+}
+
+.dt-band-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3);
+}
+
+.dt-band-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-2xs);
+  color: var(--text-2);
+}
+
+.dt-band-note {
+  font-size: var(--t-2xs);
+  line-height: 1.5;
+  margin: 6px 0 0;
+}
+
+/* --- discoveries ------------------------------------------------------ */
+
+.dt-leads-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  margin-bottom: var(--s3);
+}
+
+.dt-filters {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.dt-chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--hair);
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: var(--t-2xs);
+  cursor: pointer;
+}
+
+.dt-chip:hover {
+  color: var(--text-2);
+  border-color: var(--hair-strong);
+}
+
+.dt-chip.is-on {
+  color: var(--text);
+  border-color: var(--cure-line);
+  background: var(--cure-tint);
+}
+
+.dt-leads {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 560px;
+  overflow-y: auto;
+}
+
+.dt-lead-button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 11px 10px;
+  border: 1px solid var(--hair-soft);
+  border-radius: var(--r2);
+  background: var(--surface-sunken);
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color var(--fast) ease, background var(--fast) ease;
+}
+
+.dt-lead-button:hover {
+  border-color: var(--hair-strong);
+  background: var(--surface-3);
+}
+
+.dt-lead-button.is-on {
+  border-color: var(--cure-line);
+  background: linear-gradient(180deg, var(--cure-tint-soft), transparent);
+}
+
+.dt-lead-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.dt-lead-rank {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  color: var(--text-3);
+}
+
+.dt-lead-kind {
+  font-size: var(--t-2xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.dt-lead-size {
+  margin-left: auto;
+  font-size: var(--t-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.dt-lead-title {
+  font-size: var(--t-base);
+  color: var(--text);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dt-lead-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.dt-lead-share {
+  margin-left: auto;
+  font-size: var(--t-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.dt-risk {
+  font-size: var(--t-2xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.dt-risk-safe {
+  color: var(--dt-regenerable);
+  background: var(--dt-regenerable-tint);
+  border-color: rgba(79, 199, 156, 0.32);
+}
+
+.dt-risk-review {
+  color: var(--dt-review);
+  background: var(--dt-review-tint);
+  border-color: rgba(226, 164, 92, 0.32);
+}
+
+.dt-risk-protected {
+  color: var(--dt-protected);
+  background: var(--dt-protected-tint);
+  border-color: rgba(95, 131, 216, 0.32);
+}
+
+.dt-risk-unknown {
+  color: var(--dt-unknown);
+  background: var(--dt-unknown-tint);
+  border-color: rgba(138, 122, 176, 0.32);
+}
+
+.dt-significance {
+  font-size: var(--t-2xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--cure-line);
+  color: var(--cure-300);
+  background: var(--cure-tint);
+}
+
+.dt-significance-major {
+  color: var(--cure-300);
+  border-color: rgba(196, 177, 255, 0.6);
+  background: rgba(139, 111, 240, 0.22);
+}
+
+.dt-lead-bar {
+  margin-top: 8px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+
+.dt-lead-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--dt-review);
+}
+
+.dt-lead-fill.dt-risk-safe {
+  background: var(--dt-regenerable);
+}
+
+.dt-lead-fill.dt-risk-protected {
+  background: var(--dt-protected);
+}
+
+.dt-lead-fill.dt-risk-unknown {
+  background: var(--dt-unknown);
+}
+
+.dt-empty {
+  padding: var(--s5) var(--s3);
+  text-align: center;
+  border: 1px dashed var(--hair);
+  border-radius: var(--r2);
+}
+
+.dt-empty-title {
+  margin: 0 0 6px;
+  font-size: var(--t-lg);
+  color: var(--text);
+}
+
+/* --- the detail panel ------------------------------------------------- */
+
+.dt-detail {
+  position: sticky;
+  top: var(--s4);
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+}
+
+.dt-detail-empty {
+  font-size: var(--t-sm);
+  line-height: 1.6;
+  padding: var(--s5) 0;
+  text-align: center;
+}
+
+.dt-detail-kind {
+  font-size: var(--t-2xs);
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 4px;
+}
+
+.dt-detail-title {
+  margin: 0 0 var(--s3);
+  font-size: var(--t-lg);
+  line-height: 1.25;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.dt-facts {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dt-fact {
+  display: grid;
+  grid-template-columns: 108px 1fr;
+  gap: 10px;
+  padding: 7px 0;
+  border-top: 1px solid var(--hair-soft);
+}
+
+.dt-fact-term {
+  font-size: var(--t-2xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding-top: 2px;
+}
+
+.dt-fact-value {
+  margin: 0;
+  font-size: var(--t-sm);
+  line-height: 1.55;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.dt-fact-path {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--text);
+}
+
+.dt-evidence {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dt-detail-actions {
+  margin-top: var(--s4);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--hair);
+}
+
+.dt-no-action {
+  margin: 0;
+  font-size: var(--t-xs);
+  line-height: 1.55;
+}
+
+/* --- the case file ---------------------------------------------------- */
+
+.dt-case {
+  margin-top: var(--s4);
+  display: grid;
+  grid-template-columns: minmax(300px, 1fr) minmax(280px, 0.9fr);
+  gap: var(--s6);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .dt-case {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dt-case-copy .section-title {
+  margin-top: 0;
+}
+
+.dt-case-copy p {
+  font-size: var(--t-sm);
+  line-height: 1.6;
+}
+
+.dt-case-controls {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--s2) var(--s3);
+  align-items: center;
+  margin: var(--s3) 0;
+}
+
+.dt-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-xs);
+  color: var(--text-3);
+}
+
+.dt-field-wide {
+  grid-column: 1 / -1;
+}
+
+.dt-field input,
+.dt-field select {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--surface-sunken);
+  border: 1px solid var(--hair);
+  border-radius: var(--r1);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--t-sm);
+  padding: 6px 8px;
+}
+
+.dt-field input:focus-visible,
+.dt-field select:focus-visible {
+  outline: 2px solid var(--cure-400);
+  outline-offset: 1px;
+}
+
+.dt-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-xs);
+  color: var(--text-3);
+}
+
+.dt-case-buttons {
+  display: flex;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+.dt-case-status {
+  margin-top: var(--s3);
+  font-size: var(--t-xs);
+  line-height: 1.55;
+}
+
+.dt-case-status.is-error {
+  color: var(--danger);
+}
+
+.dt-case-preview {
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  background: var(--surface-sunken);
+  padding: var(--s3);
+  min-height: 120px;
+  display: grid;
+  place-items: center;
+}
+
+.dt-case-preview p {
+  font-size: var(--t-xs);
+  line-height: 1.6;
+  text-align: center;
+  max-width: 34ch;
+}
+
+.dt-case-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--r1);
+  box-shadow: var(--shadow-2);
+}
+
+.dt-case-note {
+  margin-top: var(--s2) !important;
+  width: 100%;
+}
+
+/* --- reduced motion ---------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .dt-arc,
+  .dt-timeline li::before,
+  .dt-lead-button {
+    transition: none !important;
+  }
+}

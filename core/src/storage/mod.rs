@@ -18,6 +18,8 @@
 
 pub mod abandoned;
 pub mod catalog;
+pub mod casefile;
+pub mod detective;
 pub mod duplicates;
 pub mod fsx;
 pub mod reclaim;
@@ -399,6 +401,8 @@ pub fn scan(
         safe_reclaimable_bytes: safe_bytes,
         careful_reclaimable_bytes: careful_bytes,
         protected_bytes,
+        protected_only_bytes: accounting.protected_only_bytes,
+        unknown_bytes: accounting.unknown_bytes,
         duplicate_reclaimable_bytes: duplicate_reclaimable,
         duplicate_bulk_reclaimable_bytes: duplicate_bulk,
         safe_file_count: accounting.safe_file_count,

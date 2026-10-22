@@ -10,9 +10,12 @@
       "../dist/xray.css",
       "../dist/luma.css",
       "../dist/storage-workstation.css",
+      "../dist/detective.css",
       "../dist/luma.js",
       "../dist/xray.js",
       "../dist/storage-workstation.js",
+      "../dist/casefile.js",
+      "../dist/detective.js",
       "../dist/app.js"
     ]
   },

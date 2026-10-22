@@ -1099,6 +1099,7 @@
     "view-audit": "Investigate / Persistence",
     "view-processes": "Investigate / Processes",
     "view-quarantine": "Quarantine",
+    "view-detective": "Detective Mode",
     "cleanup-view": "Storage Workstation",
     "view-eventlog": "Monitor",
     "view-canary": "Monitor / Canary",
@@ -1166,13 +1167,27 @@
     if (!el) return;
     showViewInstant(el);
     if (viewId === "view-overview" && lastSummary) renderOverview(lastSummary);
+    if (viewId === "view-detective" && window.CureDetective) {
+      /* Re-render from the investigation already in memory; opening the
+         board never starts a measurement. */
+      window.CureDetective.render();
+    }
     if (viewId === "view-quarantine") refreshQuarantine();
     if (viewId === "view-eventlog") renderEventLog();
     if (viewId === "cleanup-view" && window.CureStorageWorkstation) {
       /* Opening the workstation performs no measurement, so its companion
          returns to a settled pose rather than continuing a pose left behind
          by a rescue scan. */
-      window.CureStorageWorkstation.idle();
+      /* A measurement adopted from Detective Mode must survive the trip
+         here. Only reset when there is no measurement to keep. */
+      if (
+        window.CureStorageWorkstation.state &&
+        window.CureStorageWorkstation.state.scan
+      ) {
+        window.CureStorageWorkstation.settle();
+      } else {
+        window.CureStorageWorkstation.idle();
+      }
       window.CureStorageWorkstation.redraw();
     }
     document

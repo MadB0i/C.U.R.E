@@ -499,6 +499,16 @@ pub struct StorageScan {
     pub careful_reclaimable_bytes: u64,
     /// Bytes in paths that will not be touched at all.
     pub protected_bytes: u64,
+    /// The part of `protected_bytes` held by paths the engine positively
+    /// identified as operating system, driver or installed application data.
+    pub protected_only_bytes: u64,
+    /// The part of `protected_bytes` held by paths the engine could not
+    /// classify with confidence.
+    ///
+    /// These are reported apart from `protected_only_bytes` because "we could
+    /// not tell" is not the same claim as "we know this is critical", and the
+    /// investigation board must not blur the difference.
+    pub unknown_bytes: u64,
     /// Bytes held by verified duplicate copies that the engine would offer to
     /// remove. This is a **subset** of `safe_reclaimable_bytes` and
     /// `careful_reclaimable_bytes` — never an addition to them. It is reported

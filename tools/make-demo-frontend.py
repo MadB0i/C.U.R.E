@@ -112,14 +112,30 @@ def main() -> None:
         1,
     )
 
+    # The detective board also names folders, so it carries the long banner.
+    DETECTIVE_ANCHOR = (
+        'id="view-detective"\n          >\n            <div class="dt-head">'
+    )
+    if DETECTIVE_ANCHOR not in html:
+        raise SystemExit("index.html detective anchor not found")
+    html = html.replace(
+        DETECTIVE_ANCHOR,
+        'id="view-detective"\n          >\n            ' + BANNER + "\n"
+        '            <div class="dt-head">',
+        1,
+    )
+
     for name in (
         "style.css",
         "xray.css",
         "luma.css",
         "storage-workstation.css",
+        "detective.css",
         "luma.js",
         "xray.js",
         "storage-workstation.js",
+        "casefile.js",
+        "detective.js",
         "app.js",
         "mock-tauri.js",
     ):
