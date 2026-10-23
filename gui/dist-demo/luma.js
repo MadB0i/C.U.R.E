@@ -469,6 +469,16 @@
       "M104.8 99.5 C 101 101.6, 98 103.4, 95.6 105.4",
     ].forEach((d) => P(d, "lm-stripe", flank));
 
+    /* Reskin detail: a few lit fur strokes break up the large coat mass
+       without changing the silhouette or any rigged joint. */
+    const coatDetail = el("g", { class: "lm-coat-detail" }, body);
+    [
+      "M51.2 109.6 C 54.2 111.4, 57.4 112.6, 60.6 113",
+      "M92.4 108.2 C 89.8 110.4, 86.6 112, 83.2 112.8",
+      "M58 116.4 C 61.2 118, 65.4 119, 69.4 119.2",
+      "M85.8 117.6 C 82.8 119, 79.2 119.6, 75.6 119.8",
+    ].forEach((d) => P(d, "lm-fur-tuft", coatDetail));
+
     /* Hind feet */
     const footL = el("g", { class: "lm-foot lm-foot-hind-l" }, body);
     el("ellipse", { cx: 52.5, cy: 118, rx: 8, ry: 5.6, class: "lm-hindpad" }, footL);
@@ -481,11 +491,13 @@
     const pawL = el("g", { class: "lm-j lm-paw lm-paw-l" }, body);
     el("rect",    { x: 55.5, y: 86, width: 9.4, height: 20, rx: 4.7, class: "lm-leg" }, pawL);
     el("rect",    { x: 55.5, y: 99, width: 9.4, height: 9, rx: 4.2, class: "lm-sock" }, pawL);
+    P("M56.4 100.2 C 58 98.8, 62.4 98.8, 64 100.2", "lm-sock-cuff", pawL);
     el("ellipse", { cx: 60.2, cy: 107.4, rx: 7.6, ry: 5.2, class: "lm-paw-pad" }, pawL);
     toeMarks(59, 105, pawL);
     const pawR = el("g", { class: "lm-j lm-paw lm-paw-r" }, body);
     el("rect",    { x: 87.1, y: 86, width: 9.4, height: 20, rx: 4.7, class: "lm-leg" }, pawR);
     el("rect",    { x: 87.1, y: 99, width: 9.4, height: 9, rx: 4.2, class: "lm-sock" }, pawR);
+    P("M88 100.2 C 89.6 98.8, 94 98.8, 95.6 100.2", "lm-sock-cuff", pawR);
     el("ellipse", { cx: 91.8, cy: 107.4, rx: 7.6, ry: 5.2, class: "lm-paw-pad" }, pawR);
     toeMarks(90.6, 105, pawR);
 
@@ -494,6 +506,10 @@
     P(
       "M58.5 63.5 C 64 66.5, 88 66.5, 93.5 63.5 C 95.6 66.4, 92.6 69.6, 76 69.6 C 59.4 69.6, 56.4 66.4, 58.5 63.5 Z",
       "lm-collar-band", collar,
+    );
+    P(
+      "M59.8 64.6 C 65 67, 87 67, 92.2 64.6",
+      "lm-collar-sheen", collar,
     );
     P("M73.2 69.4 l 2.8 -3.4 l 2.8 3.4 l -2.8 3.4 Z", "lm-collar-tag", collar);
     el("circle", { cx: 76, cy: 66.2, r: 1.25, class: "lm-collar-led" }, collar);
@@ -528,6 +544,11 @@
     P(
       "M63 23.5 C 66.5 21.5, 71 20.6, 76 20.6 C 81 20.6, 85.5 21.5, 89 23.5 C 84.5 24.8, 80 25.6, 76 25.6 C 72 25.6, 67.5 24.8, 63 23.5 Z",
       "lm-crown", head,
+    );
+    /* Reskin detail: the pale blaze down the bridge of the nose. */
+    P(
+      "M71.6 25.8 C 74.4 30.4, 74.2 36, 75.1 41.6 C 72.6 37.4, 71.2 31.8, 71.6 25.8 Z",
+      "lm-blaze", head,
     );
     /* Tabby markings: the classic forehead M, and cheek stripes. */
     const headMarks = el("g", { class: "lm-stripes" }, head);
@@ -568,6 +589,9 @@
       const iris = el("g", { class: "lm-iris" }, g);
       el("ellipse", { cx: 0, cy: 0, rx: EYE.r, ry: EYE.r+1.3,
         fill: "url(#diris" + suffix + ")", class: "lm-iris-fill" }, iris);
+      el("ellipse", { cx: 0, cy: 0, rx: EYE.r, ry: EYE.r+1.3,
+        class: "lm-iris-ring" }, iris);
+      P("M-5.8 2.6 C -3.6 6.8, 3.6 6.8, 5.8 2.6", "lm-iris-glow", iris);
       /* Pupil: a <g> so its scale can be animated independently */
       const pupilG = el("g", { class: "lm-pupil-g" }, iris);
       el("ellipse", { cx: 0, cy: 0.4, rx: 2.55, ry: 4.9, class: "lm-pupil" }, pupilG);
@@ -612,6 +636,8 @@
       "M73.6 49.2 C 72.6 49.4, 72.3 50.2, 72.6 51 C 73.1 52.6, 74.5 53.8, 76 53.8 C 77.5 53.8, 78.9 52.6, 79.4 51 C 79.7 50.2, 79.4 49.4, 78.4 49.2 C 77 48.9, 75 48.9, 73.6 49.2 Z",
       "lm-nose-shape", nose,
     );
+    el("ellipse", { cx: 74.7, cy: 50.2, rx: 1.25, ry: 0.75, class: "lm-nose-shine" }, nose);
+    el("ellipse", { cx: 76, cy: 60.8, rx: 5.4, ry: 2.2, class: "lm-chin-lift" }, muzzle);
     P("M76 53.8 L76 55.1", "lm-philtrum", muzzle);
     P("M76 55.1 v1.6 M72.4 57 C 73.3 58.8, 75 58.9, 76 57.4 C 77 58.9, 78.7 58.8, 79.6 57", "lm-mouth", muzzle);
     P("M72.6 57.2 C 73.4 60.6, 78.6 60.6, 79.4 57.2 C 77.2 55.9, 74.8 55.9, 72.6 57.2 Z", "lm-mouth-fill", muzzle);
@@ -787,11 +813,17 @@
     }, sleepHead);
     P("M37.4 71.4 C 39.8 74.6, 41.2 77.8, 41.8 81", "lm-stripe", sleepHead);
     P("M48 69.6 C 49.4 73.2, 50 76.6, 50 79.4", "lm-stripe", sleepHead);
+    P(
+      "M45.4 71.2 C 47.4 75.2, 47.6 80, 47.2 84.2 C 45.4 80.2, 44.8 75.6, 45.4 71.2 Z",
+      "lm-blaze", sleepHead,
+    );
+    P("M46.8 74.4 C 49.2 76.8, 51 79.8, 52.2 83", "lm-fur-tuft", sleepHead);
     /* Closed eye: a single relaxed curve, not a lid rectangle. */
     P("M31.6 87 C 34.6 91.6, 41.4 91.6, 44.4 87", "lm-lid-line", sleepHead);
     /* Muzzle and a small pink nose. */
     P("M42.6 95 C 38.6 95, 36.2 96.8, 36.2 98.8 C 36.2 101.2, 38.4 102.8, 42.6 102.8 C 46.8 102.8, 49 101.2, 49 98.8 C 49 96.8, 46.6 95, 42.6 95 Z", "lm-muzzle-pad", sleepHead);
     P("M40.2 96.2 C 39.4 96.4, 39.2 97.2, 39.5 97.9 C 39.9 99.2, 41 100, 42.6 100 C 44.2 100, 45.3 99.2, 45.7 97.9 C 46 97.2, 45.8 96.4, 45 96.2 C 43.8 95.9, 41.4 95.9, 40.2 96.2 Z", "lm-nose-shape", sleepHead);
+    el("ellipse", { cx: 41.2, cy: 97.1, rx: 1.05, ry: 0.62, class: "lm-nose-shine" }, sleepHead);
     /* The tech collar, still on, catching the light. */
     P("M62 84.6 C 65.4 88, 68.4 89.6, 71.6 89.6", "lm-collar-band", sleepHead);
     el("circle", { cx: 72.6, cy: 89.8, r: 1.2, class: "lm-collar-led" }, sleepHead);

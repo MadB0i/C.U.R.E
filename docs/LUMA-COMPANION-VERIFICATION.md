@@ -24,6 +24,18 @@ seeded beat scheduler.
 | Tail | Four joints (`tailBase → tail1 → tail2 → tailTip`), tapering strokes 10.6 → 6.2, with a tuft and a cap | Measured from the rig and from the CSS |
 | Stripes | Forehead "M", two cheek stripes per side, three flank stripes per side, three tail rings | Counted in the live rig |
 
+### The artwork refresh
+
+A later pass warmed the ginger coat and amber iris palette and added static
+definition inside the existing rig: a cream blaze and chin lift, a brighter
+iris ring, a nose highlight, coat fur tufts, visible sock cuffs and a collar
+sheen. The sleeping pose gained the same collar detail. These are drawing
+changes only — no state names, mappings, triggers, durations or animation
+engine behaviour were changed, and the character checks below still pass.
+The before/after at the same idle pose and scale is
+`docs/screenshots/15-luma-before.png` and
+`docs/screenshots/16-luma-after.png`.
+
 ### The rim light actually paints
 
 The earlier build traced a path out along the back edge and back along the

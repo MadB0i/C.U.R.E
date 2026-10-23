@@ -244,6 +244,250 @@ pub fn run_dir_guard(_dir: &Path, stop: &AtomicBool, _on_alert: impl Fn(CanaryAl
     }
 }
 
+/// One raw workspace notification. The recorder converts these into flight
+/// events and never reads file contents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkspaceChangeKind {
+    Created,
+    Modified,
+    Removed,
+    RenamedFrom,
+    RenamedTo,
+    Overflow,
+}
+
+impl WorkspaceChangeKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            WorkspaceChangeKind::Created => "created",
+            WorkspaceChangeKind::Modified => "modified",
+            WorkspaceChangeKind::Removed => "removed",
+            WorkspaceChangeKind::RenamedFrom => "renamed-from",
+            WorkspaceChangeKind::RenamedTo => "renamed-to",
+            WorkspaceChangeKind::Overflow => "overflow",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceChange {
+    pub kind: WorkspaceChangeKind,
+    /// Workspace-relative path with forward slashes.
+    pub relative: String,
+    pub at_unix: u64,
+}
+
+/// Watch `dir` recursively and deliver batches of raw change notifications.
+///
+/// This is the same overlapped `ReadDirectoryChangesW` loop the canary guard
+/// uses, with a larger notification buffer and an explicit overflow marker.
+/// It blocks until `stop` is set. A directory that cannot be opened produces
+/// one `Overflow` batch so the caller can record a coverage gap instead of
+/// claiming a clean recording.
+#[cfg(windows)]
+pub fn run_workspace_recorder(
+    dir: &Path,
+    stop: &AtomicBool,
+    mut on_batch: impl FnMut(Vec<WorkspaceChange>),
+) {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{
+        CloseHandle, BOOL, ERROR_NOTIFY_ENUM_DIR, INVALID_HANDLE_VALUE,
+    };
+    use windows::Win32::Storage::FileSystem::{
+        CreateFileW, ReadDirectoryChangesW, FILE_ACTION_ADDED, FILE_ACTION_MODIFIED,
+        FILE_ACTION_REMOVED, FILE_ACTION_RENAMED_NEW_NAME, FILE_ACTION_RENAMED_OLD_NAME,
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_LIST_DIRECTORY,
+        FILE_NOTIFY_CHANGE_CREATION, FILE_NOTIFY_CHANGE_DIR_NAME, FILE_NOTIFY_CHANGE_FILE_NAME,
+        FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE, FILE_NOTIFY_INFORMATION,
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    };
+    use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
+    use windows::Win32::System::IO::{CancelIo, GetOverlappedResult, OVERLAPPED};
+
+    let dir_wide: Vec<u16> = {
+        use std::os::windows::ffi::OsStrExt;
+        std::ffi::OsStr::new(dir.as_os_str())
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    };
+
+    let h_dir = unsafe {
+        CreateFileW(
+            PCWSTR(dir_wide.as_ptr()),
+            FILE_LIST_DIRECTORY.0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            None,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
+            None,
+        )
+    };
+    let h_dir = match h_dir {
+        Ok(h) if h != INVALID_HANDLE_VALUE => h,
+        _ => {
+            on_batch(vec![WorkspaceChange {
+                kind: WorkspaceChangeKind::Overflow,
+                relative: String::new(),
+                at_unix: now_secs(),
+            }]);
+            return;
+        }
+    };
+
+    let h_event = unsafe { CreateEventW(None, BOOL::from(false), BOOL::from(false), None) };
+    let h_event = match h_event {
+        Ok(h) => h,
+        Err(_) => {
+            let _ = unsafe { CloseHandle(h_dir) };
+            on_batch(vec![WorkspaceChange {
+                kind: WorkspaceChangeKind::Overflow,
+                relative: String::new(),
+                at_unix: now_secs(),
+            }]);
+            return;
+        }
+    };
+
+    let mut buffer = [0u8; 64 * 1024];
+    while !stop.load(Ordering::Relaxed) {
+        let mut bytes_returned = 0u32;
+        let mut overlapped = OVERLAPPED {
+            hEvent: h_event,
+            ..OVERLAPPED::default()
+        };
+
+        let ok = unsafe {
+            ReadDirectoryChangesW(
+                h_dir,
+                buffer.as_mut_ptr() as *mut core::ffi::c_void,
+                buffer.len() as u32,
+                BOOL::from(true),
+                FILE_NOTIFY_CHANGE_FILE_NAME
+                    | FILE_NOTIFY_CHANGE_DIR_NAME
+                    | FILE_NOTIFY_CHANGE_LAST_WRITE
+                    | FILE_NOTIFY_CHANGE_SIZE
+                    | FILE_NOTIFY_CHANGE_CREATION,
+                Some(&mut bytes_returned),
+                Some(&mut overlapped),
+                None,
+            )
+        };
+        if ok.is_err() {
+            on_batch(vec![WorkspaceChange {
+                kind: WorkspaceChangeKind::Overflow,
+                relative: String::new(),
+                at_unix: now_secs(),
+            }]);
+            break;
+        }
+
+        let wait_result = unsafe { WaitForSingleObject(h_event, 2000) };
+        if wait_result.0 != 0 {
+            unsafe {
+                let _ = CancelIo(h_dir);
+            }
+            continue;
+        }
+
+        let result = unsafe {
+            GetOverlappedResult(h_dir, &overlapped, &mut bytes_returned, BOOL::from(false))
+        };
+        if let Err(err) = result {
+            if err.code().0 == ERROR_NOTIFY_ENUM_DIR.0 as i32 {
+                on_batch(vec![WorkspaceChange {
+                    kind: WorkspaceChangeKind::Overflow,
+                    relative: String::new(),
+                    at_unix: now_secs(),
+                }]);
+                continue;
+            }
+            // A broken watch must be reported as a coverage gap. Exiting
+            // silently would let the UI present an incomplete session as if
+            // observation had continued.
+            on_batch(vec![WorkspaceChange {
+                kind: WorkspaceChangeKind::Overflow,
+                relative: String::new(),
+                at_unix: now_secs(),
+            }]);
+            break;
+        }
+        if bytes_returned == 0 {
+            continue;
+        }
+
+        let ts = now_secs();
+        let mut offset: usize = 0;
+        let buf_end = bytes_returned as usize;
+        let mut batch = Vec::new();
+        while offset + 12 <= buf_end {
+            let info = unsafe { &*(buffer.as_ptr().add(offset) as *const FILE_NOTIFY_INFORMATION) };
+            let name_len = info.FileNameLength as usize;
+            let name_byte_offset = offset + 12;
+            if name_byte_offset + name_len > buf_end {
+                break;
+            }
+            let name_bytes = unsafe {
+                std::slice::from_raw_parts(buffer.as_ptr().add(name_byte_offset), name_len)
+            };
+            let name = String::from_utf16_lossy(
+                name_bytes
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|c| u16::from_le_bytes(*c))
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            )
+            .replace('\\', "/");
+
+            let kind = if info.Action == FILE_ACTION_ADDED {
+                Some(WorkspaceChangeKind::Created)
+            } else if info.Action == FILE_ACTION_REMOVED {
+                Some(WorkspaceChangeKind::Removed)
+            } else if info.Action == FILE_ACTION_MODIFIED {
+                Some(WorkspaceChangeKind::Modified)
+            } else if info.Action == FILE_ACTION_RENAMED_OLD_NAME {
+                Some(WorkspaceChangeKind::RenamedFrom)
+            } else if info.Action == FILE_ACTION_RENAMED_NEW_NAME {
+                Some(WorkspaceChangeKind::RenamedTo)
+            } else {
+                None
+            };
+            if let Some(kind) = kind {
+                batch.push(WorkspaceChange {
+                    kind,
+                    relative: name,
+                    at_unix: ts,
+                });
+            }
+
+            if info.NextEntryOffset == 0 {
+                break;
+            }
+            offset += info.NextEntryOffset as usize;
+        }
+        if !batch.is_empty() {
+            on_batch(batch);
+        }
+    }
+
+    let _ = unsafe { CloseHandle(h_event) };
+    let _ = unsafe { CloseHandle(h_dir) };
+}
+
+#[cfg(not(windows))]
+pub fn run_workspace_recorder(
+    _dir: &Path,
+    stop: &AtomicBool,
+    _on_batch: impl FnMut(Vec<WorkspaceChange>),
+) {
+    while !stop.load(Ordering::Relaxed) {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

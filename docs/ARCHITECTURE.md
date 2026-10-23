@@ -25,6 +25,12 @@ quarantine: fresh-scan id → is_file_backed gate → confirm → Pending record
 undo:     scoped roots check → integrity (size+sha256) → move back →
           SDDL/attrs/timestamps restore (notes on gaps)
 
+agent:    detection::supported_processes (exact executable names)
+          → recorder::baseline (path, size, mtime only)
+          → watcher + recorder::reconcile (created/modified/removed/renamed, bounded)
+          → evidence ladder (observed / correlated / unknown; attributed unused)
+          → AgentCaseFile (allowlisted counts and labels)
+
 storage:  catalog::roots (known-safe locations + user-selected)
           → tiers::classify (SafetyTier + the clauses that produced it)
           → walk::walk_root (no link following, cancellable, bounded)
@@ -49,6 +55,10 @@ two; the third exists solely behind the desktop preview flow.
 - `quarantine.rs` + `acl.rs` — crash-safe move protocol, orphan reconcile, SDDL restore with fidelity notes.
 - `overlay.rs` — pure candidate matcher (topmost + borderless + non-ValidSigned + ≥90% coverage + attributed + not allowlisted). The GUI shows matches; each close is a separate confirmed command (graceful default, explicit force).
 - `threat_intel.rs` / `hash_intel.rs` — local-only providers; fixture feed is labeled DEMO and its label travels into finding reasons.
+- `agent/detection.rs` — exact-name detection for the OpenCode and Codex CLI executable names (`opencode.exe`, `opencode-cli.exe`, `opencode-tui.exe`, `codex.exe`, `codex-cli.exe`, `codex-tui.exe`) via ToolHelp; never infers activity from presence.
+- `agent/recorder.rs` — metadata-only workspace baseline, bounded event reconciliation (50,000 baseline entries, 5,000 events), explicit coverage gaps and session persistence.
+- `agent/windows.rs` — trusted snapshot and before/after comparison of the existing read-only `PersistenceEntry` list; added/removed/changed entries are review leads only.
+- `agent/casefile.rs` — allowlisted agent case model with no path, file name, prompt or command-line field.
 - `report.rs`, `incident.rs`, `process_scan.rs`, `ransom_detect.rs`, `canary.rs`, `lnk.rs`, `baseline.rs`, `elevation.rs`, `entry_details.rs`, `attack.rs`, `model.rs`, `threat_intel.rs`.
 
 ## Storage engine (`core/src/storage/`)
@@ -95,6 +105,20 @@ frontend-supplied paths; destructive ones confirm per item. `dist/` is the
 shipped, fully-offline frontend (CI fails on remote URLs); `index.dev.html`
 + `mock-tauri.js` is the browser-runnable mock used for docs captures.
 
+### Agent commands
+
+`agent_radar`, `flight_start`, `flight_status`, `flight_stop`,
+`windows_change_capture`, `windows_change_compare`, `agent_case_file`.
+
+`flight_start` canonicalises the chosen workspace, refuses a second active
+session and captures a metadata-only baseline. The watcher correlates file
+events with a sampled supported-process set; `flight_stop` performs a final
+reconciliation before saving the bounded session. A change is never promoted
+to attribution: the strongest supported claim is **correlated**. Windows
+comparison reuses the existing read-only persistence scan and stores a
+snapshot under the application data directory. The agent case file is built
+from an allowlist, not from the session object.
+
 ### Storage commands
 
 `storage_available_roots`, `storage_scan`, `storage_cancel`,
@@ -121,6 +145,7 @@ and never executes anything from it.
 | `xray.js` / `xray.css` | System X-Ray: the nine persistence layers as an instrument, driven by real coverage states. |
 | `storage-workstation.js` / `.css` | Storage Workstation: scan lifecycle, squarified treemap, file table, duplicate comparison, queue, inspector, preview, receipt. It can adopt the scan the Detective board already ran instead of measuring twice. |
 | `detective.js` / `.css` | Detective Mode: the storage map, ranked discoveries, lead evidence and the case-file controls. It reads the scan's `investigation` field; opening the view never starts a scan. |
+| `agent-radar.js` / `.css` | Agent Radar and Flight Recorder: detected processes, workspace session, timeline, evidence, Windows change leads and the agent case file. |
 | `casefile.js` | Canvas renderer for the case-file PNG. It draws only the fields returned by `CureCaseFile.allowlist`, and `audit` exposes that exact allowlist for the privacy test. |
 | `luma.js` / `luma.css` | The companion rig, her twelve states, two poses, and the single global motion switch. |
 | `style.css` | Graphite depth ramp, violet identity accent, semantic colours, type and spacing scales. |

@@ -22,22 +22,22 @@
      console, the cream belly and white socks keep the silhouette from
      becoming one dark mass, and the violet collar keeps the one saturated
      accent the console already uses. */
-  --luma-fur-deep: #a3511d;
-  --luma-fur: #d97b32;
-  --luma-fur-lit: #f2a95c;
-  --luma-fur-edge: #7d3d12;
-  --luma-fur-rim: #ffd7a0;
-  --luma-stripe: #a8501c;
-  --luma-mane: #f7e2c4;
-  --luma-inner-ear: #f4a3a8;
-  --luma-cream: #fdf3e4;
-  --luma-sock: #fffaf2;
-  --luma-eye: #ffc264;
-  --luma-eye-deep: #d97d1c;
-  --luma-collar: #7d63d8;
-  --luma-collar-deep: #5c49b2;
-  --luma-collar-led: #8ef0c8;
-  --luma-nose: #f08ca8;
+  --luma-fur-deep: #a94f1c;
+  --luma-fur: #df8038;
+  --luma-fur-lit: #f7b76a;
+  --luma-fur-edge: #74340f;
+  --luma-fur-rim: #ffdda6;
+  --luma-stripe: #a84a17;
+  --luma-mane: #ffe9c9;
+  --luma-inner-ear: #f6a0a6;
+  --luma-cream: #fff4e2;
+  --luma-sock: #fffdf8;
+  --luma-eye: #ffcb6b;
+  --luma-eye-deep: #c96b12;
+  --luma-collar: #8268e6;
+  --luma-collar-deep: #5b47b0;
+  --luma-collar-led: #9af4d2;
+  --luma-nose: #f48fa6;
   --luma-mouth: #5a2a18;
   --luma-mouth-fill: #7d3a24;
   --luma-tongue: #f0909f;
@@ -1941,4 +1941,63 @@
 .luma-svg.lm-pulse .lm-blush    { animation: lm-purr-blush  900ms ease-out; }
 .luma-svg.lm-pulse .lm-mouth {
   d: path("M76 55 v1.4 M72.2 56.8 C 73.1 59, 75 59.1, 76 57.2 C 77 59.1, 78.9 59, 79.8 56.8");
+}
+
+/* --------------------------------------------------------------------------
+   Reskin detail — static material accents only. None of these classes are
+   referenced by the pose director, so the twelve authored poses and every
+   animation mapping remain exactly as they were.
+   -------------------------------------------------------------------------- */
+.lm-blaze {
+  fill: var(--luma-mane);
+  opacity: 0.18;
+}
+
+.lm-fur-tuft {
+  fill: none;
+  stroke: var(--luma-fur-lit);
+  stroke-width: 1.05;
+  stroke-linecap: round;
+  opacity: 0.5;
+}
+
+.lm-sock-cuff {
+  fill: none;
+  stroke: var(--luma-fur-edge);
+  stroke-width: 0.9;
+  stroke-linecap: round;
+  stroke-opacity: 0.3;
+}
+
+.lm-iris-ring {
+  fill: none;
+  stroke: var(--luma-eye-deep);
+  stroke-width: 0.9;
+  stroke-opacity: 0.6;
+}
+
+.lm-iris-glow {
+  fill: none;
+  stroke: var(--luma-fur-rim);
+  stroke-width: 0.8;
+  stroke-linecap: round;
+  opacity: 0.32;
+}
+
+.lm-nose-shine {
+  fill: var(--luma-cream);
+  opacity: 0.9;
+}
+
+.lm-chin-lift {
+  fill: var(--luma-mane);
+  opacity: 0.26;
+}
+
+.lm-collar-sheen {
+  fill: none;
+  stroke: var(--luma-cream);
+  stroke-width: 0.9;
+  stroke-linecap: round;
+  stroke-opacity: 0.38;
 }

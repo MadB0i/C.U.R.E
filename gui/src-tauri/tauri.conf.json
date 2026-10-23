@@ -11,11 +11,13 @@
       "../dist/luma.css",
       "../dist/storage-workstation.css",
       "../dist/detective.css",
+      "../dist/agent.css",
       "../dist/luma.js",
       "../dist/xray.js",
       "../dist/storage-workstation.js",
       "../dist/casefile.js",
       "../dist/detective.js",
+      "../dist/agent-radar.js",
       "../dist/app.js"
     ]
   },

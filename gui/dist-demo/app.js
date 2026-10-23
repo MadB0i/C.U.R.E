@@ -1092,6 +1092,7 @@
 
   const VIEW_TITLES = {
     "view-overview": "Overview",
+    "view-agents": "AI Agent Radar",
     "scan-center": "Rescue",
     "scan-view": "Rescue",
     "landing-view": "Rescue",
@@ -1171,6 +1172,11 @@
       /* Re-render from the investigation already in memory; opening the
          board never starts a measurement. */
       window.CureDetective.render();
+    }
+    if (viewId === "view-agents" && window.CureAgentRadar) {
+      /* Opening the radar performs a read-only sample; it never starts a
+         recording. A session only starts from the explicit control. */
+      window.CureAgentRadar.refresh();
     }
     if (viewId === "view-quarantine") refreshQuarantine();
     if (viewId === "view-eventlog") renderEventLog();

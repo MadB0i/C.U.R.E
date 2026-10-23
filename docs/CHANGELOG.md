@@ -1,5 +1,62 @@
 # Changelog — C.U.R.E
 
+## Unreleased — Agent intelligence
+
+### Added — Agent Radar and a metadata-only Flight Recorder
+
+Agent Radar detects `opencode.exe`, `opencode-cli.exe`, `opencode-tui.exe`,
+`codex.exe`, `codex-cli.exe` and `codex-tui.exe` by exact executable name. A
+recording captures a workspace baseline of file paths, sizes and modification
+times, then lists created, modified, removed and renamed entries. Session
+events are bounded and coverage gaps are explicit. A change seen while an
+agent is present is **correlated**, never attributed; the UI and case file
+say so.
+
+### Added — Windows Change Radar
+
+A trusted snapshot of the existing read-only persistence evidence can be
+compared with a later scan. Added, removed and changed Run keys, Startup
+folders, tasks, services, WMI subscriptions, IFEO entries, AppInit DLLs and
+COM registrations are shown with before/after evidence. They are review
+leads, not malware verdicts, and there is no remediation path.
+
+### Added — privacy-safe agent case file
+
+The agent dossier is rendered from an allowlist with no field for a workspace
+path, file name, prompt, transcript, command line, user name or machine name.
+The public demo version is marked synthetic and cannot be written.
+
+### Fixed — final reconciliation duplicated watched changes
+
+The stop-time snapshot adds changes the watcher missed, but it could replay a
+change the watcher had already recorded, inflating counts and bytes. It now
+skips paths already observed, including both sides of a rename, and a
+regression test pins the four-event result.
+
+### Added — honest recovery after an interrupted session
+
+If the application closes mid-session, the newest saved session is loaded as
+stopped and incomplete, ended at its last observation, with a note that
+stop-time reconciliation did not run. The case file keeps reconciliation
+false and the UI says the coverage is incomplete.
+
+### Changed — recorder safety and persistence cadence
+
+Drive roots are refused, display paths no longer show the `\\?\` prefix, and
+the live session is persisted every 15 seconds rather than every 5.
+
+### Fixed — case export stayed disabled after a live refresh
+
+A status refresh could rebuild the case model and disable Export PNG until
+the operator pressed Preview again. The preview now survives refreshes and
+Export remains enabled, with a browser regression covering the refresh.
+
+### Changed — LUMA artwork refresh
+
+Warmer coat and iris palette, a facial blaze, chin lift, fur tufts, sock
+cuffs, nose shine and a collar highlight. No state, trigger, duration or
+engine change.
+
 ## 0.2.0 — Storage Workstation, a real companion, and a real release
 
 This release finishes the Storage Workstation, replaces the companion with

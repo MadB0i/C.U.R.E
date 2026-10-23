@@ -179,6 +179,7 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
         runner.step("navigation")
         for nav in [
             "nav-overview",
+            "nav-agents",
             "nav-scan",
             "nav-cleanup",
             "nav-quarantine",
@@ -206,6 +207,121 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
                 state["count"] == 1 and nav in state["current"],
                 f"{nav} opens exactly one view ({state['view']})",
             )
+        runner.step("a real agent flight session")
+        runner.check(
+            (runner.fixture / "agent-e2e-modified.txt").write_text("before\n") > 0,
+            "the agent fixture carries a file to modify",
+        )
+        (runner.fixture / "agent-e2e-rename-source.txt").write_text("rename me\n")
+        (runner.fixture / "agent-e2e-remove-me.txt").write_text("remove me\n")
+        page.evaluate("""() => document.getElementById('nav-agents').click()""")
+        time.sleep(0.8)
+        detected = int(page.locator("#ar-detected-count").inner_text())
+        print(f"  supported agent processes detected: {detected}", flush=True)
+        if detected:
+            runner.check(
+                page.locator("#ar-blips .ar-blip").count() == detected,
+                "the native radar plots one signal per detected agent kind",
+            )
+        else:
+            print("  (no supported agent was running; presence assertions are skipped)", flush=True)
+        runner.check(
+            "Presence is not proof of activity" in page.locator("#ar-radar-note").inner_text(),
+            "the native radar refuses to treat presence as activity",
+        )
+        root_error = page.evaluate(
+            """async (root) => {
+                try {
+                    await window.__TAURI__.core.invoke('flight_start', { workspace: root });
+                    return 'started';
+                } catch (error) {
+                    return String(error);
+                }
+            }""",
+            "C:\\",
+        )
+        runner.check(
+            "entire drive" in root_error,
+            "the native recorder refuses a drive root (" + root_error + ")",
+        )
+        runner.shot(page, "agent-radar")
+        page.locator("#ar-workspace").fill(str(runner.fixture))
+        page.locator("#ar-start").click()
+        page.wait_for_selector("#ar-session-badge", timeout=10000)
+        page.wait_for_function(
+            "() => document.getElementById('ar-session-badge').textContent.trim() === 'Recording'",
+            timeout=10000,
+        )
+        (runner.fixture / "agent-e2e-created.txt").write_text("created during recording\n" * 32)
+        with open(runner.fixture / "agent-e2e-modified.txt", "a", encoding="utf-8") as handle:
+            handle.write("after\n" * 16)
+        (runner.fixture / "agent-e2e-rename-source.txt").rename(
+            runner.fixture / "agent-e2e-renamed.txt"
+        )
+        (runner.fixture / "agent-e2e-remove-me.txt").unlink()
+        page.wait_for_function(
+            """() => {
+                const s = window.CureAgentRadar.state.session;
+                if (!s) return false;
+                const kinds = new Set(s.events.map((e) => e.kind));
+                return kinds.has('created') && kinds.has('modified') &&
+                       kinds.has('renamed') && kinds.has('removed');
+            }""",
+            timeout=15000,
+        )
+        page.locator("#ar-stop").click()
+        page.wait_for_function(
+            "() => document.getElementById('ar-session-badge').textContent.trim() === 'Stopped'",
+            timeout=15000,
+        )
+        session = page.evaluate("window.CureAgentRadar.state.session")
+        runner.check(session["coverage"]["complete"],
+                     f"the real flight session has complete coverage ({session['coverage']})")
+        runner.check(
+            all(e["confidence"] != "attributed" for e in session["events"]),
+            "the real flight session never claims attribution",
+        )
+        runner.check(
+            {e["kind"] for e in session["events"]} >= {"created", "modified", "renamed", "removed"},
+            "the real recorder observed all four metadata changes",
+        )
+        runner.shot(page, "agent-flight")
+        runner.check(
+            page.locator("#ar-case-preview").is_enabled(),
+            "the native case file unlocks after the real session stops",
+        )
+        page.locator("#ar-case-preview").click()
+        page.wait_for_selector("#ar-case-stage img", timeout=15000)
+        time.sleep(0.6)
+        privacy = page.evaluate(
+            """() => {
+                const s = JSON.stringify(window.CureCaseFile.audit(
+                    window.CureAgentRadar.state.caseModel));
+                return s.match(/[A-Za-z]:\\\\\\\\|Users|AppData|cure-native-e2e|agent-e2e\\\\.(txt|json)/gi) || [];
+            }"""
+        )
+        runner.check(not privacy,
+                     f"the native agent case carries no path or file name ({privacy[:2]})")
+        runner.check(
+            page.evaluate("!!window.CureAgentRadar.state.caseModel.reconciliation_used"),
+            "the native case records that stop-time reconciliation ran",
+        )
+        runner.shot(page, "agent-case-file")
+
+        runner.step("a real Windows persistence comparison")
+        page.locator("#ar-win-capture").click()
+        page.wait_for_function(
+            "() => document.getElementById('ar-winsnap-state').textContent.toLowerCase().includes('trusted snapshot saved')",
+            timeout=120000,
+        )
+        page.locator("#ar-win-compare").click()
+        page.wait_for_selector("#ar-win-summary", timeout=120000)
+        runner.check(
+            "not malware verdicts" in page.locator("#ar-win-note").inner_text().lower(),
+            "the native Windows comparison refuses malware verdicts",
+        )
+        runner.shot(page, "agent-windows-change")
+
         runner.step("a real storage scan")
         page.evaluate("""() => document.getElementById('nav-cleanup').click()""")
         time.sleep(0.6)

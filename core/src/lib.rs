@@ -1,4 +1,5 @@
 pub mod acl;
+pub mod agent;
 pub mod attack;
 pub mod baseline;
 pub mod canary;

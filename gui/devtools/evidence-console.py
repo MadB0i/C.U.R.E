@@ -1,7 +1,7 @@
 """Native Python Playwright quality gates and documentation capture.
 
 All mutations use mock-tauri.js; no host files/processes are remediated.
-Run: python gui/devtools/evidence-console.py [verify|layout|pixel|capture|demo|all]
+Run: python gui/devtools/evidence-console.py [verify|layout|pixel|capture|demo|agent-video|all]
 """
 from pathlib import Path
 from datetime import datetime, timezone
@@ -165,11 +165,11 @@ def core_flow(browser, size=(900, 600), reduced=False, capture=False, video=Fals
         shot(page, DOCS / "01-overview.png")
     layout(page, "idle " + str(size))
     axe(page, "idle")
-    check(page.locator(".nav .nav-item").count() == 7, "seven primary destinations")
+    check(page.locator(".nav .nav-item").count() == 8, "eight primary destinations")
     check(page.locator(".nav button:disabled").count() == 0, "no disabled primary navigation")
     check(page.locator(".nav-number").count() == 0, "navigation carries no numeric labels")
     check([t.strip() for t in page.locator(".nav .nav-item span").all_inner_texts()] ==
-          ["Overview", "Rescue", "Investigate", "Quarantine", "Detective", "Storage", "Monitor"],
+          ["Overview", "Agents", "Rescue", "Investigate", "Quarantine", "Detective", "Storage", "Monitor"],
           "primary destinations are icon and title only")
     check(page.locator("#xray-canvas").count() == 1, "system x-ray canvas present")
     check(page.locator("[data-companion='overview'] .luma-svg").count() == 1,
@@ -663,6 +663,64 @@ def demo_flow(browser):
     check(not errors,'demo runtime: '+str(errors))
 
 
+def agent_demo(browser):
+    """Record the 25–30 second synthetic Agent Radar story for the README."""
+    import shutil
+    temp = ROOT / "docs/media/.agent-video"
+    shutil.rmtree(temp, ignore_errors=True)
+    temp.mkdir(parents=True, exist_ok=True)
+    ctx = browser.new_context(
+        viewport={"width": 1440, "height": 900},
+        record_video_dir=str(temp),
+        record_video_size={"width": 1440, "height": 900},
+    )
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+    page.clock.set_fixed_time(FIXED)
+    page.goto((ROOT / "gui/dist-demo/index.html").as_uri())
+    page.wait_for_load_state("networkidle")
+    expect(page.locator("#view-overview .demo-banner")).to_be_visible()
+    page.wait_for_timeout(2000)
+
+    goto_view(page, "#nav-agents", "view-agents")
+    expect(page.locator("#ar-demo-banner")).to_be_visible()
+    page.wait_for_timeout(3500)
+    page.locator("#ar-jump-monitor").click()
+    page.wait_for_timeout(1200)
+    page.locator("#ar-workspace").fill(r"C:\Projects\nova-app")
+    page.wait_for_timeout(1000)
+    page.locator("#ar-start").click()
+    expect(page.locator("#ar-session-badge")).to_have_text("Recording", timeout=10000)
+    expect(page.locator("#ar-stat-total")).to_have_text("6")
+    page.wait_for_timeout(3200)
+
+    page.locator("#ar-event-list .ar-event").nth(2).click()
+    expect(page.locator("#ar-evidence-card")).to_be_visible()
+    page.locator("#ar-evidence-card").scroll_into_view_if_needed()
+    page.wait_for_timeout(3500)
+    page.evaluate("document.getElementById('ar-stop').click()")
+    expect(page.locator("#ar-session-badge")).to_have_text("Stopped", timeout=10000)
+    page.wait_for_timeout(1800)
+
+    page.locator("#ar-case-summary").fill("Reviewed a synthetic agent session")
+    page.locator("#ar-case-include").check()
+    page.wait_for_timeout(1000)
+    page.locator("#ar-case-preview").click()
+    expect(page.locator("#ar-case-stage img")).to_be_visible(timeout=10000)
+    page.locator("#ar-case-stage").evaluate("e => e.scrollIntoView({block: 'center'})")
+    page.wait_for_timeout(4000)
+    page.locator("#ar-case-export").click()
+    expect(page.locator("#ar-case-status")).to_contain_text("preview-only", timeout=10000)
+    page.wait_for_timeout(3200)
+    check(not errors, "agent video runtime: " + str(errors))
+    path = page.video.path()
+    ctx.close()
+    Path(path).replace(ROOT / "docs/media/agent-demo.webm")
+    shutil.rmtree(temp, ignore_errors=True)
+
+
 def detective_flow(browser):
     """The detective board must read measured evidence, not invent it."""
     ctx,page,errors=open_page(browser,(1440,900))
@@ -722,6 +780,83 @@ def detective_flow(browser):
           "(window.__CURE_MOCK_COMMANDS||[]).filter(c=>c==='storage_scan').length"),
           'the workstation adopts the board measurement without a second scan')
     check(not errors,'detective runtime: '+str(errors));ctx.close()
+
+
+
+def agent_radar_flow(browser):
+    """Agent Radar: presence, recording, scoped evidence and safe case file."""
+    ctx, page, errors = open_page(browser, (1440, 900))
+    goto_view(page, '#nav-agents', 'view-agents')
+    expect(page.locator('#ar-detected-count')).to_have_text('1')
+    check(page.locator('#ar-blips .ar-blip').count() == 1,
+          'the radar shows one observed supported process')
+    expect(page.locator('#ar-agent-list .ar-agent-card').first).to_be_visible()
+    check('Presence is not proof of activity' in page.locator('#ar-radar-note').inner_text(),
+          'process presence is not presented as activity')
+    check(page.locator('#ar-start').is_visible(), 'recording starts only from the explicit control')
+    check(page.locator('#ar-flight-live').is_hidden(), 'no synthetic session exists before start')
+
+    page.locator('#ar-workspace').fill('C:/Projects/cure-demo-app')
+    page.locator('#ar-start').click()
+    expect(page.locator('#ar-session-badge')).to_have_text('Recording', timeout=10000)
+    expect(page.locator('#ar-stat-total')).to_have_text('6')
+    check(page.locator('#ar-event-list .ar-event').count() == 6,
+          'all recorded observations are listed')
+    check('not attribution' in page.locator('.ar-caveat').first.inner_text(),
+          'the recorder states that correlation is not attribution')
+
+    page.locator('#ar-event-list .ar-event').first.click()
+    expect(page.locator('#ar-evidence-card')).to_be_visible()
+    check('Attribution is not established' in page.locator('#ar-evidence-card').inner_text(),
+          'an evidence detail refuses attribution')
+    selected_seq = page.evaluate("window.CureAgentRadar.state.selectedSeq")
+    check(('observation ' + str(selected_seq)) in page.locator('#ar-evidence-card').inner_text().lower(),
+          'event detail uses the recorder sequence number')
+
+    page.locator('#ar-filters [data-filter="removed"]').click()
+    check(page.locator('#ar-event-list .ar-event').count() == 1,
+          'the type filter narrows recorded observations')
+    page.locator('#ar-filters [data-filter="all"]').click()
+    check(page.locator('#ar-event-list .ar-event').count() == 6,
+          'the All filter restores every observation')
+
+    page.locator('#ar-stop').click()
+    expect(page.locator('#ar-session-badge')).to_have_text('Stopped', timeout=10000)
+    check(page.locator('#ar-case-preview').is_enabled(), 'a stopped session unlocks the case file')
+    page.locator('#ar-case-summary').fill('Reviewed a demo build')
+    page.locator('#ar-case-include').check()
+    page.locator('#ar-case-preview').click()
+    expect(page.locator('#ar-case-stage img')).to_be_visible(timeout=10000)
+    page.wait_for_timeout(3500)
+    check(page.locator('#ar-case-export').is_enabled(),
+          'case export stays enabled across a live status refresh')
+    check(page.evaluate("""() => {
+        const s = JSON.stringify(window.CureCaseFile.audit(window.CureAgentRadar.state.caseModel));
+        return !/[A-Za-z]:\\\\|Users|AppData|\\.tsx|\\.json|cure-demo-app/i.test(s);
+      }"""), 'the agent case model carries no path, file name or workspace name')
+    check(page.evaluate("""() => {
+        const s = JSON.stringify(window.CureAgentRadar.state.caseModel);
+        return !/[A-Za-z]:\\\\|Users|AppData|\\.tsx|\\.json|cure-demo-app|secret-session/i.test(s);
+      }"""), 'the raw agent case response carries no workspace or file data')
+
+    page.locator('#ar-case-export').click()
+    expect(page.locator('#ar-case-status')).to_contain_text('Case file written', timeout=10000)
+    check('uploaded to' not in page.locator('#ar-case-status').inner_text().lower(),
+          'agent case export reports a local path, not an upload')
+
+    page.locator('#ar-win-capture').click()
+    expect(page.locator('#ar-winsnap-state')).to_contain_text('Trusted snapshot saved', timeout=10000)
+    page.locator('#ar-win-compare').click()
+    expect(page.locator('#ar-win-summary')).to_be_visible(timeout=10000)
+    check(page.locator('#ar-win-lists .ar-win-item').count() == 2,
+          'Windows persistence differences are shown as review leads')
+    check('not malware verdicts' in page.locator('#ar-win-note').inner_text(),
+          'Windows persistence changes are not called malware')
+
+    axe(page, 'agent radar')
+    layout(page, 'agent radar')
+    check(not errors, 'agent radar runtime: ' + str(errors))
+    ctx.close()
 
 
 def public_demo_flow(browser):
@@ -1159,8 +1294,8 @@ def luma_states(browser):
 def palette_and_assets():
     """Offline asset guard plus a measured, restrained palette check."""
     shipped=["index.html","style.css","xray.css","luma.css","storage-workstation.css",
-             "detective.css","app.js","luma.js","xray.js","storage-workstation.js",
-             "casefile.js","detective.js"]
+             "detective.css","agent.css","app.js","luma.js","xray.js","storage-workstation.js",
+             "casefile.js","detective.js","agent-radar.js"]
     for name in shipped:
         body=(ROOT/"gui/dist"/name).read_text(encoding="utf-8")
         hits=[l for l in body.splitlines()
@@ -1268,12 +1403,13 @@ def main():
         if mode in ("all","verify","capture"):
             core_flow(browser,(1440,900) if mode=="capture" else (900,600),capture=mode=="capture")
         if mode=="demo":demo_flow(browser)
+        if mode=="agent-video":agent_demo(browser)
         if mode in ("all","verify"):
             core_flow(browser,reduced=True);states(browser);secondary(browser);responsive(browser)
         if mode=="capture":states(browser,capture=True)
         if mode in ("all","verify","capture"):companion_flow(browser,capture=mode=="capture")
         if mode in ("all","verify"):
-            luma_states(browser);storage_failure(browser);detective_flow(browser);public_demo_flow(browser)
+            luma_states(browser);storage_failure(browser);detective_flow(browser);agent_radar_flow(browser);public_demo_flow(browser)
         if mode=="layout":responsive(browser)
         if mode=="pixel":core_flow(browser);pixel()
         if mode=="all":pixel()
