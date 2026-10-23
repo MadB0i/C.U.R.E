@@ -325,15 +325,39 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
         runner.step("a real storage scan")
         page.evaluate("""() => document.getElementById('nav-cleanup').click()""")
         time.sleep(0.6)
-        page.evaluate("""() => document.getElementById('sw-scan').click()""")
-        time.sleep(1.2)
-        progress = page.evaluate(
-            """() => { const p = document.getElementById('sw-progress');
-               return p ? { visible: p.getClientRects().length > 0,
-                            text: (p.innerText || '').replace(/\\s+/g,' ').trim() } : null; }"""
+        page.evaluate(
+            """() => {
+                const panel = document.getElementById('sw-progress');
+                window.__cureScanProgress = { seen: false, text: '' };
+                const remember = () => {
+                    if (panel && panel.getClientRects().length > 0) {
+                        window.__cureScanProgress.seen = true;
+                        window.__cureScanProgress.text =
+                            (panel.innerText || '').replace(/\\s+/g, ' ').trim();
+                    }
+                };
+                const observer = new MutationObserver(remember);
+                observer.observe(panel, {
+                    attributes: true,
+                    attributeFilter: ['class', 'style', 'hidden'],
+                });
+                observer.observe(document.body, {
+                    attributes: true,
+                    subtree: true,
+                    attributeFilter: ['class', 'style', 'hidden'],
+                });
+                window.__cureScanProgressObserver = observer;
+                remember();
+            }"""
         )
+        page.evaluate("""() => document.getElementById('sw-scan').click()""")
+        page.wait_for_function(
+            "() => window.__cureScanProgress && window.__cureScanProgress.seen",
+            timeout=30000,
+        )
+        progress = page.evaluate("() => window.__cureScanProgress")
         runner.check(
-            progress is not None and progress["visible"],
+            progress["seen"],
             "the storage scan shows real progress",
         )
         print(f"  progress text: {progress['text'][:120]!r}", flush=True)

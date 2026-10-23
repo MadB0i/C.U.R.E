@@ -529,7 +529,7 @@
     y += 30;
     const limits = [
       "It does not attribute a change to an agent or to a person.",
-      "It contains no paths, file names, prompts, credentials or machine identifiers.",
+      "No engine-captured paths, file names, prompts, credentials or machine IDs; an opt-in note is free text.",
       "A detected process is not proof that code was generated or a task was run.",
       "Changes while an agent was present are correlated, not caused.",
     ];
@@ -575,7 +575,7 @@
       ctx.fillStyle = INK.muted;
       ctx.font = "italic 500 17px " + FONT;
       ctx.fillText(
-        say("The operator note was withheld because it appeared to contain private data."),
+        say("The operator note was withheld because it appeared to contain a path or address."),
         PAD,
         y
       );
@@ -648,7 +648,7 @@
     );
     ctx.textAlign = "right";
     ctx.fillText(
-      say("No paths, names or file names are included in this image."),
+      say("No engine-captured paths, names or file names are included."),
       WIDTH - PAD,
       footY + 26
     );
@@ -928,7 +928,7 @@
     ctx.font = "500 15px " + FONT;
     ctx.textAlign = "right";
     ctx.fillText(
-      say("No paths, names or file names are included in this image."),
+      say("No engine-captured paths, names or file names are included."),
       WIDTH - PAD,
       footY + 26
     );

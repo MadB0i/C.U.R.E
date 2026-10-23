@@ -535,8 +535,9 @@ impl FlightSession {
                         event.kind
                     };
                     previous.source = event.source;
+                    previous.confidence = event.confidence;
                     previous.agents = event.agents;
-                    previous.note = event.note;
+                    previous.note = note_for(previous.kind, previous.confidence, &previous.agents);
                     return true;
                 }
             }
@@ -624,6 +625,12 @@ impl FlightSession {
             self.coverage.complete = false;
             self.coverage.note =
                 "Final reconciliation was truncated; completeness cannot be claimed.".to_string();
+        } else if final_snapshot.unreadable_dirs > 0 {
+            self.coverage.complete = false;
+            self.coverage.note = format!(
+                "Final reconciliation could not read {} folder(s); completeness cannot be claimed.",
+                final_snapshot.unreadable_dirs
+            );
         }
     }
 
@@ -838,6 +845,76 @@ mod tests {
     }
 
     #[test]
+    fn dedupe_keeps_confidence_consistent_with_the_merged_event() {
+        let baseline = snapshot(&[]);
+        let mut session = FlightSession::new("s", "ws", &baseline, vec![], true);
+        for (at, agents) in [(10, vec![AgentKind::OpenCode]), (11, vec![])] {
+            session.record_event(make_event(
+                ChangeKind::Modified,
+                "a.txt".into(),
+                None,
+                Some(1),
+                Some(2),
+                at,
+                ObservationSource::DirectoryWatcher,
+                &agents,
+                false,
+            ));
+        }
+        assert_eq!(session.events.len(), 1);
+        assert_eq!(session.events[0].confidence, EvidenceConfidence::Observed);
+        assert!(session.events[0].agents.is_empty());
+        assert!(session.events[0].note.contains("No supported agent"));
+
+        session.record_event(make_event(
+            ChangeKind::Modified,
+            "a.txt".into(),
+            None,
+            Some(1),
+            Some(2),
+            12,
+            ObservationSource::DirectoryWatcher,
+            &[AgentKind::CodexCli],
+            false,
+        ));
+        assert_eq!(session.events.len(), 1);
+        assert_eq!(session.events[0].confidence, EvidenceConfidence::Correlated);
+        assert_eq!(session.events[0].agents, vec![AgentKind::CodexCli]);
+        assert!(session.events[0].note.contains("not attribution"));
+    }
+
+    #[test]
+    fn merged_creation_keeps_a_note_that_matches_its_kind() {
+        let baseline = snapshot(&[]);
+        let mut session = FlightSession::new("s", "ws", &baseline, vec![], true);
+        session.record_event(make_event(
+            ChangeKind::Created,
+            "new.txt".into(),
+            None,
+            None,
+            Some(1),
+            10,
+            ObservationSource::DirectoryWatcher,
+            &[],
+            false,
+        ));
+        session.record_event(make_event(
+            ChangeKind::Modified,
+            "new.txt".into(),
+            None,
+            Some(1),
+            Some(2),
+            11,
+            ObservationSource::DirectoryWatcher,
+            &[],
+            false,
+        ));
+        assert_eq!(session.events.len(), 1);
+        assert_eq!(session.events[0].kind, ChangeKind::Created);
+        assert!(session.events[0].note.starts_with("File creation observed"));
+    }
+
+    #[test]
     fn event_budget_is_bounded() {
         let baseline = snapshot(&[]);
         let mut session = FlightSession::new("s", "ws", &baseline, vec![], true);
@@ -935,6 +1012,17 @@ mod tests {
             .iter()
             .any(|e| e.path == "new" && e.source == ObservationSource::SnapshotReconciliation));
         assert!(session.coverage.snapshot_reconciled);
+    }
+
+    #[test]
+    fn reconcile_marks_an_unreadable_final_snapshot_incomplete() {
+        let baseline = snapshot(&[]);
+        let mut final_snapshot = snapshot(&[]);
+        final_snapshot.unreadable_dirs = 2;
+        let mut session = FlightSession::new("s", "ws", &baseline, vec![], true);
+        session.reconcile(&final_snapshot, &baseline);
+        assert!(!session.coverage.complete);
+        assert!(session.coverage.note.contains("2 folder(s)"));
     }
 
     #[test]

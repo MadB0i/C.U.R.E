@@ -66,9 +66,10 @@ modifies, disables or removes persistence from this view.
 
 The Agent Case File is a PNG rendered from an allowlisted model. The model
 contains labels, counts, timestamps, evidence-state counts, scoped Windows
-change counts and a sanitized operator summary. It has no field for a
+change counts and an optional operator summary. It has no field for a
 workspace path, file name, prompt, transcript, command line, user name or
-machine name. A summary that looks like a path is withheld.
+machine name. A summary that looks like a path or address is withheld. The
+note is free text, not a secret scanner; do not type credentials into it.
 
 The public demo case file is marked **SYNTHETIC DEMO** and can be previewed
 but not written.

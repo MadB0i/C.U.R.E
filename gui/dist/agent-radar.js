@@ -814,13 +814,13 @@
         node(
           "p",
           "ar-case-note",
-          "Preview only. This image contains no paths, file names, prompts, credentials or machine identifiers.",
+          "Preview only. The engine adds no paths, file names, prompts, credentials or machine identifiers. The optional note is free text and appears only when you include it.",
         ),
       );
 
       els.caseExport.disabled = false;
       const withheld = caseFile.summary_withheld
-        ? " The operator note was withheld because it looked like it contained private data."
+        ? " The operator note was withheld because it looked like it contained a path or address."
         : "";
       els.caseStatus.textContent =
         "Preview ready · " +
