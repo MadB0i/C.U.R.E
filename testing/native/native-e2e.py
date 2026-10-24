@@ -103,6 +103,11 @@ class Runner:
         env["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (
             f"--remote-debugging-port={self.port}"
         )
+        # Use a dedicated temporary WebView2 user data folder for isolation,
+        # preventing profile contamination or locking from prior test runs.
+        webview_data = self.fixture / "webview-data" if self.fixture else None
+        if webview_data:
+            env["WEBVIEW2_USER_DATA_FOLDER"] = str(webview_data)
         # The application keeps its own records in its own directory; the
         # fixture lives in the OS temporary directory.
         self.process = subprocess.Popen([str(self.exe)], env=env)
