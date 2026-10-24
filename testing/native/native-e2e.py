@@ -230,6 +230,7 @@ class Runner:
         context = self._browser.contexts[0]
         page = context.pages[0]
         page.set_viewport_size({"width": 1440, "height": 900})
+        page.wait_for_url("http://tauri.localhost/", timeout=30000)
         page.wait_for_load_state("networkidle")
         time.sleep(1.0)
         return page
