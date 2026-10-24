@@ -159,30 +159,56 @@ class Runner:
 
     def collect_startup_diagnostics(self) -> str:
         pid = self.process.pid if self.process else None
-        lines = [f"=== STARTUP DIAGNOSTICS (PID: {pid}, Port: {self.port}) ==="]
+        lines = [f"=== REDACTED STARTUP DIAGNOSTICS (PID: {pid}, Port: {self.port}) ==="]
+
+        # 1. Process tree summary (Process ID, Parent ID, Name only - no raw command lines)
         try:
             res = subprocess.run(
-                ["powershell", "-Command", f"Get-CimInstance Win32_Process | Where-Object {{ $_.ParentProcessId -eq {pid} -or $_.ProcessId -eq {pid} -or $_.Name -eq 'msedgewebview2.exe' }} | Select-Object ProcessId, ParentProcessId, Name, CommandLine | Format-List"],
+                ["powershell", "-Command", f"Get-CimInstance Win32_Process | Where-Object {{ $_.ParentProcessId -eq {pid} -or $_.ProcessId -eq {pid} -or $_.Name -eq 'msedgewebview2.exe' }} | Select-Object ProcessId, ParentProcessId, Name | ConvertTo-Json"],
                 capture_output=True, text=True, timeout=15
             )
-            lines.append("Process Tree / WebView2 Processes:\n" + res.stdout)
+            lines.append("Process / WebView2 summary:")
+            procs = json.loads(res.stdout) if res.stdout.strip() else []
+            if isinstance(procs, dict):
+                procs = [procs]
+            has_webview2 = any(p.get("Name", "").lower() == "msedgewebview2.exe" for p in procs)
+            lines.append(f"  - Total related processes found: {len(procs)}")
+            lines.append(f"  - msedgewebview2.exe child processes present: {has_webview2}")
         except Exception as e:
-            lines.append(f"Failed to query process tree: {e}")
+            lines.append(f"Process tree check status: unavailable ({e})")
 
+        # 2. Check presence of debugging flag in main process safely
+        try:
+            res = subprocess.run(
+                ["powershell", "-Command", f"Get-CimInstance Win32_Process | Where-Object {{ $_.ProcessId -eq {pid} }} | Select-Object -ExpandProperty CommandLine"],
+                capture_output=True, text=True, timeout=10
+            )
+            cmd = res.stdout
+            has_debug_port = f"--remote-debugging-port={self.port}" in cmd
+            lines.append(f"  - Remote debugging flag present in main process: {has_debug_port}")
+        except Exception:
+            lines.append("  - Remote debugging flag check: unavailable")
+
+        # 3. Relevant socket state for port 9333 only
         try:
             res = subprocess.run(
                 ["netstat", "-ano"], capture_output=True, text=True, timeout=10
             )
-            matching = [l for l in res.stdout.splitlines() if str(self.port) in l or "LISTENING" in l or "ESTABLISHED" in l]
-            lines.append(f"Netstat entries (port {self.port} / listeners):\n" + "\n".join(matching))
+            port_str = f":{self.port}"
+            matching = [l.strip() for l in res.stdout.splitlines() if port_str in l]
+            lines.append(f"Socket state for port {self.port}:")
+            if matching:
+                for m in matching:
+                    lines.append(f"  - {m}")
+            else:
+                lines.append(f"  - No active socket listeners or connections found for port {self.port}")
         except Exception as e:
-            lines.append(f"Failed to run netstat: {e}")
+            lines.append(f"Socket state check status: unavailable ({e})")
 
-        try:
-            env_dump = {k: v for k, v in os.environ.items() if any(k.upper().startswith(x) for x in ["WEBVIEW2", "CI", "RUNNER", "GITHUB", "TEMP", "USER"])}
-            lines.append(f"Sanitized Environment: {env_dump}")
-        except Exception as e:
-            lines.append(f"Failed to dump environment: {e}")
+        # 4. Runner / CI execution context (boolean presence only, no values or paths)
+        ci_active = os.environ.get("CI") is not None
+        github_action = os.environ.get("GITHUB_ACTIONS") is not None
+        lines.append(f"Environment context: CI={ci_active}, GITHUB_ACTIONS={github_action}")
 
         return "\n".join(lines)
 
