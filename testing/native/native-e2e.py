@@ -35,11 +35,13 @@ import argparse
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.request
+import urllib.error
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -99,18 +101,39 @@ class Runner:
 
     def launch(self) -> None:
         self.exe_dir_before = {p.name for p in self.exe.parent.glob("*.json")}
+
+        def check_port(p: int) -> bool:
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    return s.connect_ex(('127.0.0.1', p)) == 0
+            except Exception:
+                return False
+
+        if check_port(self.port):
+            raise Failure(
+                f"port {self.port} is already in use before application launch "
+                "(possible port collision or zombie WebView2 process from prior run)"
+            )
+
         env = dict(os.environ)
         env["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (
             f"--remote-debugging-port={self.port}"
         )
+        # Use a dedicated temporary WebView2 user data folder for isolation,
+        # preventing profile contamination or locking from prior test runs (like the smoke test).
+        webview_data = self.fixture / "webview-data"
+        env["WEBVIEW2_USER_DATA_FOLDER"] = str(webview_data)
+
         # The application keeps its own records in its own directory; the
         # fixture lives in the OS temporary directory.
         self.process = subprocess.Popen([str(self.exe)], env=env)
         deadline = time.time() + 60
+        last_error = None
         while time.time() < deadline:
-            if self.process.poll() is not None:
+            code = self.process.poll()
+            if code is not None:
                 raise Failure(
-                    f"the application exited early with code {self.process.returncode}"
+                    f"the application exited early with code {code}"
                 )
             try:
                 with urllib.request.urlopen(
@@ -119,9 +142,18 @@ class Runner:
                     targets = json.load(response)
                 if any(t.get("type") == "page" for t in targets):
                     return
-            except Exception:
-                time.sleep(0.4)
-        raise Failure("the application never exposed a webview on the DevTools port")
+            except urllib.error.URLError as e:
+                last_error = f"URLError: {e.reason}"
+            except Exception as e:
+                last_error = f"{type(e).__name__}: {e}"
+            time.sleep(0.4)
+
+        port_active = check_port(self.port)
+        raise Failure(
+            f"the application never exposed a webview on the DevTools port {self.port} "
+            f"(timeout 60s, last connection error: {last_error}, port active: {port_active}, "
+            f"process running: {self.process.poll() is None})"
+        )
 
     def shutdown(self) -> None:
         if self.process and self.process.poll() is None:

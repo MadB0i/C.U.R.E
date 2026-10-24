@@ -26,8 +26,10 @@ from __future__ import annotations
 import argparse
 import ctypes
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from ctypes import wintypes
 from pathlib import Path
@@ -389,6 +391,8 @@ def main() -> int:
     env["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (
         f"--remote-debugging-port={args.port}"
     )
+    user_data = tempfile.mkdtemp(prefix="cure-record-")
+    env["WEBVIEW2_USER_DATA_FOLDER"] = user_data
     app = subprocess.Popen([args.exe], env=env)
     capture = None
     hidden: list[int] = []
@@ -551,6 +555,10 @@ def main() -> int:
             app.wait(timeout=10)
         except Exception:
             app.kill()
+        try:
+            shutil.rmtree(user_data, ignore_errors=True)
+        except Exception:
+            pass
 
     print(f"raw capture: {OUT / f'raw-{args.mode}.mp4'}", flush=True)
     return 0
