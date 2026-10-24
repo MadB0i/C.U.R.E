@@ -149,11 +149,42 @@ class Runner:
             time.sleep(0.4)
 
         port_active = check_port(self.port)
+        diag = self.collect_startup_diagnostics()
+        print(diag, file=sys.stderr, flush=True)
         raise Failure(
             f"the application never exposed a webview on the DevTools port {self.port} "
             f"(timeout 60s, last connection error: {last_error}, port active: {port_active}, "
             f"process running: {self.process.poll() is None})"
         )
+
+    def collect_startup_diagnostics(self) -> str:
+        pid = self.process.pid if self.process else None
+        lines = [f"=== STARTUP DIAGNOSTICS (PID: {pid}, Port: {self.port}) ==="]
+        try:
+            res = subprocess.run(
+                ["powershell", "-Command", f"Get-CimInstance Win32_Process | Where-Object {{ $_.ParentProcessId -eq {pid} -or $_.ProcessId -eq {pid} -or $_.Name -eq 'msedgewebview2.exe' }} | Select-Object ProcessId, ParentProcessId, Name, CommandLine | Format-List"],
+                capture_output=True, text=True, timeout=15
+            )
+            lines.append("Process Tree / WebView2 Processes:\n" + res.stdout)
+        except Exception as e:
+            lines.append(f"Failed to query process tree: {e}")
+
+        try:
+            res = subprocess.run(
+                ["netstat", "-ano"], capture_output=True, text=True, timeout=10
+            )
+            matching = [l for l in res.stdout.splitlines() if str(self.port) in l or "LISTENING" in l or "ESTABLISHED" in l]
+            lines.append(f"Netstat entries (port {self.port} / listeners):\n" + "\n".join(matching))
+        except Exception as e:
+            lines.append(f"Failed to run netstat: {e}")
+
+        try:
+            env_dump = {k: v for k, v in os.environ.items() if any(k.upper().startswith(x) for x in ["WEBVIEW2", "CI", "RUNNER", "GITHUB", "TEMP", "USER"])}
+            lines.append(f"Sanitized Environment: {env_dump}")
+        except Exception as e:
+            lines.append(f"Failed to dump environment: {e}")
+
+        return "\n".join(lines)
 
     def shutdown(self) -> None:
         if self.process and self.process.poll() is None:
