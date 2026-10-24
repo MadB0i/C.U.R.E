@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -75,6 +77,8 @@ def sample(pid: int) -> tuple[float, int]:
 def main() -> int:
     env = dict(os.environ)
     env["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = f"--remote-debugging-port={PORT}"
+    user_data = tempfile.mkdtemp(prefix="cure-measure-")
+    env["WEBVIEW2_USER_DATA_FOLDER"] = user_data
     app = subprocess.Popen([str(EXE)], env=env)
     results = {}
     try:
@@ -148,6 +152,10 @@ def main() -> int:
             app.wait(timeout=10)
         except Exception:
             app.kill()
+        try:
+            shutil.rmtree(user_data, ignore_errors=True)
+        except Exception:
+            pass
     print(json.dumps(results, indent=2))
     (REPO / "docs" / "native-captures" / "performance.json").write_text(
         json.dumps(results, indent=2) + "\n", encoding="utf-8"

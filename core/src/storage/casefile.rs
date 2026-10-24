@@ -312,6 +312,12 @@ pub fn sanitize_summary(text: &str) -> Option<String> {
     if lower.contains("users\\") || lower.contains("/users/") {
         return None;
     }
+    if trimmed
+        .split_whitespace()
+        .any(|token| token.starts_with('/') || token.starts_with("~/"))
+    {
+        return None;
+    }
     if trimmed.contains('@') {
         return None;
     }
@@ -653,6 +659,8 @@ mod tests {
             "mail me at janedoe@example.com",
             "file:///C:/secret",
             "Users\\janedoe",
+            "/home/janedoe/projects",
+            "~/secret-notes",
         ] {
             let case = build(
                 &investigation,

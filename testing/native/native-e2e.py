@@ -35,11 +35,13 @@ import argparse
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.request
+import urllib.error
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -99,18 +101,39 @@ class Runner:
 
     def launch(self) -> None:
         self.exe_dir_before = {p.name for p in self.exe.parent.glob("*.json")}
+
+        def check_port(p: int) -> bool:
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    return s.connect_ex(('127.0.0.1', p)) == 0
+            except Exception:
+                return False
+
+        if check_port(self.port):
+            raise Failure(
+                f"port {self.port} is already in use before application launch "
+                "(possible port collision or zombie WebView2 process from prior run)"
+            )
+
         env = dict(os.environ)
         env["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (
             f"--remote-debugging-port={self.port}"
         )
+        # Use a dedicated temporary WebView2 user data folder for isolation,
+        # preventing profile contamination or locking from prior test runs (like the smoke test).
+        webview_data = self.fixture / "webview-data"
+        env["WEBVIEW2_USER_DATA_FOLDER"] = str(webview_data)
+
         # The application keeps its own records in its own directory; the
         # fixture lives in the OS temporary directory.
         self.process = subprocess.Popen([str(self.exe)], env=env)
         deadline = time.time() + 60
+        last_error = None
         while time.time() < deadline:
-            if self.process.poll() is not None:
+            code = self.process.poll()
+            if code is not None:
                 raise Failure(
-                    f"the application exited early with code {self.process.returncode}"
+                    f"the application exited early with code {code}"
                 )
             try:
                 with urllib.request.urlopen(
@@ -119,9 +142,75 @@ class Runner:
                     targets = json.load(response)
                 if any(t.get("type") == "page" for t in targets):
                     return
-            except Exception:
-                time.sleep(0.4)
-        raise Failure("the application never exposed a webview on the DevTools port")
+            except urllib.error.URLError as e:
+                last_error = f"URLError: {e.reason}"
+            except Exception as e:
+                last_error = f"{type(e).__name__}: {e}"
+            time.sleep(0.4)
+
+        port_active = check_port(self.port)
+        diag = self.collect_startup_diagnostics()
+        print(diag, file=sys.stderr, flush=True)
+        raise Failure(
+            f"the application never exposed a webview on the DevTools port {self.port} "
+            f"(timeout 60s, last connection error: {last_error}, port active: {port_active}, "
+            f"process running: {self.process.poll() is None})"
+        )
+
+    def collect_startup_diagnostics(self) -> str:
+        pid = self.process.pid if self.process else None
+        lines = [f"=== REDACTED STARTUP DIAGNOSTICS (PID: {pid}, Port: {self.port}) ==="]
+
+        # 1. Process tree summary (Process ID, Parent ID, Name only - no raw command lines)
+        try:
+            res = subprocess.run(
+                ["powershell", "-Command", f"Get-CimInstance Win32_Process | Where-Object {{ $_.ParentProcessId -eq {pid} -or $_.ProcessId -eq {pid} -or $_.Name -eq 'msedgewebview2.exe' }} | Select-Object ProcessId, ParentProcessId, Name | ConvertTo-Json"],
+                capture_output=True, text=True, timeout=15
+            )
+            lines.append("Process / WebView2 summary:")
+            procs = json.loads(res.stdout) if res.stdout.strip() else []
+            if isinstance(procs, dict):
+                procs = [procs]
+            has_webview2 = any(p.get("Name", "").lower() == "msedgewebview2.exe" for p in procs)
+            lines.append(f"  - Total related processes found: {len(procs)}")
+            lines.append(f"  - msedgewebview2.exe child processes present: {has_webview2}")
+        except Exception as e:
+            lines.append(f"Process tree check status: unavailable ({e})")
+
+        # 2. Check presence of debugging flag in main process safely
+        try:
+            res = subprocess.run(
+                ["powershell", "-Command", f"Get-CimInstance Win32_Process | Where-Object {{ $_.ProcessId -eq {pid} }} | Select-Object -ExpandProperty CommandLine"],
+                capture_output=True, text=True, timeout=10
+            )
+            cmd = res.stdout
+            has_debug_port = f"--remote-debugging-port={self.port}" in cmd
+            lines.append(f"  - Remote debugging flag present in main process: {has_debug_port}")
+        except Exception:
+            lines.append("  - Remote debugging flag check: unavailable")
+
+        # 3. Relevant socket state for port 9333 only
+        try:
+            res = subprocess.run(
+                ["netstat", "-ano"], capture_output=True, text=True, timeout=10
+            )
+            port_str = f":{self.port}"
+            matching = [l.strip() for l in res.stdout.splitlines() if port_str in l]
+            lines.append(f"Socket state for port {self.port}:")
+            if matching:
+                for m in matching:
+                    lines.append(f"  - {m}")
+            else:
+                lines.append(f"  - No active socket listeners or connections found for port {self.port}")
+        except Exception as e:
+            lines.append(f"Socket state check status: unavailable ({e})")
+
+        # 4. Runner / CI execution context (boolean presence only, no values or paths)
+        ci_active = os.environ.get("CI") is not None
+        github_action = os.environ.get("GITHUB_ACTIONS") is not None
+        lines.append(f"Environment context: CI={ci_active}, GITHUB_ACTIONS={github_action}")
+
+        return "\n".join(lines)
 
     def shutdown(self) -> None:
         if self.process and self.process.poll() is None:
@@ -141,6 +230,7 @@ class Runner:
         context = self._browser.contexts[0]
         page = context.pages[0]
         page.set_viewport_size({"width": 1440, "height": 900})
+        page.wait_for_url("http://tauri.localhost/", timeout=30000)
         page.wait_for_load_state("networkidle")
         time.sleep(1.0)
         return page
@@ -179,6 +269,7 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
         runner.step("navigation")
         for nav in [
             "nav-overview",
+            "nav-agents",
             "nav-scan",
             "nav-cleanup",
             "nav-quarantine",
@@ -206,18 +297,157 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
                 state["count"] == 1 and nav in state["current"],
                 f"{nav} opens exactly one view ({state['view']})",
             )
+        runner.step("a real agent flight session")
+        runner.check(
+            (runner.fixture / "agent-e2e-modified.txt").write_text("before\n") > 0,
+            "the agent fixture carries a file to modify",
+        )
+        (runner.fixture / "agent-e2e-rename-source.txt").write_text("rename me\n")
+        (runner.fixture / "agent-e2e-remove-me.txt").write_text("remove me\n")
+        page.evaluate("""() => document.getElementById('nav-agents').click()""")
+        time.sleep(0.8)
+        detected = int(page.locator("#ar-detected-count").inner_text())
+        print(f"  supported agent processes detected: {detected}", flush=True)
+        if detected:
+            runner.check(
+                page.locator("#ar-blips .ar-blip").count() == detected,
+                "the native radar plots one signal per detected agent kind",
+            )
+        else:
+            print("  (no supported agent was running; presence assertions are skipped)", flush=True)
+        runner.check(
+            "Presence is not proof of activity" in page.locator("#ar-radar-note").inner_text(),
+            "the native radar refuses to treat presence as activity",
+        )
+        root_error = page.evaluate(
+            """async (root) => {
+                try {
+                    await window.__TAURI__.core.invoke('flight_start', { workspace: root });
+                    return 'started';
+                } catch (error) {
+                    return String(error);
+                }
+            }""",
+            "C:\\",
+        )
+        runner.check(
+            "entire drive" in root_error,
+            "the native recorder refuses a drive root (" + root_error + ")",
+        )
+        runner.shot(page, "agent-radar")
+        page.locator("#ar-workspace").fill(str(runner.fixture))
+        page.locator("#ar-start").click()
+        page.wait_for_selector("#ar-session-badge", timeout=10000)
+        page.wait_for_function(
+            "() => document.getElementById('ar-session-badge').textContent.trim() === 'Recording'",
+            timeout=10000,
+        )
+        (runner.fixture / "agent-e2e-created.txt").write_text("created during recording\n" * 32)
+        with open(runner.fixture / "agent-e2e-modified.txt", "a", encoding="utf-8") as handle:
+            handle.write("after\n" * 16)
+        (runner.fixture / "agent-e2e-rename-source.txt").rename(
+            runner.fixture / "agent-e2e-renamed.txt"
+        )
+        (runner.fixture / "agent-e2e-remove-me.txt").unlink()
+        page.wait_for_function(
+            """() => {
+                const s = window.CureAgentRadar.state.session;
+                if (!s) return false;
+                const kinds = new Set(s.events.map((e) => e.kind));
+                return kinds.has('created') && kinds.has('modified') &&
+                       kinds.has('renamed') && kinds.has('removed');
+            }""",
+            timeout=15000,
+        )
+        page.locator("#ar-stop").click()
+        page.wait_for_function(
+            "() => document.getElementById('ar-session-badge').textContent.trim() === 'Stopped'",
+            timeout=15000,
+        )
+        session = page.evaluate("window.CureAgentRadar.state.session")
+        runner.check(session["coverage"]["complete"],
+                     f"the real flight session has complete coverage ({session['coverage']})")
+        runner.check(
+            all(e["confidence"] != "attributed" for e in session["events"]),
+            "the real flight session never claims attribution",
+        )
+        runner.check(
+            {e["kind"] for e in session["events"]} >= {"created", "modified", "renamed", "removed"},
+            "the real recorder observed all four metadata changes",
+        )
+        runner.shot(page, "agent-flight")
+        runner.check(
+            page.locator("#ar-case-preview").is_enabled(),
+            "the native case file unlocks after the real session stops",
+        )
+        page.locator("#ar-case-preview").click()
+        page.wait_for_selector("#ar-case-stage img", timeout=15000)
+        time.sleep(0.6)
+        privacy = page.evaluate(
+            """() => {
+                const s = JSON.stringify(window.CureCaseFile.audit(
+                    window.CureAgentRadar.state.caseModel));
+                return s.match(/[A-Za-z]:\\\\\\\\|Users|AppData|cure-native-e2e|agent-e2e\\\\.(txt|json)/gi) || [];
+            }"""
+        )
+        runner.check(not privacy,
+                     f"the native agent case carries no path or file name ({privacy[:2]})")
+        runner.check(
+            page.evaluate("!!window.CureAgentRadar.state.caseModel.reconciliation_used"),
+            "the native case records that stop-time reconciliation ran",
+        )
+        runner.shot(page, "agent-case-file")
+
+        runner.step("a real Windows persistence comparison")
+        page.locator("#ar-win-capture").click()
+        page.wait_for_function(
+            "() => document.getElementById('ar-winsnap-state').textContent.toLowerCase().includes('trusted snapshot saved')",
+            timeout=120000,
+        )
+        page.locator("#ar-win-compare").click()
+        page.wait_for_selector("#ar-win-summary", timeout=120000)
+        runner.check(
+            "not malware verdicts" in page.locator("#ar-win-note").inner_text().lower(),
+            "the native Windows comparison refuses malware verdicts",
+        )
+        runner.shot(page, "agent-windows-change")
+
         runner.step("a real storage scan")
         page.evaluate("""() => document.getElementById('nav-cleanup').click()""")
         time.sleep(0.6)
-        page.evaluate("""() => document.getElementById('sw-scan').click()""")
-        time.sleep(1.2)
-        progress = page.evaluate(
-            """() => { const p = document.getElementById('sw-progress');
-               return p ? { visible: p.getClientRects().length > 0,
-                            text: (p.innerText || '').replace(/\\s+/g,' ').trim() } : null; }"""
+        page.evaluate(
+            """() => {
+                const panel = document.getElementById('sw-progress');
+                window.__cureScanProgress = { seen: false, text: '' };
+                const remember = () => {
+                    if (panel && panel.getClientRects().length > 0) {
+                        window.__cureScanProgress.seen = true;
+                        window.__cureScanProgress.text =
+                            (panel.innerText || '').replace(/\\s+/g, ' ').trim();
+                    }
+                };
+                const observer = new MutationObserver(remember);
+                observer.observe(panel, {
+                    attributes: true,
+                    attributeFilter: ['class', 'style', 'hidden'],
+                });
+                observer.observe(document.body, {
+                    attributes: true,
+                    subtree: true,
+                    attributeFilter: ['class', 'style', 'hidden'],
+                });
+                window.__cureScanProgressObserver = observer;
+                remember();
+            }"""
         )
+        page.evaluate("""() => document.getElementById('sw-scan').click()""")
+        page.wait_for_function(
+            "() => window.__cureScanProgress && window.__cureScanProgress.seen",
+            timeout=30000,
+        )
+        progress = page.evaluate("() => window.__cureScanProgress")
         runner.check(
-            progress is not None and progress["visible"],
+            progress["seen"],
             "the storage scan shows real progress",
         )
         print(f"  progress text: {progress['text'][:120]!r}", flush=True)

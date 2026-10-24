@@ -101,11 +101,13 @@ jobs:
           $exe = "$PWD/gui/src-tauri/target/release/cure-gui.exe"
           $before = Get-ChildItem "$PWD/gui/src-tauri/target/release" -File |
             Select-Object -ExpandProperty Name
+          $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path ([System.IO.Path]::GetTempPath()) "cure-smoke-$([Guid]::NewGuid())"
           $proc = Start-Process -FilePath $exe -PassThru
           Start-Sleep -Seconds 15
           $proc.Refresh()
           if ($proc.HasExited) {
             Write-Error "cure-gui.exe exited early with code $($proc.ExitCode)"
+            if (Test-Path $env:WEBVIEW2_USER_DATA_FOLDER) { Remove-Item -Recurse -Force $env:WEBVIEW2_USER_DATA_FOLDER -ErrorAction SilentlyContinue }
             exit 1
           }
           $proc | Select-Object Id, @{n='WorkingSetMB';e={[math]::Round($_.WorkingSet64/1MB,1)}},
@@ -114,10 +116,15 @@ jobs:
           if (-not $proc.MainWindowTitle) {
             Write-Error "cure-gui.exe started but opened no window"
             Stop-Process -Id $proc.Id -Force
+            Start-Sleep -Seconds 2
+            if (Test-Path $env:WEBVIEW2_USER_DATA_FOLDER) { Remove-Item -Recurse -Force $env:WEBVIEW2_USER_DATA_FOLDER -ErrorAction SilentlyContinue }
             exit 1
           }
           Stop-Process -Id $proc.Id -Force
-          Start-Sleep -Seconds 2
+          Start-Sleep -Seconds 3
+          if (Test-Path $env:WEBVIEW2_USER_DATA_FOLDER) {
+            Remove-Item -Recurse -Force $env:WEBVIEW2_USER_DATA_FOLDER -ErrorAction SilentlyContinue
+          }
           $after = Get-ChildItem "$PWD/gui/src-tauri/target/release" -File |
             Select-Object -ExpandProperty Name
           $new = Compare-Object $before $after |

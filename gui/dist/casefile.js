@@ -41,13 +41,13 @@
   };
 
   const FUR = {
-    deep: "#a3511d",
-    base: "#d97b32",
-    lit: "#f2a95c",
-    cream: "#fdf3e4",
-    collar: "#7d63d8",
+    deep: "#a94f1c",
+    base: "#df8038",
+    lit: "#f7b76a",
+    cream: "#fff4e2",
+    collar: "#8268e6",
     eye: "#2a1a10",
-    nose: "#f08ca8",
+    nose: "#f48fa6",
   };
 
   const FONT = '"Segoe UI", "Segoe UI Variable Text", system-ui, -apple-system, sans-serif';
@@ -60,7 +60,43 @@
   function allowlist(caseFile) {
     const src = caseFile || {};
     const categories = Array.isArray(src.categories) ? src.categories : [];
+    if (String(src.kind || "") === "agent_session") {
+      const number = function (value) {
+        return typeof value === "number" && isFinite(value) ? value : 0;
+      };
+      return {
+        kind: "agent_session",
+        caseId: String(src.case_id || ""),
+        title: String(src.title || "AGENT SESSION CASE"),
+        agentLabel: String(src.agent_label || "No supported agent observed"),
+        agentPresence: String(src.agent_presence || ""),
+        observationLabel: String(src.observation_label || "0s"),
+        changesTotal: number(src.changes_total),
+        created: number(src.created),
+        modified: number(src.modified),
+        removed: number(src.removed),
+        renamed: number(src.renamed),
+        storageDeltaLabel: String(src.storage_delta_label || "No net size change"),
+        storageNote: String(src.storage_note || ""),
+        confidenceLabel: String(src.confidence_label || "No changes observed"),
+        confidenceNote: String(src.confidence_note || ""),
+        completeness: String(src.completeness || "Coverage not stated"),
+        coverageNote: String(src.coverage_note || ""),
+        observedEvents: number(src.observed_events),
+        correlatedEvents: number(src.correlated_events),
+        unknownEvents: number(src.unknown_events),
+        windowsAdded: number(src.windows_added),
+        windowsRemoved: number(src.windows_removed),
+        windowsChanged: number(src.windows_changed),
+        windowsNote: String(src.windows_note || "No Windows persistence comparison was included."),
+        reconciliationUsed: !!src.reconciliation_used,
+        summary: src.summary ? String(src.summary) : null,
+        summaryWithheld: !!src.summary_withheld,
+        demo: !!src.demo,
+      };
+    }
     return {
+      kind: "storage_case",
       title: String(src.title || "THE MISSING STORAGE CASE"),
       status: String(src.status || "investigation_complete"),
       statusLabel: String(src.status_label || "Investigation complete"),
@@ -253,6 +289,382 @@
     ctx.restore();
   }
 
+
+  function wrapText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+    const words = String(text || "").split(/\s+/);
+    let line = "";
+    let used = 0;
+    for (let i = 0; i < words.length; i++) {
+      const candidate = line ? line + " " + words[i] : words[i];
+      if (ctx.measureText(candidate).width > maxWidth && line) {
+        ctx.fillText(line, x, y);
+        y += lineHeight;
+        used += 1;
+        line = words[i];
+        if (maxLines && used >= maxLines - 1 && i < words.length - 1) {
+          line = line + " " + words.slice(i + 1).join(" ");
+          break;
+        }
+      } else {
+        line = candidate;
+      }
+    }
+    if (line) ctx.fillText(line, x, y);
+    return y + lineHeight;
+  }
+
+  function renderAgent(model, canvas, ctx) {
+    const texts = [];
+    const say = function (text) {
+      texts.push(String(text));
+      return String(text);
+    };
+    const PAD = 76;
+    const W = WIDTH - PAD * 2;
+
+    const bg = ctx.createLinearGradient(0, 0, WIDTH * 0.55, HEIGHT);
+    bg.addColorStop(0, "#10141d");
+    bg.addColorStop(1, INK.bg);
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+    ctx.strokeStyle = "rgba(143,123,240,0.05)";
+    ctx.lineWidth = 1;
+    for (let x = 0; x <= WIDTH; x += 40) {
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, 0);
+      ctx.lineTo(x + 0.5, HEIGHT);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= HEIGHT; y += 40) {
+      ctx.beginPath();
+      ctx.moveTo(0, y + 0.5);
+      ctx.lineTo(WIDTH, y + 0.5);
+      ctx.stroke();
+    }
+
+    const glow = ctx.createRadialGradient(WIDTH * 0.8, 110, 20, WIDTH * 0.8, 110, 600);
+    glow.addColorStop(0, "rgba(143,123,240,0.17)");
+    glow.addColorStop(1, "rgba(143,123,240,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = INK.accent;
+    ctx.font = "700 22px " + FONT;
+    tracked(ctx, say("C.U.R.E"), PAD, 92, 4.5);
+
+    ctx.fillStyle = INK.faint;
+    ctx.font = "600 16px " + FONT;
+    tracked(ctx, say("AGENT EVIDENCE"), PAD + trackedWidth(ctx, "C.U.R.E", 4.5) + 46, 92, 3);
+
+    const chipText = say(String(model.confidenceLabel || "No changes observed").toUpperCase());
+    ctx.font = "700 15px " + FONT;
+    const chipW = Math.min(W - 40, trackedWidth(ctx, chipText, 2.4) + 34);
+    const chipX = WIDTH - PAD - chipW;
+    ctx.fillStyle = INK.accentSoft;
+    roundRect(ctx, chipX, 66, chipW, 34, 17);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(143,123,240,0.5)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = INK.accent;
+    tracked(ctx, chipText, chipX + 17, 89, 2.4);
+
+    ctx.fillStyle = INK.text;
+    ctx.font = "700 62px " + FONT;
+    ctx.fillText(say("AGENT SESSION CASE"), PAD, 184);
+
+    ctx.fillStyle = INK.muted;
+    ctx.font = "500 19px " + FONT;
+    ctx.fillText(
+      say("A privacy-safe record of observed workspace changes"),
+      PAD,
+      224
+    );
+
+    ctx.strokeStyle = INK.line;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(PAD, 252);
+    ctx.lineTo(WIDTH - PAD, 252);
+    ctx.stroke();
+
+    const figures = [
+      { label: "CHANGES OBSERVED", value: String(model.changesTotal || 0), color: INK.text },
+      { label: "OBSERVATION TIME", value: model.observationLabel, color: INK.text },
+      { label: "CORRELATED EVENTS", value: String(model.correlatedEvents || 0), color: INK.accent },
+      { label: "OBSERVED EVENTS", value: String(model.observedEvents || 0), color: INK.ok },
+    ];
+    let y = 300;
+    const colW = W / figures.length;
+    figures.forEach(function (fig, i) {
+      const x = PAD + colW * i;
+      ctx.fillStyle = INK.faint;
+      ctx.font = "700 12px " + FONT;
+      tracked(ctx, say(fig.label), x, y, 2.2);
+      ctx.fillStyle = fig.color;
+      ctx.font = "700 46px " + FONT;
+      ctx.fillText(say(fig.value), x, y + 52);
+      if (i > 0) {
+        ctx.strokeStyle = "rgba(40,49,74,0.9)";
+        ctx.beginPath();
+        ctx.moveTo(x - 22, y - 24);
+        ctx.lineTo(x - 22, y + 62);
+        ctx.stroke();
+      }
+    });
+
+    /* evidence-state card */
+    y = 396;
+    ctx.fillStyle = INK.panel;
+    roundRect(ctx, PAD, y, W, 168, 14);
+    ctx.fill();
+    ctx.strokeStyle = INK.line;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = INK.faint;
+    ctx.font = "700 12px " + FONT;
+    tracked(ctx, say("WHAT THE RECORDER CAN SAY"), PAD + 26, y + 30, 2.4);
+    ctx.fillStyle = INK.text;
+    ctx.font = "600 26px " + FONT;
+    ctx.fillText(say(model.confidenceLabel), PAD + 26, y + 64);
+    ctx.fillStyle = INK.muted;
+    ctx.font = "500 18px " + FONT;
+    wrapText(ctx, say(model.confidenceNote), PAD + 26, y + 94, W - 52, 23, 2);
+    ctx.fillStyle = INK.faint;
+    ctx.font = "500 15px " + FONT;
+    ctx.fillText(
+      say("Completeness: " + model.completeness + " · Reconciliation used: " + (model.reconciliationUsed ? "yes" : "no")),
+      PAD + 26,
+      y + 160
+    );
+
+    /* change composition */
+    y = 596;
+    ctx.fillStyle = INK.faint;
+    ctx.font = "700 13px " + FONT;
+    tracked(ctx, say("OBSERVED CHANGE COMPOSITION"), PAD, y, 2.6);
+    y += 24;
+
+    const bands = [
+      { label: "Created", value: model.created, color: INK.ok },
+      { label: "Modified", value: model.modified, color: INK.warn },
+      { label: "Removed", value: model.removed, color: INK.danger },
+      { label: "Renamed", value: model.renamed, color: INK.accent },
+    ];
+    const total = bands.reduce(function (sum, b) { return sum + Math.max(0, b.value || 0); }, 0);
+    const barH = 44;
+    ctx.fillStyle = "rgba(255,255,255,0.03)";
+    roundRect(ctx, PAD, y, W, barH, 9);
+    ctx.fill();
+    if (total > 0) {
+      let cx = PAD;
+      bands.forEach(function (b) {
+        const w = ((b.value || 0) / total) * W;
+        if (w <= 0) return;
+        ctx.fillStyle = b.color;
+        ctx.fillRect(cx, y, Math.max(1, w - 2), barH);
+        cx += w;
+      });
+    }
+    y += barH + 30;
+
+    bands.forEach(function (b) {
+      ctx.fillStyle = b.color;
+      roundRect(ctx, PAD, y - 13, 11, 11, 3);
+      ctx.fill();
+      ctx.fillStyle = INK.text;
+      ctx.font = "500 19px " + FONT;
+      ctx.fillText(say(b.label), PAD + 24, y - 3);
+      ctx.fillStyle = INK.muted;
+      ctx.font = "500 17px " + FONT;
+      ctx.textAlign = "right";
+      ctx.fillText(say(String(b.value || 0)), WIDTH - PAD, y - 3);
+      ctx.textAlign = "left";
+      y += 30;
+    });
+
+    /* Windows persistence leads */
+    y += 8;
+    const winTotal = (model.windowsAdded || 0) + (model.windowsRemoved || 0) + (model.windowsChanged || 0);
+    ctx.fillStyle = INK.bgLift;
+    roundRect(ctx, PAD, y, W, 116, 12);
+    ctx.fill();
+    ctx.strokeStyle = INK.line;
+    ctx.stroke();
+    ctx.fillStyle = INK.faint;
+    ctx.font = "700 12px " + FONT;
+    tracked(ctx, say("WINDOWS PERSISTENCE LEADS"), PAD + 24, y + 30, 2.4);
+    ctx.fillStyle = winTotal ? INK.warn : INK.muted;
+    ctx.font = "600 25px " + FONT;
+    ctx.fillText(
+      say(winTotal ? winTotal + " review lead" + (winTotal === 1 ? "" : "s") : "None included"),
+      PAD + 24,
+      y + 64
+    );
+    ctx.fillStyle = INK.muted;
+    ctx.font = "500 17px " + FONT;
+    wrapText(ctx, say(model.windowsNote), PAD + 24, y + 90, W - 48, 21, 1);
+    if (winTotal) {
+      ctx.fillStyle = INK.faint;
+      ctx.font = "500 15px " + FONT;
+      ctx.textAlign = "right";
+      ctx.fillText(
+        say(
+          "+" + model.windowsAdded + "  ~" + model.windowsChanged + "  -" + model.windowsRemoved
+        ),
+        WIDTH - PAD - 24,
+        y + 64
+      );
+      ctx.textAlign = "left";
+    }
+
+    /* boundaries */
+    y += 136;
+    ctx.fillStyle = INK.faint;
+    ctx.font = "700 13px " + FONT;
+    tracked(ctx, say("WHAT THIS FILE DOES NOT SAY"), PAD, y, 2.6);
+    y += 30;
+    const limits = [
+      "It does not attribute a change to an agent or to a person.",
+      "No engine-captured paths, file names, prompts, credentials or machine IDs; an opt-in note is free text.",
+      "A detected process is not proof that code was generated or a task was run.",
+      "Changes while an agent was present are correlated, not caused.",
+    ];
+    ctx.font = "500 19px " + FONT;
+    limits.forEach(function (line) {
+      ctx.fillStyle = INK.accent;
+      ctx.beginPath();
+      ctx.arc(PAD + 4, y - 6, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = INK.text;
+      ctx.fillText(say(line), PAD + 22, y);
+      y += 28;
+    });
+
+    y += 12;
+    ctx.fillStyle = INK.muted;
+    ctx.font = "500 18px " + FONT;
+    ctx.fillText(say(model.agentPresence), PAD, y);
+    y += 22;
+    ctx.fillStyle = INK.faint;
+    ctx.font = "500 16px " + FONT;
+    ctx.fillText(say("Agent observed: " + model.agentLabel), PAD, y);
+    y += 24;
+    ctx.fillText(say("Net metadata change: " + model.storageDeltaLabel + " · " + model.storageNote), PAD, y);
+
+    y += 24;
+    ctx.fillStyle = INK.faint;
+    ctx.font = "500 15px " + FONT;
+    y = wrapText(ctx, say("Coverage: " + model.coverageNote), PAD, y, W, 20, 2);
+
+    if (model.summary) {
+      y += 26;
+      ctx.fillStyle = INK.accentSoft;
+      roundRect(ctx, PAD, y - 20, W, 64, 12);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(143,123,240,0.35)";
+      ctx.stroke();
+      ctx.fillStyle = INK.text;
+      ctx.font = "italic 500 20px " + FONT;
+      ctx.fillText(say("“" + model.summary + "”"), PAD + 24, y + 16);
+    } else if (model.summaryWithheld) {
+      y += 28;
+      ctx.fillStyle = INK.muted;
+      ctx.font = "italic 500 17px " + FONT;
+      ctx.fillText(
+        say("The operator note was withheld because it appeared to contain a path or address."),
+        PAD,
+        y
+      );
+    } else {
+      y += 28;
+      ctx.fillStyle = INK.faint;
+      ctx.font = "700 12px " + FONT;
+      tracked(ctx, say("RECORDER PROVENANCE"), PAD, y, 2.4);
+      y += 24;
+      ctx.fillStyle = INK.muted;
+      ctx.font = "500 16px " + FONT;
+      ctx.fillText(
+        say("Observation: directory watcher plus final snapshot reconciliation."),
+        PAD,
+        y
+      );
+      y += 22;
+      ctx.fillText(
+        say("Contents: counts, fixed labels and an allowlisted evidence vocabulary."),
+        PAD,
+        y
+      );
+    }
+
+    if (model.demo) {
+      const bandY = HEIGHT - 196;
+      ctx.fillStyle = "rgba(240,180,92,0.12)";
+      roundRect(ctx, PAD, bandY, W, 34, 8);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(240,180,92,0.55)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = "rgba(240,180,92,0.95)";
+      ctx.font = "700 14px " + FONT;
+      const demoText = say("SYNTHETIC DEMO · SAMPLE DATA, NOT A REAL OBSERVATION");
+      tracked(
+        ctx,
+        demoText,
+        PAD + (W - trackedWidth(ctx, demoText, 2.2)) / 2,
+        bandY + 22,
+        2.2
+      );
+    }
+
+    /* footer */
+    const footY = HEIGHT - 116;
+    ctx.strokeStyle = INK.line;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(PAD, footY - 34);
+    ctx.lineTo(WIDTH - PAD, footY - 34);
+    ctx.stroke();
+
+    drawLuma(ctx, PAD, footY - 22, 1.05);
+
+    const footX = PAD + 118;
+    ctx.fillStyle = INK.muted;
+    ctx.font = "500 17px " + FONT;
+    ctx.fillText(
+      say("C.U.R.E · Clean USB Rescue Engine · github.com/MadB0i/C.U.R.E"),
+      footX,
+      footY
+    );
+    ctx.fillStyle = INK.faint;
+    ctx.font = "500 15px " + FONT;
+    ctx.fillText(
+      say(model.caseId + " · " + model.completeness + " · " + model.observationLabel),
+      footX,
+      footY + 26
+    );
+    ctx.textAlign = "right";
+    ctx.fillText(
+      say("No engine-captured paths, names or file names are included."),
+      WIDTH - PAD,
+      footY + 26
+    );
+    ctx.textAlign = "left";
+
+    return {
+      canvas: canvas,
+      dataUrl: canvas.toDataURL("image/png"),
+      width: WIDTH,
+      height: HEIGHT,
+      texts: texts,
+      model: model,
+    };
+  }
+
+
   /* ---------------------------------------------------------------------
      The renderer
      --------------------------------------------------------------------- */
@@ -262,6 +674,10 @@
     const canvas = makeCanvas();
     const ctx = canvas.getContext("2d");
     const texts = [];
+
+    if (model.kind === "agent_session") {
+      return renderAgent(model, canvas, ctx);
+    }
 
     const say = function (text) {
       texts.push(String(text));
@@ -512,7 +928,7 @@
     ctx.font = "500 15px " + FONT;
     ctx.textAlign = "right";
     ctx.fillText(
-      say("No paths, names or file names are included in this image."),
+      say("No engine-captured paths, names or file names are included."),
       WIDTH - PAD,
       footY + 26
     );
