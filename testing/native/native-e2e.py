@@ -131,6 +131,37 @@ class Runner:
     def remove_fixture(self) -> None:
         if self.fixture and not self.keep and self.fixture.exists():
             shutil.rmtree(self.fixture, ignore_errors=True)
+        # Close any open log handles and remove the log files so they don't
+        # linger after the fixture directory itself is gone.
+        for attr in ("_stdout_log", "_stderr_log"):
+            fh = getattr(self, attr, None)
+            if fh is not None:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
+        for path in (getattr(self, "_stdout_path", None),
+                     getattr(self, "_stderr_path", None)):
+            if path is not None and isinstance(path, Path) and path.exists():
+                try:
+                    path.unlink()
+                except Exception:
+                    pass
+
+    def _read_log_output(self) -> None:
+        """Read whatever has been written to the stdout/stderr log files."""
+        for name, target in [
+            ("_stdout_path", "_stdout"),
+            ("_stderr_path", "_stderr"),
+        ]:
+            path = getattr(self, name, None)
+            if path is None or not isinstance(path, Path):
+                continue
+            try:
+                if path.exists():
+                    setattr(self, target, path.read_bytes())
+            except Exception:
+                pass
 
     # -- application -------------------------------------------------------
 
@@ -165,21 +196,35 @@ class Runner:
         env["WEBVIEW2_USER_DATA_FOLDER"] = str(webview_data)
         webview_data.mkdir(exist_ok=True)
 
-        # Capture stdout/stderr so we can report them on failure.
+        # Write stdout/stderr to temp files instead of piping.
+        # Playwright's connect_over_cdp only talks to WebView2 over CDP; the
+        # app's own stdout can be large (scan progress, logging) and would
+        # fill the ~64 KB Windows pipe buffer, blocking the child process
+        # and deadlocking this launcher loop forever.
+        self._stdout_log = tempfile.NamedTemporaryFile(
+            prefix="cure-e2e-stdout-", suffix=".log", delete=False
+        )
+        self._stderr_log = tempfile.NamedTemporaryFile(
+            prefix="cure-e2e-stderr-", suffix=".log", delete=False
+        )
+        self._stdout_path = Path(self._stdout_log.name)
+        self._stderr_path = Path(self._stderr_log.name)
+        self._stdout_log.close()
+        self._stderr_log.close()
         self._stdout = b""
         self._stderr = b""
         self.process = subprocess.Popen(
             [str(self.exe)],
             env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=open(self._stdout_path, "wb", buffering=0),
+            stderr=open(self._stderr_path, "wb", buffering=0),
         )
         deadline = time.time() + 60
         last_error = None
         while time.time() < deadline:
             code = self.process.poll()
             if code is not None:
-                self._stdout, self._stderr = self.process.communicate()
+                self._read_log_output()
                 raise Failure(
                     f"the application exited early with code {code}"
                 )
@@ -197,7 +242,7 @@ class Runner:
             time.sleep(0.4)
 
         port_active = check_port(self.port)
-        self._stdout, self._stderr = self.process.communicate()
+        self._read_log_output()
         diag = self.collect_startup_diagnostics()
         print(diag, file=sys.stderr, flush=True)
         raise Failure(

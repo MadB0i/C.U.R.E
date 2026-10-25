@@ -83,6 +83,7 @@ jobs:
       - name: Build GUI (release)
         run: cargo build --release
         working-directory: gui/src-tauri
+        timeout-minutes: 30
       - name: Run headless-safe GUI tests (desktop tests are #[ignore]d)
         run: cargo test
         working-directory: gui/src-tauri
@@ -129,6 +130,7 @@ jobs:
           Write-Output 'native smoke test passed; no exe-adjacent state files'
       - name: Native end-to-end journey
         shell: pwsh
+        timeout-minutes: 30
         run: |
           # The browser suite proves the interface; this proves the product.
           # It drives the real release binary through the real webview and
