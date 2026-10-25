@@ -35,11 +35,13 @@ import argparse
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.request
+import urllib.error
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -99,23 +101,40 @@ class Runner:
 
     def launch(self) -> None:
         self.exe_dir_before = {p.name for p in self.exe.parent.glob("*.json")}
+
+        def check_port(p: int) -> bool:
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    return s.connect_ex(('127.0.0.1', p)) == 0
+            except Exception:
+                return False
+
+        if check_port(self.port):
+            raise Failure(
+                f"port {self.port} is already in use before application launch "
+                "(possible port collision or zombie WebView2 process from prior run)"
+            )
+
         env = dict(os.environ)
         env["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (
             f"--remote-debugging-port={self.port}"
         )
         # Use a dedicated temporary WebView2 user data folder for isolation,
-        # preventing profile contamination or locking from prior test runs.
-        webview_data = self.fixture / "webview-data" if self.fixture else None
-        if webview_data:
-            env["WEBVIEW2_USER_DATA_FOLDER"] = str(webview_data)
+        # preventing profile contamination or locking from prior test runs (like the smoke test).
+        webview_data = self.fixture / "webview-data"
+        env["WEBVIEW2_USER_DATA_FOLDER"] = str(webview_data)
+        webview_data.mkdir(exist_ok=True)
+
         # The application keeps its own records in its own directory; the
         # fixture lives in the OS temporary directory.
         self.process = subprocess.Popen([str(self.exe)], env=env)
         deadline = time.time() + 60
+        last_error = None
         while time.time() < deadline:
-            if self.process.poll() is not None:
+            code = self.process.poll()
+            if code is not None:
                 raise Failure(
-                    f"the application exited early with code {self.process.returncode}"
+                    f"the application exited early with code {code}"
                 )
             try:
                 with urllib.request.urlopen(
@@ -124,9 +143,75 @@ class Runner:
                     targets = json.load(response)
                 if any(t.get("type") == "page" for t in targets):
                     return
-            except Exception:
-                time.sleep(0.4)
-        raise Failure("the application never exposed a webview on the DevTools port")
+            except urllib.error.URLError as e:
+                last_error = f"URLError: {e.reason}"
+            except Exception as e:
+                last_error = f"{type(e).__name__}: {e}"
+            time.sleep(0.4)
+
+        port_active = check_port(self.port)
+        diag = self.collect_startup_diagnostics()
+        print(diag, file=sys.stderr, flush=True)
+        raise Failure(
+            f"the application never exposed a webview on the DevTools port {self.port} "
+            f"(timeout 60s, last connection error: {last_error}, port active: {port_active}, "
+            f"process running: {self.process.poll() is None})"
+        )
+
+    def collect_startup_diagnostics(self) -> str:
+        pid = self.process.pid if self.process else None
+        lines = [f"=== REDACTED STARTUP DIAGNOSTICS (PID: {pid}, Port: {self.port}) ==="]
+
+        # 1. Process tree summary (Process ID, Parent ID, Name only - no raw command lines)
+        try:
+            res = subprocess.run(
+                ["powershell", "-Command", f"Get-CimInstance Win32_Process | Where-Object {{ $_.ParentProcessId -eq {pid} -or $_.ProcessId -eq {pid} -or $_.Name -eq 'msedgewebview2.exe' }} | Select-Object ProcessId, ParentProcessId, Name | ConvertTo-Json"],
+                capture_output=True, text=True, timeout=15
+            )
+            lines.append("Process / WebView2 summary:")
+            procs = json.loads(res.stdout) if res.stdout.strip() else []
+            if isinstance(procs, dict):
+                procs = [procs]
+            has_webview2 = any(p.get("Name", "").lower() == "msedgewebview2.exe" for p in procs)
+            lines.append(f"  - Total related processes found: {len(procs)}")
+            lines.append(f"  - msedgewebview2.exe child processes present: {has_webview2}")
+        except Exception as e:
+            lines.append(f"Process tree check status: unavailable ({e})")
+
+        # 2. Check presence of debugging flag in main process safely
+        try:
+            res = subprocess.run(
+                ["powershell", "-Command", f"Get-CimInstance Win32_Process | Where-Object {{ $_.ProcessId -eq {pid} }} | Select-Object -ExpandProperty CommandLine"],
+                capture_output=True, text=True, timeout=10
+            )
+            cmd = res.stdout
+            has_debug_port = f"--remote-debugging-port={self.port}" in cmd
+            lines.append(f"  - Remote debugging flag present in main process: {has_debug_port}")
+        except Exception:
+            lines.append("  - Remote debugging flag check: unavailable")
+
+        # 3. Relevant socket state for port 9333 only
+        try:
+            res = subprocess.run(
+                ["netstat", "-ano"], capture_output=True, text=True, timeout=10
+            )
+            port_str = f":{self.port}"
+            matching = [l.strip() for l in res.stdout.splitlines() if port_str in l]
+            lines.append(f"Socket state for port {self.port}:")
+            if matching:
+                for m in matching:
+                    lines.append(f"  - {m}")
+            else:
+                lines.append(f"  - No active socket listeners or connections found for port {self.port}")
+        except Exception as e:
+            lines.append(f"Socket state check status: unavailable ({e})")
+
+        # 4. Runner / CI execution context (boolean presence only, no values or paths)
+        ci_active = os.environ.get("CI") is not None
+        github_action = os.environ.get("GITHUB_ACTIONS") is not None
+        lines.append(f"Environment context: CI={ci_active}, GITHUB_ACTIONS={github_action}")
+
+        return "\n".join(lines)
 
     def shutdown(self) -> None:
         if self.process and self.process.poll() is None:
