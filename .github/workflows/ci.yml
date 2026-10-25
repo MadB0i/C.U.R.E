@@ -134,16 +134,41 @@ jobs:
           # It drives the real release binary through the real webview and
           # the real Rust backend, and the only file it ever removes is one
           # it created itself inside the system temporary directory.
+          # Note: we only need Playwright for connect_over_cdp (CDP to WebView2);
+          # bundled Chromium is not used and is not installed here.
           python -m pip install -r gui/devtools/requirements.txt
-          python -m playwright install chromium
           python testing/native/native-e2e.py --shots native-captures
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
+      - name: E2E diagnostics on failure
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Output "=== E2E diagnostic snapshot (always-runs) ==="
+          Write-Output "--- cure-gui processes ---"
+          Get-Process -Name cure-gui -ErrorAction SilentlyContinue |
+            Select-Object Id, StartTime, MainWindowTitle | Format-Table -AutoSize
+          Write-Output "--- msedgewebview2 processes ---"
+          Get-Process -Name msedgewebview2 -ErrorAction SilentlyContinue |
+            Select-Object Id, StartTime | Format-Table -AutoSize
+          Write-Output "--- CDP port 9333 probe ---"
+          try {
+            $resp = Invoke-WebRequest -Uri "http://127.0.0.1:9333/json/version" -TimeoutSec 3 -UseBasicParsing
+            Write-Output $resp.Content
+          } catch {
+            Write-Output "CDP probe failed: $($_.Exception.Message)"
+          }
+          Write-Output "--- netstat for port 9333 ---"
+          netstat -ano | Select-String ":9333 "
+
       - name: Upload cure-gui artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cure-gui
-          path: gui/src-tauri/target/release/cure-gui.exe
+          path: |
+            gui/src-tauri/target/release/cure-gui.exe
+            docs/native-captures/
           retention-days: 14
 
   build-cli:
