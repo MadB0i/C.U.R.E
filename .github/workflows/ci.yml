@@ -139,7 +139,7 @@ jobs:
           # Note: we only need Playwright for connect_over_cdp (CDP to WebView2);
           # bundled Chromium is not used and is not installed here.
           python -m pip install -r gui/devtools/requirements.txt
-          python testing/native/native-e2e.py --shots native-captures
+          python testing/native/native-e2e.py --shots docs/native-captures
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: E2E diagnostics on failure

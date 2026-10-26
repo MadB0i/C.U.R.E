@@ -187,9 +187,11 @@ class Runner:
             )
 
         env = dict(os.environ)
-        env["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (
-            f"--remote-debugging-port={self.port}"
-        )
+        # main.rs reads CURE_E2E_CDP_PORT to enable --remote-debugging-port.
+        # We set this env var rather than WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
+        # because wry ignores that variable when additional_browser_args is
+        # not explicitly set (wry 0.55.1, webview2/mod.rs:294).
+        env["CURE_E2E_CDP_PORT"] = str(self.port)
         # Use a dedicated temporary WebView2 user data folder for isolation,
         # preventing profile contamination or locking from prior test runs (like the smoke test).
         webview_data = self.fixture / "webview-data"

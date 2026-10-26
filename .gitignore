@@ -25,6 +25,9 @@ __pycache__/
 # why. They must never be committed by a blanket `git add`.
 docs/native-captures/
 
+# CI artifact downloads
+ci-artifacts/
+
 # The native harness writes its real-machine screenshots to the repository
 # root when it is given a relative --shots directory, which is what the CI
 # does. Same reason: these show the real machine.
