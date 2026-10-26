@@ -2312,6 +2312,32 @@ fn main() {
         .manage(CanaryState::new())
         .manage(StorageState::default())
         .setup(|app| {
+            // Create the main window programmatically so we can conditionally
+            // inject --remote-debugging-port only when CURE_E2E_CDP_PORT is set.
+            // This avoids the wry behavior where WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
+            // is ignored when additional_browser_args is not explicitly set.
+            let cdp_port = std::env::var("CURE_E2E_CDP_PORT").ok();
+            let mut window_builder = tauri::WebviewWindowBuilder::new(
+                app,
+                "main",
+                tauri::WebviewUrl::App("index.html".into()),
+            )
+            .title("C.U.R.E \u{2014} Evidence Console")
+            .inner_size(1200.0, 800.0)
+            .min_inner_size(900.0, 600.0)
+            .resizable(true);
+            if let Some(port) = cdp_port {
+                // When additional_browser_args is set, wry does not prepend
+                // its own defaults (see wry 0.55.1, webview2/mod.rs:294).
+                // We must reproduce them here so the e2e launch is otherwise
+                // identical to a normal release launch, plus CDP.
+                let args = format!(
+                    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --remote-debugging-port={port}"
+                );
+                window_builder = window_builder.additional_browser_args(&args);
+            }
+            window_builder.build()?;
+
             if launched_by_watcher() {
                 let handle = app.handle().clone();
                 surface_above_overlays(&handle);

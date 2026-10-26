@@ -35,17 +35,54 @@ import argparse
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.request
+import urllib.error
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 DEFAULT_EXE = REPO / "gui" / "src-tauri" / "target" / "release" / "cure-gui.exe"
 
 FIXTURE_BYTES = 64 * 1024 * 1024  # 64 MiB: above the large-file threshold
+
+
+def _kill_lingering_webview2() -> None:
+    """Kill any lingering msedgewebview2.exe processes from prior runs.
+
+    The native smoke test (and previous e2e runs) often leaves child
+    WebView2 processes alive after the parent cure-gui.exe is killed.
+    Those zombies hold file locks on the default WebView2 profile and
+    can occupy the DevTools port, causing the next run to fail with a
+    timeout or port-collision error.
+    """
+    import platform
+
+    if platform.system() != "Windows":
+        return
+    try:
+        import psutil
+    except ImportError:
+        # Fallback to WMIC if psutil is unavailable (e.g. in a minimal env).
+        subprocess.run(
+            ["taskkill", "/F", "/IM", "msedgewebview2.exe"],
+            capture_output=True,
+            timeout=10,
+        )
+        return
+    gone = 0
+    for proc in psutil.process_iter(["pid", "name"]):
+        if proc.info["name"] and "msedgewebview2" in proc.info["name"].lower():
+            try:
+                proc.kill()
+                gone += 1
+            except psutil.NoSuchProcess:
+                pass
+    if gone:
+        print(f"  killed {gone} lingering msedgewebview2 process(es)", flush=True)
 
 
 class Failure(Exception):
@@ -94,28 +131,104 @@ class Runner:
     def remove_fixture(self) -> None:
         if self.fixture and not self.keep and self.fixture.exists():
             shutil.rmtree(self.fixture, ignore_errors=True)
+        # Close any open log handles and remove the log files so they don't
+        # linger after the fixture directory itself is gone.
+        for attr in ("_stdout_log", "_stderr_log"):
+            fh = getattr(self, attr, None)
+            if fh is not None:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
+        for path in (getattr(self, "_stdout_path", None),
+                     getattr(self, "_stderr_path", None)):
+            if path is not None and isinstance(path, Path) and path.exists():
+                try:
+                    path.unlink()
+                except Exception:
+                    pass
+
+    def _read_log_output(self) -> None:
+        """Read whatever has been written to the stdout/stderr log files."""
+        for name, target in [
+            ("_stdout_path", "_stdout"),
+            ("_stderr_path", "_stderr"),
+        ]:
+            path = getattr(self, name, None)
+            if path is None or not isinstance(path, Path):
+                continue
+            try:
+                if path.exists():
+                    setattr(self, target, path.read_bytes())
+            except Exception:
+                pass
 
     # -- application -------------------------------------------------------
 
     def launch(self) -> None:
         self.exe_dir_before = {p.name for p in self.exe.parent.glob("*.json")}
+
+        def check_port(p: int) -> bool:
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    return s.connect_ex(('127.0.0.1', p)) == 0
+            except Exception:
+                return False
+
+        # Kill any lingering WebView2 processes from prior runs (e.g. the
+        # smoke test) before we claim the port. This prevents port collisions
+        # and profile locks from previous invocations.
+        _kill_lingering_webview2()
+
+        if check_port(self.port):
+            raise Failure(
+                f"port {self.port} is already in use before application launch "
+                "(possible port collision or zombie WebView2 process from prior run)"
+            )
+
         env = dict(os.environ)
-        env["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (
-            f"--remote-debugging-port={self.port}"
-        )
+        # main.rs reads CURE_E2E_CDP_PORT to enable --remote-debugging-port.
+        # We set this env var rather than WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
+        # because wry ignores that variable when additional_browser_args is
+        # not explicitly set (wry 0.55.1, webview2/mod.rs:294).
+        env["CURE_E2E_CDP_PORT"] = str(self.port)
         # Use a dedicated temporary WebView2 user data folder for isolation,
-        # preventing profile contamination or locking from prior test runs.
-        webview_data = self.fixture / "webview-data" if self.fixture else None
-        if webview_data:
-            env["WEBVIEW2_USER_DATA_FOLDER"] = str(webview_data)
-        # The application keeps its own records in its own directory; the
-        # fixture lives in the OS temporary directory.
-        self.process = subprocess.Popen([str(self.exe)], env=env)
+        # preventing profile contamination or locking from prior test runs (like the smoke test).
+        webview_data = self.fixture / "webview-data"
+        env["WEBVIEW2_USER_DATA_FOLDER"] = str(webview_data)
+        webview_data.mkdir(exist_ok=True)
+
+        # Write stdout/stderr to temp files instead of piping.
+        # Playwright's connect_over_cdp only talks to WebView2 over CDP; the
+        # app's own stdout can be large (scan progress, logging) and would
+        # fill the ~64 KB Windows pipe buffer, blocking the child process
+        # and deadlocking this launcher loop forever.
+        self._stdout_log = tempfile.NamedTemporaryFile(
+            prefix="cure-e2e-stdout-", suffix=".log", delete=False
+        )
+        self._stderr_log = tempfile.NamedTemporaryFile(
+            prefix="cure-e2e-stderr-", suffix=".log", delete=False
+        )
+        self._stdout_path = Path(self._stdout_log.name)
+        self._stderr_path = Path(self._stderr_log.name)
+        self._stdout_log.close()
+        self._stderr_log.close()
+        self._stdout = b""
+        self._stderr = b""
+        self.process = subprocess.Popen(
+            [str(self.exe)],
+            env=env,
+            stdout=open(self._stdout_path, "wb", buffering=0),
+            stderr=open(self._stderr_path, "wb", buffering=0),
+        )
         deadline = time.time() + 60
+        last_error = None
         while time.time() < deadline:
-            if self.process.poll() is not None:
+            code = self.process.poll()
+            if code is not None:
+                self._read_log_output()
                 raise Failure(
-                    f"the application exited early with code {self.process.returncode}"
+                    f"the application exited early with code {code}"
                 )
             try:
                 with urllib.request.urlopen(
@@ -124,17 +237,131 @@ class Runner:
                     targets = json.load(response)
                 if any(t.get("type") == "page" for t in targets):
                     return
-            except Exception:
-                time.sleep(0.4)
-        raise Failure("the application never exposed a webview on the DevTools port")
+            except urllib.error.URLError as e:
+                last_error = f"URLError: {e.reason}"
+            except Exception as e:
+                last_error = f"{type(e).__name__}: {e}"
+            time.sleep(0.4)
+
+        port_active = check_port(self.port)
+        self._read_log_output()
+        diag = self.collect_startup_diagnostics()
+        print(diag, file=sys.stderr, flush=True)
+        raise Failure(
+            f"the application never exposed a webview on the DevTools port {self.port} "
+            f"(timeout 60s, last connection error: {last_error}, port active: {port_active}, "
+            f"process running: {self.process.poll() is None})"
+        )
+
+    def collect_startup_diagnostics(self) -> str:
+        pid = self.process.pid if self.process else None
+        lines = [f"=== STARTUP DIAGNOSTICS (PID: {pid}, Port: {self.port}) ==="]
+
+        # 1. Process tree summary (Process ID, Parent ID, Name only - no raw command lines)
+        try:
+            res = subprocess.run(
+                ["powershell", "-Command", f"Get-CimInstance Win32_Process | Where-Object {{ $_.ParentProcessId -eq {pid} -or $_.ProcessId -eq {pid} -or $_.Name -eq 'msedgewebview2.exe' }} | Select-Object ProcessId, ParentProcessId, Name | ConvertTo-Json"],
+                capture_output=True, text=True, timeout=15
+            )
+            lines.append("Process / WebView2 summary:")
+            procs = json.loads(res.stdout) if res.stdout.strip() else []
+            if isinstance(procs, dict):
+                procs = [procs]
+            has_webview2 = any(p.get("Name", "").lower() == "msedgewebview2.exe" for p in procs)
+            lines.append(f"  - Total related processes found: {len(procs)}")
+            lines.append(f"  - msedgewebview2.exe child processes present: {has_webview2}")
+        except Exception as e:
+            lines.append(f"Process tree check status: unavailable ({e})")
+
+        # 2. Check presence of debugging flag in main process safely
+        try:
+            res = subprocess.run(
+                ["powershell", "-Command", f"Get-CimInstance Win32_Process | Where-Object {{ $_.ProcessId -eq {pid} }} | Select-Object -ExpandProperty CommandLine"],
+                capture_output=True, text=True, timeout=10
+            )
+            cmd = res.stdout
+            has_debug_port = f"--remote-debugging-port={self.port}" in cmd
+            lines.append(f"  - Remote debugging flag present in main process: {has_debug_port}")
+        except Exception:
+            lines.append("  - Remote debugging flag check: unavailable")
+
+        # 3. Relevant socket state for the DevTools port only
+        try:
+            res = subprocess.run(
+                ["netstat", "-ano"], capture_output=True, text=True, timeout=10
+            )
+            port_str = f":{self.port}"
+            matching = [l.strip() for l in res.stdout.splitlines() if port_str in l]
+            lines.append(f"Socket state for port {self.port}:")
+            if matching:
+                for m in matching:
+                    lines.append(f"  - {m}")
+            else:
+                lines.append(f"  - No active socket listeners or connections found for port {self.port}")
+        except Exception as e:
+            lines.append(f"Socket state check status: unavailable ({e})")
+
+        # 4. Runner / CI execution context (boolean presence only, no values or paths)
+        ci_active = os.environ.get("CI") is not None
+        github_action = os.environ.get("GITHUB_ACTIONS") is not None
+        lines.append(f"Environment context: CI={ci_active}, GITHUB_ACTIONS={github_action}")
+
+        # 5. App stdout/stderr (truncated)
+        if self._stderr:
+            lines.append(f"App stderr (last 2000 chars):")
+            lines.append(self._stderr.decode("utf-8", errors="replace")[-2000:])
+        if self._stdout:
+            lines.append(f"App stdout (last 500 chars):")
+            lines.append(self._stdout.decode("utf-8", errors="replace")[-500:])
+
+        # 6. CDP /json/version probe
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{self.port}/json/version", timeout=2
+            ) as resp:
+                version_info = json.load(resp)
+            lines.append(f"CDP /json/version: {json.dumps(version_info)}")
+        except Exception as e:
+            lines.append(f"CDP /json/version probe failed: {type(e).__name__}: {e}")
+
+        # 7. Chosen user-data folder
+        if self.fixture:
+            webview_data = self.fixture / "webview-data"
+            lines.append(f"WebView2 user-data folder: {webview_data}")
+            lines.append(f"  exists: {webview_data.exists()}")
+
+        return "\n".join(lines)
 
     def shutdown(self) -> None:
         if self.process and self.process.poll() is None:
+            # Kill the main app process first.
             self.process.terminate()
             try:
                 self.process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self.process.kill()
+            # WebView2 spawns child processes that do NOT die with the parent.
+            # Kill them explicitly so their file locks are released and the
+            # fixture directory can be cleaned up on the next run.
+            try:
+                import psutil
+                parent = psutil.Process(self.process.pid)
+                for child in parent.children(recursive=True):
+                    try:
+                        child.kill()
+                    except psutil.NoSuchProcess:
+                        pass
+                _, alive = psutil.wait_procs(
+                    [psutil.Process(c.pid) for c in parent.children(recursive=True)],
+                    timeout=5,
+                )
+                for p in alive:
+                    try:
+                        p.kill()
+                    except psutil.NoSuchProcess:
+                        pass
+            except Exception:
+                pass
 
     def connect(self):
         from playwright.sync_api import sync_playwright

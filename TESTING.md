@@ -62,6 +62,12 @@ Options:
 
 It runs in CI as the "Native end-to-end journey" step.
 
+**CURE_E2E_CDP_PORT.** The harness sets `CURE_E2E_CDP_PORT` so the release
+binary opens a WebView2 DevTools port (default 9333) for the test to drive it
+over CDP. This env var is test-only and off by default: when it is unset,
+`cure-gui.exe` never enables remote debugging on any launch, including a
+normal release launch.
+
 ## 0c. Release candidate audit (blocking)
 
 ```powershell
