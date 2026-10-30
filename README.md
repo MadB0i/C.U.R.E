@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/MadB0i/C.U.R.E/actions/workflows/ci.yml/badge.svg)](https://github.com/MadB0i/C.U.R.E/actions/workflows/ci.yml)
 [![Platform: Windows 10/11](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20x64-0078D6.svg)](https://github.com/MadB0i/C.U.R.E)
-[![Offline: 100%](https://img.shields.io/badge/Network-Zero%20Telemetry%20%7C%20Offline-green.svg)](https://github.com/MadB0i/C.U.R.E)
+[![Offline First](https://img.shields.io/badge/Offline--First-Zero%20Telemetry-green.svg)](https://github.com/MadB0i/C.U.R.E)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
@@ -12,7 +12,7 @@
 [![C.U.R.E Native Preview](docs/media/cure-preview.gif)](docs/media/cure-demo.mp4)
 
 *Real-time holographic sweep and LUMA companion in the native desktop console.*  
-**[▶ Watch Full Native Demo Video (1080p MP4, 1m 07s)](docs/media/cure-demo.mp4)**
+**[▶ Watch Full Native Demo Video (1080p MP4, 46s)](docs/media/cure-demo.mp4)**
 
 ---
 
@@ -51,7 +51,7 @@
 ```powershell
 # Clone repository
 git clone https://github.com/MadB0i/C.U.R.E.git
-cd CURE
+cd C.U.R.E
 
 # Run the Tauri desktop Evidence Console
 cd gui/src-tauri
@@ -60,8 +60,8 @@ cargo run --release
 
 ### CLI Scanner
 ```powershell
-# Run the command-line scanner directly
-cargo run --release -p cure_cli -- --scan
+# Run the command-line scanner directly from the repository root
+cargo run --release -p cure_cli -- scan
 ```
 
 ---
@@ -70,12 +70,12 @@ cargo run --release -p cure_cli -- --scan
 
 In strict adherence to the **Honesty Over Comfort** principle:
 
-1. **100% Offline by Design**: Zero telemetry, zero cloud calls, zero external API dependencies. Every scan, signature check, and calculation runs strictly on your local machine.
+1. **Offline by Default**: Zero outbound telemetry, zero cloud scanning, and zero external API dependencies. WinTrust Authenticode revocation checks default strictly to the local cache.
 2. **Move, Never Delete**: Remediation moves flagged items into a SHA-256 integrity-verified quarantine enclave with complete metadata preservation and single-click restoration.
 3. **Correlation Is Not Attribution**: The Flight Recorder uses user-mode Windows directory change notifications (`ReadDirectoryChangesW`), not a kernel minifilter driver. Filesystem modifications occurring while an agent runs are classified as **Correlated**, never **Attributed**.
 4. **Authenticode Verification**: Executable path alone never confers verified status. Unsigned tools compiled locally report honestly as `Unverified process` rather than masquerading as verified binaries.
 5. **Honest Scan Coverage**: Inaccessible directories or denied collectors report `INCOMPLETE`. C.U.R.E never presents an incomplete scan as a clean all-clear.
-6. **Zero Secret Exposure**: Passwords, API tokens (`sk-*`), and Bearer credentials in command lines or exported dossiers are masked (`***`) at capture time.
+6. **Credential & Secret Masking**: Detected API tokens (`sk-*`), Bearer headers, passwords, and sensitive CLI parameters are masked (`***`) at capture time before storage, display, or export.
 
 ---
 

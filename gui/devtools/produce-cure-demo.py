@@ -1,5 +1,6 @@
-import os, sys, time, subprocess, tempfile, json, ctypes, urllib.request
+import os, sys, time, threading, subprocess, tempfile, json, base64, shutil
 from pathlib import Path
+from playwright.sync_api import sync_playwright
 
 REPO = Path(__file__).resolve().parents[2]
 EXE = REPO / "gui/src-tauri/target/release/cure-gui.exe"
@@ -10,24 +11,7 @@ FINAL_VIDEO = MEDIA / "cure-demo.mp4"
 PREVIEW_GIF = MEDIA / "cure-preview.gif"
 POSTER_PNG = MEDIA / "cure-poster.png"
 
-PORT = 9485
-
-user32 = ctypes.windll.user32
-user32.SetProcessDPIAware()
-
-def find_hwnd(title_part):
-    found = []
-    def enum_cb(hwnd, _):
-        if user32.IsWindowVisible(hwnd):
-            length = user32.GetWindowTextLengthW(hwnd)
-            buff = ctypes.create_unicode_buffer(length + 1)
-            user32.GetWindowTextW(hwnd, buff, length + 1)
-            if title_part in buff.value:
-                found.append(hwnd)
-        return True
-    WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)
-    user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
-    return found[0] if found else None
+PORT = 9488
 
 def record_journey():
     temp_dir = tempfile.TemporaryDirectory(prefix="cure-rec-")
@@ -35,9 +19,11 @@ def record_journey():
     webview_data = fixture / "webview-data"
     webview_data.mkdir()
 
-    # Create a safe test workspace folder for the Flight Recorder scene
-    rec_ws = fixture / "workspace"
-    rec_ws.mkdir()
+    # Create safe privacy-neutral test workspace for Flight Recorder
+    rec_ws = Path("D:/CURE_DEMO_WORKSPACE")
+    if rec_ws.exists():
+        shutil.rmtree(rec_ws, ignore_errors=True)
+    rec_ws.mkdir(parents=True, exist_ok=True)
     (rec_ws / "agent-config.json").write_text('{"name": "test-agent"}', encoding="utf-8")
 
     env = dict(os.environ)
@@ -47,142 +33,164 @@ def record_journey():
     print("Step 1: Launching cure-gui.exe with CDP enabled...")
     proc = subprocess.Popen([str(EXE)], env=env)
 
-    try:
-        deadline = time.time() + 30
-        hwnd = None
-        while time.time() < deadline:
-            hwnd = find_hwnd("C.U.R.E")
-            if hwnd:
-                break
-            time.sleep(0.4)
+    if RAW_VIDEO.exists():
+        RAW_VIDEO.unlink()
 
-        if not hwnd:
-            raise RuntimeError("Could not find C.U.R.E window")
-        print(f"Window found (HWND: {hwnd}). Positioning window to 1600x900...")
-        user32.SetWindowPos(hwnd, 0, 40, 40, 1600, 900, 0x0040)
-        user32.SetForegroundWindow(hwnd)
-        time.sleep(2.0)
+    ffmpeg_cmd = [
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
+        "-f", "image2pipe", "-vcodec", "mjpeg", "-framerate", "30",
+        "-i", "-",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "19",
+        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        str(RAW_VIDEO)
+    ]
+    ffmpeg_proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
 
-        # Wait for CDP endpoint
-        while time.time() < deadline:
-            try:
-                with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json/list", timeout=1) as resp:
-                    targets = json.load(resp)
-                if any(t.get("type") == "page" for t in targets):
-                    break
-            except Exception:
-                time.sleep(0.4)
+    current_frame = [None]
+    recording = [True]
 
-        print("Step 2: Starting FFmpeg gdigrab on C.U.R.E window...")
-        if RAW_VIDEO.exists():
-            RAW_VIDEO.unlink()
-
-        ffmpeg_cmd = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
-            "-f", "gdigrab", "-framerate", "30",
-            "-draw_mouse", "0",
-            "-i", "title=C.U.R.E — Evidence Console",
-            "-vf", "crop=trunc(iw/2)*2:trunc(ih/2)*2,scale=1920:1080:flags=lanczos,format=yuv420p",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-            "-pix_fmt", "yuv420p",
-            str(RAW_VIDEO)
-        ]
-        rec = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
-        time.sleep(1.2)
-
-        print("Step 3: Driving the native application through the storyboard...")
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as pw:
-            b = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{PORT}")
-            page = b.contexts[0].pages[0]
-
-            # Scene 1 (0–5s): Overview & LUMA
-            print("  [0-5s] Scene 1: Overview & LUMA animation")
-            page.locator("#nav-overview").click()
-            page.wait_for_selector("#view-overview:not(.hidden)", timeout=5000)
-            time.sleep(4.5)
-
-            # Scene 2 (5–14s): Holographic Rescue Scanner
-            print("  [5-14s] Scene 2: Holographic Rescue Scanner")
-            page.locator("#nav-scan").click()
-            page.wait_for_selector("#scan-view:not(.hidden)", timeout=5000)
-            time.sleep(1.8)
-            # Start scan
-            page.locator("#xray-start-btn").click()
-            time.sleep(8.0)
-
-            # Scene 3 (14–23s): AI Agent Radar V3
-            print("  [14-23s] Scene 3: AI Agent Radar V3 & Evidence Inspector")
-            page.locator("#nav-agents").click()
-            page.wait_for_selector("#view-agents:not(.hidden)", timeout=5000)
-            time.sleep(2.0)
-            # Inspect first agent card if present
-            cards = page.locator("#ar-agent-list .ar-card")
-            if cards.count() > 0:
-                cards.first.click()
-                time.sleep(3.5)
-                close_btn = page.locator("#ar-insp-close")
-                if close_btn.is_visible():
-                    close_btn.click()
-                    time.sleep(1.0)
-            else:
-                time.sleep(4.5)
-
-            # Scene 4 (23–30s): Flight Recorder
-            print("  [23-30s] Scene 4: Agent Flight Recorder")
-            page.locator("#ar-jump-monitor").click()
-            time.sleep(1.0)
-            ws_input = page.locator("#ar-workspace")
-            ws_input.fill(str(rec_ws))
-            time.sleep(1.0)
-            page.locator("#ar-start").click()
-            time.sleep(1.5)
-            # Create a file event in monitored workspace
-            (rec_ws / "session_event.py").write_text("# automated agent task\n", encoding="utf-8")
-            time.sleep(2.5)
-            # Stop recording
-            page.locator("#ar-stop").click()
-            # Wait for case preview button to become enabled
-            try:
-                page.wait_for_function("() => { const b = document.getElementById('ar-case-preview'); return b && !b.disabled; }", timeout=5000)
-            except Exception:
-                pass
-            time.sleep(1.5)
-
-            # Scene 5 (30–37s): Windows Change Radar & Case File
-            print("  [30-37s] Scene 5: Windows Change Radar & Case File Generator")
-            page.locator("#ar-win-compare").click()
-            time.sleep(2.5)
-            case_input = page.locator("#ar-case-summary")
-            if case_input.is_visible():
-                case_input.fill("Verified clean session with active developer agent processes")
-                page.locator("#ar-case-include").check()
-                time.sleep(1.0)
+    def writer_worker():
+        interval = 1.0 / 30.0
+        next_time = time.time()
+        while recording[0]:
+            frame = current_frame[0]
+            if frame:
                 try:
+                    ffmpeg_proc.stdin.write(frame)
+                except Exception:
+                    break
+            next_time += interval
+            sleep_dur = next_time - time.time()
+            if sleep_dur > 0:
+                time.sleep(sleep_dur)
+            else:
+                next_time = time.time()
+
+    writer_thread = threading.Thread(target=writer_worker, daemon=True)
+
+    try:
+        time.sleep(3.0)
+        with sync_playwright() as p:
+            browser = p.chromium.connect_over_cdp(f"http://127.0.0.1:{PORT}")
+            page = browser.contexts[0].pages[0]
+            page.set_viewport_size({"width": 1920, "height": 1080})
+            page.wait_for_load_state("networkidle")
+
+            cdp = browser.contexts[0].new_cdp_session(page)
+
+            def handle_frame(event):
+                current_frame[0] = base64.b64decode(event["data"])
+                try:
+                    cdp.send("Page.screencastFrameAck", {"sessionId": event["sessionId"]})
+                except Exception:
+                    pass
+
+            cdp.on("Page.screencastFrame", handle_frame)
+            cdp.send("Page.startScreencast", {
+                "format": "jpeg",
+                "quality": 95,
+                "maxWidth": 1920,
+                "maxHeight": 1080,
+                "everyNthFrame": 1
+            })
+
+            # Wait for first frame to arrive
+            for _ in range(60):
+                if current_frame[0] is not None:
+                    break
+                page.wait_for_timeout(50)
+
+            writer_thread.start()
+            print("Step 2: Recording 6-scene application journey...")
+
+            # Helper for smooth event pumping
+            def wait_seconds(secs):
+                end = time.time() + secs
+                while time.time() < end:
+                    page.wait_for_timeout(50)
+
+            # Scene 1 (0–6s): Brand Introduction & Overview with animated LUMA
+            print("  [0-6s] Scene 1: Overview & LUMA Companion")
+            page.click("#nav-overview")
+            wait_seconds(5.0)
+
+            # Scene 2 (6–16s): Holographic Rescue Scanner
+            print("  [6-16s] Scene 2: Holographic Rescue Scanner (live sweep & rings)")
+            page.click("#nav-scan")
+            wait_seconds(2.0)
+            page.click("#xray-start-btn")
+            wait_seconds(8.0)
+
+            # Scene 3 (16–25s): AI Agent Radar V3
+            print("  [16-25s] Scene 3: AI Agent Radar V3 & Process Intelligence")
+            page.click("#nav-agents")
+            wait_seconds(2.5)
+            # Click an agent row/card to open Process Inspector if present
+            try:
+                card = page.locator(".ar-agent-card, .ar-agent-row, [data-agent-pid]").first
+                if card.is_visible():
+                    card.click()
+                    wait_seconds(3.0)
+                    close_btn = page.locator("#ar-insp-close")
+                    if close_btn.is_visible():
+                        close_btn.click()
+                        wait_seconds(1.0)
+                else:
+                    wait_seconds(3.0)
+            except Exception:
+                wait_seconds(3.0)
+
+            # Scene 4 (25–33s): Agent Flight Recorder
+            print("  [25-33s] Scene 4: Agent Flight Recorder (workspace timeline)")
+            try:
+                ws_input = page.locator("#ar-workspace")
+                if ws_input.is_visible():
+                    ws_input.fill(str(rec_ws))
+                    wait_seconds(0.5)
+                    start_rec = page.locator("#ar-start")
+                    if start_rec.is_enabled():
+                        start_rec.click()
+                        wait_seconds(2.0)
+                        # Simulate a safe file event in the test workspace
+                        (rec_ws / "build.log").write_text("Compiling sub-module\nDone", encoding="utf-8")
+                        wait_seconds(2.0)
+                        stop_rec = page.locator("#ar-stop")
+                        if stop_rec.is_enabled():
+                            stop_rec.click()
+                            wait_seconds(2.0)
+            except Exception as e:
+                print("  Note on Flight Recorder:", e)
+                wait_seconds(4.0)
+
+            # Scene 5 (33–40s): Windows Change Radar & Case File
+            print("  [33-40s] Scene 5: Windows Change Radar & Case File Generator")
+            try:
+                page.click("#ar-win-compare")
+                wait_seconds(2.5)
+                case_input = page.locator("#ar-case-summary")
+                if case_input.is_visible():
+                    case_input.fill("Verified clean session with active developer agent processes")
+                    page.locator("#ar-case-include").check()
+                    wait_seconds(1.0)
                     prev_btn = page.locator("#ar-case-preview")
                     if prev_btn.is_enabled():
                         prev_btn.click()
-                        time.sleep(3.0)
-                except Exception as e:
-                    print("  Note on case preview:", e)
-                    time.sleep(3.0)
+                        wait_seconds(3.5)
+            except Exception as e:
+                print("  Note on Windows Changes:", e)
+                wait_seconds(4.0)
 
-            # Scene 6 (37–43s): Overview Finale
-            print("  [37-43s] Scene 6: Overview Finale & LUMA Closing")
-            page.locator("#nav-overview").click()
-            page.wait_for_selector("#view-overview:not(.hidden)", timeout=5000)
-            time.sleep(5.0)
+            # Scene 6 (40–46s): Overview Finale & LUMA Closing
+            print("  [40-46s] Scene 6: Overview Finale & LUMA Closing")
+            page.click("#nav-overview")
+            wait_seconds(5.0)
 
-            b.close()
-
-        print("Step 4: Stopping FFmpeg recording...")
-        try:
-            rec.stdin.write(b"q\n")
-            rec.stdin.flush()
-            rec.wait(timeout=5)
-        except Exception:
-            rec.terminate()
-            rec.wait(timeout=5)
+            cdp.send("Page.stopScreencast")
+            recording[0] = False
+            writer_thread.join(timeout=2)
+            ffmpeg_proc.stdin.close()
+            ffmpeg_proc.wait(timeout=5)
+            print("Capture finished! Raw video size:", RAW_VIDEO.stat().st_size)
 
     finally:
         proc.terminate()
@@ -195,39 +203,39 @@ def record_journey():
             temp_dir.cleanup()
         except Exception:
             pass
+        if rec_ws.exists():
+            shutil.rmtree(rec_ws, ignore_errors=True)
 
-    print("Raw capture finished! Output size:", RAW_VIDEO.stat().st_size if RAW_VIDEO.exists() else 0)
-
-    # Step 5: Post-process Final Demo MP4 (H.264, web-optimized faststart, crisp 1080p, < 12 MB)
-    print("Step 5: Post-processing Final Demo MP4...")
+    # Step 3: Optimize Final Demo MP4 (H.264, 1080p, CRF 20, < 12 MB)
+    print("Step 3: Optimizing Final Demo MP4...")
     if FINAL_VIDEO.exists():
         FINAL_VIDEO.unlink()
     subprocess.run([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(RAW_VIDEO),
-        "-c:v", "libx264", "-preset", "slow", "-crf", "22",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "20",
         "-pix_fmt", "yuv420p", "-movflags", "+faststart",
         str(FINAL_VIDEO)
     ], check=True)
-    print(f"Final MP4 created: {FINAL_VIDEO} ({FINAL_VIDEO.stat().st_size / (1024*1024):.2f} MB)")
+    if RAW_VIDEO.exists():
+        RAW_VIDEO.unlink()
+    print(f"Final MP4 ready: {FINAL_VIDEO} ({FINAL_VIDEO.stat().st_size / (1024*1024):.2f} MB)")
 
-    # Step 6: Create Animated GIF (7.5 seconds from the Holographic Rescue Scanner, 860px wide, < 3 MB)
-    print("Step 6: Creating Premium Animated GIF from Holographic Rescue Scanner...")
+    # Step 4: Create Animated GIF from the live Holographic Rescue Scanner (around 7s - 15s)
+    print("Step 4: Creating Premium Animated GIF (live scanner sweep)...")
     if PREVIEW_GIF.exists():
         PREVIEW_GIF.unlink()
-    # High-quality 2-pass palette generation for smooth GIF colors
     palette = MEDIA / "palette.png"
-    # Scanner scene is around 6s - 14s in the video
     subprocess.run([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-        "-ss", "00:00:06.5", "-t", "7.5",
+        "-ss", "00:00:08.0", "-t", "7.5",
         "-i", str(FINAL_VIDEO),
         "-vf", "fps=15,scale=860:-1:flags=lanczos,palettegen=stats_mode=diff",
         str(palette)
     ], check=True)
     subprocess.run([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-        "-ss", "00:00:06.5", "-t", "7.5",
+        "-ss", "00:00:08.0", "-t", "7.5",
         "-i", str(FINAL_VIDEO),
         "-i", str(palette),
         "-lavfi", "fps=15,scale=860:-1:flags=lanczos [x]; [x][1:v] paletteuse=dither=bayer:bayer_scale=3",
@@ -235,20 +243,20 @@ def record_journey():
     ], check=True)
     if palette.exists():
         palette.unlink()
-    print(f"Preview GIF created: {PREVIEW_GIF} ({PREVIEW_GIF.stat().st_size / (1024*1024):.2f} MB)")
+    print(f"Preview GIF ready: {PREVIEW_GIF} ({PREVIEW_GIF.stat().st_size / (1024*1024):.2f} MB)")
 
-    # Step 7: Create Poster PNG
-    print("Step 7: Creating Video Poster Frame...")
+    # Step 5: Create Poster PNG
+    print("Step 5: Creating Poster Frame...")
     if POSTER_PNG.exists():
         POSTER_PNG.unlink()
     subprocess.run([
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-        "-ss", "00:00:09.0",
+        "-ss", "00:00:11.0",
         "-i", str(FINAL_VIDEO),
         "-vframes", "1",
         str(POSTER_PNG)
     ], check=True)
-    print(f"Poster created: {POSTER_PNG} ({POSTER_PNG.stat().st_size / 1024:.1f} KB)")
+    print(f"Poster ready: {POSTER_PNG} ({POSTER_PNG.stat().st_size / 1024:.1f} KB)")
 
 if __name__ == "__main__":
     record_journey()
