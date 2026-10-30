@@ -1,7 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use cure_core::agent;
 use cure_core::canary::{shadow_wipe_reason, CanaryAlert};
-use cure_dirwatch::WorkspaceChangeKind;
 use cure_core::model::{PersistenceEntry, PersistenceSource, RiskLevel, ScoredEntry};
 use cure_core::overlay::{self, WindowDesc};
 use cure_core::process_scan::{self, ProcessInfo, ProcessScore};
@@ -9,6 +8,7 @@ use cure_core::ransom_detect::{self, RansomFinding as RansomFindingCore};
 use cure_core::signature::SignatureStatus;
 use cure_core::storage;
 use cure_core::{baseline, quarantine, risk, scanners};
+use cure_dirwatch::WorkspaceChangeKind;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -3270,8 +3270,12 @@ fn agent_state_for(
     }
 
     let any_verified = processes.iter().any(|p| p.identity.contains("Verified"));
-    let any_suspect = processes.iter().any(|p| p.identity.contains("SuspectMismatch"));
-    let all_access_denied = processes.iter().all(|p| p.identity.contains("AccessDenied"));
+    let any_suspect = processes
+        .iter()
+        .any(|p| p.identity.contains("SuspectMismatch"));
+    let all_access_denied = processes
+        .iter()
+        .all(|p| p.identity.contains("AccessDenied"));
 
     if any_suspect {
         return (
@@ -3286,8 +3290,7 @@ fn agent_state_for(
         return (
             "access_denied".to_string(),
             "Access denied".to_string(),
-            "Process was enumerated in snapshot, but query access was denied."
-                .to_string(),
+            "Process was enumerated in snapshot, but query access was denied.".to_string(),
         );
     }
 
@@ -3375,8 +3378,14 @@ fn agent_radar(state: State<'_, AgentState>) -> Result<AgentRadarDto, String> {
         });
     }
 
-    let detected_count = panels.iter().filter(|p| p.detected && !p.is_model_server).count();
-    let model_server_count = panels.iter().filter(|p| p.detected && p.is_model_server).count();
+    let detected_count = panels
+        .iter()
+        .filter(|p| p.detected && !p.is_model_server)
+        .count();
+    let model_server_count = panels
+        .iter()
+        .filter(|p| p.detected && p.is_model_server)
+        .count();
     let windows = state
         .last_windows
         .lock()
@@ -3389,7 +3398,9 @@ fn agent_radar(state: State<'_, AgentState>) -> Result<AgentRadarDto, String> {
             .to_string(),
     );
     if detected_count == 0 && model_server_count == 0 {
-        notes.push("No supported agent process or model server was detected in this sample.".to_string());
+        notes.push(
+            "No supported agent process or model server was detected in this sample.".to_string(),
+        );
     } else {
         if detected_count > 0 {
             let verified_count = panels
@@ -3397,7 +3408,9 @@ fn agent_radar(state: State<'_, AgentState>) -> Result<AgentRadarDto, String> {
                 .filter(|p| {
                     p.detected
                         && !p.is_model_server
-                        && p.processes.iter().any(|proc| proc.identity.contains("Verified"))
+                        && p.processes
+                            .iter()
+                            .any(|proc| proc.identity.contains("Verified"))
                 })
                 .count();
             if verified_count == detected_count {
@@ -3414,7 +3427,9 @@ fn agent_radar(state: State<'_, AgentState>) -> Result<AgentRadarDto, String> {
             }
         }
         if model_server_count > 0 {
-            notes.push(format!("{model_server_count} local model server(s) running (Ollama)."));
+            notes.push(format!(
+                "{model_server_count} local model server(s) running (Ollama)."
+            ));
         }
     }
 
@@ -3433,8 +3448,7 @@ fn agent_radar(state: State<'_, AgentState>) -> Result<AgentRadarDto, String> {
 fn current_agent_kinds() -> Vec<agent::AgentKind> {
     let mut seen = Vec::new();
     for process in agent::enumerate_agent_processes() {
-        if process.is_model_server
-            || process.identity == agent::ExecutableIdentity::SuspectMismatch
+        if process.is_model_server || process.identity == agent::ExecutableIdentity::SuspectMismatch
         {
             continue;
         }
@@ -3623,105 +3637,108 @@ async fn flight_start_inner(
             cached.clone()
         };
 
-        let watch_result =
-            cure_dirwatch::run_workspace_recorder(&thread_root, &thread_stop, |batch| {
-            let agents = probe(&mut last_probe, &mut cached_agents);
-            let mut events = Vec::new();
-            let mut pending_rename: Option<(String, u64)> = None;
-            for change in &batch {
-                if change.kind == WorkspaceChangeKind::Overflow {
-                    continue;
+        let watch_result = cure_dirwatch::run_workspace_recorder(
+            &thread_root,
+            &thread_stop,
+            |batch| {
+                let agents = probe(&mut last_probe, &mut cached_agents);
+                let mut events = Vec::new();
+                let mut pending_rename: Option<(String, u64)> = None;
+                for change in &batch {
+                    if change.kind == WorkspaceChangeKind::Overflow {
+                        continue;
+                    }
+                    match change.kind {
+                        WorkspaceChangeKind::RenamedFrom => {
+                            pending_rename = Some((change.relative.clone(), change.at_unix));
+                        }
+                        WorkspaceChangeKind::RenamedTo => {
+                            let after = file_meta(&thread_root, &change.relative);
+                            events.push(FlightRaw::Rename {
+                                from: pending_rename.take().map(|(p, _)| p),
+                                to: change.relative.clone(),
+                                size_after: after.map(|(s, _)| s),
+                                at: change.at_unix,
+                            });
+                        }
+                        WorkspaceChangeKind::Created
+                        | WorkspaceChangeKind::Modified
+                        | WorkspaceChangeKind::Removed => {
+                            events.push(FlightRaw::Change {
+                                kind: change.kind,
+                                path: change.relative.clone(),
+                                at: change.at_unix,
+                            });
+                        }
+                        WorkspaceChangeKind::Overflow => {}
+                    }
                 }
-                match change.kind {
-                    WorkspaceChangeKind::RenamedFrom => {
-                        pending_rename = Some((change.relative.clone(), change.at_unix));
-                    }
-                    WorkspaceChangeKind::RenamedTo => {
-                        let after = file_meta(&thread_root, &change.relative);
-                        events.push(FlightRaw::Rename {
-                            from: pending_rename.take().map(|(p, _)| p),
-                            to: change.relative.clone(),
-                            size_after: after.map(|(s, _)| s),
-                            at: change.at_unix,
-                        });
-                    }
-                    WorkspaceChangeKind::Created
-                    | WorkspaceChangeKind::Modified
-                    | WorkspaceChangeKind::Removed => {
-                        events.push(FlightRaw::Change {
-                            kind: change.kind,
-                            path: change.relative.clone(),
-                            at: change.at_unix,
-                        });
-                    }
-                    WorkspaceChangeKind::Overflow => {}
-                }
-            }
 
-            let overflow = batch
-                .iter()
-                .any(|c| c.kind == WorkspaceChangeKind::Overflow);
+                let overflow = batch
+                    .iter()
+                    .any(|c| c.kind == WorkspaceChangeKind::Overflow);
 
-            if let Ok(mut session) = thread_session.lock() {
-                session.note_agents(&agents);
-                if overflow {
-                    session.coverage.complete = false;
-                    session.coverage.dropped_events += 1;
-                    if !session.coverage.note.contains("overflow") {
-                        session.coverage.note =
+                if let Ok(mut session) = thread_session.lock() {
+                    session.note_agents(&agents);
+                    if overflow {
+                        session.coverage.complete = false;
+                        session.coverage.dropped_events += 1;
+                        if !session.coverage.note.contains("overflow") {
+                            session.coverage.note =
                             "The Windows directory-notification buffer overflowed during a change burst; some events were not observed."
                                 .to_string();
-                    }
-                }
-                for raw in events {
-                    match raw {
-                        FlightRaw::Change { kind, path, at } => {
-                            let meta = file_meta(&thread_root, &path);
-                            let size_before = if kind == WorkspaceChangeKind::Created {
-                                None
-                            } else {
-                                known_sizes.get(&path).copied()
-                            };
-                            match kind {
-                                WorkspaceChangeKind::Created | WorkspaceChangeKind::Modified => {
-                                    if let Some((size, _)) = meta {
-                                        known_sizes.insert(path.clone(), size);
-                                    }
-                                }
-                                WorkspaceChangeKind::Removed => {
-                                    known_sizes.remove(&path);
-                                }
-                                _ => {}
-                            }
-                            let event = make_flight_event(
-                                kind,
-                                path,
-                                meta,
-                                size_before,
-                                at,
-                                &agents,
-                                &session,
-                            );
-                            session.record_event(event);
                         }
-                        FlightRaw::Rename {
-                            from,
-                            to,
-                            size_after,
-                            at,
-                        } => {
-                            let size_before = from.as_ref().and_then(|p| known_sizes.remove(p));
-                            if let Some(size) = size_after {
-                                known_sizes.insert(to.clone(), size);
+                    }
+                    for raw in events {
+                        match raw {
+                            FlightRaw::Change { kind, path, at } => {
+                                let meta = file_meta(&thread_root, &path);
+                                let size_before = if kind == WorkspaceChangeKind::Created {
+                                    None
+                                } else {
+                                    known_sizes.get(&path).copied()
+                                };
+                                match kind {
+                                    WorkspaceChangeKind::Created
+                                    | WorkspaceChangeKind::Modified => {
+                                        if let Some((size, _)) = meta {
+                                            known_sizes.insert(path.clone(), size);
+                                        }
+                                    }
+                                    WorkspaceChangeKind::Removed => {
+                                        known_sizes.remove(&path);
+                                    }
+                                    _ => {}
+                                }
+                                let event = make_flight_event(
+                                    kind,
+                                    path,
+                                    meta,
+                                    size_before,
+                                    at,
+                                    &agents,
+                                    &session,
+                                );
+                                session.record_event(event);
                             }
-                            let confidence = if !session.coverage.complete {
-                                agent::EvidenceConfidence::Unknown
-                            } else if agents.is_empty() {
-                                agent::EvidenceConfidence::Observed
-                            } else {
-                                agent::EvidenceConfidence::Correlated
-                            };
-                            session.record_event(agent::FlightEvent {
+                            FlightRaw::Rename {
+                                from,
+                                to,
+                                size_after,
+                                at,
+                            } => {
+                                let size_before = from.as_ref().and_then(|p| known_sizes.remove(p));
+                                if let Some(size) = size_after {
+                                    known_sizes.insert(to.clone(), size);
+                                }
+                                let confidence = if !session.coverage.complete {
+                                    agent::EvidenceConfidence::Unknown
+                                } else if agents.is_empty() {
+                                    agent::EvidenceConfidence::Observed
+                                } else {
+                                    agent::EvidenceConfidence::Correlated
+                                };
+                                session.record_event(agent::FlightEvent {
                                 seq: 0,
                                 at_unix: at,
                                 kind: agent::ChangeKind::Renamed,
@@ -3740,18 +3757,19 @@ async fn flight_start_inner(
                                         .to_string()
                                 },
                             });
+                            }
                         }
+                    }
+
+                    if last_save.elapsed() >= std::time::Duration::from_secs(5) {
+                        let _ = agent::recorder::save_session(&thread_data, &session);
+                        last_save = std::time::Instant::now();
                     }
                 }
 
-                if last_save.elapsed() >= std::time::Duration::from_secs(5) {
-                    let _ = agent::recorder::save_session(&thread_data, &session);
-                    last_save = std::time::Instant::now();
-                }
-            }
-
-            let _ = thread_app.emit("flight-update", ());
-        });
+                let _ = thread_app.emit("flight-update", ());
+            },
+        );
 
         if let Err(e) = watch_result {
             thread_started.store(false, Ordering::SeqCst);
@@ -3958,19 +3976,20 @@ fn agent_case_file(
 }
 
 #[tauri::command]
-fn export_agent_case_file(
-    case: agent::AgentCaseFile,
-    format: String,
-) -> Result<String, String> {
+fn export_agent_case_file(case: agent::AgentCaseFile, format: String) -> Result<String, String> {
     let data_dir = resolve_data_dir();
     let export_dir = data_dir.join("exports");
     std::fs::create_dir_all(&export_dir).map_err(|e| format!("cannot create exports dir: {e}"))?;
 
-    let filename = format!("case-{}.{}", case.case_id, match format.to_lowercase().as_str() {
-        "json" => "json",
-        "html" => "html",
-        _ => "md",
-    });
+    let filename = format!(
+        "case-{}.{}",
+        case.case_id,
+        match format.to_lowercase().as_str() {
+            "json" => "json",
+            "html" => "html",
+            _ => "md",
+        }
+    );
     let target = export_dir.join(filename);
     let content = match format.to_lowercase().as_str() {
         "json" => case.to_json().map_err(|e| e.to_string())?,
