@@ -534,11 +534,10 @@
                   id="xray-canvas"
                 ></canvas>
                 <div class="xray-corner top">
-                  <span class="xray-tag">Sectioned chassis · 9 inspection
-                    layers</span>
+                  <span class="xray-tag">Holographic Security Radar · 9 Persistence Vectors</span>
                 </div>
                 <div class="xray-corner bottom">
-                  <span class="xray-live" id="xray-live">Collecting</span>
+                  <span class="xray-live" id="xray-live">Radar Standby</span>
                   <button
                     class="ghost-btn xray-motion"
                     id="xray-motion"
@@ -548,10 +547,37 @@
                   </button>
                 </div>
                 <div class="xray-core-readout" id="xray-core-readout">
-                  Awaiting collection
+                  READY // STANDBY
                 </div>
               </div>
               <div class="xray-side">
+                <div class="xray-telemetry-hud" id="xray-telemetry-hud">
+                  <div class="xray-hud-header">
+                    <span class="xray-hud-eyebrow">FORENSIC TELEMETRY</span>
+                    <span class="xray-hud-badge" id="xray-hud-badge">STANDBY</span>
+                  </div>
+                  <div class="xray-hud-target">
+                    <span class="xray-hud-icon" id="xray-hud-icon">⚡</span>
+                    <div class="xray-hud-target-meta">
+                      <strong class="xray-hud-name" id="xray-hud-name">All 9 Vectors Primed</strong>
+                      <span class="xray-hud-detail" id="xray-hud-detail">Read-only offline persistence verification</span>
+                    </div>
+                  </div>
+                  <div class="xray-hud-metrics">
+                    <div class="xray-hud-metric">
+                      <span class="xray-metric-label">INSPECTED</span>
+                      <span class="xray-metric-val" id="xray-hud-inspected">0</span>
+                    </div>
+                    <div class="xray-hud-metric">
+                      <span class="xray-metric-label">COVERAGE</span>
+                      <span class="xray-metric-val" id="xray-hud-coverage">0 / 9</span>
+                    </div>
+                    <div class="xray-hud-metric">
+                      <span class="xray-metric-label">FINDINGS</span>
+                      <span class="xray-metric-val" id="xray-hud-findings">0</span>
+                    </div>
+                  </div>
+                </div>
                 <div
                   class="companion scan-companion"
                   data-companion="scan"

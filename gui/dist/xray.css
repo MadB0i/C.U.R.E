@@ -26,14 +26,14 @@
 /* ---------- Radar Hero Frame ---------- */
 .xray-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(250px, 22%, 320px);
+  grid-template-columns: minmax(0, 1.4fr) clamp(270px, 26%, 340px);
   gap: var(--s5);
   align-items: stretch;
   margin-bottom: var(--s5);
-  padding: var(--s5);
+  padding: var(--s4);
   background:
-    radial-gradient(circle at 44% 50%, rgba(139, 111, 240, 0.08), transparent 64%),
-    radial-gradient(circle at 80% 20%, rgba(6, 182, 212, 0.06), transparent 50%),
+    radial-gradient(circle at 40% 50%, rgba(34, 211, 238, 0.05), transparent 60%),
+    radial-gradient(circle at 80% 20%, rgba(139, 111, 240, 0.06), transparent 50%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 40%),
     var(--ink-150);
   border: 1px solid var(--hair);
@@ -45,7 +45,7 @@
 
 [data-theme="light"] .xray-hero {
   background:
-    radial-gradient(circle at 44% 50%, rgba(124, 58, 237, 0.04), transparent 64%),
+    radial-gradient(circle at 40% 50%, rgba(8, 145, 178, 0.04), transparent 60%),
     linear-gradient(180deg, #ffffff, #f8fafc);
   border: 1px solid #e2e8f0;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
@@ -54,16 +54,18 @@
 .xray-field {
   position: relative;
   min-width: 0;
-  min-height: clamp(280px, 44vh, 480px);
+  min-height: clamp(250px, 38vh, 460px);
   border-radius: 10px;
   overflow: hidden;
-  background: rgba(0, 0, 0, 0.16);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: radial-gradient(circle at 45% 50%, rgba(15, 23, 42, 0.75), rgba(10, 12, 18, 0.98));
+  border: 1px solid rgba(34, 211, 238, 0.14);
+  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.5);
 }
 
 [data-theme="light"] .xray-field {
-  background: rgba(241, 245, 249, 0.6);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: radial-gradient(circle at 45% 50%, rgba(241, 245, 249, 0.9), rgba(226, 232, 240, 0.95));
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.04);
 }
 
 .xray-canvas {
@@ -94,11 +96,11 @@
 }
 
 .xray-tag {
-  font: 600 11px/1.4 monospace;
-  letter-spacing: 0.06em;
+  font: 700 10px/1.4 monospace;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--cure-300);
-  padding: 3px 8px;
+  padding: 3px 9px;
   background: rgba(139, 111, 240, 0.14);
   border: 1px solid rgba(139, 111, 240, 0.3);
   border-radius: 4px;
@@ -149,36 +151,233 @@
 .xray-core-readout {
   position: absolute;
   transform: translate(-50%, -50%);
-  max-width: 260px;
+  max-width: 280px;
   text-align: center;
-  font: 600 11px/1.35 "Cascadia Code", Consolas, monospace;
-  letter-spacing: 0.05em;
+  font: 700 10.5px/1.4 "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0.06em;
   color: #f1f5f9;
-  background: rgba(15, 23, 42, 0.94);
-  border: 1px solid rgba(34, 211, 238, 0.5);
-  box-shadow: 0 0 14px rgba(34, 211, 238, 0.25), inset 0 0 8px rgba(0, 0, 0, 0.6);
+  background: rgba(11, 14, 22, 0.95);
+  border: 1px solid rgba(34, 211, 238, 0.55);
+  box-shadow: 0 0 16px rgba(34, 211, 238, 0.3), inset 0 0 8px rgba(0, 0, 0, 0.7);
   border-radius: 6px;
-  padding: 4px 12px;
+  padding: 4px 14px;
   pointer-events: none;
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(6px);
   z-index: 5;
   white-space: nowrap;
 }
 
 [data-theme="light"] .xray-core-readout {
-  background: rgba(255, 255, 255, 0.94);
+  background: rgba(255, 255, 255, 0.95);
   color: #0f172a;
-  border-color: rgba(8, 145, 178, 0.5);
-  box-shadow: 0 0 12px rgba(8, 145, 178, 0.2);
+  border-color: rgba(8, 145, 178, 0.55);
+  box-shadow: 0 0 14px rgba(8, 145, 178, 0.2);
 }
 
 .xray-side {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  padding: var(--s3);
+  align-items: stretch;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s2) var(--s3);
   border-left: 1px solid var(--hair);
+}
+
+/* ---------- Forensic Telemetry HUD Alongside Radar ---------- */
+.xray-telemetry-hud {
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(139, 111, 240, 0.22);
+  border-radius: 10px;
+  padding: 11px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(8px);
+}
+
+[data-theme="light"] .xray-telemetry-hud {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+
+.xray-hud-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 6px;
+}
+
+[data-theme="light"] .xray-hud-header {
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.xray-hud-eyebrow {
+  font: 700 9px/1.2 monospace;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cure-cyan, #06b6d4);
+}
+
+.xray-hud-badge {
+  font: 700 9.5px/1 monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2.5px 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-dim);
+  border: 1px solid var(--hair);
+  transition: all 0.2s ease;
+}
+
+.xray-hud-badge.is-active {
+  background: rgba(139, 111, 240, 0.18);
+  color: #a78bfa;
+  border-color: rgba(139, 111, 240, 0.45);
+  box-shadow: 0 0 10px rgba(139, 111, 240, 0.25);
+}
+
+.xray-hud-badge.is-clean {
+  background: rgba(34, 211, 238, 0.15);
+  color: #22d3ee;
+  border-color: rgba(34, 211, 238, 0.35);
+}
+
+.xray-hud-badge.is-warn {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.xray-hud-badge.is-risk {
+  background: rgba(239, 68, 68, 0.18);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.45);
+}
+
+.xray-hud-target {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.xray-hud-icon {
+  font-size: 16px;
+  line-height: 1;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: rgba(139, 111, 240, 0.12);
+  border: 1px solid rgba(139, 111, 240, 0.25);
+  flex-shrink: 0;
+}
+
+[data-theme="light"] .xray-hud-icon {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.xray-hud-target-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.xray-hud-name {
+  font: 700 12px/1.3 Inter, system-ui, sans-serif;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.xray-hud-detail {
+  font: 500 10px/1.3 Inter, system-ui, sans-serif;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.xray-hud-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="light"] .xray-hud-metrics {
+  border-top: 1px solid #f1f5f9;
+}
+
+.xray-hud-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.xray-metric-label {
+  font: 600 8.5px/1 monospace;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.xray-metric-val {
+  font: 700 13px/1.2 "Cascadia Code", Consolas, monospace;
+  color: var(--text);
+}
+
+.xray-side .scan-companion {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  --luma-size: 110px;
+  min-height: 105px;
+}
+
+.xray-side .luma-controls {
+  display: none !important;
+}
+
+.xray-side .luma-copy {
+  margin-top: 2px;
+}
+
+@media (max-height: 720px) {
+  .xray-hero {
+    margin-bottom: var(--s3);
+    padding: var(--s3);
+  }
+  .xray-field {
+    min-height: 235px;
+  }
+  .xray-side .scan-companion {
+    --luma-size: 88px;
+    min-height: 85px;
+  }
+  .xray-telemetry-hud {
+    padding: 7px 10px;
+    gap: 6px;
+  }
+  .xray-hud-icon {
+    width: 26px;
+    height: 26px;
+    font-size: 13px;
+  }
+  .rescue-head {
+    margin-bottom: var(--s3);
+  }
 }
 
 /* ---------- 5-Cell Instrument Telemetry Bar ---------- */

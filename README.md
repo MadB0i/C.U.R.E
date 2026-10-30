@@ -11,33 +11,33 @@
 
 [![C.U.R.E Native Preview](docs/media/cure-preview.gif)](docs/media/cure-demo.mp4)
 
-*Real-time holographic sweep and LUMA companion in the native desktop console.*  
-**[▶ Watch Full Native Demo Video (1080p MP4, 46s)](docs/media/cure-demo.mp4)**
+*Real-time holographic sweep, 9-vector segmented radar, and LUMA companion in the native desktop console.*  
+**[▶ Watch Full Native Demo Video (1080p MP4, 43s)](docs/media/cure-demo.mp4)**
 
 ---
 
 ## Visual Tour
 
-| Holographic Rescue Scanner | AI Agent Radar V3 |
+| Holographic Rescue Scanner V2 | AI Agent Radar V3 |
 | :---: | :---: |
-| [![Holographic Rescue Scanner](docs/media/cure-rescue-scanner.png)](docs/media/cure-rescue-scanner.png) | [![AI Agent Radar V3](docs/media/cure-agent-radar.png)](docs/media/cure-agent-radar.png) |
-| *Active 9-layer persistence radar with real-time collector telemetry.* | *Identifies local AI developer tools, model servers, and execution hierarchies.* |
+| [![Holographic Rescue Scanner V2](docs/media/cure-rescue-scanner.png)](docs/media/cure-rescue-scanner.png) | [![AI Agent Radar V3](docs/media/cure-agent-radar.png)](docs/media/cure-agent-radar.png) |
+| *Active 9-layer persistence radar with real-time collector telemetry and central tactical instrument.* | *Identifies local AI developer tools, model servers, and execution hierarchies.* |
 
 | LUMA Tactical Companion | Forensic Investigation Dossier |
 | :---: | :---: |
 | [![LUMA Companion](docs/media/cure-overview-luma.png)](docs/media/cure-overview-luma.png) | [![Forensic Investigation Dossier](docs/media/cure-investigation.png)](docs/media/cure-investigation.png) |
-| *Dynamic feline console companion with animated cyber-HUD visor.* | *Deep inspection of Run keys, Scheduled Tasks, Services, and WMI subscriptions.* |
+| *Dynamic feline console companion with floating drone and scanning aura.* | *Deep inspection of Run keys, Scheduled Tasks, Services, and WMI subscriptions.* |
 
 ---
 
 ## Key Capabilities
 
 - **AI Agent Radar V3**: Discovers local AI agents (`OpenCode`, `OpenAI Codex CLI`, `Claude Code`, `Aider`) and model inference servers (`Ollama`). Verifies Authenticode code-signing signatures, distinguishes inner model orbits from autonomous tools, and automatically masks credentials in process arguments.
-- **Holographic Rescue Scan**: Inspects all 9 Windows persistence layers (Registry Run, Startup, Tasks, Services, WMI, IFEO, COM, Winlogon, Processes) via concentric orbital collectors with honest status debriefs.
+- **Holographic Rescue Scanner V2**: Inspects all 9 Windows persistence layers (Registry Run, Startup, Tasks, Services, WMI, IFEO, COM, Winlogon, Processes) via differentiated segmented orbital tracks, dynamic sweep beam, shockwave ripples, and truthful central tactical instrument.
 - **Agent Flight Recorder**: Captures a forensic timeline of filesystem changes during agent sessions using Windows directory change notifications (`ReadDirectoryChangesW`).
 - **Windows Change Radar**: Tracks persistent system state changes across reboots with point-in-time snapshots and baseline diffing.
 - **Shareable Agent Case Files**: Exports cryptographically signed, sanitized incident reports with allowlisted metrics and zero personal usernames or paths.
-- **LUMA V2 Companion**: Vector-rendered anime cat mascot responding to 7 operational states (`idle`, `curious`, `scanning`, `success`, `warning`, `sleepy`, `excited`) with a holographic visor during active scans.
+- **LUMA V2 Companion**: Vector-rendered anime cat mascot responding to 7 operational states (`idle`, `curious`, `scanning`, `success`, `warning`, `sleepy`, `excited`) with unobstructed facial expressions, subtle scanning aura, and floating drone companion.
 
 ---
 

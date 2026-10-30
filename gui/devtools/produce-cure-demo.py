@@ -119,7 +119,9 @@ def record_journey():
             page.click("#nav-scan")
             wait_seconds(2.0)
             page.click("#xray-start-btn")
-            wait_seconds(8.0)
+            wait_seconds(3.5)
+            page.screenshot(path=str(MEDIA / "cure-rescue-scanner.png"))
+            wait_seconds(4.5)
 
             # Scene 3 (16–25s): AI Agent Radar V3
             print("  [16-25s] Scene 3: AI Agent Radar V3 & Process Intelligence")

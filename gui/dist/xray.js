@@ -1,7 +1,7 @@
 /* ==========================================================================
-   HOLOGRAPHIC SECURITY RADAR — Concept A Next-Gen Rescue Scanner
-   Concentric 9-layer orbital rings, dynamic phosphor sweep, real-time evidence
-   beacons, and interactive telemetry nodes.
+   HOLOGRAPHIC SECURITY RADAR V2 — Next-Gen Rescue Scanner
+   Segmented 9-layer orbital tracks, dynamic phosphor sweep, real-time evidence
+   beacons, central cybernetic core instrument, and forensic telemetry HUD.
    Driven 100% by real Rust backend events (CureSweep).
    Offline, Canvas 2D, zero external assets, reduced-motion compliant.
    ========================================================================== */
@@ -10,15 +10,15 @@
 
   /* ---------- The Nine Persistence Layers --------------------------------- */
   const LAYERS = [
-    { id: "registry",  label: "Registry",      full: "Registry autoruns",             area: "Registry autoruns" },
-    { id: "startup",   label: "Startup",       full: "Startup folders",               area: null },
-    { id: "tasks",     label: "Tasks",         full: "Scheduled tasks",               area: "Scheduled tasks" },
-    { id: "services",  label: "Services",      full: "Auto-start services",           area: "Services (auto-start)" },
-    { id: "wmi",       label: "WMI",           full: "WMI subscriptions",             area: "WMI subscriptions" },
-    { id: "ifeo",      label: "IFEO / AppInit",full: "IFEO debuggers & AppInit DLLs", area: null },
-    { id: "com",       label: "COM",           full: "COM registrations",             area: null },
-    { id: "processes", label: "Processes",     full: "Running processes",             area: null },
-    { id: "ransom",    label: "Ransom",        full: "Ransom indicators",             area: null },
+    { id: "registry",  label: "Registry",      full: "Registry autoruns",             icon: "🔑", area: "Registry autoruns" },
+    { id: "startup",   label: "Startup",       full: "Startup folders",               icon: "📁", area: null },
+    { id: "tasks",     label: "Tasks",         full: "Scheduled tasks",               icon: "⏱️", area: "Scheduled tasks" },
+    { id: "services",  label: "Services",      full: "Auto-start services",           icon: "⚙️", area: "Services (auto-start)" },
+    { id: "wmi",       label: "WMI",           full: "WMI subscriptions",             icon: "📡", area: "WMI subscriptions" },
+    { id: "ifeo",      label: "IFEO / AppInit",full: "IFEO debuggers & AppInit DLLs", icon: "🛡️", area: null },
+    { id: "com",       label: "COM",           full: "COM registrations",             icon: "🧩", area: null },
+    { id: "processes", label: "Processes",     full: "Running processes",             icon: "⚡", area: null },
+    { id: "ransom",    label: "Ransom",        full: "Ransom indicators",             icon: "🚨", area: null },
   ];
 
   const STAGE_ALIAS = {
@@ -74,6 +74,15 @@
   const elapsedEl = document.getElementById("scan-elapsed");
   const motionBtn = document.getElementById("xray-motion");
 
+  // HUD elements
+  const hudBadge = document.getElementById("xray-hud-badge");
+  const hudIcon = document.getElementById("xray-hud-icon");
+  const hudName = document.getElementById("xray-hud-name");
+  const hudDetail = document.getElementById("xray-hud-detail");
+  const hudInspected = document.getElementById("xray-hud-inspected");
+  const hudCoverage = document.getElementById("xray-hud-coverage");
+  const hudFindings = document.getElementById("xray-hud-findings");
+
   const reducedMedia = matchMedia("(prefers-reduced-motion: reduce)");
 
   /* ---------- State Model ------------------------------------------------- */
@@ -87,11 +96,13 @@
     sweepAngle: -Math.PI / 2,
     hoveredLayer: null,
     selectedLayer: null,
+    ripples: [],
     layers: LAYERS.map(function (L) {
       return {
         id: L.id,
         label: L.label,
         full: L.full,
+        icon: L.icon,
         tone: "pending",
         text: "Ready for inspection",
         count: 0,
@@ -109,11 +120,15 @@
     return null;
   }
 
-  function indexOfActive() {
+  function countCheckedLayers() {
+    let count = 0;
     for (let i = 0; i < state.layers.length; i += 1) {
-      if (state.layers[i].id === state.active) return i;
+      const t = state.layers[i].tone;
+      if (t === "checked" || t === "available" || t === "review" || t === "highrisk") {
+        count += 1;
+      }
     }
-    return -1;
+    return count;
   }
 
   /* ---------- Motion & Visibility Control --------------------------------- */
@@ -132,9 +147,9 @@
     cx: 400,
     cy: 230,
     dpr: 1,
-    innerR: 44,
-    outerR: 200,
-    ringStep: 16,
+    innerR: 54,
+    outerR: 210,
+    ringStep: 17,
     orbitAngles: LAYERS.map(function (_, i) {
       return (i * (Math.PI * 2 / 9)) - (Math.PI / 2);
     }),
@@ -151,21 +166,21 @@
     canvas.width = Math.round(geo.w * geo.dpr);
     canvas.height = Math.round(geo.h * geo.dpr);
 
-    // Radar Center: Positioned slightly left-of-center for balanced tactical layout
-    const isWide = geo.w > 720;
-    geo.cx = isWide ? Math.round(geo.w * 0.44) : Math.round(geo.w * 0.5);
+    // Radar Center: Positioned tactically with comfortable HUD spacing
+    const isWide = geo.w > 680;
+    geo.cx = isWide ? Math.round(geo.w * 0.45) : Math.round(geo.w * 0.5);
     geo.cy = Math.round(geo.h * 0.5);
 
     const maxR = Math.min(geo.w * 0.42, geo.h * 0.44);
-    geo.innerR = Math.max(34, Math.round(maxR * 0.22));
-    geo.outerR = Math.max(140, Math.round(maxR * 0.94));
+    geo.innerR = Math.max(50, Math.round(maxR * 0.28));
+    geo.outerR = Math.max(155, Math.round(maxR * 0.94));
     geo.ringStep = (geo.outerR - geo.innerR) / 9;
 
     if (coreReadout) {
       coreReadout.style.left = geo.cx + "px";
-      coreReadout.style.top = Math.min(geo.h - 22, Math.round(geo.cy + geo.outerR + 14)) + "px";
+      coreReadout.style.top = Math.min(geo.h - 18, Math.round(geo.cy + geo.outerR + 15)) + "px";
       if (!state.running && state.items === 0) {
-        coreReadout.textContent = "STANDBY // READY";
+        coreReadout.textContent = "READY // STANDBY";
       }
     }
     const liveTag = document.getElementById("xray-live");
@@ -182,19 +197,32 @@
     return {
       isLight: isLight,
       bg: isLight ? "rgba(248, 250, 252, 0.96)" : "rgba(11, 13, 19, 0.96)",
-      ringBase: isLight ? "rgba(71, 85, 105, 0.18)" : "rgba(148, 163, 184, 0.12)",
+      ringBase: isLight ? "rgba(71, 85, 105, 0.16)" : "rgba(148, 163, 184, 0.14)",
       ringActive: isLight ? "#7c3aed" : "#a78bfa",
       ringCyan: isLight ? "#0891b2" : "#22d3ee",
-      ringAmber: isLight ? "#d97732" : "#f59e0b",
+      ringAmber: isLight ? "#d97706" : "#f59e0b",
       ringRed: isLight ? "#dc2626" : "#ef4444",
-      sweepFill: isLight ? "rgba(124, 58, 237, 0.12)" : "rgba(139, 111, 240, 0.15)",
-      sweepLine: isLight ? "rgba(8, 145, 178, 0.8)" : "rgba(34, 211, 238, 0.9)",
-      hubBody: isLight ? "#e2e8f0" : "#131722",
-      hubBorder: isLight ? "rgba(124, 58, 237, 0.4)" : "rgba(167, 139, 250, 0.4)",
+      sweepFill: isLight ? "rgba(124, 58, 237, 0.14)" : "rgba(139, 111, 240, 0.18)",
+      sweepLine: isLight ? "#0891b2" : "#00f0ff",
+      hubBody: isLight ? "#ffffff" : "#0d111c",
+      hubBorder: isLight ? "rgba(124, 58, 237, 0.35)" : "rgba(139, 111, 240, 0.35)",
       textPrimary: isLight ? "#0f172a" : "#f1f5f9",
       textDim: isLight ? "#64748b" : "#94a3b8",
-      glowCyan: isLight ? "rgba(8, 145, 178, 0.25)" : "rgba(34, 211, 238, 0.35)",
+      glowCyan: isLight ? "rgba(8, 145, 178, 0.22)" : "rgba(34, 211, 238, 0.35)",
+      glowViolet: isLight ? "rgba(124, 58, 237, 0.2)" : "rgba(139, 111, 240, 0.3)",
     };
+  }
+
+  /* ---------- Shockwave Ripple Feedback ---------------------------------- */
+  function triggerShockwave(color) {
+    if (!prefersMotion()) return;
+    state.ripples.push({
+      r: geo.innerR + 4,
+      maxR: geo.outerR + 24,
+      color: color || "#22d3ee",
+      alpha: 0.75,
+    });
+    if (state.ripples.length > 4) state.ripples.shift();
   }
 
   /* ---------- Canvas Rendering ------------------------------------------- */
@@ -211,21 +239,19 @@
     const cx = geo.cx;
     const cy = geo.cy;
 
-    // 1. Tactical Crosshairs & Polar Radial Guides
+    // 1. Tactical Crosshairs, Coordinate Grid & Polar Degree Markers
     ctx.lineWidth = 1;
     ctx.strokeStyle = P.ringBase;
     ctx.setLineDash([3, 5]);
 
-    // Horizontal & Vertical Axes
+    // Cardinal Axes
     ctx.beginPath();
-    ctx.moveTo(cx - geo.outerR - 18, cy);
-    ctx.lineTo(cx + geo.outerR + 18, cy);
-    ctx.moveTo(cx, cy - geo.outerR - 18);
-    ctx.lineTo(cx, cy + geo.outerR + 18);
+    ctx.moveTo(cx - geo.outerR - 22, cy); ctx.lineTo(cx + geo.outerR + 22, cy);
+    ctx.moveTo(cx, cy - geo.outerR - 22); ctx.lineTo(cx, cy + geo.outerR + 22);
     ctx.stroke();
 
-    // 45-degree tactical diagonals
-    const dLen = geo.outerR + 10;
+    // 45-degree Tactical Diagonals
+    const dLen = geo.outerR + 12;
     const dCos = Math.cos(Math.PI / 4) * dLen;
     ctx.beginPath();
     ctx.moveTo(cx - dCos, cy - dCos); ctx.lineTo(cx + dCos, cy + dCos);
@@ -233,107 +259,175 @@
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Ambient Rotating Compass Reticle (Outer Tick Ring)
+    // Degree Ticks on Perimeter
+    ctx.font = "600 8px monospace";
+    ctx.fillStyle = P.textDim;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("000°", cx, cy - geo.outerR - 16);
+    ctx.fillText("090°", cx + geo.outerR + 18, cy);
+    ctx.fillText("180°", cx, cy + geo.outerR + 16);
+    ctx.fillText("270°", cx - geo.outerR - 18, cy);
+
+    // Ambient Rotating Compass Reticle (Outer Calibrated Tick Ring)
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(state.ambientAngle);
-    ctx.strokeStyle = P.isLight ? "rgba(8, 145, 178, 0.22)" : "rgba(34, 211, 238, 0.28)";
+    ctx.strokeStyle = P.isLight ? "rgba(8, 145, 178, 0.25)" : "rgba(34, 211, 238, 0.28)";
     ctx.lineWidth = 1;
-    const outerTickR = geo.outerR + 14;
-    for (let t = 0; t < 12; t += 1) {
-      const a = (t * Math.PI) / 6;
+    const outerTickR = geo.outerR + 10;
+    for (let t = 0; t < 24; t += 1) {
+      const a = (t * Math.PI) / 12;
+      const isMajor = t % 6 === 0;
+      const tLen = isMajor ? 6 : 3;
       ctx.beginPath();
-      ctx.moveTo(Math.cos(a) * (outerTickR - 4), Math.sin(a) * (outerTickR - 4));
+      ctx.moveTo(Math.cos(a) * (outerTickR - tLen), Math.sin(a) * (outerTickR - tLen));
       ctx.lineTo(Math.cos(a) * outerTickR, Math.sin(a) * outerTickR);
       ctx.stroke();
     }
     ctx.restore();
 
-    // 2. Concentric 9 Orbital Rings (One for each Persistence Collector)
+    // 2. The Nine Differentiated Segmented Orbital Tracks
+    const segmentsPerTrack = 8;
+    const segAngle = (Math.PI * 2) / segmentsPerTrack;
+    const gapAngle = 0.04;
+
     for (let i = 0; i < 9; i += 1) {
       const r = geo.innerR + (i + 1) * geo.ringStep;
       const layer = state.layers[i];
       const isActive = state.active === layer.id;
       const isHovered = state.hoveredLayer === layer.id;
 
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      // Determine track style
+      let strokeColor = P.ringBase;
+      let strokeWidth = 1.2;
+      let lineDash = [];
 
-      // Ring Styling based on real collector tone
       if (layer.tone === "highrisk") {
-        ctx.strokeStyle = P.ringRed;
-        ctx.lineWidth = 2.2;
-        ctx.stroke();
+        strokeColor = P.ringRed;
+        strokeWidth = 2.6;
       } else if (layer.tone === "review") {
-        ctx.strokeStyle = P.ringAmber;
-        ctx.lineWidth = 2;
-        ctx.stroke();
+        strokeColor = P.ringAmber;
+        strokeWidth = 2.2;
       } else if (layer.tone === "checked" || layer.tone === "available") {
-        ctx.strokeStyle = P.ringCyan;
-        ctx.lineWidth = isActive ? 2.4 : 1.4;
-        ctx.stroke();
-      } else if (layer.tone === "warn" || layer.tone === "partial") {
-        ctx.strokeStyle = P.ringAmber;
-        ctx.lineWidth = 1.4;
-        ctx.setLineDash([6, 4]);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        strokeColor = P.ringCyan;
+        strokeWidth = isActive ? 2.5 : 1.8;
+      } else if (layer.tone === "warn") {
+        strokeColor = P.ringAmber;
+        strokeWidth = 1.8;
+        lineDash = [8, 4];
+      } else if (layer.tone === "partial") {
+        strokeColor = "#fbbf24";
+        strokeWidth = 1.8;
+        lineDash = [10, 4, 3, 4];
       } else if (layer.tone === "bad") {
-        ctx.strokeStyle = P.ringRed;
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([4, 4]);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        strokeColor = P.ringRed;
+        strokeWidth = 2.0;
+        lineDash = [5, 4];
       } else if (isActive) {
-        ctx.strokeStyle = P.ringActive;
-        ctx.lineWidth = 2.4;
-        ctx.stroke();
-      } else {
-        // Pending / Idle
-        ctx.strokeStyle = isHovered ? P.ringCyan : P.ringBase;
-        ctx.lineWidth = isHovered ? 1.6 : 1;
-        ctx.stroke();
+        strokeColor = P.ringActive;
+        strokeWidth = 2.6;
+      } else if (isHovered) {
+        strokeColor = P.ringCyan;
+        strokeWidth = 1.8;
       }
 
-      // Orbital Layer Micro-Node / Tag
+      ctx.save();
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = strokeWidth;
+      if (lineDash.length > 0) ctx.setLineDash(lineDash);
+
+      // Draw Segmented Track Arcs
+      for (let s = 0; s < segmentsPerTrack; s += 1) {
+        const startA = s * segAngle + gapAngle;
+        const endA = (s + 1) * segAngle - gapAngle;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, startA, endA);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // Active Track Dynamic Photon Bead & Pulse
+      if (isActive && prefersMotion()) {
+        const beadSpeed = 3.8 + i * 0.3;
+        const beadAngle = (state.ambientAngle * beadSpeed) % (Math.PI * 2);
+        const bx = cx + Math.cos(beadAngle) * r;
+        const by = cy + Math.sin(beadAngle) * r;
+
+        // Radiating bead aura
+        ctx.beginPath();
+        ctx.arc(bx, by, 7, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(167, 139, 250, 0.35)";
+        ctx.fill();
+
+        // High-energy center core
+        ctx.beginPath();
+        ctx.arc(bx, by, 3.2, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+      }
+
+      // Orbital Layer Identification Node (Positioned at layer orbit angle)
       const angle = geo.orbitAngles[i];
       const nx = cx + Math.cos(angle) * r;
       const ny = cy + Math.sin(angle) * r;
 
       ctx.beginPath();
-      ctx.arc(nx, ny, isActive ? 4 : 2.5, 0, Math.PI * 2);
-      ctx.fillStyle = isActive ? P.ringActive : (layer.tone === "review" ? P.ringAmber : (layer.tone === "highrisk" ? P.ringRed : P.ringCyan));
+      ctx.arc(nx, ny, isActive ? 4.5 : (isHovered ? 4 : 2.8), 0, Math.PI * 2);
+      ctx.fillStyle = isActive ? P.ringActive : (layer.tone === "review" ? P.ringAmber : (layer.tone === "highrisk" ? P.ringRed : (layer.tone === "checked" ? P.ringCyan : P.ringBase)));
       ctx.fill();
+      if (isActive || isHovered) {
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
     }
 
-    // 3. Dynamic Rotating Phosphor Sweep Cone
+    // 3. Dynamic Rotating Phosphor Holographic Sweep Beam
     if (state.running && prefersMotion()) {
       const sweepAngle = state.sweepAngle;
-      const sweepSpan = Math.PI / 4; // 45-degree phosphor cone
+      const sweepSpan = Math.PI / 3.6; // ~50 degree holographic cone
 
-      const grad = ctx.createRadialGradient(cx, cy, geo.innerR, cx, cy, geo.outerR);
+      const grad = ctx.createRadialGradient(cx, cy, geo.innerR, cx, cy, geo.outerR + 12);
       grad.addColorStop(0, P.sweepFill);
+      grad.addColorStop(0.7, "rgba(34, 211, 238, 0.08)");
       grad.addColorStop(1, "rgba(34, 211, 238, 0)");
 
       ctx.save();
       ctx.beginPath();
       ctx.moveTo(cx, cy);
-      ctx.arc(cx, cy, geo.outerR + 10, sweepAngle - sweepSpan, sweepAngle, false);
+      ctx.arc(cx, cy, geo.outerR + 12, sweepAngle - sweepSpan, sweepAngle, false);
       ctx.closePath();
       ctx.fillStyle = grad;
       ctx.fill();
 
-      // Leading sharp scan line
+      // Sharp Leading Edge Beam
       ctx.beginPath();
       ctx.moveTo(cx, cy);
-      ctx.lineTo(cx + Math.cos(sweepAngle) * (geo.outerR + 12), cy + Math.sin(sweepAngle) * (geo.outerR + 12));
+      ctx.lineTo(cx + Math.cos(sweepAngle) * (geo.outerR + 14), cy + Math.sin(sweepAngle) * (geo.outerR + 14));
       ctx.strokeStyle = P.sweepLine;
-      ctx.lineWidth = 1.8;
+      ctx.lineWidth = 2.2;
+      ctx.shadowColor = P.sweepLine;
+      ctx.shadowBlur = 8;
       ctx.stroke();
       ctx.restore();
     }
 
-    // 4. Real Evidence Beacons on Orbital Rings
+    // 4. Outward Expanding Shockwave Ripples
+    if (state.ripples.length > 0 && prefersMotion()) {
+      for (let rp = 0; rp < state.ripples.length; rp += 1) {
+        const ripple = state.ripples[rp];
+        ctx.beginPath();
+        ctx.arc(cx, cy, ripple.r, 0, Math.PI * 2);
+        ctx.strokeStyle = ripple.color;
+        ctx.globalAlpha = Math.max(0, ripple.alpha);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.globalAlpha = 1.0;
+      }
+    }
+
+    // 5. Real Evidence Beacons on Orbital Rings
     for (let i = 0; i < state.layers.length; i += 1) {
       const layer = state.layers[i];
       if (!layer.beacons || layer.beacons.length === 0) continue;
@@ -348,82 +442,171 @@
         if (prefersMotion() && beacon.radius > 0) {
           ctx.beginPath();
           ctx.arc(bx, by, beacon.radius, 0, Math.PI * 2);
-          ctx.strokeStyle = beacon.risk === "HighRisk" ? "rgba(239,68,68,0.4)" : "rgba(245,158,11,0.4)";
-          ctx.lineWidth = 1;
+          ctx.strokeStyle = beacon.risk === "HighRisk" ? "rgba(239, 68, 68, 0.45)" : "rgba(245, 158, 11, 0.45)";
+          ctx.lineWidth = 1.2;
           ctx.stroke();
         }
 
-        // Core Beacon Dot
+        // Diamond Evidence Marker
+        const isHR = beacon.risk === "HighRisk";
+        ctx.save();
+        ctx.translate(bx, by);
         ctx.beginPath();
-        ctx.arc(bx, by, 4.5, 0, Math.PI * 2);
-        ctx.fillStyle = beacon.risk === "HighRisk" ? P.ringRed : P.ringAmber;
+        ctx.moveTo(0, -5); ctx.lineTo(5, 0); ctx.lineTo(0, 5); ctx.lineTo(-5, 0);
+        ctx.closePath();
+        ctx.fillStyle = isHR ? P.ringRed : P.ringAmber;
         ctx.fill();
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 1.2;
         ctx.stroke();
+
+        // White Center Core
+        ctx.beginPath();
+        ctx.arc(0, 0, 1.8, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        ctx.restore();
       }
     }
 
-    // 5. Central Holographic Core Hub (Hexagonal Cybernetic Unit)
+    // 6. Central Cybernetic Tactical Hub (Prominent Multi-Ring Core Instrument)
     const hubR = geo.innerR;
     ctx.save();
     ctx.translate(cx, cy);
 
-    // Subtle ambient breathing core glow
+    // Dynamic Breathing Ambient Glow
     if (state.running) {
-      const glow = ctx.createRadialGradient(0, 0, hubR * 0.2, 0, 0, hubR * 1.8);
+      const glow = ctx.createRadialGradient(0, 0, hubR * 0.2, 0, 0, hubR * 1.6);
       glow.addColorStop(0, P.glowCyan);
       glow.addColorStop(1, "rgba(0,0,0,0)");
       ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.arc(0, 0, hubR * 1.8, 0, Math.PI * 2);
+      ctx.arc(0, 0, hubR * 1.6, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Hexagonal Plate
-    ctx.beginPath();
-    for (let h = 0; h < 6; h += 1) {
-      const a = (h * Math.PI) / 3;
-      const hx = Math.cos(a) * hubR;
-      const hy = Math.sin(a) * hubR;
-      if (h === 0) ctx.moveTo(hx, hy);
-      else ctx.lineTo(hx, hy);
-    }
-    ctx.closePath();
-    ctx.fillStyle = P.hubBody;
-    ctx.fill();
-    ctx.strokeStyle = P.hubBorder;
-    ctx.lineWidth = 1.6;
-    ctx.stroke();
+    // Outer Status Ring: 9 Ticks Corresponding to the 9 Persistence Layers
+    const tickCount = 9;
+    const tickArc = (Math.PI * 2) / tickCount;
+    for (let k = 0; k < tickCount; k += 1) {
+      const lTone = state.layers[k].tone;
+      let tickColor = P.ringBase;
+      if (lTone === "checked" || lTone === "available") tickColor = P.ringCyan;
+      else if (lTone === "active") tickColor = P.ringActive;
+      else if (lTone === "warn" || lTone === "partial") tickColor = P.ringAmber;
+      else if (lTone === "bad" || lTone === "highrisk") tickColor = P.ringRed;
+      else if (lTone === "review") tickColor = P.ringAmber;
 
-    // Rotating dashed inner reticle ring
+      const sAngle = k * tickArc - Math.PI / 2 + 0.05;
+      const eAngle = (k + 1) * tickArc - Math.PI / 2 - 0.05;
+
+      ctx.beginPath();
+      ctx.arc(0, 0, hubR, sAngle, eAngle);
+      ctx.strokeStyle = tickColor;
+      ctx.lineWidth = 3.2;
+      ctx.stroke();
+
+      // Status Indicator Dot on Outer Rim
+      const midA = (sAngle + eAngle) / 2;
+      ctx.beginPath();
+      ctx.arc(Math.cos(midA) * (hubR + 4), Math.sin(midA) * (hubR + 4), 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = tickColor;
+      ctx.fill();
+    }
+
+    // Inner Rotating Cyber Reticle Ring
     ctx.save();
-    ctx.rotate(-state.ambientAngle * 1.5);
+    ctx.rotate(-state.ambientAngle * 1.4);
     ctx.beginPath();
-    ctx.arc(0, 0, hubR * 0.72, 0, Math.PI * 2);
-    ctx.setLineDash([5, 5]);
-    ctx.strokeStyle = P.ringCyan;
+    ctx.arc(0, 0, hubR * 0.82, 0, Math.PI * 2);
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = P.isLight ? "rgba(8, 145, 178, 0.4)" : "rgba(34, 211, 238, 0.45)";
     ctx.lineWidth = 1.2;
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.restore();
 
-    // C.U.R.E Center Shield Emblem
-    ctx.font = "700 11px Inter, system-ui, sans-serif";
-    ctx.fillStyle = P.textPrimary;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("C.U.R.E", 0, -6);
+    // Solid Center Face Plate
+    ctx.beginPath();
+    ctx.arc(0, 0, hubR * 0.74, 0, Math.PI * 2);
+    ctx.fillStyle = P.hubBody;
+    ctx.fill();
+    ctx.strokeStyle = P.hubBorder;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
 
-    ctx.font = "600 8px monospace";
-    ctx.fillStyle = P.ringCyan;
-    ctx.fillText("RADAR", 0, 7);
+    // Central Tactical Typography & Dynamic Metric
+    const checkedNow = countCheckedLayers();
+    if (!state.running && state.items === 0) {
+      // STANDBY STATE
+      ctx.font = "800 11px Inter, system-ui, sans-serif";
+      ctx.fillStyle = P.textPrimary;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("C.U.R.E", 0, -6);
+
+      ctx.font = "700 8.5px monospace";
+      ctx.fillStyle = P.ringCyan;
+      ctx.fillText("READY", 0, 7);
+    } else if (state.running) {
+      // ACTIVE SCANNING STATE: Bold Dynamic X / 9 LAYERS Readout
+      ctx.font = "800 13px 'Cascadia Code', Consolas, monospace";
+      ctx.fillStyle = P.ringCyan;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(checkedNow + " / 9", 0, -7);
+
+      ctx.font = "700 8px monospace";
+      ctx.fillStyle = P.textDim;
+      ctx.fillText("LAYERS", 0, 6);
+
+      if (state.active) {
+        const actObj = layerById(state.active);
+        ctx.font = "600 7px monospace";
+        ctx.fillStyle = P.ringActive;
+        ctx.fillText(actObj ? actObj.label.toUpperCase() : "SCAN", 0, 16);
+      }
+    } else {
+      // POST-SCAN TACTICAL VERDICT
+      const allDone = (checkedNow === 9);
+      if (state.findings > 0) {
+        ctx.font = "800 12px 'Cascadia Code', Consolas, monospace";
+        ctx.fillStyle = P.ringRed;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(state.findings + " FLAG", 0, -6);
+
+        ctx.font = "700 8px monospace";
+        ctx.fillStyle = P.ringAmber;
+        ctx.fillText("DETECTED", 0, 7);
+      } else if (!allDone) {
+        ctx.font = "800 12px 'Cascadia Code', Consolas, monospace";
+        ctx.fillStyle = P.ringAmber;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(checkedNow + " / 9", 0, -6);
+
+        ctx.font = "700 7.5px monospace";
+        ctx.fillStyle = P.ringAmber;
+        ctx.fillText("INCOMPLETE", 0, 7);
+      } else {
+        ctx.font = "800 12px 'Cascadia Code', Consolas, monospace";
+        ctx.fillStyle = P.ringCyan;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("9 / 9", 0, -6);
+
+        ctx.font = "700 8px monospace";
+        ctx.fillStyle = P.ringCyan;
+        ctx.fillText("ALL CLEAN", 0, 7);
+      }
+    }
 
     ctx.restore();
 
-    // 6. Interactive Detail Callout Card (if hovering or active)
+    // 7. Interactive Detail Callout Card (Canvas Tactical HUD)
     const inspectedLayer = state.hoveredLayer ? layerById(state.hoveredLayer) : (state.active ? layerById(state.active) : null);
-    if (inspectedLayer && geo.w > 580) {
+    if (inspectedLayer && geo.w > 640) {
       drawTacticalCallout(ctx, inspectedLayer, P);
     }
 
@@ -431,34 +614,33 @@
   }
 
   function drawTacticalCallout(ctx, layer, P) {
-    const cardW = 190;
-    const cardH = 76;
+    const cardW = 200;
+    const cardH = 80;
     const cardX = geo.w - cardW - 14;
-    const cardY = 16;
+    const cardY = 14;
 
-    ctx.fillStyle = P.isLight ? "rgba(255, 255, 255, 0.94)" : "rgba(19, 23, 34, 0.94)";
-    ctx.strokeStyle = layer.tone === "review" ? P.ringAmber : (layer.tone === "highrisk" ? P.ringRed : P.ringCyan);
-    ctx.lineWidth = 1.2;
+    ctx.fillStyle = P.isLight ? "rgba(255, 255, 255, 0.95)" : "rgba(15, 23, 42, 0.95)";
+    ctx.strokeStyle = layer.tone === "review" ? P.ringAmber : (layer.tone === "highrisk" ? P.ringRed : (layer.tone === "checked" ? P.ringCyan : P.ringActive));
+    ctx.lineWidth = 1.4;
 
-    // Rounded rectangle card
     ctx.beginPath();
     ctx.roundRect(cardX, cardY, cardW, cardH, 8);
     ctx.fill();
     ctx.stroke();
 
     // Card Content
-    ctx.font = "700 11px Inter, system-ui, sans-serif";
+    ctx.font = "700 11.5px Inter, system-ui, sans-serif";
     ctx.fillStyle = P.textPrimary;
     ctx.textAlign = "left";
     ctx.fillText(layer.full, cardX + 12, cardY + 20);
 
-    ctx.font = "600 10px monospace";
-    ctx.fillStyle = layer.tone === "review" ? P.ringAmber : (layer.tone === "highrisk" ? P.ringRed : P.ringCyan);
-    ctx.fillText("STATUS: " + layer.text.toUpperCase(), cardX + 12, cardY + 38);
+    ctx.font = "700 9.5px monospace";
+    ctx.fillStyle = layer.tone === "review" ? P.ringAmber : (layer.tone === "highrisk" ? P.ringRed : (layer.tone === "checked" ? P.ringCyan : P.ringActive));
+    ctx.fillText("STATUS: " + layer.text.toUpperCase(), cardX + 12, cardY + 39);
 
     ctx.font = "500 10px Inter, system-ui, sans-serif";
     ctx.fillStyle = P.textDim;
-    ctx.fillText("Inspected: " + layer.count + " · Findings: " + layer.risk, cardX + 12, cardY + 56);
+    ctx.fillText("Inspected: " + layer.count + " · Findings: " + layer.risk, cardX + 12, cardY + 58);
   }
 
   /* ---------- Animation Loop ---------------------------------------------- */
@@ -467,7 +649,7 @@
     lastTime = now;
 
     if (prefersMotion()) {
-      state.ambientAngle = (state.ambientAngle + dt * 0.22) % (Math.PI * 2);
+      state.ambientAngle = (state.ambientAngle + dt * 0.24) % (Math.PI * 2);
 
       if (state.running) {
         // Smooth radar sweep angular velocity (~0.85 rev / sec)
@@ -478,8 +660,20 @@
       for (let i = 0; i < state.layers.length; i += 1) {
         const beacons = state.layers[i].beacons;
         for (let b = 0; b < beacons.length; b += 1) {
-          beacons[b].radius += dt * (state.running ? 14 : 5);
-          if (beacons[b].radius > 16) beacons[b].radius = 1;
+          beacons[b].radius += dt * (state.running ? 16 : 6);
+          if (beacons[b].radius > 18) beacons[b].radius = 1;
+        }
+      }
+
+      // Expand Shockwave Ripples
+      if (state.ripples.length > 0) {
+        for (let r = state.ripples.length - 1; r >= 0; r -= 1) {
+          const rip = state.ripples[r];
+          rip.r += dt * 175;
+          rip.alpha -= dt * 0.9;
+          if (rip.r >= rip.maxR || rip.alpha <= 0) {
+            state.ripples.splice(r, 1);
+          }
         }
       }
     }
@@ -505,6 +699,34 @@
     if (rafId !== null) {
       cancelAnimationFrame(rafId);
       rafId = null;
+    }
+  }
+
+  /* ---------- Forensic Telemetry HUD Synchronizer ------------------------ */
+  function updateTelemetryHud() {
+    const checkedCount = countCheckedLayers();
+
+    // Synchronize HUD elements
+    if (hudInspected) hudInspected.textContent = String(state.items);
+    if (hudCoverage) hudCoverage.textContent = checkedCount + " / 9";
+    if (hudFindings) hudFindings.textContent = String(state.findings);
+
+    if (state.active) {
+      const act = layerById(state.active);
+      if (act) {
+        if (hudIcon) hudIcon.textContent = act.icon || "⚡";
+        if (hudName) hudName.textContent = act.full;
+        if (hudDetail) hudDetail.textContent = act.detail || ("Inspecting " + act.label.toLowerCase() + " entries…");
+      }
+      if (hudBadge) {
+        hudBadge.textContent = "SCANNING";
+        hudBadge.className = "xray-hud-badge is-active";
+      }
+    } else if (state.running) {
+      if (hudBadge) {
+        hudBadge.textContent = "SCANNING";
+        hudBadge.className = "xray-hud-badge is-active";
+      }
     }
   }
 
@@ -555,14 +777,8 @@
     if (findingsEl) findingsEl.textContent = String(state.findings);
     if (itemsEl) itemsEl.textContent = state.items + " entries inspected";
 
-    // Coverage indicator: count checked layers
-    let checkedCount = 0;
-    for (let i = 0; i < state.layers.length; i += 1) {
-      const t = state.layers[i].tone;
-      if (t === "checked" || t === "available" || t === "review" || t === "highrisk") {
-        checkedCount += 1;
-      }
-    }
+    // Coverage indicator
+    const checkedCount = countCheckedLayers();
     if (coverageEl) {
       coverageEl.textContent = checkedCount + " / " + state.layers.length;
       if (coverageEl.parentElement) {
@@ -570,6 +786,8 @@
           checkedCount === state.layers.length ? "complete" : "incomplete");
       }
     }
+
+    updateTelemetryHud();
   }
 
   function completeActive() {
@@ -578,6 +796,7 @@
     if (layer && layer.tone === "active") {
       layer.tone = layer.risk > 0 ? "review" : "checked";
       layer.text = layer.risk > 0 ? "Findings available" : "Completed";
+      triggerShockwave(layer.risk > 0 ? "#f59e0b" : "#22d3ee");
     }
   }
 
@@ -587,6 +806,7 @@
     const angle = (Math.random() * Math.PI * 2);
     layer.beacons.push({ angle: angle, risk: risk || "Normal", radius: 1 });
     if (layer.beacons.length > 5) layer.beacons.shift();
+    triggerShockwave(risk === "HighRisk" ? "#ef4444" : "#f59e0b");
   }
 
   /* ---------- Event Handlers & Resize Observer ---------------------------- */
@@ -677,6 +897,7 @@
       state.findings = 0;
       state.running = true;
       state.hoveredLayer = null;
+      state.ripples = [];
 
       for (let i = 0; i < state.layers.length; i += 1) {
         state.layers[i].tone = "pending";
@@ -694,6 +915,13 @@
       if (phaseLbl) phaseLbl.textContent = "Current collector";
       if (coreReadout) coreReadout.textContent = "RADAR // SCANNING";
       if (phaseEl) phaseEl.textContent = "Scanning persistence layers";
+
+      if (hudBadge) {
+        hudBadge.textContent = "SCANNING";
+        hudBadge.className = "xray-hud-badge is-active";
+      }
+      if (hudName) hudName.textContent = "Active Sweep";
+      if (hudDetail) hudDetail.textContent = "Collecting persistence layers…";
 
       // Notify LUMA companion
       if (window.CureCompanion) window.CureCompanion.scan("scan", "Collection started");
@@ -859,6 +1087,7 @@
       }
       const phaseLblDone = document.getElementById("xray-phase-label");
       if (phaseLblDone) phaseLblDone.textContent = "Scan result";
+
       // HONEST core readout: strictly distinguish the 5 scan outcome states
       if (coreReadout) {
         if (anyFailed) {
@@ -884,6 +1113,29 @@
           : (coverageComplete
             ? "Inspection complete · all " + totalLayers + " layers checked"
             : "Coverage incomplete · " + checkedLayers + "/" + totalLayers + " layers checked");
+      }
+
+      // Update HUD elements on finish
+      if (hudBadge) {
+        if (anyFailed) {
+          hudBadge.textContent = "FAILED";
+          hudBadge.className = "xray-hud-badge is-risk";
+        } else if (state.findings > 0) {
+          hudBadge.textContent = "ALERT";
+          hudBadge.className = "xray-hud-badge is-risk";
+        } else if (coverageComplete) {
+          hudBadge.textContent = "VERIFIED CLEAN";
+          hudBadge.className = "xray-hud-badge is-clean";
+        } else {
+          hudBadge.textContent = "INCOMPLETE";
+          hudBadge.className = "xray-hud-badge is-warn";
+        }
+      }
+      if (hudName) {
+        hudName.textContent = anyFailed ? "Collection Halt" : (coverageComplete ? "All 9 Vectors Clean" : "Partial Coverage Only");
+      }
+      if (hudDetail) {
+        hudDetail.textContent = anyFailed ? "Collection failed · review required" : (coverageComplete ? "100% verified offline coverage" : "Unreadable areas remaining");
       }
 
       // Honest LUMA reaction — never claim "inspected cleanly" with incomplete coverage
@@ -915,6 +1167,14 @@
       if (currentEl) currentEl.textContent = "Scan interrupted or failed";
       if (coreReadout) coreReadout.textContent = "COLLECTION FAILED";
       if (phaseEl) phaseEl.textContent = "Check failed";
+
+      if (hudBadge) {
+        hudBadge.textContent = "FAILED";
+        hudBadge.className = "xray-hud-badge is-risk";
+      }
+      if (hudName) hudName.textContent = "Collection Halt";
+      if (hudDetail) hudDetail.textContent = "Check failed or interrupted";
+
       if (window.Luma) window.Luma.warning("Scan could not complete");
       paintLedger();
       draw();
