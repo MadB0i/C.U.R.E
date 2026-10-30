@@ -79,6 +79,7 @@
   const hudIcon = document.getElementById("xray-hud-icon");
   const hudName = document.getElementById("xray-hud-name");
   const hudDetail = document.getElementById("xray-hud-detail");
+  const hudDiscovered = document.getElementById("xray-hud-discovered");
   const hudInspected = document.getElementById("xray-hud-inspected");
   const hudCoverage = document.getElementById("xray-hud-coverage");
   const hudFindings = document.getElementById("xray-hud-findings");
@@ -90,9 +91,11 @@
     running: false,
     ambientAngle: 0,
     active: null,
+    discovered: 0,
     items: 0,
     findings: 0,
     activity: 0,
+    scoringPhase: false,
     sweepAngle: -Math.PI / 2,
     hoveredLayer: null,
     selectedLayer: null,
@@ -147,9 +150,9 @@
     cx: 400,
     cy: 230,
     dpr: 1,
-    innerR: 54,
-    outerR: 210,
-    ringStep: 17,
+    innerR: 56,
+    outerR: 215,
+    ringStep: 18,
     orbitAngles: LAYERS.map(function (_, i) {
       return (i * (Math.PI * 2 / 9)) - (Math.PI / 2);
     }),
@@ -166,14 +169,14 @@
     canvas.width = Math.round(geo.w * geo.dpr);
     canvas.height = Math.round(geo.h * geo.dpr);
 
-    // Radar Center: Positioned tactically with comfortable HUD spacing
-    const isWide = geo.w > 680;
-    geo.cx = isWide ? Math.round(geo.w * 0.45) : Math.round(geo.w * 0.5);
+    // Radar Center: Perfectly centered within canvas for maximum prominence
+    geo.cx = Math.round(geo.w * 0.5);
     geo.cy = Math.round(geo.h * 0.5);
 
-    const maxR = Math.min(geo.w * 0.42, geo.h * 0.44);
-    geo.innerR = Math.max(50, Math.round(maxR * 0.28));
-    geo.outerR = Math.max(155, Math.round(maxR * 0.94));
+    // Fill available canvas leaving neat margin for degree ticks
+    const maxR = Math.min(geo.w * 0.46, geo.h * 0.47);
+    geo.outerR = Math.max(165, Math.round(maxR * 0.97));
+    geo.innerR = Math.max(54, Math.round(geo.outerR * 0.28));
     geo.ringStep = (geo.outerR - geo.innerR) / 9;
 
     if (coreReadout) {
@@ -197,19 +200,19 @@
     return {
       isLight: isLight,
       bg: isLight ? "rgba(248, 250, 252, 0.96)" : "rgba(11, 13, 19, 0.96)",
-      ringBase: isLight ? "rgba(71, 85, 105, 0.16)" : "rgba(148, 163, 184, 0.14)",
+      ringBase: isLight ? "rgba(71, 85, 105, 0.18)" : "rgba(148, 163, 184, 0.15)",
       ringActive: isLight ? "#7c3aed" : "#a78bfa",
       ringCyan: isLight ? "#0891b2" : "#22d3ee",
       ringAmber: isLight ? "#d97706" : "#f59e0b",
       ringRed: isLight ? "#dc2626" : "#ef4444",
-      sweepFill: isLight ? "rgba(124, 58, 237, 0.14)" : "rgba(139, 111, 240, 0.18)",
+      sweepFill: isLight ? "rgba(124, 58, 237, 0.15)" : "rgba(139, 111, 240, 0.20)",
       sweepLine: isLight ? "#0891b2" : "#00f0ff",
-      hubBody: isLight ? "#ffffff" : "#0d111c",
-      hubBorder: isLight ? "rgba(124, 58, 237, 0.35)" : "rgba(139, 111, 240, 0.35)",
+      hubBody: isLight ? "#ffffff" : "#0c101a",
+      hubBorder: isLight ? "rgba(124, 58, 237, 0.4)" : "rgba(139, 111, 240, 0.4)",
       textPrimary: isLight ? "#0f172a" : "#f1f5f9",
       textDim: isLight ? "#64748b" : "#94a3b8",
-      glowCyan: isLight ? "rgba(8, 145, 178, 0.22)" : "rgba(34, 211, 238, 0.35)",
-      glowViolet: isLight ? "rgba(124, 58, 237, 0.2)" : "rgba(139, 111, 240, 0.3)",
+      glowCyan: isLight ? "rgba(8, 145, 178, 0.25)" : "rgba(34, 211, 238, 0.38)",
+      glowViolet: isLight ? "rgba(124, 58, 237, 0.22)" : "rgba(139, 111, 240, 0.32)",
     };
   }
 
@@ -218,9 +221,9 @@
     if (!prefersMotion()) return;
     state.ripples.push({
       r: geo.innerR + 4,
-      maxR: geo.outerR + 24,
+      maxR: geo.outerR + 25,
       color: color || "#22d3ee",
-      alpha: 0.75,
+      alpha: 0.8,
     });
     if (state.ripples.length > 4) state.ripples.shift();
   }
@@ -246,12 +249,12 @@
 
     // Cardinal Axes
     ctx.beginPath();
-    ctx.moveTo(cx - geo.outerR - 22, cy); ctx.lineTo(cx + geo.outerR + 22, cy);
-    ctx.moveTo(cx, cy - geo.outerR - 22); ctx.lineTo(cx, cy + geo.outerR + 22);
+    ctx.moveTo(cx - geo.outerR - 24, cy); ctx.lineTo(cx + geo.outerR + 24, cy);
+    ctx.moveTo(cx, cy - geo.outerR - 24); ctx.lineTo(cx, cy + geo.outerR + 24);
     ctx.stroke();
 
     // 45-degree Tactical Diagonals
-    const dLen = geo.outerR + 12;
+    const dLen = geo.outerR + 14;
     const dCos = Math.cos(Math.PI / 4) * dLen;
     ctx.beginPath();
     ctx.moveTo(cx - dCos, cy - dCos); ctx.lineTo(cx + dCos, cy + dCos);
@@ -260,7 +263,7 @@
     ctx.setLineDash([]);
 
     // Degree Ticks on Perimeter
-    ctx.font = "600 8px monospace";
+    ctx.font = "600 8.5px monospace";
     ctx.fillStyle = P.textDim;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -273,13 +276,13 @@
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(state.ambientAngle);
-    ctx.strokeStyle = P.isLight ? "rgba(8, 145, 178, 0.25)" : "rgba(34, 211, 238, 0.28)";
+    ctx.strokeStyle = P.isLight ? "rgba(8, 145, 178, 0.28)" : "rgba(34, 211, 238, 0.32)";
     ctx.lineWidth = 1;
     const outerTickR = geo.outerR + 10;
     for (let t = 0; t < 24; t += 1) {
       const a = (t * Math.PI) / 12;
       const isMajor = t % 6 === 0;
-      const tLen = isMajor ? 6 : 3;
+      const tLen = isMajor ? 6 : 3.5;
       ctx.beginPath();
       ctx.moveTo(Math.cos(a) * (outerTickR - tLen), Math.sin(a) * (outerTickR - tLen));
       ctx.lineTo(Math.cos(a) * outerTickR, Math.sin(a) * outerTickR);
@@ -300,36 +303,36 @@
 
       // Determine track style
       let strokeColor = P.ringBase;
-      let strokeWidth = 1.2;
+      let strokeWidth = 1.4;
       let lineDash = [];
 
       if (layer.tone === "highrisk") {
         strokeColor = P.ringRed;
-        strokeWidth = 2.6;
+        strokeWidth = 2.8;
       } else if (layer.tone === "review") {
         strokeColor = P.ringAmber;
-        strokeWidth = 2.2;
+        strokeWidth = 2.4;
       } else if (layer.tone === "checked" || layer.tone === "available") {
         strokeColor = P.ringCyan;
-        strokeWidth = isActive ? 2.5 : 1.8;
+        strokeWidth = isActive ? 2.6 : 2.0;
       } else if (layer.tone === "warn") {
         strokeColor = P.ringAmber;
-        strokeWidth = 1.8;
+        strokeWidth = 2.0;
         lineDash = [8, 4];
       } else if (layer.tone === "partial") {
         strokeColor = "#fbbf24";
-        strokeWidth = 1.8;
+        strokeWidth = 2.0;
         lineDash = [10, 4, 3, 4];
       } else if (layer.tone === "bad") {
         strokeColor = P.ringRed;
-        strokeWidth = 2.0;
+        strokeWidth = 2.2;
         lineDash = [5, 4];
       } else if (isActive) {
         strokeColor = P.ringActive;
-        strokeWidth = 2.6;
+        strokeWidth = 2.8;
       } else if (isHovered) {
         strokeColor = P.ringCyan;
-        strokeWidth = 1.8;
+        strokeWidth = 2.0;
       }
 
       ctx.save();
@@ -356,13 +359,13 @@
 
         // Radiating bead aura
         ctx.beginPath();
-        ctx.arc(bx, by, 7, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(167, 139, 250, 0.35)";
+        ctx.arc(bx, by, 7.5, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(167, 139, 250, 0.4)";
         ctx.fill();
 
         // High-energy center core
         ctx.beginPath();
-        ctx.arc(bx, by, 3.2, 0, Math.PI * 2);
+        ctx.arc(bx, by, 3.4, 0, Math.PI * 2);
         ctx.fillStyle = "#ffffff";
         ctx.fill();
       }
@@ -373,12 +376,12 @@
       const ny = cy + Math.sin(angle) * r;
 
       ctx.beginPath();
-      ctx.arc(nx, ny, isActive ? 4.5 : (isHovered ? 4 : 2.8), 0, Math.PI * 2);
+      ctx.arc(nx, ny, isActive ? 4.8 : (isHovered ? 4.2 : 3.0), 0, Math.PI * 2);
       ctx.fillStyle = isActive ? P.ringActive : (layer.tone === "review" ? P.ringAmber : (layer.tone === "highrisk" ? P.ringRed : (layer.tone === "checked" ? P.ringCyan : P.ringBase)));
       ctx.fill();
       if (isActive || isHovered) {
         ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 1.2;
         ctx.stroke();
       }
     }
@@ -388,15 +391,15 @@
       const sweepAngle = state.sweepAngle;
       const sweepSpan = Math.PI / 3.6; // ~50 degree holographic cone
 
-      const grad = ctx.createRadialGradient(cx, cy, geo.innerR, cx, cy, geo.outerR + 12);
+      const grad = ctx.createRadialGradient(cx, cy, geo.innerR, cx, cy, geo.outerR + 14);
       grad.addColorStop(0, P.sweepFill);
-      grad.addColorStop(0.7, "rgba(34, 211, 238, 0.08)");
+      grad.addColorStop(0.7, "rgba(34, 211, 238, 0.09)");
       grad.addColorStop(1, "rgba(34, 211, 238, 0)");
 
       ctx.save();
       ctx.beginPath();
       ctx.moveTo(cx, cy);
-      ctx.arc(cx, cy, geo.outerR + 12, sweepAngle - sweepSpan, sweepAngle, false);
+      ctx.arc(cx, cy, geo.outerR + 14, sweepAngle - sweepSpan, sweepAngle, false);
       ctx.closePath();
       ctx.fillStyle = grad;
       ctx.fill();
@@ -404,11 +407,11 @@
       // Sharp Leading Edge Beam
       ctx.beginPath();
       ctx.moveTo(cx, cy);
-      ctx.lineTo(cx + Math.cos(sweepAngle) * (geo.outerR + 14), cy + Math.sin(sweepAngle) * (geo.outerR + 14));
+      ctx.lineTo(cx + Math.cos(sweepAngle) * (geo.outerR + 16), cy + Math.sin(sweepAngle) * (geo.outerR + 16));
       ctx.strokeStyle = P.sweepLine;
-      ctx.lineWidth = 2.2;
+      ctx.lineWidth = 2.4;
       ctx.shadowColor = P.sweepLine;
-      ctx.shadowBlur = 8;
+      ctx.shadowBlur = 10;
       ctx.stroke();
       ctx.restore();
     }
@@ -421,7 +424,7 @@
         ctx.arc(cx, cy, ripple.r, 0, Math.PI * 2);
         ctx.strokeStyle = ripple.color;
         ctx.globalAlpha = Math.max(0, ripple.alpha);
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1.6;
         ctx.stroke();
         ctx.globalAlpha = 1.0;
       }
@@ -442,8 +445,8 @@
         if (prefersMotion() && beacon.radius > 0) {
           ctx.beginPath();
           ctx.arc(bx, by, beacon.radius, 0, Math.PI * 2);
-          ctx.strokeStyle = beacon.risk === "HighRisk" ? "rgba(239, 68, 68, 0.45)" : "rgba(245, 158, 11, 0.45)";
-          ctx.lineWidth = 1.2;
+          ctx.strokeStyle = beacon.risk === "HighRisk" ? "rgba(239, 68, 68, 0.48)" : "rgba(245, 158, 11, 0.48)";
+          ctx.lineWidth = 1.3;
           ctx.stroke();
         }
 
@@ -452,7 +455,7 @@
         ctx.save();
         ctx.translate(bx, by);
         ctx.beginPath();
-        ctx.moveTo(0, -5); ctx.lineTo(5, 0); ctx.lineTo(0, 5); ctx.lineTo(-5, 0);
+        ctx.moveTo(0, -5.5); ctx.lineTo(5.5, 0); ctx.lineTo(0, 5.5); ctx.lineTo(-5.5, 0);
         ctx.closePath();
         ctx.fillStyle = isHR ? P.ringRed : P.ringAmber;
         ctx.fill();
@@ -462,7 +465,7 @@
 
         // White Center Core
         ctx.beginPath();
-        ctx.arc(0, 0, 1.8, 0, Math.PI * 2);
+        ctx.arc(0, 0, 2.0, 0, Math.PI * 2);
         ctx.fillStyle = "#ffffff";
         ctx.fill();
         ctx.restore();
@@ -503,13 +506,13 @@
       ctx.beginPath();
       ctx.arc(0, 0, hubR, sAngle, eAngle);
       ctx.strokeStyle = tickColor;
-      ctx.lineWidth = 3.2;
+      ctx.lineWidth = 3.4;
       ctx.stroke();
 
       // Status Indicator Dot on Outer Rim
       const midA = (sAngle + eAngle) / 2;
       ctx.beginPath();
-      ctx.arc(Math.cos(midA) * (hubR + 4), Math.sin(midA) * (hubR + 4), 1.5, 0, Math.PI * 2);
+      ctx.arc(Math.cos(midA) * (hubR + 4), Math.sin(midA) * (hubR + 4), 1.6, 0, Math.PI * 2);
       ctx.fillStyle = tickColor;
       ctx.fill();
     }
@@ -520,8 +523,8 @@
     ctx.beginPath();
     ctx.arc(0, 0, hubR * 0.82, 0, Math.PI * 2);
     ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = P.isLight ? "rgba(8, 145, 178, 0.4)" : "rgba(34, 211, 238, 0.45)";
-    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = P.isLight ? "rgba(8, 145, 178, 0.42)" : "rgba(34, 211, 238, 0.48)";
+    ctx.lineWidth = 1.3;
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.restore();
@@ -532,37 +535,37 @@
     ctx.fillStyle = P.hubBody;
     ctx.fill();
     ctx.strokeStyle = P.hubBorder;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 1.6;
     ctx.stroke();
 
     // Central Tactical Typography & Dynamic Metric
     const checkedNow = countCheckedLayers();
     if (!state.running && state.items === 0) {
       // STANDBY STATE
-      ctx.font = "800 11px Inter, system-ui, sans-serif";
+      ctx.font = "800 11.5px Inter, system-ui, sans-serif";
       ctx.fillStyle = P.textPrimary;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText("C.U.R.E", 0, -6);
 
-      ctx.font = "700 8.5px monospace";
+      ctx.font = "700 9px monospace";
       ctx.fillStyle = P.ringCyan;
       ctx.fillText("READY", 0, 7);
     } else if (state.running) {
       // ACTIVE SCANNING STATE: Bold Dynamic X / 9 LAYERS Readout
-      ctx.font = "800 13px 'Cascadia Code', Consolas, monospace";
+      ctx.font = "800 13.5px 'Cascadia Code', Consolas, monospace";
       ctx.fillStyle = P.ringCyan;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(checkedNow + " / 9", 0, -7);
 
-      ctx.font = "700 8px monospace";
+      ctx.font = "700 8.5px monospace";
       ctx.fillStyle = P.textDim;
       ctx.fillText("LAYERS", 0, 6);
 
       if (state.active) {
         const actObj = layerById(state.active);
-        ctx.font = "600 7px monospace";
+        ctx.font = "600 7.5px monospace";
         ctx.fillStyle = P.ringActive;
         ctx.fillText(actObj ? actObj.label.toUpperCase() : "SCAN", 0, 16);
       }
@@ -570,33 +573,33 @@
       // POST-SCAN TACTICAL VERDICT
       const allDone = (checkedNow === 9);
       if (state.findings > 0) {
-        ctx.font = "800 12px 'Cascadia Code', Consolas, monospace";
+        ctx.font = "800 12.5px 'Cascadia Code', Consolas, monospace";
         ctx.fillStyle = P.ringRed;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(state.findings + " FLAG", 0, -6);
 
-        ctx.font = "700 8px monospace";
+        ctx.font = "700 8.5px monospace";
         ctx.fillStyle = P.ringAmber;
         ctx.fillText("DETECTED", 0, 7);
       } else if (!allDone) {
-        ctx.font = "800 12px 'Cascadia Code', Consolas, monospace";
+        ctx.font = "800 12.5px 'Cascadia Code', Consolas, monospace";
         ctx.fillStyle = P.ringAmber;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(checkedNow + " / 9", 0, -6);
 
-        ctx.font = "700 7.5px monospace";
+        ctx.font = "700 8px monospace";
         ctx.fillStyle = P.ringAmber;
         ctx.fillText("INCOMPLETE", 0, 7);
       } else {
-        ctx.font = "800 12px 'Cascadia Code', Consolas, monospace";
+        ctx.font = "800 12.5px 'Cascadia Code', Consolas, monospace";
         ctx.fillStyle = P.ringCyan;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText("9 / 9", 0, -6);
 
-        ctx.font = "700 8px monospace";
+        ctx.font = "700 8.5px monospace";
         ctx.fillStyle = P.ringCyan;
         ctx.fillText("ALL CLEAN", 0, 7);
       }
@@ -614,7 +617,7 @@
   }
 
   function drawTacticalCallout(ctx, layer, P) {
-    const cardW = 200;
+    const cardW = 205;
     const cardH = 80;
     const cardX = geo.w - cardW - 14;
     const cardY = 14;
@@ -703,10 +706,12 @@
   }
 
   /* ---------- Forensic Telemetry HUD Synchronizer ------------------------ */
-  function updateTelemetryHud() {
+  function updateTelemetryHud(activeMsg) {
     const checkedCount = countCheckedLayers();
+    const discoveredTotal = Math.max(state.discovered, state.items);
 
-    // Synchronize HUD elements
+    // Synchronize HUD metric cells
+    if (hudDiscovered) hudDiscovered.textContent = String(discoveredTotal);
     if (hudInspected) hudInspected.textContent = String(state.items);
     if (hudCoverage) hudCoverage.textContent = checkedCount + " / 9";
     if (hudFindings) hudFindings.textContent = String(state.findings);
@@ -716,15 +721,21 @@
       if (act) {
         if (hudIcon) hudIcon.textContent = act.icon || "⚡";
         if (hudName) hudName.textContent = act.full;
-        if (hudDetail) hudDetail.textContent = act.detail || ("Inspecting " + act.label.toLowerCase() + " entries…");
+        if (hudDetail) {
+          if (state.scoringPhase) {
+            hudDetail.textContent = activeMsg || ("Scoring entries · " + state.items + " of " + discoveredTotal);
+          } else {
+            hudDetail.textContent = activeMsg || act.detail || ("Collecting " + act.label.toLowerCase() + " entries…");
+          }
+        }
       }
       if (hudBadge) {
-        hudBadge.textContent = "SCANNING";
+        hudBadge.textContent = state.scoringPhase ? "SCORING" : "COLLECTING";
         hudBadge.className = "xray-hud-badge is-active";
       }
     } else if (state.running) {
       if (hudBadge) {
-        hudBadge.textContent = "SCANNING";
+        hudBadge.textContent = state.scoringPhase ? "SCORING" : "SCANNING";
         hudBadge.className = "xray-hud-badge is-active";
       }
     }
@@ -893,8 +904,10 @@
   window.CureSweep = {
     start: function () {
       state.active = null;
+      state.discovered = 0;
       state.items = 0;
       state.findings = 0;
+      state.scoringPhase = false;
       state.running = true;
       state.hoveredLayer = null;
       state.ripples = [];
@@ -917,14 +930,18 @@
       if (phaseEl) phaseEl.textContent = "Scanning persistence layers";
 
       if (hudBadge) {
-        hudBadge.textContent = "SCANNING";
+        hudBadge.textContent = "COLLECTING";
         hudBadge.className = "xray-hud-badge is-active";
       }
-      if (hudName) hudName.textContent = "Active Sweep";
+      if (hudName) hudName.textContent = "All 9 Vectors Primed";
       if (hudDetail) hudDetail.textContent = "Collecting persistence layers…";
 
-      // Notify LUMA companion
-      if (window.CureCompanion) window.CureCompanion.scan("scan", "Collection started");
+      // Notify LUMA companion with honest active status
+      if (window.Luma && typeof window.Luma.scan === "function") {
+        window.Luma.scan("Scanning persistence layers…", "Collecting persistence entries");
+      } else if (window.CureCompanion) {
+        window.CureCompanion.scan("scan", "Collecting persistence entries");
+      }
 
       paintLedger();
       layout();
@@ -940,6 +957,14 @@
           layer.tone = coverageTone(p.state);
           layer.text = coverageText(p.state);
           layer.detail = p.detail ? String(p.detail) : "";
+
+          // Parse discovered count if reported
+          const numMatch = (p.detail || "").match(/(\d+)/);
+          if (numMatch) {
+            const num = parseInt(numMatch[1], 10);
+            if (num > layer.count) layer.count = num;
+            state.discovered += num;
+          }
         }
         paintLedger();
         draw();
@@ -953,9 +978,28 @@
         state.active = stage;
         known.tone = "active";
         known.text = "Collecting";
+
+        // Update LUMA with the exact real backend collector!
+        if (window.Luma && typeof window.Luma.scan === "function") {
+          window.Luma.scan("Scanning " + known.full.toLowerCase() + "…", p.message || known.full);
+        }
       }
 
-      if (["scoring", "item-scan", "done"].indexOf(p.stage) !== -1) {
+      if (p.stage === "scoring") {
+        completeActive();
+        state.active = null;
+        state.scoringPhase = true;
+        const scoreMatch = (p.message || "").match(/(\d+)/);
+        if (scoreMatch) {
+          state.discovered = Math.max(state.discovered, parseInt(scoreMatch[1], 10));
+        }
+
+        if (window.Luma && typeof window.Luma.scan === "function") {
+          window.Luma.scan("Risk-scoring persistence entries…", p.message || "Evaluating risk profiles");
+        }
+      }
+
+      if (["item-scan", "done"].indexOf(p.stage) !== -1) {
         completeActive();
         state.active = null;
       }
@@ -978,6 +1022,24 @@
           }
         }
         state.items += 1;
+
+        // Update LUMA with the inspected entry details
+        if (window.Luma && typeof window.Luma.scan === "function") {
+          const lLabel = layer ? layer.full.toLowerCase() : "entries";
+          window.Luma.scan("Inspecting " + lLabel + "…", p.name ? "Scoring: " + p.name : (p.message || ""));
+        }
+      }
+
+      if (p.stage === "process-scan") {
+        state.active = "processes";
+        const layer = layerById("processes");
+        if (layer) {
+          layer.tone = "active";
+          layer.text = "Inspecting processes";
+        }
+        if (window.Luma && typeof window.Luma.scan === "function") {
+          window.Luma.scan("Inspecting running processes…", "Process tree analysis");
+        }
       }
 
       if (p.stage === "process-flagged") {
@@ -988,6 +1050,18 @@
           layer.risk += 1;
           layer.tone = "review";
           pushBeacon("processes", p.risk);
+        }
+      }
+
+      if (p.stage === "ransom-detect") {
+        state.active = "ransom";
+        const layer = layerById("ransom");
+        if (layer) {
+          layer.tone = "active";
+          layer.text = "Checking indicators";
+        }
+        if (window.Luma && typeof window.Luma.scan === "function") {
+          window.Luma.scan("Inspecting ransom indicators…", "Canary and decoy validation");
         }
       }
 
@@ -1019,6 +1093,7 @@
       }
 
       paintLedger();
+      updateTelemetryHud(message);
       if (rafId === null) startLoop();
     },
 
@@ -1026,6 +1101,10 @@
       completeActive();
       state.active = null;
       state.running = false;
+
+      const totalVal = (summary && summary.total) || state.items;
+      state.discovered = Math.max(state.discovered, totalVal);
+      state.items = totalVal;
 
       const rows = (summary && summary.source_states) || [];
       for (let i = 0; i < LAYERS.length; i += 1) {
@@ -1082,7 +1161,7 @@
         liveEl.textContent = anyFailed ? "Collection Failed" : (coverageComplete ? "Radar Complete" : "Coverage Incomplete");
       }
       if (currentEl) {
-        currentEl.textContent = (anyFailed ? "Scan failed" : "Scan complete") + " · " + (summary ? summary.total : state.items) + " entries" +
+        currentEl.textContent = (anyFailed ? "Scan failed" : "Scan complete") + " · " + totalVal + " entries" +
           (coverageComplete ? "" : " · " + checkedLayers + "/" + totalLayers + " layers covered");
       }
       const phaseLblDone = document.getElementById("xray-phase-label");

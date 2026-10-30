@@ -2200,6 +2200,242 @@
                 selectable: true,
               },
             ]);
+          case "storage_rescue_status": {
+            const GB = 1024 * 1024 * 1024;
+            const src = (args && args.source_drive) || "C:";
+            const tgt = (args && args.target_drive) || "D:";
+            return Promise.resolve({
+              drives: [
+                {
+                  drive_letter: "C:",
+                  volume_label: "System NVMe",
+                  total_bytes: Math.round(256 * GB),
+                  free_bytes: Math.round(18.2 * GB),
+                  used_bytes: Math.round(237.8 * GB),
+                  pressure_pct: 92.9,
+                  is_system: true,
+                  is_congested: true,
+                },
+                {
+                  drive_letter: "D:",
+                  volume_label: "Fast Workspace",
+                  total_bytes: Math.round(1000 * GB),
+                  free_bytes: Math.round(680.4 * GB),
+                  used_bytes: Math.round(319.6 * GB),
+                  pressure_pct: 32.0,
+                  is_system: false,
+                  is_congested: false,
+                },
+              ],
+              system_drive: "C:",
+              recommended_target_drive: "D:",
+              candidates: [
+                {
+                  id: "downloads",
+                  name: "Downloads Library",
+                  source_path: "C:\\Users\\Operator\\Downloads",
+                  suggested_target_path: `${tgt}\\CURE_Relocated\\Downloads`,
+                  size_bytes: Math.round(42.4 * GB),
+                  allocated_bytes: Math.round(42.4 * GB),
+                  file_count: 842,
+                  safety: "safe",
+                  category: "Personal Files",
+                  why_candidate: "Standalone downloaded installers, media, and zip archives. Safest high-yield candidate.",
+                  reconfiguration_advice: null,
+                },
+                {
+                  id: "videos",
+                  name: "Videos & Screen Captures",
+                  source_path: "C:\\Users\\Operator\\Videos",
+                  suggested_target_path: `${tgt}\\CURE_Relocated\\Videos`,
+                  size_bytes: Math.round(68.2 * GB),
+                  allocated_bytes: Math.round(68.2 * GB),
+                  file_count: 126,
+                  safety: "safe",
+                  category: "Media Library",
+                  why_candidate: "Recorded desktop clips, game footage, and stream archives. Zero executable dependencies.",
+                  reconfiguration_advice: null,
+                },
+                {
+                  id: "pictures",
+                  name: "Pictures & Wallpapers",
+                  source_path: "C:\\Users\\Operator\\Pictures",
+                  suggested_target_path: `${tgt}\\CURE_Relocated\\Pictures`,
+                  size_bytes: Math.round(18.5 * GB),
+                  allocated_bytes: Math.round(18.5 * GB),
+                  file_count: 2410,
+                  safety: "safe",
+                  category: "Media Library",
+                  why_candidate: "User photo collections, screenshots, and wallpapers.",
+                  reconfiguration_advice: null,
+                },
+                {
+                  id: "cargo_cache",
+                  name: "Cargo Crates Cache",
+                  source_path: "C:\\Users\\Operator\\.cargo\\registry",
+                  suggested_target_path: `${tgt}\\CURE_Relocated\\CargoRegistry`,
+                  size_bytes: Math.round(14.8 * GB),
+                  allocated_bytes: Math.round(14.8 * GB),
+                  file_count: 12800,
+                  safety: "caution",
+                  category: "Developer Toolchain",
+                  why_candidate: "Cached Rust crate index and tarball sources.",
+                  reconfiguration_advice: "Set CARGO_HOME environment variable to the new destination.",
+                },
+                {
+                  id: "npm_cache",
+                  name: "Node.js npm Cache",
+                  source_path: "C:\\Users\\Operator\\AppData\\Local\\npm-cache",
+                  suggested_target_path: `${tgt}\\CURE_Relocated\\npm-cache`,
+                  size_bytes: Math.round(8.6 * GB),
+                  allocated_bytes: Math.round(8.6 * GB),
+                  file_count: 6420,
+                  safety: "caution",
+                  category: "Developer Toolchain",
+                  why_candidate: "Cached npm package tarballs.",
+                  reconfiguration_advice: "Run 'npm config set cache <new_path>' after relocation.",
+                },
+                {
+                  id: "workspace_projects",
+                  name: "Local Projects Folder",
+                  source_path: "C:\\Projects",
+                  suggested_target_path: `${tgt}\\Projects`,
+                  size_bytes: Math.round(24.1 * GB),
+                  allocated_bytes: Math.round(24.1 * GB),
+                  file_count: 18900,
+                  safety: "caution",
+                  category: "Project Repositories",
+                  why_candidate: "Local git repositories and working workspaces.",
+                  reconfiguration_advice: "Update IDE workspace bookmarks and git remotes if paths change.",
+                },
+              ],
+              total_safe_relief_bytes: Math.round(129.1 * GB),
+              total_caution_relief_bytes: Math.round(47.5 * GB),
+            });
+          }
+          case "storage_rescue_plan": {
+            const GB = 1024 * 1024 * 1024;
+            const selectedIds = (args && args.selected_ids) || [];
+            const src = (args && args.source_drive) || "C:";
+            const tgt = (args && args.target_drive) || "D:";
+
+            const sampleCandidates = [
+              { id: "downloads", name: "Downloads Library", size: 42.4 * GB, files: 842, safety: "safe" },
+              { id: "videos", name: "Videos & Screen Captures", size: 68.2 * GB, files: 126, safety: "safe" },
+              { id: "pictures", name: "Pictures & Wallpapers", size: 18.5 * GB, files: 2410, safety: "safe" },
+              { id: "cargo_cache", name: "Cargo Crates Cache", size: 14.8 * GB, files: 12800, safety: "caution", advice: "Set CARGO_HOME environment variable to the new destination." },
+              { id: "npm_cache", name: "Node.js npm Cache", size: 8.6 * GB, files: 6420, safety: "caution", advice: "Run 'npm config set cache <new_path>' after relocation." },
+              { id: "workspace_projects", name: "Local Projects Folder", size: 24.1 * GB, files: 18900, safety: "caution", advice: "Update IDE workspace bookmarks if paths change." },
+            ];
+
+            const active = sampleCandidates.filter(c => selectedIds.includes(c.id));
+            const totalBytes = active.reduce((acc, c) => acc + c.size, 0);
+            const totalFiles = active.reduce((acc, c) => acc + c.files, 0);
+            const headroom = totalBytes * 0.10;
+            const targetFree = 680.4 * GB;
+            const sourceFree = 18.2 * GB;
+
+            const preflightWarnings = [];
+            for (const c of active) {
+              if (c.safety === "caution") {
+                preflightWarnings.push(`${c.name} is a caution candidate: ${c.advice || "Requires tool reconfiguration."}`);
+              }
+            }
+
+            return Promise.resolve({
+              source_drive: src,
+              target_drive: tgt,
+              selected_candidates: active.map(c => ({
+                id: c.id,
+                name: c.name,
+                source_path: `C:\\Users\\Operator\\${c.id}`,
+                suggested_target_path: `${tgt}\\CURE_Relocated\\${c.id}`,
+                size_bytes: Math.round(c.size),
+                allocated_bytes: Math.round(c.size),
+                file_count: c.files,
+                safety: c.safety,
+                category: "User Media",
+                why_candidate: "Selected for relocation",
+                reconfiguration_advice: c.advice || null,
+              })),
+              total_bytes_to_relocate: Math.round(totalBytes),
+              total_files_to_relocate: totalFiles,
+              target_current_free_bytes: Math.round(targetFree),
+              target_projected_free_bytes: Math.round(targetFree - totalBytes),
+              source_current_free_bytes: Math.round(sourceFree),
+              source_projected_free_bytes: Math.round(sourceFree + totalBytes),
+              has_sufficient_space: (targetFree >= (totalBytes + headroom)),
+              required_headroom_bytes: Math.round(headroom),
+              preflight_errors: [],
+              preflight_warnings: preflightWarnings,
+            });
+          }
+          case "storage_rescue_execute": {
+            const candId = (args && args.candidate_id) || "downloads";
+            const srcPath = (args && args.source_path) || "C:\\Users\\Operator\\Downloads";
+            const tgtPath = (args && args.target_path) || "D:\\CURE_Relocated\\Downloads";
+            const srcDrive = (args && args.source_drive) || "C:";
+            const tgtDrive = (args && args.target_drive) || "D:";
+
+            const totalFiles = 842;
+            const totalBytes = 42.4 * 1024 * 1024 * 1024;
+            const emitP = (files, pct, phase, curr) => {
+              if (window.__CURE_MOCK_EMIT) {
+                window.__CURE_MOCK_EMIT("rescue-migration-progress", {
+                  candidate_id: candId,
+                  phase,
+                  current_file: curr,
+                  files_copied: files,
+                  total_files: totalFiles,
+                  bytes_copied: Math.round((pct / 100) * totalBytes),
+                  total_bytes: totalBytes,
+                  percent: pct,
+                });
+              }
+            };
+
+            emitP(120, 15.0, "copying", "installer_setup.exe");
+            setTimeout(() => emitP(450, 52.0, "copying", "archive_2026.zip"), 250);
+            setTimeout(() => emitP(842, 100.0, "verifying", "Verifying checksums and counts..."), 500);
+
+            return new Promise((resolve) => {
+              setTimeout(() => {
+                resolve({
+                  receipt_id: `RECEIPT-RESCUE-${Date.now()}`,
+                  timestamp_utc: new Date().toISOString(),
+                  source_drive: srcDrive,
+                  target_drive: tgtDrive,
+                  total_bytes_copied: totalBytes,
+                  total_files_copied: totalFiles,
+                  source_preserved: true,
+                  items: [
+                    {
+                      candidate_id: candId,
+                      source_path: srcPath,
+                      target_path: tgtPath,
+                      source_files: totalFiles,
+                      target_files: totalFiles,
+                      source_bytes: totalBytes,
+                      target_bytes: totalBytes,
+                      files_match: true,
+                      bytes_match: true,
+                      sample_hashes_checked: 7,
+                      sample_hashes_matched: 7,
+                      is_verified: true,
+                      error: null,
+                    },
+                  ],
+                  recovery_notes: [
+                    `Data was safely copied from ${srcPath} to ${tgtPath}.`,
+                    "SOURCE DATA REMAINS 100% INTACT. C.U.R.E did not delete any source files.",
+                    "To revert this relocation, simply continue using the original folder and remove the new folder.",
+                    "To finalize and recover space on C:, verify your files in the destination folder, then delete the original source folder manually.",
+                  ],
+                  manual_cleanup_hint: `rd /s /q "${srcPath}"`,
+                });
+              }, 600);
+            });
+          }
           case "storage_scan":
             if (window.__CURE_MOCK_STORAGE_ERROR)
               return Promise.reject(

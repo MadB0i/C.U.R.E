@@ -247,7 +247,7 @@
     extraRoots: [],
     running: false,
     cancelled: false,
-    tab: "map",
+    tab: "rescue",
     tierFilter: "all",
     /* selection is a path set; the queue is derived from it */
     selected: new Set(),
@@ -1779,6 +1779,7 @@
   function setTab(tab) {
     state.tab = tab;
     const map = {
+      rescue: ["sw-tab-rescue", "sw-panel-rescue"],
       map: ["sw-tab-map", "sw-panel-map"],
       large: ["sw-tab-large", "sw-panel-large"],
       dupes: ["sw-tab-dupes", "sw-panel-dupes"],
@@ -1797,6 +1798,14 @@
          keyboard user reaches the tab strip in one stop. */
       t.setAttribute("tabindex", on ? "0" : "-1");
       p.classList.toggle("hidden", !on);
+    }
+    if (tab === "rescue") {
+      if (window.storageRescue && window.storageRescue.onActivate) {
+        window.storageRescue.onActivate();
+      }
+      if (window.luma && window.luma.uplink) {
+        window.luma.uplink("storage-rescue", "LUMA Storage Rescue Active", "Analyzing C: drive pressure & relocation targets");
+      }
     }
     if (tab === "map") drawTreemap();
     /* Opening the coverage report after a partial scan is the moment worth
@@ -2218,13 +2227,13 @@
         if (el.mapTip) el.mapTip.classList.add("hidden");
       });
     }
-    ["sw-tab-map", "sw-tab-large", "sw-tab-dupes", "sw-tab-queue", "sw-tab-coverage"].forEach((id) => {
+    ["sw-tab-rescue", "sw-tab-map", "sw-tab-large", "sw-tab-dupes", "sw-tab-queue", "sw-tab-coverage"].forEach((id) => {
       const b = $(id);
       if (!b) return;
       b.addEventListener("click", () => setTab(b.id.replace("sw-tab-", "")));
     });
     /* Keyboard: arrows move between tabs, per the ARIA tabs pattern. */
-    const tabIds = ["sw-tab-map", "sw-tab-large", "sw-tab-dupes", "sw-tab-queue", "sw-tab-coverage"];
+    const tabIds = ["sw-tab-rescue", "sw-tab-map", "sw-tab-large", "sw-tab-dupes", "sw-tab-queue", "sw-tab-coverage"];
     tabIds.forEach((id) => {
       const b = $(id);
       if (!b) return;

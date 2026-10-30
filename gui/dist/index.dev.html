@@ -13,6 +13,7 @@
     <link href="storage-workstation.css" rel="stylesheet" />
     <link href="detective.css" rel="stylesheet" />
     <link href="agent.css" rel="stylesheet" />
+    <link href="storage-rescue.css" rel="stylesheet" />
   </head>
   <body>
     <div class="fallback hidden" id="fallback">
@@ -564,6 +565,10 @@
                     </div>
                   </div>
                   <div class="xray-hud-metrics">
+                    <div class="xray-hud-metric">
+                      <span class="xray-metric-label">DISCOVERED</span>
+                      <span class="xray-metric-val" id="xray-hud-discovered">0</span>
+                    </div>
                     <div class="xray-hud-metric">
                       <span class="xray-metric-label">INSPECTED</span>
                       <span class="xray-metric-val" id="xray-hud-inspected">0</span>
@@ -1175,12 +1180,23 @@
               <!-- tabs ---------------------------------------------- -->
               <div class="sw-tabs" role="tablist" aria-label="Storage views">
                 <button
-                  aria-controls="sw-panel-map"
+                  aria-controls="sw-panel-rescue"
                   aria-selected="true"
                   class="sw-tab is-on"
-                  id="sw-tab-map"
+                  id="sw-tab-rescue"
                   role="tab"
                   tabindex="0"
+                  type="button"
+                >
+                  LUMA Storage Rescue
+                </button>
+                <button
+                  aria-controls="sw-panel-map"
+                  aria-selected="false"
+                  class="sw-tab"
+                  id="sw-tab-map"
+                  role="tab"
+                  tabindex="-1"
                   type="button"
                 >
                   Map
@@ -1232,13 +1248,218 @@
                 </button>
               </div>
 
+                            <!-- LUMA STORAGE RESCUE --------------------------------- -->
+              <div
+                aria-labelledby="sw-tab-rescue"
+                class="sw-panel"
+                id="sw-panel-rescue"
+                role="tabpanel"
+                tabindex="0"
+              >
+                <div class="sr-container">
+                  <!-- Header & Honest Philosophy Banner -->
+                  <div class="sr-header-banner">
+                    <div class="sr-banner-top">
+                      <div class="sr-banner-eyebrow">
+                        <span class="sr-uplink-dot"></span>
+                        <span>LUMA UPLINK · OPERATOR STORAGE CONSOLE</span>
+                      </div>
+                      <span class="sr-badge sr-badge-ready">EVIDENCE-FIRST · NON-DESTRUCTIVE</span>
+                    </div>
+                    <h2 class="sr-banner-title">LUMA Storage Rescue</h2>
+                    <p class="sr-banner-desc">
+                      Safely relieve C: drive pressure by identifying and guiding the migration of large personal data libraries to secondary storage (D:) with bit-exact verification.
+                    </p>
+                    <div class="sr-honest-callout">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+                      </svg>
+                      <span>
+                        <strong>Honest Differentiation:</strong> Standard "Disk Cleanup" purges temp files that rebuild within 48 hours. Storage Rescue relocates your largest actual data libraries, guarantees zero in-place deletions, and issues a cryptographically-verified rollback receipt.
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- Drive Pressure Dashboard Cards -->
+                  <div class="sr-drives-grid">
+                    <div class="sr-drive-card sr-source-card" id="sr-source-card">
+                      <div class="sr-drive-head">
+                        <div class="sr-drive-name">Drive C: (System SSD)</div>
+                        <span class="sr-badge sr-badge-danger">CONGESTION DETECTED</span>
+                      </div>
+                      <div class="sr-meter-wrap">
+                        <div class="sr-meter-bar"><div class="sr-meter-fill" style="width: 92.9%;"></div></div>
+                        <div class="sr-meter-labels"><span>92.9% Used</span><span>18.2 GB Free</span></div>
+                      </div>
+                    </div>
+
+                    <div class="sr-drive-card sr-target-card" id="sr-target-card">
+                      <div class="sr-drive-head">
+                        <div class="sr-drive-name">Target Drive D:</div>
+                        <span class="sr-badge sr-badge-ready">HEADROOM READY</span>
+                      </div>
+                      <div class="sr-meter-wrap">
+                        <div class="sr-meter-bar"><div class="sr-meter-fill" style="width: 32.0%;"></div></div>
+                        <div class="sr-meter-labels"><span>32% Used</span><span>680 GB Available</span></div>
+                      </div>
+                    </div>
+
+                    <div class="sr-drive-card sr-relief-card">
+                      <div class="sr-relief-figure" id="sr-relief-figure">+129.1 GB</div>
+                      <div class="sr-relief-label">Safe Recoverable Space on C:</div>
+                      <div class="sr-relief-note" id="sr-relief-note">3 personal libraries ready for verified transfer</div>
+                    </div>
+                  </div>
+
+                  <!-- LUMA Uplink Guide Assistant Bar -->
+                  <div class="sr-luma-guide">
+                    <div class="sr-companion-mount">
+                      <div class="companion sr-companion" data-companion="storage"></div>
+                    </div>
+                    <div class="sr-guide-body">
+                      <div class="sr-guide-title">
+                        <span>LUMA Uplink Operator Assistant</span>
+                        <span class="sr-badge sr-badge-ready">MONITORING</span>
+                      </div>
+                      <p class="sr-guide-text" id="sr-guide-text">
+                        Operator, C: drive is experiencing severe storage congestion. I discovered 3 Safe user libraries (Downloads, Videos, Pictures) that have no system dependencies. Select candidates below and I'll structure a verified migration plan.
+                      </p>
+                      <div class="sr-steps-strip">
+                        <span class="sr-step-chip is-done">1. Pressure Measured</span>
+                        <span class="sr-step-chip is-active">2. Select Candidates</span>
+                        <span class="sr-step-chip">3. Preflight & Headroom</span>
+                        <span class="sr-step-chip">4. Bit-Exact Copy</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Candidates Segmentation Section -->
+                  <div class="sr-candidates-section">
+                    <!-- Segment 1: Safe Candidates -->
+                    <div class="sr-segment">
+                      <div class="sr-segment-head">
+                        <div class="sr-segment-title">
+                          <span class="sr-badge sr-segment-badge-safe">SAFE TO RELOCATE</span>
+                          <span>Personal Content Libraries</span>
+                        </div>
+                        <span class="sr-segment-desc">Independent user files. Zero system, registry, or application binary links.</span>
+                      </div>
+                      <table class="sr-table">
+                        <thead>
+                          <tr>
+                            <th class="sr-col-check"></th>
+                            <th>Library / Current Path</th>
+                            <th>Recommended Target on D:</th>
+                            <th class="sr-num">Files</th>
+                            <th class="sr-num">Size on Disk</th>
+                          </tr>
+                        </thead>
+                        <tbody id="sr-safe-candidates-body">
+                          <!-- Populated by storage-rescue.js -->
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <!-- Segment 2: Caution Candidates -->
+                    <div class="sr-segment">
+                      <div class="sr-segment-head">
+                        <div class="sr-segment-title">
+                          <span class="sr-badge sr-segment-badge-caution">CAUTION / RECONFIGURE</span>
+                          <span>Developer Toolchains & Workspaces</span>
+                        </div>
+                        <span class="sr-segment-desc">Safe to relocate, but requires updating environment variables or IDE bookmarks.</span>
+                      </div>
+                      <table class="sr-table">
+                        <thead>
+                          <tr>
+                            <th class="sr-col-check"></th>
+                            <th>Package Store / Workspace Path</th>
+                            <th>Recommended Target on D:</th>
+                            <th class="sr-num">Files</th>
+                            <th class="sr-num">Size on Disk</th>
+                          </tr>
+                        </thead>
+                        <tbody id="sr-caution-candidates-body">
+                          <!-- Populated by storage-rescue.js -->
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <!-- Segment 3: Protected (Do Not Move) -->
+                    <div class="sr-segment">
+                      <div class="sr-segment-head">
+                        <div class="sr-segment-title">
+                          <span class="sr-badge sr-segment-badge-blocked">PROTECTED · DO NOT MOVE</span>
+                          <span>Windows Operating System & Internals</span>
+                        </div>
+                        <span class="sr-segment-desc">C.U.R.E protects these system stores and will never recommend moving them.</span>
+                      </div>
+                      <table class="sr-table">
+                        <tbody>
+                          <tr>
+                            <td class="sr-col-check">
+                              <svg viewBox="0 0 24 24" width="14" height="14" fill="#f87171">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-2h2v2h-2zm0-10v6h2V7h-2z"/>
+                              </svg>
+                            </td>
+                            <td>
+                              <div class="sr-item-main">
+                                <span class="sr-item-name">Windows System Root (C:\Windows, System32)</span>
+                                <span class="sr-item-path">Operating system core binaries, drivers, and side-by-side assembly cache (WinSxS).</span>
+                              </div>
+                            </td>
+                            <td><span class="dim">BLOCKED BY ENGINE</span></td>
+                            <td class="sr-num dim">—</td>
+                            <td class="sr-num dim">PROTECTED</td>
+                          </tr>
+                          <tr>
+                            <td class="sr-col-check">
+                              <svg viewBox="0 0 24 24" width="14" height="14" fill="#f87171">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-2h2v2h-2zm0-10v6h2V7h-2z"/>
+                              </svg>
+                            </td>
+                            <td>
+                              <div class="sr-item-main">
+                                <span class="sr-item-name">Program Files & ProgramData</span>
+                                <span class="sr-item-path">Installed Win32 binaries, services, and COM server registration points.</span>
+                              </div>
+                            </td>
+                            <td><span class="dim">BLOCKED BY ENGINE</span></td>
+                            <td class="sr-num dim">—</td>
+                            <td class="sr-num dim">PROTECTED</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <!-- Sticky Action Footer Bar -->
+                  <div class="sr-action-bar">
+                    <div class="sr-action-summary">
+                      <div class="sr-summary-stat">
+                        <span>Staged: </span>
+                        <strong id="sr-summary-count">3 libraries</strong>
+                      </div>
+                      <div class="sr-summary-stat">
+                        <span>Projected C: Relief: </span>
+                        <strong id="sr-summary-bytes">+129.1 GB</strong>
+                      </div>
+                    </div>
+                    <div class="sr-action-btns">
+                      <button class="btn btn-ghost" id="sr-btn-rescan" type="button">Rescan Drives</button>
+                      <button class="btn btn-primary" id="sr-btn-build-plan" type="button">Build Migration Plan</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <!-- MAP ------------------------------------------------ -->
               <div
                 aria-labelledby="sw-tab-map"
-                class="sw-panel"
+                class="sw-panel hidden"
                 id="sw-panel-map"
                 role="tabpanel"
-                tabindex="0"
+                tabindex="-1"
               >
                 <div class="sw-headline-card" id="sw-headline-card">
                   <div class="sw-headline-figure">
@@ -2580,9 +2801,106 @@
     <script src="luma.js"></script>
     <script src="xray.js"></script>
     <script src="storage-workstation.js"></script>
+    <script src="storage-rescue.js"></script>
     <script src="casefile.js"></script>
     <script src="detective.js"></script>
     <script src="agent-radar.js"></script>
     <script src="app.js"></script>
+      <!-- ============================================================
+         LUMA STORAGE RESCUE MODALS (Plan, Progress, Receipt)
+         ============================================================ -->
+    <div class="sr-modal-overlay hidden" id="sr-plan-modal">
+      <div aria-modal="true" class="sr-modal" role="dialog">
+        <div class="sr-modal-head">
+          <div class="sr-modal-title">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="#22d3ee">
+              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+            </svg>
+            Review Migration Plan & Safety Preflight
+          </div>
+          <button class="btn btn-ghost" id="sr-plan-close-x" type="button">✕</button>
+        </div>
+        <div class="sr-modal-body">
+          <div class="sr-preflight-list" id="sr-preflight-list"></div>
+          <div class="sr-projection-box" id="sr-projection-box"></div>
+          <div class="sr-honest-callout">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+            </svg>
+            <span>
+              <strong>Zero Risk Guarantee:</strong> Files are copied non-destructively. C.U.R.E never touches or deletes your original files on C:. You retain full control to inspect the new copy before manual retirement.
+            </span>
+          </div>
+        </div>
+        <div class="sr-modal-foot">
+          <button class="btn btn-ghost" id="sr-plan-cancel" type="button">Cancel</button>
+          <button class="btn btn-primary" id="sr-plan-confirm" type="button">Execute Verified Relocation</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sr-modal-overlay hidden" id="sr-exec-modal">
+      <div aria-modal="true" class="sr-modal" role="dialog">
+        <div class="sr-modal-head">
+          <div class="sr-modal-title">
+            <span class="sr-uplink-dot"></span>
+            Executing Safe Copy & Verification
+          </div>
+        </div>
+        <div class="sr-modal-body">
+          <p class="dim" style="font-size: 0.85rem; margin: 0;">
+            Copying data non-destructively and calculating cryptographic sample hashes...
+          </p>
+          <div class="sr-progress-track">
+            <div class="sr-progress-fill" id="sr-exec-progress-fill" style="width: 15%;"></div>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.78rem; font-family: monospace;">
+            <span id="sr-exec-current-file">Reading source directories...</span>
+            <span id="sr-exec-stats">Calculating...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sr-modal-overlay hidden" id="sr-receipt-modal">
+      <div aria-modal="true" class="sr-modal" role="dialog">
+        <div class="sr-modal-head">
+          <div class="sr-modal-title" style="color: #34d399;">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="#10b981">
+              <path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3zm-2 15l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/>
+            </svg>
+            Relocation Completed · Reversible Receipt Issued
+          </div>
+        </div>
+        <div class="sr-modal-body">
+          <div class="sr-receipt-verified-box">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="#10b981">
+              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+            </svg>
+            <div>
+              <div style="font-weight: 600;">100% BIT-EXACT INTEGRITY VERIFIED</div>
+              <div style="font-size: 0.78rem; color: var(--text-2, #a9b1bd); margin-top: 2px;">
+                All copied file counts, byte totals, and SHA-256 sample hashes match the source exactly.
+              </div>
+            </div>
+          </div>
+          <div class="sr-proj-row" style="font-size: 0.85rem; padding: 0 4px;">
+            <span>Receipt Identifier:</span>
+            <strong id="sr-receipt-id" style="color: #a78bfa;">RECEIPT-RESCUE-XXXX</strong>
+          </div>
+          <div class="sr-proj-row" style="font-size: 0.85rem; padding: 0 4px;">
+            <span>Transferred:</span>
+            <span><strong id="sr-receipt-bytes" style="color: #00f5ff;">—</strong> across <strong id="sr-receipt-files" style="color: #00f5ff;">—</strong> files</span>
+          </div>
+          <div class="sr-receipt-notes" id="sr-receipt-notes"></div>
+        </div>
+        <div class="sr-modal-foot">
+          <button class="btn btn-ghost" id="sr-receipt-copy-cmd" type="button">Copy Manual Cleanup Command</button>
+          <button class="btn btn-ghost" id="sr-receipt-reveal" type="button">Reveal in Explorer</button>
+          <button class="btn btn-primary" id="sr-receipt-done" type="button">Done</button>
+        </div>
+      </div>
+    </div>
+
   </body>
 </html>

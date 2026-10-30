@@ -1026,3 +1026,232 @@
   .luma-svg[data-state="scan"] { filter: none; }
   .lm-holo-drone-core { animation: none; }
 }
+
+/* ==========================================================================
+   LUMA UPLINK DESIGN SUITE
+   Cyber-forensic uplink, holographic signal threads, and scout probe drone.
+   Evidence-aware color logic: Cyan (verified), Violet (scout), Amber (caution).
+   ========================================================================== */
+
+/* ---------- Scout Probe Node ---------- */
+.lm-scout-probe {
+  transform-box: view-box;
+  transform-origin: 124px 38px;
+  animation: lm-probe-hover 4.5s ease-in-out infinite;
+  transition: transform 0.4s cubic-bezier(0.2, 0.9, 0.3, 1), opacity 0.3s ease;
+}
+
+@keyframes lm-probe-hover {
+  0%, 100% { transform: translate(124px, 38px); }
+  50%      { transform: translate(124px, 33px) rotate(1.5deg); }
+}
+
+.lm-probe-ring {
+  fill: none;
+  stroke: var(--cure-400, #a78bfa);
+  stroke-width: 0.9;
+  stroke-dasharray: 4 2;
+  opacity: 0.75;
+  animation: lm-probe-ring-spin 8s linear infinite;
+  transform-origin: 0 0;
+  transform-box: view-box;
+}
+
+@keyframes lm-probe-ring-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.lm-probe-inner-ring {
+  fill: rgba(167, 139, 250, 0.08);
+  stroke: #22d3ee;
+  stroke-width: 0.7;
+  stroke-dasharray: 3 3;
+  opacity: 0.6;
+  animation: lm-probe-ring-spin 5s linear infinite reverse;
+  transform-origin: 0 0;
+  transform-box: view-box;
+}
+
+.lm-probe-chassis {
+  fill: #141822;
+  stroke: #22d3ee;
+  stroke-width: 1.1;
+  filter: drop-shadow(0 0 4px rgba(34, 211, 238, 0.35));
+}
+
+.lm-probe-lens {
+  fill: #00f5ff;
+  animation: lm-lens-glint 3s ease-in-out infinite;
+}
+
+@keyframes lm-lens-glint {
+  0%, 100% { opacity: 0.8; }
+  50%      { opacity: 1; filter: drop-shadow(0 0 2px #00f5ff); }
+}
+
+.lm-probe-beacon {
+  fill: #a855f7;
+  filter: drop-shadow(0 0 3px #a855f7);
+  animation: lm-beacon-pulse 2s ease-in-out infinite;
+}
+
+@keyframes lm-beacon-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.75; }
+  50%      { transform: scale(1.3); opacity: 1; filter: drop-shadow(0 0 6px #22d3ee); }
+}
+
+.lm-probe-ticks {
+  stroke: rgba(255, 255, 255, 0.4);
+  stroke-width: 0.8;
+  stroke-linecap: round;
+}
+
+/* Holographic Signal Threads */
+.lm-signal-thread {
+  fill: none;
+  stroke: #22d3ee;
+  stroke-width: 1.0;
+  stroke-dasharray: 4 3;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  animation: lm-signal-flow 1.5s linear infinite;
+}
+
+@keyframes lm-signal-flow {
+  from { stroke-dashoffset: 14; }
+  to   { stroke-dashoffset: 0; }
+}
+
+/* ---------- Collar Uplink Node ---------- */
+.lm-collar-uplink {
+  pointer-events: none;
+}
+
+.lm-collar-antenna {
+  stroke: #a78bfa;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+
+.lm-collar-beacon {
+  fill: #22d3ee;
+  filter: drop-shadow(0 0 3px #22d3ee);
+  animation: lm-beacon-pulse 2.2s ease-in-out infinite;
+}
+
+.lm-collar-pulse {
+  fill: none;
+  stroke: #22d3ee;
+  stroke-width: 0.9;
+  stroke-linecap: round;
+  opacity: 0;
+  animation: lm-collar-pulse-wave 2.8s ease-out infinite;
+}
+
+.lm-pulse-2 {
+  animation-delay: 0.8s;
+}
+
+@keyframes lm-collar-pulse-wave {
+  0%   { opacity: 0.8; transform: translateY(0) scale(0.9); }
+  60%  { opacity: 0.3; }
+  100% { opacity: 0; transform: translateY(-7px) scale(1.3); }
+}
+
+/* ---------- Visor Reticle ---------- */
+.lm-visor-glass {
+  fill: rgba(34, 211, 238, 0.18);
+  stroke: #22d3ee;
+  stroke-width: 0.8;
+  opacity: 0.85;
+}
+
+.lm-visor-node {
+  fill: #a78bfa;
+  filter: drop-shadow(0 0 2px #a78bfa);
+}
+
+.lm-visor-reticle {
+  stroke: #22d3ee;
+  stroke-width: 0.7;
+  stroke-dasharray: 2 1.5;
+  opacity: 0.7;
+}
+
+/* ---------- UPLINK MODE STATES ---------- */
+
+/* Scout Mode (Agent Radar) */
+.luma-svg[data-uplink="scout-agents"] .lm-scout-probe {
+  transform: translate(128px, 32px) rotate(4deg);
+}
+.luma-svg[data-uplink="scout-agents"] .lm-probe-beacon {
+  fill: #a855f7;
+  filter: drop-shadow(0 0 5px #a855f7);
+}
+.luma-svg[data-uplink="scout-agents"] .lm-signal-thread {
+  opacity: 0.85;
+  stroke: #a855f7;
+}
+
+/* Storage Rescue Mode */
+.luma-svg[data-uplink="storage-rescue"] .lm-scout-probe {
+  transform: translate(120px, 42px) rotate(-3deg);
+}
+.luma-svg[data-uplink="storage-rescue"] .lm-probe-beacon {
+  fill: #f59e0b;
+  filter: drop-shadow(0 0 5px #f59e0b);
+}
+.luma-svg[data-uplink="storage-rescue"] .lm-signal-thread-1 {
+  opacity: 0.9;
+  stroke: #f59e0b; /* pointing to C: pressure */
+}
+.luma-svg[data-uplink="storage-rescue"] .lm-signal-thread-2 {
+  opacity: 0.9;
+  stroke: #00f5ff; /* pointing to D: destination */
+}
+
+/* Scanner Mode */
+.luma-svg[data-uplink="scanner"] .lm-signal-thread {
+  opacity: 0.85;
+  stroke: #22d3ee;
+}
+.luma-svg[data-uplink="scanner"] .lm-probe-ring {
+  stroke-width: 1.4;
+  opacity: 0.9;
+}
+
+/* Verified / Success Mode */
+.luma-svg[data-uplink="verified"] .lm-probe-chassis {
+  stroke: #10b981;
+  filter: drop-shadow(0 0 6px rgba(16, 185, 129, 0.6));
+}
+.luma-svg[data-uplink="verified"] .lm-probe-beacon {
+  fill: #10b981;
+  filter: drop-shadow(0 0 6px #10b981);
+}
+.luma-svg[data-uplink="verified"] .lm-signal-thread {
+  opacity: 0.95;
+  stroke: #10b981;
+}
+
+/* Asleep hides probe */
+.luma-svg[data-state="sleeping"] .lm-scout-probe,
+.luma-svg[data-state="sleeping"] .lm-visor,
+.luma-svg[data-state="sleeping"] .lm-collar-uplink {
+  opacity: 0.15;
+  pointer-events: none;
+}
+
+/* Reduced Motion Override */
+@media (prefers-reduced-motion: reduce) {
+  .lm-scout-probe,
+  .lm-probe-ring,
+  .lm-probe-inner-ring,
+  .lm-probe-beacon,
+  .lm-signal-thread,
+  .lm-collar-beacon,
+  .lm-collar-pulse {
+    animation: none !important;
+  }
+}

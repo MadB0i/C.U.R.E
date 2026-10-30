@@ -208,7 +208,7 @@
   };
   const STATE_LABEL = {
     ...KIND_LABEL,
-    scan:        "Scanning system processes…",
+    scan:        "Scanning persistence layers…",
     discovering: "Agent discovered in workspace!",
     curious:     "Investigating activity…",
     major:       "Security anomaly detected!",
@@ -401,6 +401,13 @@
     el("circle", { cx: 76, cy: 69.5, r: 1.6, class: "lm-collar-led" }, collar);
     el("circle", { cx: 76, cy: 69.5, r: 3.4, class: "lm-collar-glow" }, collar);
 
+    /* LUMA UPLINK: Tactical Transceiver & Antenna Node */
+    const uplinkCollar = el("g", { class: "lm-collar-uplink" }, collar);
+    el("line", { x1: 76, y1: 66, x2: 76, y2: 60, class: "lm-collar-antenna" }, uplinkCollar);
+    el("circle", { cx: 76, cy: 59.5, r: 1.3, class: "lm-collar-beacon" }, uplinkCollar);
+    P("M72.5 57.5 A 4 4 0 0 1 79.5 57.5", "lm-collar-pulse lm-pulse-1", uplinkCollar);
+    P("M69.5 54.5 A 7 7 0 0 1 82.5 54.5", "lm-collar-pulse lm-pulse-2", uplinkCollar);
+
     /* Head Assembly */
     const head = el("g", { class: "lm-j lm-head" }, awake);
 
@@ -434,6 +441,12 @@
     /* Crown highlight & cream blaze */
     P("M62 22 C 66 19.8, 71 18.8, 76 18.8 C 81 18.8, 86 19.8, 90 22 C 85 23.4, 80.5 24.2, 76 24.2 C 71.5 24.2, 67 23.4, 62 22 Z", "lm-crown", head);
     P("M71.4 24 C 74.4 29.5, 74.2 35.5, 75.1 41.5 C 72.5 37, 71 31, 71.4 24 Z", "lm-blaze", head);
+
+    /* LUMA UPLINK: Cyber-Forensic Visor Reticle (Non-obstructive brow optic) */
+    const visor = el("g", { class: "lm-visor" }, head);
+    P("M83 37 C 89 34, 97 35, 100 39 L 97 42 C 93 39, 87 39, 83 40 Z", "lm-visor-glass", visor);
+    el("circle", { cx: 97, cy: 38, r: 1.3, class: "lm-visor-node" }, visor);
+    el("line", { x1: 97, y1: 38, x2: 105, y2: 36, class: "lm-visor-reticle" }, visor);
 
     /* Forehead Tabby Chevron Crest ("M" marking) & Cheek Marks */
     const headMarks = el("g", { class: "lm-stripes" }, head);
@@ -537,6 +550,19 @@
       P("M" + x + " " + y + " q " + dx/2 + " " + (dy/2 - 1.2) + " " + dx + " " + dy, "lm-whisker", whiskers);
     });
 
+    /* LUMA UPLINK: Floating Tactical Scout Probe Node */
+    const scoutProbe = el("g", { class: "lm-scout-probe", transform: "translate(124, 38)" }, root);
+    el("circle", { cx: 0, cy: 0, r: 10, class: "lm-probe-ring" }, scoutProbe);
+    el("circle", { cx: 0, cy: 0, r: 6.5, class: "lm-probe-inner-ring" }, scoutProbe);
+    P("M0 -7.5 L6 0 L0 7.5 L-6 0 Z", "lm-probe-chassis", scoutProbe);
+    el("circle", { cx: -2.2, cy: 0, r: 1.2, class: "lm-probe-lens lm-lens-l" }, scoutProbe);
+    el("circle", { cx: 2.2, cy: 0, r: 1.2, class: "lm-probe-lens lm-lens-r" }, scoutProbe);
+    el("circle", { cx: 0, cy: 0, r: 1.8, class: "lm-probe-beacon" }, scoutProbe);
+    P("M-10 0 H-7 M7 0 H10 M0 -10 V-7 M0 7 V10", "lm-probe-ticks", scoutProbe);
+    /* Holographic Signal Threads (beaming towards evidence targets) */
+    P("M6 0 C 18 -4, 32 -6, 44 -12", "lm-signal-thread lm-signal-thread-1", scoutProbe);
+    P("M0 7.5 C 10 18, 20 28, 36 34", "lm-signal-thread lm-signal-thread-2", scoutProbe);
+
     /* Prop Slot: floating effects slot */
     const prop = el("g", { class: "lm-prop", transform: "translate(76 92)" }, root);
 
@@ -605,6 +631,7 @@
       pawL, pawR, footL, footR, collar,
       tailBase, tail1, tail2, tailTip,
       prop,
+      scoutProbe, visor, uplinkCollar,
     };
   }
 
@@ -873,6 +900,22 @@
     const svg = inst.svg;
     svg.setAttribute("data-state", stateName);
 
+    // Auto-harmonize uplink mode with state and view host context
+    const hostRole = inst.host.getAttribute("data-companion") || "";
+    if (stateName === "scan") {
+      svg.setAttribute("data-uplink", "scanner");
+    } else if (stateName === "cleanup") {
+      svg.setAttribute("data-uplink", "verified");
+    } else if (stateName === "major") {
+      svg.setAttribute("data-uplink", "warning");
+    } else if (hostRole === "agents" || stateName === "discovering") {
+      svg.setAttribute("data-uplink", "scout-agents");
+    } else if (hostRole === "storage") {
+      svg.setAttribute("data-uplink", "storage-rescue");
+    } else if (!svg.hasAttribute("data-uplink")) {
+      svg.setAttribute("data-uplink", "idle");
+    }
+
     if (stateName === "sleeping") {
       if (was !== "sleeping") svg.setAttribute("data-sleep", "down");
     } else if (was === "sleeping") {
@@ -992,7 +1035,8 @@
     },
     scan: function (stateName, detail, variantIndex) {
       asleep = false;
-      apply(stateName || "scan", null, detail || null);
+      const title = (stateName && stateName !== "scan") ? stateName : null;
+      apply("scan", title, detail || null);
       if (variantIndex !== undefined && variantIndex !== null) {
         for (const inst of instances) {
           inst.stage.style.setProperty("--luma-lean", String(variantIndex));
@@ -1051,6 +1095,19 @@
       asleep = false;
       apply("idle", null, null);
     },
+    uplink: function (mode, title, detail) {
+      asleep = false;
+      const m = mode || "idle";
+      for (const inst of instances) {
+        inst.svg.setAttribute("data-uplink", m);
+        if (title || detail) {
+          writeCopy(inst, "LUMA UPLINK", title || `Uplink: ${m}`, detail || null);
+        }
+      }
+    },
+    setUplink: function (mode, title, detail) {
+      this.uplink(mode, title, detail);
+    },
     isAsleep: function ()  { return asleep; },
     isVisible: function () { return visible; },
     setVisible: setVisible,
@@ -1081,8 +1138,17 @@
         applyState(inst, stateName);
       };
       return {
+        uplink:      (mode, title, detail) => {
+          inst.svg.setAttribute("data-uplink", mode || "idle");
+          if (title || detail) {
+            writeCopy(inst, "LUMA UPLINK", title || `Uplink: ${mode}`, detail || null);
+          }
+        },
         idle:        (detail)            => scopedApply("idle", null, detail || null),
-        scan:        (stateName, detail) => scopedApply(stateName || "scan", null, detail || null),
+        scan:        (stateName, detail) => {
+          const title = (stateName && stateName !== "scan") ? stateName : null;
+          scopedApply("scan", title, detail || null);
+        },
         scanning:    (detail)            => scopedApply("scan", null, detail || null),
         curious:     (detail)            => scopedApply("curious", null, detail || null),
         thinking:    (detail)            => scopedApply("thinking", null, detail || null),
@@ -1104,6 +1170,7 @@
 
   window.CureCompanion = CompanionAPI;
   window.Luma = CompanionAPI;
+  window.luma = CompanionAPI;
 
   function destroy(inst) {
     if (!inst) return;

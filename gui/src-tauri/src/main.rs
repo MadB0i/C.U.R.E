@@ -1513,6 +1513,58 @@ fn storage_validate_root(path: String) -> Result<StorageRootOptionDto, String> {
     })
 }
 
+/// Assess drive pressure and discover safe relocation candidates.
+#[tauri::command]
+fn storage_rescue_status(
+    source_drive: Option<String>,
+    target_drive: Option<String>,
+) -> Result<cure_core::storage::StorageRescueStatus, String> {
+    let src = source_drive.unwrap_or_else(|| "C:".into());
+    let tgt = target_drive.unwrap_or_default();
+    Ok(cure_core::storage::discover_migration_candidates(&src, &tgt))
+}
+
+/// Build a preflight-verified migration plan for selected candidate folders.
+#[tauri::command]
+fn storage_rescue_plan(
+    selected_ids: Vec<String>,
+    source_drive: String,
+    target_drive: String,
+) -> Result<cure_core::storage::MigrationPlan, String> {
+    Ok(cure_core::storage::build_migration_plan(
+        &selected_ids,
+        &source_drive,
+        &target_drive,
+    ))
+}
+
+/// Execute a safe copy-and-verify migration flow non-destructively.
+#[tauri::command]
+async fn storage_rescue_execute(
+    app: AppHandle,
+    candidate_id: String,
+    source_path: String,
+    target_path: String,
+    source_drive: String,
+    target_drive: String,
+) -> Result<cure_core::storage::MigrationReceipt, String> {
+    let cancel = AtomicBool::new(false);
+    let src = PathBuf::from(&source_path);
+    let dst = PathBuf::from(&target_path);
+    cure_core::storage::execute_candidate_migration(
+        &candidate_id,
+        &src,
+        &dst,
+        &source_drive,
+        &target_drive,
+        &cancel,
+        |progress| {
+            let _ = app.emit("rescue-migration-progress", progress);
+        },
+    )
+    .map_err(|e| format!("Migration failed: {e}"))
+}
+
 /// List candidate roots: fixed drives plus the profile's real user folders.
 #[tauri::command]
 fn storage_available_roots() -> Result<Vec<StorageRootOptionDto>, String> {
@@ -2307,6 +2359,9 @@ fn main() {
             storage_save_case_file,
             storage_available_roots,
             storage_validate_root,
+            storage_rescue_status,
+            storage_rescue_plan,
+            storage_rescue_execute,
             start_canary_guard,
             stop_canary_guard,
             canary_status,

@@ -18,7 +18,9 @@
       "../dist/storage-workstation.js",
       "../dist/casefile.js",
       "../dist/detective.js",
-      "../dist/agent-radar.js"
+      "../dist/agent-radar.js",
+      "../dist/storage-rescue.css",
+      "../dist/storage-rescue.js"
     ]
   },
   "app": {
