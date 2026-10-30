@@ -1575,6 +1575,26 @@ fn storage_rescue_finalize(
         .map_err(|e| format!("Finalization failed: {e}"))
 }
 
+/// Activate candidate relocation and validate application resolution.
+#[tauri::command]
+fn storage_rescue_activate(
+    candidate_id: String,
+    target_path: String,
+) -> Result<cure_core::storage::ActivationReceipt, String> {
+    cure_core::storage::activate_candidate_relocation(&candidate_id, Path::new(&target_path))
+        .map_err(|e| format!("Activation failed: {e}"))
+}
+
+/// Rollback candidate relocation to the original source path.
+#[tauri::command]
+fn storage_rescue_rollback(
+    candidate_id: String,
+    original_path: String,
+) -> Result<cure_core::storage::RollbackReceipt, String> {
+    cure_core::storage::rollback_candidate_relocation(&candidate_id, Path::new(&original_path))
+        .map_err(|e| format!("Rollback failed: {e}"))
+}
+
 /// User-approved source directory cleanup with live before/after C: free space measurement.
 #[tauri::command]
 fn storage_rescue_cleanup_source(
@@ -1582,12 +1602,14 @@ fn storage_rescue_cleanup_source(
     source_path: String,
     target_path: String,
     confirmation_token: String,
+    expected_nonce: Option<String>,
 ) -> Result<cure_core::storage::SourceCleanupReceipt, String> {
     cure_core::storage::execute_source_cleanup(
         &candidate_id,
         Path::new(&source_path),
         Path::new(&target_path),
         &confirmation_token,
+        expected_nonce.as_deref(),
     )
     .map_err(|e| format!("Source cleanup failed: {e}"))
 }
@@ -1701,10 +1723,26 @@ fn operator_defender_scan(file_path: String) -> Result<cure_core::operator::Defe
     cure_core::operator::scan_file_with_defender(Path::new(&file_path))
 }
 
+/// Explicit, user-approved containment scan with remediation enabled.
+#[tauri::command]
+fn operator_defender_contain(
+    file_path: String,
+    confirmation_token: String,
+) -> Result<cure_core::operator::DefenderScanResult, String> {
+    cure_core::operator::contain_file_with_defender(Path::new(&file_path), &confirmation_token)
+}
+
 /// Fetch recent operator audit log entries.
 #[tauri::command]
 fn operator_audit_log(limit: Option<usize>) -> Result<Vec<cure_core::operator::OperatorJournalEntry>, String> {
     Ok(cure_core::operator::get_audit_log(limit.unwrap_or(50)))
+}
+
+/// Verify integrity of the operator audit journal.
+#[tauri::command]
+fn operator_verify_audit_journal() -> Result<usize, String> {
+    let log_path = resolve_data_dir().join("operator_audit.jsonl");
+    cure_core::operator::verify_global_journal_integrity(&log_path)
 }
 
 /// List candidate roots: fixed drives plus the profile's real user folders.
@@ -2505,13 +2543,17 @@ fn main() {
             storage_rescue_plan,
             storage_rescue_execute,
             storage_rescue_finalize,
+            storage_rescue_activate,
+            storage_rescue_rollback,
             storage_rescue_cleanup_source,
             operator_status,
             operator_agent_sessions,
             operator_agent_graceful_shutdown,
             operator_agent_terminate,
             operator_defender_scan,
+            operator_defender_contain,
             operator_audit_log,
+            operator_verify_audit_journal,
             start_canary_guard,
             stop_canary_guard,
             canary_status,

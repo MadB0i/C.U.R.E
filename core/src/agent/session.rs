@@ -55,6 +55,17 @@ impl SessionProcessState {
     }
 }
 
+/// Real session recovery capabilities discovered from supported local on-disk stores.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionRecoveryInfo {
+    pub supported: bool,
+    pub status: String,
+    pub session_count: usize,
+    pub storage_path: Option<String>,
+    pub latest_session_utc: Option<String>,
+    pub details: String,
+}
+
 /// Detailed session investigation record for an observed AI agent or model server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentSessionDetail {
@@ -71,6 +82,91 @@ pub struct AgentSessionDetail {
     pub child_pids: Vec<u32>,
     pub evidence_summary: String,
     pub limitations: String,
+    pub recovery: SessionRecoveryInfo,
+}
+
+/// Discovers genuine on-disk session journals or workspaces for supported tools.
+pub fn discover_agent_session_storage(kind: AgentKind) -> SessionRecoveryInfo {
+    let user_profile = std::env::var("USERPROFILE").unwrap_or_default();
+    let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    let app_data = std::env::var("APPDATA").unwrap_or_default();
+
+    match kind {
+        AgentKind::Codex => {
+            let p1 = std::path::Path::new(&local_app_data).join("OpenAI").join("Codex").join("sessions");
+            let p2 = std::path::Path::new(&user_profile).join(".codex").join("sessions");
+            inspect_session_dir_candidate(&[&p1, &p2], "Codex JSON session journal store")
+        }
+        AgentKind::OpenCode => {
+            let p1 = std::path::Path::new(&app_data).join("ai.opencode.desktop").join("sessions");
+            let p2 = std::path::Path::new(&user_profile).join(".opencode").join("sessions");
+            inspect_session_dir_candidate(&[&p1, &p2], "OpenCode desktop session history database")
+        }
+        AgentKind::Antigravity => {
+            let p = std::path::Path::new(&user_profile).join(".gemini").join("antigravity").join("brain");
+            inspect_session_dir_candidate(&[&p], "Antigravity active conversation workspaces")
+        }
+        _ => SessionRecoveryInfo {
+            supported: false,
+            status: "SESSION RECOVERY UNSUPPORTED".into(),
+            session_count: 0,
+            storage_path: None,
+            latest_session_utc: None,
+            details: format!(
+                "{} does not expose a documented offline session restoration mechanism. Running process presence is monitored, but conversation recovery is not supported.",
+                kind.label()
+            ),
+        },
+    }
+}
+
+fn inspect_session_dir_candidate(
+    candidates: &[&std::path::Path],
+    description: &str,
+) -> SessionRecoveryInfo {
+    for dir in candidates {
+        if dir.is_dir() {
+            let mut count = 0usize;
+            let mut latest_mod: Option<std::time::SystemTime> = None;
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for e in entries.flatten() {
+                    count += 1;
+                    if let Ok(m) = e.metadata() {
+                        if let Ok(modified) = m.modified() {
+                            if latest_mod.is_none() || latest_mod.unwrap() < modified {
+                                latest_mod = Some(modified);
+                            }
+                        }
+                    }
+                }
+            }
+            let latest_str = latest_mod.map(|t| {
+                let dt: chrono::DateTime<chrono::Utc> = t.into();
+                dt.to_rfc3339()
+            });
+            return SessionRecoveryInfo {
+                supported: true,
+                status: "RECOVERABLE SESSIONS FOUND".into(),
+                session_count: count,
+                storage_path: Some(dir.to_string_lossy().to_string()),
+                latest_session_utc: latest_str,
+                details: format!(
+                    "{description}: {count} session artifacts discovered at {}",
+                    dir.display()
+                ),
+            };
+        }
+    }
+    SessionRecoveryInfo {
+        supported: true,
+        status: "NO SAVED SESSIONS FOUND".into(),
+        session_count: 0,
+        storage_path: candidates.first().map(|p| p.to_string_lossy().to_string()),
+        latest_session_utc: None,
+        details: format!(
+            "{description}: Local session directory exists but contains zero saved sessions."
+        ),
+    }
 }
 
 /// Investigates active agent processes, constructs process tree hierarchies,
@@ -144,6 +240,7 @@ pub fn inspect_agent_sessions() -> Vec<AgentSessionDetail> {
             child_pids,
             evidence_summary,
             limitations: proc.limitations,
+            recovery: discover_agent_session_storage(proc.kind),
         });
     }
 

@@ -24,8 +24,16 @@
   }
 
   function invoke(cmd, args) {
+    console.log("[StorageRescue.invoke] START:", cmd, JSON.stringify(args));
     if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
-      return window.__TAURI__.core.invoke(cmd, args);
+      console.log("[StorageRescue.invoke] calling window.__TAURI__.core.invoke");
+      return window.__TAURI__.core.invoke(cmd, args).then(r => {
+        console.log("[StorageRescue.invoke] SUCCESS:", cmd);
+        return r;
+      }).catch(e => {
+        console.log("[StorageRescue.invoke] ERROR:", cmd, e);
+        throw e;
+      });
     }
     if (window.__TAURI_INVOKE__) {
       return window.__TAURI_INVOKE__(cmd, args);
@@ -423,6 +431,11 @@
     const modal = $("sr-receipt-modal");
     if (!modal) return;
 
+    state.receipt = receipt;
+    state.activationReceipt = null;
+    state.cleanupNonce = null;
+    state.requiredCleanupToken = null;
+
     const idEl = $("sr-receipt-id");
     if (idEl) idEl.textContent = receipt.receipt_id;
 
@@ -435,6 +448,31 @@
     const notesEl = $("sr-receipt-notes");
     if (notesEl && receipt.recovery_notes) {
       notesEl.innerHTML = receipt.recovery_notes.map(n => `<div>• ${n}</div>`).join("");
+    }
+
+    const actText = $("sr-activation-text");
+    if (actText) {
+      actText.style.color = "#cbd5e1";
+      actText.textContent = "Status: Bit-exact copy verified. Click 'Activate & Validate Path' to switch configuration before source cleanup can be unlocked.";
+    }
+
+    const receiptFinalize = $("sr-receipt-finalize");
+    if (receiptFinalize) {
+      receiptFinalize.disabled = false;
+      receiptFinalize.textContent = "Activate & Validate Path";
+    }
+
+    const rollbackBtn = $("sr-receipt-rollback");
+    if (rollbackBtn) {
+      rollbackBtn.classList.add("hidden");
+      rollbackBtn.disabled = true;
+    }
+
+    const receiptCleanup = $("sr-receipt-cleanup-source");
+    if (receiptCleanup) {
+      receiptCleanup.disabled = true;
+      receiptCleanup.textContent = "Clean Source on C: (Locked)";
+      receiptCleanup.title = "Application activation and validation gate must pass before source cleanup is unlocked.";
     }
 
     modal.classList.remove("hidden");
@@ -495,25 +533,120 @@
         const item = state.receipt.items[0];
         try {
           receiptFinalize.disabled = true;
-          receiptFinalize.textContent = "Repointing...";
-          const finReceipt = await invoke("storage_rescue_finalize", {
+          receiptFinalize.textContent = "Activating & Validating...";
+          console.log("[StorageRescue] Activating candidate:", item.candidate_id, item.target_path);
+          const actReceipt = await invoke("storage_rescue_activate", {
             candidateId: item.candidate_id,
             targetPath: item.target_path,
           });
-          receiptFinalize.textContent = "✔ Finalized";
+          console.log("[StorageRescue] Activation result:", JSON.stringify(actReceipt));
+
+          const actText = $("sr-activation-text");
+          const receiptCleanup = $("sr-receipt-cleanup-source");
+          const rollbackBtn = $("sr-receipt-rollback");
+
+          if (actReceipt.activation_succeeded && actReceipt.application_validation_passed) {
+            state.activationReceipt = actReceipt;
+            state.cleanupNonce = actReceipt.cleanup_nonce;
+            state.requiredCleanupToken = actReceipt.required_cleanup_token || (`CONFIRM_CLEANUP_${item.candidate_id}` + (actReceipt.cleanup_nonce ? `_${actReceipt.cleanup_nonce}` : ""));
+
+            receiptFinalize.textContent = "✔ Activated & Validated";
+            if (actText) {
+              actText.style.color = "#34d399";
+              actText.innerHTML = `<strong>✔ ACTIVATION &amp; VALIDATION PASSED:</strong> ${actReceipt.configuration_action}. Dynamic verification token generated. Source cleanup unlocked.`;
+            }
+            if (receiptCleanup) {
+              receiptCleanup.disabled = false;
+              receiptCleanup.textContent = "Clean Source on C: (Free Space)";
+              receiptCleanup.title = "Activation validated. Click to open confirmation modal.";
+            }
+            if (rollbackBtn) {
+              rollbackBtn.classList.remove("hidden");
+              rollbackBtn.disabled = false;
+            }
+          } else {
+            receiptFinalize.disabled = false;
+            receiptFinalize.textContent = "Activate & Validate Path";
+            if (actText) {
+              actText.style.color = "#f43f5e";
+              actText.innerHTML = `<strong>⚠ ACTIVATION/VALIDATION FAILED:</strong> ${(actReceipt.notes || []).join("; ") || "Application failed to resolve target path."}. Source cleanup remains locked.`;
+            }
+            if (receiptCleanup) {
+              receiptCleanup.disabled = true;
+              receiptCleanup.textContent = "Clean Source on C: (Locked)";
+            }
+          }
+
           const notesEl = $("sr-receipt-notes");
-          if (notesEl) {
-            const row = document.createElement("div");
-            row.style.color = "#34d399";
-            row.style.fontWeight = "bold";
-            row.style.marginTop = "6px";
-            row.textContent = `✔ ${finReceipt.configuration_action}`;
-            notesEl.appendChild(row);
+          if (notesEl && actReceipt.notes) {
+            for (const note of actReceipt.notes) {
+              const row = document.createElement("div");
+              row.style.color = actReceipt.activation_succeeded ? "#34d399" : "#f43f5e";
+              row.style.marginTop = "4px";
+              row.textContent = `• ${note}`;
+              notesEl.appendChild(row);
+            }
           }
         } catch (err) {
-          alert(`Finalization failed: ${clean(err)}`);
+          console.error("[StorageRescue] Activation catch error:", err);
+          alert(`Activation failed: ${clean(err)}`);
           receiptFinalize.disabled = false;
-          receiptFinalize.textContent = "Finalize (Repoint Known Folder)";
+          receiptFinalize.textContent = "Activate & Validate Path";
+        }
+      });
+    }
+
+    const receiptRollback = $("sr-receipt-rollback");
+    if (receiptRollback) {
+      receiptRollback.addEventListener("click", async () => {
+        if (!state.receipt || !state.receipt.items || !state.receipt.items[0]) return;
+        const item = state.receipt.items[0];
+        try {
+          receiptRollback.disabled = true;
+          receiptRollback.textContent = "Rolling back...";
+          const rollReceipt = await invoke("storage_rescue_rollback", {
+            candidateId: item.candidate_id,
+            originalPath: item.source_path,
+          });
+
+          state.activationReceipt = null;
+          state.cleanupNonce = null;
+          state.requiredCleanupToken = null;
+
+          const actText = $("sr-activation-text");
+          if (actText) {
+            actText.style.color = "#fbbf24";
+            actText.innerHTML = `<strong>↺ ROLLED BACK:</strong> ${rollReceipt.rollback_action}. Relocation reverted to original path. Source cleanup locked.`;
+          }
+
+          const receiptFinalize = $("sr-receipt-finalize");
+          if (receiptFinalize) {
+            receiptFinalize.disabled = false;
+            receiptFinalize.textContent = "Activate & Validate Path";
+          }
+
+          const receiptCleanup = $("sr-receipt-cleanup-source");
+          if (receiptCleanup) {
+            receiptCleanup.disabled = true;
+            receiptCleanup.textContent = "Clean Source on C: (Locked)";
+          }
+
+          receiptRollback.classList.add("hidden");
+
+          const notesEl = $("sr-receipt-notes");
+          if (notesEl && rollReceipt.notes) {
+            for (const note of rollReceipt.notes) {
+              const row = document.createElement("div");
+              row.style.color = "#fbbf24";
+              row.style.marginTop = "4px";
+              row.textContent = `↺ ${note}`;
+              notesEl.appendChild(row);
+            }
+          }
+        } catch (err) {
+          alert(`Rollback failed: ${clean(err)}`);
+          receiptRollback.disabled = false;
+          receiptRollback.textContent = "Rollback Activation";
         }
       });
     }
@@ -523,12 +656,16 @@
       receiptCleanup.addEventListener("click", () => {
         if (!state.receipt || !state.receipt.items || !state.receipt.items[0]) return;
         const item = state.receipt.items[0];
+        if (!state.cleanupNonce || !state.requiredCleanupToken) {
+          alert("Safety gate: You must complete 'Activate & Validate Path' before source cleanup is unlocked.");
+          return;
+        }
         const modal = $("sr-cleanup-modal");
         const tokenTarget = $("sr-cleanup-token-target");
         const input = $("sr-cleanup-token-input");
         const resultBox = $("sr-cleanup-result-box");
         if (!modal) return;
-        const expectedToken = `CONFIRM_CLEANUP_${item.candidate_id}`;
+        const expectedToken = state.requiredCleanupToken;
         if (tokenTarget) tokenTarget.textContent = expectedToken;
         if (input) { input.value = ""; input.disabled = false; }
         if (resultBox) { resultBox.classList.add("hidden"); resultBox.textContent = ""; }
@@ -553,7 +690,7 @@
         const input = $("sr-cleanup-token-input");
         const resultBox = $("sr-cleanup-result-box");
         const typedToken = (input && input.value.trim()) || "";
-        const expectedToken = `CONFIRM_CLEANUP_${item.candidate_id}`;
+        const expectedToken = state.requiredCleanupToken || `CONFIRM_CLEANUP_${item.candidate_id}`;
 
         if (typedToken !== expectedToken) {
           alert(`Confirmation token does not match. Please type '${expectedToken}' exactly.`);
@@ -568,6 +705,7 @@
             sourcePath: item.source_path,
             targetPath: item.target_path,
             confirmationToken: typedToken,
+            expectedNonce: state.cleanupNonce,
           });
 
           if (resultBox) {

@@ -16,10 +16,14 @@ pub use defense::{
     is_critical_system_process, sanitize_untrusted_data, PathBoundaryGuard, PidVerificationResult,
     ProcessVerificationAnchor, CRITICAL_SYSTEM_PROCESSES,
 };
-pub use journal::{audit_log, get_audit_log, init_global_journal, OperatorJournalEntry};
+pub use journal::{
+    audit_log, get_audit_log, init_global_journal, verify_global_journal_integrity,
+    OperatorJournalEntry,
+};
 pub use response::{
-    find_defender_cli, get_process_descendants, scan_file_with_defender, terminate_process_guarded,
-    DefenderScanResult, ProcessContainmentReceipt, ResponseLevel, ThreatCategory, ThreatFinding,
+    contain_file_with_defender, find_defender_cli, get_process_descendants,
+    scan_file_with_defender, terminate_process_guarded, DefenderScanResult,
+    ProcessContainmentReceipt, ResponseLevel, ThreatCategory, ThreatFinding,
 };
 
 use serde::{Deserialize, Serialize};

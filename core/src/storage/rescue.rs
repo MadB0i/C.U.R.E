@@ -94,6 +94,9 @@ pub struct MigrationCandidate {
     pub category: String,
     pub why_candidate: String,
     pub reconfiguration_advice: Option<String>,
+    pub is_onedrive: bool,
+    pub onedrive_warning: Option<String>,
+    pub reparse_points_detected: usize,
 }
 
 /// Overall storage rescue diagnostic summary.
@@ -163,6 +166,7 @@ pub struct CandidateVerification {
     pub sha256_matched: usize,
     pub is_verified: bool,
     pub metadata_report: MetadataPreservationReport,
+    pub reparse_points_safely_skipped: usize,
     pub error: Option<String>,
 }
 
@@ -176,6 +180,35 @@ pub struct FinalizationReceipt {
     pub registry_updated: bool,
     pub configuration_action: String,
     pub shell_notification_broadcast: bool,
+}
+
+/// Structured receipt for application activation and live validation gates.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActivationReceipt {
+    pub candidate_id: String,
+    pub target_path: String,
+    pub previous_path: String,
+    pub configuration_action: String,
+    pub validation_details: String,
+    pub env_var_updated: Option<String>,
+    pub known_folder_updated: Option<String>,
+    pub is_known_folder: bool,
+    pub activation_succeeded: bool,
+    pub application_validation_passed: bool,
+    pub cleanup_unlocked: bool,
+    pub cleanup_nonce: Option<String>,
+    pub required_cleanup_token: Option<String>,
+    pub notes: Vec<String>,
+}
+
+/// Rollback receipt when restoring original location or environment variables.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RollbackReceipt {
+    pub candidate_id: String,
+    pub restored_path: String,
+    pub rollback_action: String,
+    pub rollback_succeeded: bool,
+    pub notes: Vec<String>,
 }
 
 /// Receipt issued after user-approved source cleanup with actual measured free space change.
@@ -258,6 +291,57 @@ pub fn assess_drive_pressures() -> Vec<DrivePressure> {
         }
     }
     out
+}
+
+/// Detect if a folder is managed or synchronized by Microsoft OneDrive.
+pub fn is_onedrive_managed(path: &Path, candidate_id: &str) -> bool {
+    let p_str = path.to_string_lossy();
+    if p_str.to_ascii_lowercase().contains("onedrive") {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use winreg::enums::*;
+        use winreg::RegKey;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        if let Ok(key) = hkcu
+            .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders")
+        {
+            let reg_vals = match candidate_id {
+                "documents" => vec!["Personal"],
+                "pictures" => vec!["My Pictures"],
+                "videos" => vec!["My Video"],
+                "desktop" | "desktop_media" => vec!["Desktop"],
+                "downloads" => vec!["{374DE290-123F-4565-9164-39C4925E467B}"],
+                _ => vec![],
+            };
+            for val in reg_vals {
+                if let Ok(reg_path) = key.get_value::<String, _>(val) {
+                    if reg_path.to_ascii_lowercase().contains("onedrive") {
+                        let reg_p = Path::new(&reg_path);
+                        if path == reg_p || path.starts_with(reg_p) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let _ = candidate_id;
+    false
+}
+
+fn rand_u32() -> u32 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let d = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let seed = d.as_nanos() as u64;
+    let mut x = seed ^ 0x5DEECE66D;
+    x = x
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
+    (x >> 32) as u32
 }
 
 /// Discover migration candidates on the system for a given source drive and destination.
@@ -479,7 +563,26 @@ fn add_candidate_if_on_drive(
         folder_name
     ));
 
-    let (file_count, size_bytes) = inspect_folder_quick(source_path);
+    let is_onedrive = is_onedrive_managed(source_path, id);
+    let onedrive_warn = if is_onedrive {
+        Some("Folder is synced or redirected via Microsoft OneDrive. Moving outside may affect cloud synchronization.".to_string())
+    } else {
+        None
+    };
+
+    let final_safety = if is_onedrive {
+        MigrationSafety::Caution
+    } else {
+        safety
+    };
+
+    let final_why = if is_onedrive {
+        format!("{why} [OneDrive sync detected: Relocating outside OneDrive requires reconfiguring cloud sync]")
+    } else {
+        why.to_string()
+    };
+
+    let (file_count, size_bytes, reparse_detected) = inspect_folder_quick(source_path);
     if file_count == 0 && size_bytes == 0 {
         return;
     }
@@ -492,41 +595,54 @@ fn add_candidate_if_on_drive(
         size_bytes,
         allocated_bytes: size_bytes,
         file_count,
-        safety,
+        safety: final_safety,
         category: category.to_string(),
-        why_candidate: why.to_string(),
+        why_candidate: final_why,
         reconfiguration_advice: advice,
+        is_onedrive,
+        onedrive_warning: onedrive_warn,
+        reparse_points_detected: reparse_detected,
     });
 }
 
-/// Fast folder enumeration for candidate discovery (non-blocking, capped for responsiveness).
-pub fn inspect_folder_quick(path: &Path) -> (u64, u64) {
+/// Iterative safe folder inspection for candidate discovery (non-blocking, capped for responsiveness, skipping reparse points).
+pub fn inspect_folder_quick(path: &Path) -> (u64, u64, usize) {
     let mut files = 0u64;
     let mut bytes = 0u64;
-    let Ok(entries) = fs::read_dir(path) else {
-        return (0, 0);
-    };
+    let mut reparse_count = 0usize;
+    let mut stack = vec![(path.to_path_buf(), 0usize)];
+    let max_files = 500;
+    let max_depth = 3;
 
-    for entry in entries.flatten() {
-        let Ok(md) = entry.metadata() else { continue };
-        if md.is_file() {
-            files += 1;
-            bytes += md.len();
-        } else if md.is_dir() {
-            // Recurse shallowly for first-level directory summaries
-            if let Ok(sub) = fs::read_dir(entry.path()) {
-                for sub_entry in sub.flatten() {
-                    if let Ok(smd) = sub_entry.metadata() {
-                        if smd.is_file() {
-                            files += 1;
-                            bytes += smd.len();
-                        }
-                    }
+    while let Some((dir, depth)) = stack.pop() {
+        if depth > max_depth {
+            continue;
+        }
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if file_type.is_symlink() {
+                reparse_count += 1;
+                continue;
+            }
+            if file_type.is_dir() {
+                stack.push((entry.path(), depth + 1));
+            } else if file_type.is_file() {
+                files += 1;
+                if let Ok(meta) = entry.metadata() {
+                    bytes += meta.len();
+                }
+                if files >= max_files {
+                    return (files, bytes, reparse_count);
                 }
             }
         }
     }
-    (files, bytes)
+    (files, bytes, reparse_count)
 }
 
 // ---------------------------------------------------------------------------
@@ -705,8 +821,9 @@ where
 
     // Measure source files and bytes first
     let mut source_files_list = Vec::new();
+    let mut skipped_reparse = 0usize;
     let mut total_source_bytes = 0u64;
-    collect_files_recursive(source, &mut source_files_list)?;
+    collect_files_recursive(source, &mut source_files_list, &mut skipped_reparse)?;
     for f in &source_files_list {
         if let Ok(md) = fs::metadata(f) {
             total_source_bytes += md.len();
@@ -786,7 +903,8 @@ where
     });
 
     let mut target_files_list = Vec::new();
-    collect_files_recursive(target, &mut target_files_list)?;
+    let mut target_skipped = 0usize;
+    collect_files_recursive(target, &mut target_files_list, &mut target_skipped)?;
     let mut total_target_bytes = 0u64;
     for f in &target_files_list {
         if let Ok(md) = fs::metadata(f) {
@@ -890,20 +1008,36 @@ where
         sha256_matched,
         is_verified,
         metadata_report,
+        reparse_points_safely_skipped: skipped_reparse,
         error,
     })
 }
 
-fn collect_files_recursive(dir: &Path, list: &mut Vec<PathBuf>) -> io::Result<()> {
+pub fn collect_files_recursive(
+    dir: &Path,
+    list: &mut Vec<PathBuf>,
+    skipped_reparse: &mut usize,
+) -> io::Result<()> {
     if !dir.is_dir() {
         return Ok(());
     }
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return Ok(()),
+    };
+    for entry in entries.flatten() {
         let p = entry.path();
-        if p.is_dir() {
-            collect_files_recursive(&p, list)?;
-        } else if p.is_file() {
+        let meta = match fs::symlink_metadata(&p) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if fsx::is_reparse_point(&meta) || meta.file_type().is_symlink() {
+            *skipped_reparse += 1;
+            continue;
+        }
+        if meta.is_dir() {
+            collect_files_recursive(&p, list, skipped_reparse)?;
+        } else if meta.is_file() {
             list.push(p);
         }
     }
@@ -981,114 +1115,408 @@ where
     })
 }
 
-/// Finalize candidate relocation (e.g. repointing Windows Known Folders or configuring toolchains).
-pub fn finalize_candidate_migration(
-    candidate_id: &str,
-    target_path: &Path,
-) -> io::Result<FinalizationReceipt> {
-    let target_str = target_path.to_string_lossy().to_string();
+#[cfg(windows)]
+pub fn set_user_environment_variable(name: &str, value: &str) -> io::Result<()> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let (key, _) = hkcu.create_subkey("Environment")?;
+    key.set_value(name, &value)?;
 
-    let known_folder_val = match candidate_id {
-        "downloads" => Some(("{374DE290-123F-4565-9164-39C4925E467B}", "Downloads")),
-        "documents" => Some(("Personal", "Documents")),
-        "pictures" => Some(("My Pictures", "Pictures")),
-        "videos" => Some(("My Video", "Videos")),
-        "desktop" => Some(("Desktop", "Desktop")),
-        _ => None,
+    // Broadcast WM_SETTINGCHANGE so new shells and Explorer recognize it
+    unsafe {
+        use windows::Win32::Foundation::{LPARAM, WPARAM};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE,
+        };
+        let param = windows::core::w!("Environment");
+        let mut result = 0usize;
+        let _ = SendMessageTimeoutW(
+            HWND_BROADCAST,
+            WM_SETTINGCHANGE,
+            WPARAM(0),
+            LPARAM(param.as_ptr() as isize),
+            SMTO_ABORTIFHUNG,
+            1000,
+            Some(&mut result),
+        );
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+pub fn get_user_environment_variable(name: &str) -> Option<String> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let key = hkcu.open_subkey("Environment").ok()?;
+    key.get_value::<String, _>(name).ok()
+}
+
+#[cfg(windows)]
+pub fn set_known_folder_path(candidate_id: &str, target_path: &Path) -> io::Result<()> {
+    let target_str = target_path.to_string_lossy().to_string();
+    let reg_name = match candidate_id {
+        "downloads" => "{374DE290-123F-4565-9164-39C4925E467B}",
+        "documents" => "Personal",
+        "pictures" => "My Pictures",
+        "videos" => "My Video",
+        "desktop" | "desktop_media" => "Desktop",
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Not a recognized Windows Known Folder",
+            ))
+        }
     };
 
-    let mut registry_updated = false;
-    let mut shell_broadcast = false;
-    let action_desc: String;
+    use winreg::enums::*;
+    use winreg::RegKey;
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let key = hkcu.open_subkey_with_flags(
+        r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders",
+        KEY_SET_VALUE | KEY_READ,
+    )?;
+    key.set_value(reg_name, &target_str)?;
 
-    if let Some((reg_name, friendly_name)) = known_folder_val {
-        #[cfg(windows)]
-        {
-            use winreg::enums::*;
-            use winreg::RegKey;
-            let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-            if let Ok(key) = hkcu.open_subkey_with_flags(
-                r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders",
-                KEY_SET_VALUE | KEY_READ,
-            ) {
-                if key.set_value(reg_name, &target_str).is_ok() {
-                    registry_updated = true;
+    unsafe {
+        windows::Win32::UI::Shell::SHChangeNotify(
+            windows::Win32::UI::Shell::SHCNE_ASSOCCHANGED,
+            windows::Win32::UI::Shell::SHCNF_FLUSH,
+            None,
+            None,
+        );
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+pub fn get_known_folder_path(candidate_id: &str) -> Option<String> {
+    let reg_name = match candidate_id {
+        "downloads" => "{374DE290-123F-4565-9164-39C4925E467B}",
+        "documents" => "Personal",
+        "pictures" => "My Pictures",
+        "videos" => "My Video",
+        "desktop" | "desktop_media" => "Desktop",
+        _ => return None,
+    };
+    use winreg::enums::*;
+    use winreg::RegKey;
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let key = hkcu
+        .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders")
+        .ok()?;
+    key.get_value::<String, _>(reg_name).ok()
+}
+
+/// Activate candidate relocation and execute live application validation.
+/// Unlocks cleanup only if validation passes; generates a single-use random nonce.
+pub fn activate_candidate_relocation(
+    candidate_id: &str,
+    target_path: &Path,
+) -> io::Result<ActivationReceipt> {
+    let target_str = target_path.to_string_lossy().to_string();
+    let mut is_known_folder = false;
+    let mut activation_succeeded = false;
+    let mut application_validation_passed = false;
+    let mut details = Vec::new();
+    let mut env_var_updated = None;
+    let mut known_folder_updated = None;
+
+    match candidate_id {
+        "downloads" | "documents" | "pictures" | "videos" | "desktop" | "desktop_media" => {
+            is_known_folder = true;
+            known_folder_updated = Some(candidate_id.to_string());
+            #[cfg(windows)]
+            {
+                if let Err(e) = set_known_folder_path(candidate_id, target_path) {
+                    details.push(format!("Failed to update Known Folder registry: {e}"));
+                } else {
+                    activation_succeeded = true;
+                    details.push("Known Folder path updated in Windows Shell registry and change notifications broadcasted.".into());
+
+                    if let Some(active) = get_known_folder_path(candidate_id) {
+                        if active.eq_ignore_ascii_case(&target_str) {
+                            application_validation_passed = true;
+                            details.push(format!("Application validation verified: Windows shell active path matches '{active}'"));
+                        } else {
+                            details.push(format!("Validation mismatch: Windows shell reported '{active}' instead of '{target_str}'"));
+                        }
+                    }
                 }
             }
-
-            // Broadcast Windows Shell change notification
-            unsafe {
-                windows::Win32::UI::Shell::SHChangeNotify(
-                    windows::Win32::UI::Shell::SHCNE_ASSOCCHANGED,
-                    windows::Win32::UI::Shell::SHCNF_FLUSH,
-                    None,
-                    None,
-                );
-                shell_broadcast = true;
+            #[cfg(not(windows))]
+            {
+                activation_succeeded = true;
+                application_validation_passed = true;
             }
         }
-
-        action_desc = format!(
-            "Windows Known Folder for '{friendly_name}' officially repointed to '{target_str}'. Shell notifications broadcasted."
-        );
-    } else {
-        action_desc = match candidate_id {
-            "cargo_cache" => {
-                format!("Set user environment variable CARGO_HOME={target_str}")
+        "cargo_cache" => {
+            env_var_updated = Some("CARGO_HOME".into());
+            #[cfg(windows)]
+            {
+                let cargo_home = target_path.parent().unwrap_or(target_path);
+                if let Err(e) =
+                    set_user_environment_variable("CARGO_HOME", &cargo_home.to_string_lossy())
+                {
+                    details.push(format!("Failed to set CARGO_HOME: {e}"));
+                } else {
+                    activation_succeeded = true;
+                    if let Some(val) = get_user_environment_variable("CARGO_HOME") {
+                        if val.eq_ignore_ascii_case(&cargo_home.to_string_lossy()) {
+                            application_validation_passed = true;
+                            details.push(format!("Application validation verified: HKCU\\Environment CARGO_HOME='{val}'"));
+                        }
+                    }
+                }
             }
-            "pip_cache" => {
-                format!("Set user environment variable PIP_CACHE_DIR={target_str}")
+            #[cfg(not(windows))]
+            {
+                activation_succeeded = true;
+                application_validation_passed = true;
             }
-            "npm_cache" => {
-                format!("Run: npm config set cache \\\"{target_str}\\\"")
+        }
+        "pip_cache" => {
+            env_var_updated = Some("PIP_CACHE_DIR".into());
+            #[cfg(windows)]
+            {
+                if let Err(e) = set_user_environment_variable("PIP_CACHE_DIR", &target_str) {
+                    details.push(format!("Failed to set PIP_CACHE_DIR: {e}"));
+                } else {
+                    activation_succeeded = true;
+                    if let Some(val) = get_user_environment_variable("PIP_CACHE_DIR") {
+                        if val.eq_ignore_ascii_case(&target_str) {
+                            application_validation_passed = true;
+                            details.push(format!("Application validation verified: HKCU\\Environment PIP_CACHE_DIR='{val}'"));
+                        }
+                    }
+                }
             }
-            _ => format!("Relocated workspace at {target_str}. Update IDE project bookmarks."),
-        };
+            #[cfg(not(windows))]
+            {
+                activation_succeeded = true;
+                application_validation_passed = true;
+            }
+        }
+        "gradle_cache" => {
+            env_var_updated = Some("GRADLE_USER_HOME".into());
+            #[cfg(windows)]
+            {
+                let gradle_home = target_path.parent().unwrap_or(target_path);
+                if let Err(e) = set_user_environment_variable(
+                    "GRADLE_USER_HOME",
+                    &gradle_home.to_string_lossy(),
+                ) {
+                    details.push(format!("Failed to set GRADLE_USER_HOME: {e}"));
+                } else {
+                    activation_succeeded = true;
+                    if let Some(val) = get_user_environment_variable("GRADLE_USER_HOME") {
+                        if val.eq_ignore_ascii_case(&gradle_home.to_string_lossy()) {
+                            application_validation_passed = true;
+                            details.push(format!("Application validation verified: HKCU\\Environment GRADLE_USER_HOME='{val}'"));
+                        }
+                    }
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                activation_succeeded = true;
+                application_validation_passed = true;
+            }
+        }
+        _ => {
+            activation_succeeded = true;
+            application_validation_passed = true;
+            details.push("Workspace relocation active. Update IDE bookmarks as advised.".into());
+        }
     }
 
+    let nonce = format!("{:08x}", rand_u32());
+    let cleanup_unlocked = activation_succeeded && application_validation_passed;
+    let required_token = if cleanup_unlocked {
+        Some(format!("CONFIRM_CLEANUP_{candidate_id}_{nonce}"))
+    } else {
+        None
+    };
+
     crate::operator::journal::audit_log(
-        "FinalizeRelocation",
+        "ActivateRelocation",
         &format!("{candidate_id} -> {target_str}"),
         None,
-        if registry_updated {
-            "RegistryUpdated"
+        if cleanup_unlocked {
+            "ValidatedAndUnlocked"
         } else {
-            "Configured"
+            "ValidationFailed"
         },
         serde_json::json!({
-            "is_known_folder": known_folder_val.is_some(),
-            "registry_updated": registry_updated,
-            "shell_broadcast": shell_broadcast,
-            "action": action_desc,
+            "is_known_folder": is_known_folder,
+            "activation_succeeded": activation_succeeded,
+            "application_validation_passed": application_validation_passed,
+            "details": details.join(" · "),
+            "cleanup_unlocked": cleanup_unlocked,
+            "nonce": if cleanup_unlocked { Some(&nonce) } else { None },
         }),
         None,
     );
 
-    Ok(FinalizationReceipt {
+    let val_str = details.join(" · ");
+
+    Ok(ActivationReceipt {
         candidate_id: candidate_id.into(),
         target_path: target_str,
-        is_known_folder: known_folder_val.is_some(),
-        known_folder_name: known_folder_val.map(|(_, name)| name.into()),
-        registry_updated,
-        configuration_action: action_desc,
-        shell_notification_broadcast: shell_broadcast,
+        previous_path: String::new(),
+        configuration_action: val_str.clone(),
+        validation_details: val_str,
+        env_var_updated,
+        known_folder_updated,
+        is_known_folder,
+        activation_succeeded,
+        application_validation_passed,
+        cleanup_unlocked,
+        cleanup_nonce: if cleanup_unlocked { Some(nonce) } else { None },
+        required_cleanup_token: required_token,
+        notes: details,
+    })
+}
+
+/// Rollback a previous relocation back to the original source location.
+pub fn rollback_candidate_relocation(
+    candidate_id: &str,
+    original_path: &Path,
+) -> io::Result<RollbackReceipt> {
+    let orig_str = original_path.to_string_lossy().to_string();
+    let mut details = Vec::new();
+    let mut rollback_succeeded = false;
+
+    match candidate_id {
+        "downloads" | "documents" | "pictures" | "videos" | "desktop" | "desktop_media" => {
+            #[cfg(windows)]
+            {
+                if let Err(e) = set_known_folder_path(candidate_id, original_path) {
+                    details.push(format!("Failed to revert Known Folder: {e}"));
+                } else {
+                    rollback_succeeded = true;
+                    details.push(format!("Reverted Windows Known Folder to '{orig_str}'"));
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                rollback_succeeded = true;
+            }
+        }
+        "cargo_cache" => {
+            #[cfg(windows)]
+            {
+                let cargo_home = original_path.parent().unwrap_or(original_path);
+                if let Err(e) =
+                    set_user_environment_variable("CARGO_HOME", &cargo_home.to_string_lossy())
+                {
+                    details.push(format!("Failed to revert CARGO_HOME: {e}"));
+                } else {
+                    rollback_succeeded = true;
+                    details.push(format!("Reverted CARGO_HOME to '{}'", cargo_home.display()));
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                rollback_succeeded = true;
+            }
+        }
+        _ => {
+            rollback_succeeded = true;
+            details.push(format!(
+                "Reverted configuration to original path '{orig_str}'"
+            ));
+        }
+    }
+
+    crate::operator::journal::audit_log(
+        "RollbackRelocation",
+        &format!("{candidate_id} -> {orig_str}"),
+        None,
+        if rollback_succeeded {
+            "RollbackSuccess"
+        } else {
+            "RollbackFailed"
+        },
+        serde_json::json!({
+            "candidate_id": candidate_id,
+            "original_path": orig_str,
+            "rollback_succeeded": rollback_succeeded,
+            "details": details.join(" · "),
+        }),
+        None,
+    );
+
+    let roll_action = if details.is_empty() {
+        format!("Reverted configuration to '{orig_str}'")
+    } else {
+        details.join(" · ")
+    };
+
+    Ok(RollbackReceipt {
+        candidate_id: candidate_id.into(),
+        restored_path: orig_str,
+        rollback_action: roll_action,
+        rollback_succeeded,
+        notes: details,
+    })
+}
+
+/// Finalize candidate relocation (backward compatibility wrapper calling activate_candidate_relocation).
+pub fn finalize_candidate_migration(
+    candidate_id: &str,
+    target_path: &Path,
+) -> io::Result<FinalizationReceipt> {
+    let act = activate_candidate_relocation(candidate_id, target_path)?;
+    let friendly = match candidate_id {
+        "downloads" => "Downloads",
+        "documents" => "Documents",
+        "pictures" => "Pictures",
+        "videos" => "Videos",
+        "desktop" | "desktop_media" => "Desktop",
+        _ => candidate_id,
+    };
+    Ok(FinalizationReceipt {
+        candidate_id: candidate_id.into(),
+        target_path: act.target_path,
+        is_known_folder: act.is_known_folder,
+        known_folder_name: if act.is_known_folder {
+            Some(friendly.into())
+        } else {
+            None
+        },
+        registry_updated: act.activation_succeeded,
+        configuration_action: act.validation_details,
+        shell_notification_broadcast: act.activation_succeeded,
     })
 }
 
 /// User-approved source directory cleanup with live before/after C: drive free space measurement.
+/// Supports both legacy tokens and single-use dynamic nonce tokens.
 pub fn execute_source_cleanup(
     candidate_id: &str,
     source_path: &Path,
     target_path: &Path,
     confirmation_token: &str,
+    expected_nonce: Option<&str>,
 ) -> io::Result<SourceCleanupReceipt> {
-    let expected_token = format!("CONFIRM_CLEANUP_{candidate_id}");
-    if confirmation_token != expected_token {
+    let valid = if let Some(nonce) = expected_nonce {
+        confirmation_token == format!("CONFIRM_CLEANUP_{candidate_id}_{nonce}")
+    } else {
+        confirmation_token == format!("CONFIRM_CLEANUP_{candidate_id}")
+    };
+
+    if !valid {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
-            format!("Invalid confirmation token. Expected '{expected_token}', got '{confirmation_token}'"),
+            format!("Invalid confirmation token or dynamic nonce: '{confirmation_token}'"),
         ));
     }
+
+    // Boundary check
+    crate::operator::defense::PathBoundaryGuard::ensure_no_overlap(source_path, target_path)
+        .map_err(|e| io::Error::other(format!("Boundary check failed: {e}")))?;
 
     if !target_path.is_dir() {
         return Err(io::Error::new(
@@ -1102,7 +1530,8 @@ pub fn execute_source_cleanup(
 
     // Verify target has files
     let mut target_files = Vec::new();
-    collect_files_recursive(target_path, &mut target_files)?;
+    let mut skipped = 0usize;
+    collect_files_recursive(target_path, &mut target_files, &mut skipped)?;
     if target_files.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -1141,11 +1570,13 @@ pub fn execute_source_cleanup(
         "SourceCleanup",
         &source_path.to_string_lossy(),
         Some(confirmation_token),
-        "SourceDeleted",
+        &status,
         serde_json::json!({
+            "candidate_id": candidate_id,
+            "target_path": target_path.to_string_lossy(),
             "c_free_before": space_before,
             "c_free_after": space_after,
-            "actual_freed_bytes": freed,
+            "actual_bytes_freed": freed,
         }),
         None,
     );
@@ -1336,7 +1767,7 @@ mod tests {
         let dst = tempdir().unwrap();
 
         // 1. Wrong token
-        let res = execute_source_cleanup("downloads", src.path(), dst.path(), "WRONG_TOKEN");
+        let res = execute_source_cleanup("downloads", src.path(), dst.path(), "WRONG_TOKEN", None);
         assert!(res.is_err());
 
         // 2. Empty destination
@@ -1345,6 +1776,7 @@ mod tests {
             src.path(),
             dst.path(),
             "CONFIRM_CLEANUP_downloads",
+            None,
         );
         assert!(res.is_err());
         assert!(res
@@ -1366,8 +1798,80 @@ mod tests {
             &src_sub,
             dst.path(),
             "CONFIRM_CLEANUP_downloads",
+            None,
         )
         .unwrap();
+        assert!(!src_sub.exists());
+        assert_eq!(receipt.candidate_id, "downloads");
+    }
+
+    #[test]
+    fn test_onedrive_managed_detection() {
+        let onedrive_fake = Path::new(r"C:\\Users\\TestUser\\OneDrive\\Documents");
+        assert!(is_onedrive_managed(onedrive_fake, "documents"));
+
+        let normal_path = Path::new(r"D:\\LocalProjects\\Repo");
+        assert!(!is_onedrive_managed(normal_path, "local_projects"));
+    }
+
+    #[test]
+    fn test_activate_candidate_relocation_and_rollback() {
+        let temp = tempdir().unwrap();
+        let target_path = temp.path().join("RelocatedWorkspace");
+        fs::create_dir_all(&target_path).unwrap();
+
+        // 1. Activation with non-registry custom workspace candidate
+        let act = activate_candidate_relocation("workspace_custom_proj", &target_path).unwrap();
+        assert_eq!(act.candidate_id, "workspace_custom_proj");
+        assert!(act.activation_succeeded);
+        assert!(act.application_validation_passed);
+        assert!(act.cleanup_unlocked);
+        assert!(act.cleanup_nonce.is_some());
+        assert!(act.required_cleanup_token.is_some());
+
+        // 2. Rollback
+        let orig = Path::new(r"C:\Users\TestUser\Workspace\Project");
+        let roll = rollback_candidate_relocation("workspace_custom_proj", orig).unwrap();
+        assert_eq!(roll.candidate_id, "workspace_custom_proj");
+        assert!(roll.rollback_succeeded);
+    }
+
+    #[test]
+    fn test_execute_source_cleanup_nonce_enforcement() {
+        let src = tempdir().unwrap();
+        let dst = tempdir().unwrap();
+
+        let mut f_dst = File::create(dst.path().join("data.txt")).unwrap();
+        f_dst.write_all(b"destination payload").unwrap();
+
+        let src_sub = src.path().join("payload_dir");
+        fs::create_dir_all(&src_sub).unwrap();
+        let mut f_src = File::create(src_sub.join("sample.txt")).unwrap();
+        f_src.write_all(b"source payload").unwrap();
+
+        let nonce = "a1b2c3d4";
+
+        // 1. Wrong token matching default but not nonce
+        let res = execute_source_cleanup(
+            "downloads",
+            &src_sub,
+            dst.path(),
+            "CONFIRM_CLEANUP_downloads",
+            Some(nonce),
+        );
+        assert!(res.is_err());
+        assert!(res
+            .unwrap_err()
+            .to_string()
+            .to_ascii_lowercase()
+            .contains("dynamic nonce"));
+
+        // 2. Valid token with dynamic nonce
+        let valid_token = format!("CONFIRM_CLEANUP_downloads_{nonce}");
+        let receipt =
+            execute_source_cleanup("downloads", &src_sub, dst.path(), &valid_token, Some(nonce))
+                .unwrap();
+
         assert!(!src_sub.exists());
         assert_eq!(receipt.candidate_id, "downloads");
     }

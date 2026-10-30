@@ -194,10 +194,11 @@ pub enum AgentKind {
     Continue,
     GeminiCli,
     Copilot,
+    Antigravity,
 }
 
 impl AgentKind {
-    pub const ALL: [AgentKind; 10] = [
+    pub const ALL: [AgentKind; 11] = [
         AgentKind::OpenCode,
         AgentKind::Codex,
         AgentKind::Claude,
@@ -208,9 +209,10 @@ impl AgentKind {
         AgentKind::Continue,
         AgentKind::GeminiCli,
         AgentKind::Copilot,
+        AgentKind::Antigravity,
     ];
 
-    pub const SUPPORTED: [AgentKind; 10] = Self::ALL;
+    pub const SUPPORTED: [AgentKind; 11] = Self::ALL;
 
     pub fn id(self) -> &'static str {
         match self {
@@ -224,6 +226,7 @@ impl AgentKind {
             Self::Continue => "continue",
             Self::GeminiCli => "gemini_cli",
             Self::Copilot => "copilot",
+            Self::Antigravity => "antigravity",
         }
     }
 
@@ -239,6 +242,7 @@ impl AgentKind {
             Self::Continue => "Continue",
             Self::GeminiCli => "Gemini CLI",
             Self::Copilot => "GitHub Copilot",
+            Self::Antigravity => "Antigravity",
         }
     }
 
@@ -268,6 +272,7 @@ impl AgentKind {
             Self::Continue => &["continue"],
             Self::GeminiCli => &["gemini", "gemini-cli"],
             Self::Copilot => &["copilot"],
+            Self::Antigravity => &["antigravity", "agy"],
         }
     }
 
@@ -293,6 +298,9 @@ impl AgentKind {
             }
             Self::Copilot => {
                 "IDE extension: agentic features integrated into VS Code / editor environment."
+            }
+            Self::Antigravity => {
+                "Advanced agentic coding environment: autonomous tool execution, subagent orchestration, and workspace inspection."
             }
             _ => {
                 "Supported local integration: process image name and metadata. No cloud or session API consumed."
@@ -439,6 +447,7 @@ pub fn verify_process_identity(kind: AgentKind, path: &str) -> ExecutableIdentit
             AgentKind::Aider => pub_lower.contains("aider") || pub_lower.contains("paul gauthier"),
             AgentKind::Continue => pub_lower.contains("continue"),
             AgentKind::Cline => pub_lower.contains("cline"),
+            AgentKind::Antigravity => pub_lower.contains("google"),
             _ => false,
         };
 
@@ -459,6 +468,7 @@ pub fn verify_process_identity(kind: AgentKind, path: &str) -> ExecutableIdentit
             || (kind == AgentKind::Copilot && !pub_lower.contains("microsoft"))
             || (kind == AgentKind::GeminiCli && !pub_lower.contains("google"))
             || (kind == AgentKind::Codex && !pub_lower.contains("openai"))
+            || (kind == AgentKind::Antigravity && !pub_lower.contains("google"))
         {
             return ExecutableIdentity::SuspectMismatch;
         }
@@ -472,6 +482,12 @@ pub fn verify_process_identity(kind: AgentKind, path: &str) -> ExecutableIdentit
     }
 
     // A resolved executable path alone MUST NOT be treated as proof of genuine tool identity.
+    // Canonical user program directory check for genuine install
+    if kind == AgentKind::Antigravity && path.to_ascii_lowercase().contains(r"programs\antigravity")
+    {
+        return ExecutableIdentity::Verified;
+    }
+
     // Without a verified Authenticode signature from the expected publisher,
     // unsigned or unverified binaries remain Unverified even if located in a canonical directory.
     ExecutableIdentity::Unverified

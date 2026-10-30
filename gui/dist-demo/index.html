@@ -2934,12 +2934,19 @@
             <span><strong id="sr-receipt-bytes" style="color: #00f5ff;">—</strong> across <strong id="sr-receipt-files" style="color: #00f5ff;">—</strong> files</span>
           </div>
           <div class="sr-receipt-notes" id="sr-receipt-notes"></div>
+          <div class="sr-activation-status-box" id="sr-activation-box" style="margin-top: 10px; padding: 10px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px;">
+            <div style="font-size: 0.75rem; text-transform: uppercase; color: #94a3b8; font-weight: 600; letter-spacing: 0.05em;">Application Activation &amp; Validation Gate</div>
+            <div id="sr-activation-text" style="font-size: 0.82rem; color: #cbd5e1; margin-top: 4px;">
+              Status: Bit-exact copy verified. Click &quot;Activate &amp; Validate Path&quot; to switch configuration before source cleanup can be unlocked.
+            </div>
+          </div>
         </div>
         <div class="sr-modal-foot">
           <button class="btn btn-ghost" id="sr-receipt-copy-cmd" type="button">Copy Manual Cleanup Command</button>
           <button class="btn btn-ghost" id="sr-receipt-reveal" type="button">Reveal in Explorer</button>
-          <button class="btn btn-secondary" id="sr-receipt-finalize" type="button">Finalize (Repoint Known Folder)</button>
-          <button class="btn btn-danger" id="sr-receipt-cleanup-source" type="button">Clean Source on C: (Free Space)</button>
+          <button class="btn btn-secondary" id="sr-receipt-finalize" type="button">Activate &amp; Validate Path</button>
+          <button class="btn btn-ghost hidden" id="sr-receipt-rollback" type="button">Rollback Activation</button>
+          <button class="btn btn-danger" id="sr-receipt-cleanup-source" type="button" disabled>Clean Source on C: (Locked)</button>
           <button class="btn btn-primary" id="sr-receipt-done" type="button">Done</button>
         </div>
       </div>
@@ -2976,6 +2983,53 @@
         <div class="op-modal-foot">
           <button class="operator-action-btn btn-secondary" id="sr-cleanup-cancel" type="button">Cancel</button>
           <button class="operator-action-btn btn-danger" id="sr-cleanup-confirm" type="button">Delete Source & Measure Space</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Windows Defender Integration Modal -->
+    <div class="op-modal-overlay hidden" id="xray-defender-modal">
+      <div class="op-modal-card" style="max-width: 620px;">
+        <div class="op-modal-head">
+          <div class="op-modal-title" style="color: #00f5ff;">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3zm-1 6h2v5h-2V8zm0 7h2v2h-2v-2z"/>
+            </svg>
+            Windows Defender Native Verification
+          </div>
+          <button class="ghost-btn icon-only" id="xray-defender-modal-close" type="button">✕</button>
+        </div>
+        <div class="op-modal-body">
+          <p style="font-size: 0.82rem; color: #94a3b8; margin-bottom: 4px;">
+            Direct host execution of <code>MpCmdRun.exe</code> without shell expansion. Inspect file signatures with Microsoft Antivirus definitions.
+          </p>
+          <div>
+            <label for="xray-defender-path-input" style="display: block; font-size: 0.76rem; color: #94a3b8; margin-bottom: 4px;">Target Binary / File Path:</label>
+            <input type="text" id="xray-defender-path-input" class="op-confirmation-input" placeholder="C:\Windows\System32\..." style="width: 100%; box-sizing: border-box; font-family: monospace; font-size: 0.8rem;" />
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="operator-action-btn btn-secondary" id="xray-defender-run-scan" type="button">
+              Run Read-Only Scan (-DisableRemediation)
+            </button>
+            <button class="operator-action-btn btn-ghost" id="xray-defender-verify-journal" type="button">
+              Verify Audit Journal
+            </button>
+          </div>
+          <div id="xray-defender-output-box" class="hidden" style="padding: 10px; background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; font-family: monospace; font-size: 0.78rem; max-height: 180px; overflow-y: auto; white-space: pre-wrap;"></div>
+          <div id="xray-defender-containment-box" class="hidden" style="padding: 12px; background: rgba(244, 63, 94, 0.1); border: 1px solid #f43f5e; border-radius: 6px;">
+            <div style="color: #f43f5e; font-weight: 600; font-size: 0.85rem; margin-bottom: 4px;">LEVEL 3: CONTAINMENT AVAILABLE</div>
+            <p style="font-size: 0.78rem; color: #cbd5e1; margin-bottom: 8px;">
+              Defender detected threats. To allow Defender to quarantine this infected binary, type the confirmation token:
+            </p>
+            <div id="xray-defender-contain-target-token" style="font-family: monospace; font-weight: bold; color: #f43f5e; margin-bottom: 6px;"></div>
+            <input type="text" id="xray-defender-contain-token-input" class="op-confirmation-input" placeholder="Type token here" style="width: 100%; box-sizing: border-box; margin-bottom: 8px;" />
+            <button class="operator-action-btn btn-danger" id="xray-defender-run-contain" type="button">
+              Approve Native Defender Containment
+            </button>
+          </div>
+        </div>
+        <div class="op-modal-foot">
+          <button class="operator-action-btn btn-secondary" id="xray-defender-modal-done" type="button">Close</button>
         </div>
       </div>
     </div>

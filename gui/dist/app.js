@@ -4050,6 +4050,196 @@
     if (rView) {
       rView.addEventListener("click", () => navTo("scan-center"));
     }
+    const xDefScan = document.getElementById("xray-defender-scan-btn");
+    if (xDefScan) {
+      xDefScan.addEventListener("click", () => openDefenderModal());
+    }
+    const xExportCase = document.getElementById("xray-export-case-btn");
+    if (xExportCase) {
+      xExportCase.addEventListener("click", () => exportCaseFile());
+    }
+
+    async function exportCaseFile() {
+      if (lastIncident) {
+        await exportIncident("json");
+      } else {
+        await exportReport("json");
+      }
+    }
+
+    let defenderEventsBound = false;
+    function openDefenderModal() {
+      bindDefenderModalEvents();
+    window.addEventListener("DOMContentLoaded", bindDefenderModalEvents);
+    window.addEventListener("load", bindDefenderModalEvents);
+      const modal = document.getElementById("xray-defender-modal");
+      if (!modal) return;
+
+      const pathInput = document.getElementById("xray-defender-path-input");
+      const outputBox = document.getElementById("xray-defender-output-box");
+      const containBox = document.getElementById("xray-defender-containment-box");
+
+      if (pathInput) {
+        let suggestedPath = "";
+        if (evidenceSelected && evidenceSelected.entry) {
+          suggestedPath = evidenceSelected.entry.location || evidenceSelected.entry.command || "";
+        }
+        pathInput.value = suggestedPath;
+      }
+
+      if (outputBox) {
+        outputBox.classList.add("hidden");
+        outputBox.textContent = "";
+      }
+      if (containBox) {
+        containBox.classList.add("hidden");
+      }
+
+      modal.classList.remove("hidden");
+    }
+
+    window.openDefenderModal = openDefenderModal;
+
+    function bindDefenderModalEvents() {
+      const modal = document.getElementById("xray-defender-modal");
+      if (!modal || defenderEventsBound) return;
+      defenderEventsBound = true;
+
+      const closeBtn = document.getElementById("xray-defender-modal-close");
+      const doneBtn = document.getElementById("xray-defender-modal-done");
+      const closeModal = () => modal.classList.add("hidden");
+      if (closeBtn) closeBtn.addEventListener("click", closeModal);
+      if (doneBtn) doneBtn.addEventListener("click", closeModal);
+
+      const scanBtn = document.getElementById("xray-defender-run-scan");
+      const pathInput = document.getElementById("xray-defender-path-input");
+      const outputBox = document.getElementById("xray-defender-output-box");
+      const containBox = document.getElementById("xray-defender-containment-box");
+      const targetTokenEl = document.getElementById("xray-defender-contain-target-token");
+      const containInput = document.getElementById("xray-defender-contain-token-input");
+      const containBtn = document.getElementById("xray-defender-run-contain");
+      const verifyJournalBtn = document.getElementById("xray-defender-verify-journal");
+
+      if (scanBtn) {
+        scanBtn.addEventListener("click", async () => {
+          const filePath = (pathInput && pathInput.value.trim()) || "";
+          if (!filePath) {
+            alert("Please specify a target file path to scan.");
+            return;
+          }
+
+          try {
+            scanBtn.disabled = true;
+            scanBtn.textContent = "Scanning with MpCmdRun...";
+            if (outputBox) {
+              outputBox.classList.remove("hidden");
+              outputBox.style.color = "#cbd5e1";
+              outputBox.textContent = `Executing Windows Defender (read-only mode: -DisableRemediation) on: ${filePath}...`;
+            }
+
+            const res = await invoke("operator_defender_scan", { filePath });
+            scanBtn.disabled = false;
+            scanBtn.textContent = "Run Read-Only Scan (-DisableRemediation)";
+
+            const isThreat = res.threat_detected || res.threats_found;
+            const code = res.return_code !== undefined ? res.return_code : res.exit_code;
+
+            if (isThreat) {
+              if (outputBox) {
+                outputBox.style.color = "#f43f5e";
+                outputBox.textContent = `[!] DEFENDER THREAT DETECTED (Exit code: ${code}):\n${res.raw_output}`;
+              }
+              if (containBox) {
+                containBox.classList.remove("hidden");
+                const parts = filePath.split(/[/\\]/);
+                const filename = parts[parts.length - 1] || "target";
+                const token = `CONTAIN_DEFENDER_${filename}`;
+                if (targetTokenEl) targetTokenEl.textContent = token;
+                if (containInput) { containInput.value = ""; containInput.disabled = false; }
+                if (containBtn) containBtn.disabled = false;
+              }
+            } else {
+              if (outputBox) {
+                outputBox.style.color = "#34d399";
+                outputBox.textContent = `[✔] DEFENDER ENGINE REPORTED CLEAN (Exit code: ${code}):\n${res.raw_output || "No active threats identified."}`;
+              }
+              if (containBox) containBox.classList.add("hidden");
+            }
+          } catch (err) {
+            scanBtn.disabled = false;
+            scanBtn.textContent = "Run Read-Only Scan (-DisableRemediation)";
+            if (outputBox) {
+              outputBox.classList.remove("hidden");
+              outputBox.style.color = "#f43f5e";
+              outputBox.textContent = `Defender invocation error: ${cleanErrText(err, "Command execution failed")}`;
+            }
+          }
+        });
+      }
+
+      if (containBtn) {
+        containBtn.addEventListener("click", async () => {
+          const filePath = (pathInput && pathInput.value.trim()) || "";
+          const parts = filePath.split(/[/\\]/);
+          const filename = parts[parts.length - 1] || "target";
+          const expectedToken = `CONTAIN_DEFENDER_${filename}`;
+          const typedToken = (containInput && containInput.value.trim()) || "";
+
+          if (typedToken !== expectedToken) {
+            alert(`Confirmation token does not match. Expected '${expectedToken}'.`);
+            return;
+          }
+
+          try {
+            containBtn.disabled = true;
+            containBtn.textContent = "Quarantining binary...";
+            const res = await invoke("operator_defender_contain", {
+              filePath,
+              confirmationToken: typedToken,
+            });
+
+            if (outputBox) {
+              outputBox.classList.remove("hidden");
+              outputBox.style.color = "#34d399";
+              outputBox.textContent = `[✔] CONTAINMENT EXECUTED: Status=${res.engine_status}\n${res.raw_output}`;
+            }
+            if (containBox) containBox.classList.add("hidden");
+          } catch (err) {
+            containBtn.disabled = false;
+            containBtn.textContent = "Approve Native Defender Containment";
+            alert(`Containment failed: ${cleanErrText(err, "Defender remediation failed")}`);
+          }
+        });
+      }
+
+      if (verifyJournalBtn) {
+        verifyJournalBtn.addEventListener("click", async () => {
+          try {
+            verifyJournalBtn.disabled = true;
+            verifyJournalBtn.textContent = "Verifying hashes...";
+            const count = await invoke("operator_verify_audit_journal", {});
+            verifyJournalBtn.disabled = false;
+            verifyJournalBtn.textContent = "Verify Audit Journal";
+            if (outputBox) {
+              outputBox.classList.remove("hidden");
+              outputBox.style.color = "#38bdf8";
+              outputBox.textContent = `[✔] AUDIT JOURNAL INTEGRITY VERIFIED:\n${count} sequential cryptographic SHA-256 blocks validated without tampering or chain breakage.`;
+            }
+          } catch (err) {
+            verifyJournalBtn.disabled = false;
+            verifyJournalBtn.textContent = "Verify Audit Journal";
+            if (outputBox) {
+              outputBox.classList.remove("hidden");
+              outputBox.style.color = "#f43f5e";
+              outputBox.textContent = `[!] AUDIT JOURNAL INTEGRITY ERROR: ${cleanErrText(err, "Journal verification failed")}`;
+            }
+          }
+        });
+      }
+    }
+    bindDefenderModalEvents();
+    window.addEventListener("DOMContentLoaded", bindDefenderModalEvents);
+    window.addEventListener("load", bindDefenderModalEvents);
     document.querySelectorAll(".nav-item").forEach((btn) => {
       btn.addEventListener("click", () => {
         if (!btn.disabled) navTo(btn.getAttribute("data-view"));

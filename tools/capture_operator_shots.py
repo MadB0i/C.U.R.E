@@ -79,6 +79,10 @@ def capture_all():
             page.set_viewport_size({"width": 1440, "height": 900})
             page.wait_for_url("http://tauri.localhost/", timeout=30000)
             page.wait_for_load_state("networkidle")
+            console_logs = []
+            page.on("console", lambda msg: (console_logs.append(f"[{msg.type}] {msg.text}"), print(f"PAGE CONSOLE [{msg.type}]: {msg.text}", flush=True)))
+            page.on("pageerror", lambda err: print(f"PAGE ERROR: {err}", flush=True))
+            page.on("dialog", lambda d: (print(f"CDP Dialog: {d.message}"), d.accept()))
             time.sleep(2.0)
 
             # Ensure dark theme
@@ -144,19 +148,23 @@ def capture_all():
             shot2 = OUTPUT_DIR / "02-agent-radar-operator-sessions.png"
             page.screenshot(path=str(shot2))
             results["02-agent-radar-operator-sessions.png"] = {"captured": True, "size": shot2.stat().st_size}
-            close_btn = page.query_selector("#ar-insp-close")
-            if close_btn:
-                close_btn.click()
-                time.sleep(0.5)
+            page.evaluate("""() => {
+                const btn = document.getElementById("ar-insp-close");
+                if (btn) btn.click();
+                const m = document.getElementById("ar-inspector-modal");
+                if (m) m.classList.add("hidden");
+            }""")
+            time.sleep(0.5)
 
             # -----------------------------------------------------------------
             # 3. Storage Rescue Overview
             # -----------------------------------------------------------------
             print("Capturing 03-storage-rescue-operator-overview.png...")
             page.click("#nav-cleanup")
-            time.sleep(1.0)
+            time.sleep(0.5)
             page.click("#sw-tab-rescue")
-            time.sleep(1.5)
+            page.wait_for_selector("#sr-safe-candidates-body tr", timeout=45000)
+            time.sleep(1.0)
             shot3 = OUTPUT_DIR / "03-storage-rescue-operator-overview.png"
             page.screenshot(path=str(shot3))
             results["03-storage-rescue-operator-overview.png"] = {"captured": True, "size": shot3.stat().st_size}
@@ -184,7 +192,8 @@ def capture_all():
             }""")
             time.sleep(0.5)
             page.click("#sr-btn-build-plan")
-            time.sleep(1.2)
+            page.wait_for_selector("#sr-plan-modal:not(.hidden)", timeout=45000)
+            time.sleep(1.0)
             shot5 = OUTPUT_DIR / "05-storage-rescue-plan-modal.png"
             page.screenshot(path=str(shot5))
             results["05-storage-rescue-plan-modal.png"] = {"captured": True, "size": shot5.stat().st_size}
@@ -196,7 +205,7 @@ def capture_all():
             page.evaluate("""() => {
                 if (window.storageRescue && window.storageRescue.openReceiptModal) {
                     window.storageRescue.closePlanModal();
-                    window.storageRescue.openReceiptModal({
+                    const rec = {
                         receipt_id: "REC-20261030-C2D-OPERATOR-9140",
                         completed_at: new Date().toISOString(),
                         source_drive: "C:",
@@ -205,9 +214,9 @@ def capture_all():
                         total_bytes_copied: 28456128000,
                         duration_ms: 22100,
                         items: [{
-                            candidate_id: "downloads",
-                            source_path: "C:\\\\Users\\\\Operator\\\\Downloads",
-                            target_path: "D:\\\\CURE_Relocated\\\\Downloads",
+                            candidate_id: "workspace_demo",
+                            source_path: "C:\\\\Projects\\\\webapp",
+                            target_path: "D:\\\\CURE_Relocated\\\\webapp",
                             files_copied: 1845,
                             bytes_copied: 28456128000,
                             verification: {
@@ -234,13 +243,69 @@ def capture_all():
                             "Known Folder redirection or toolchain environment switch can now be finalized.",
                             "User-approved source cleanup is optional and requires explicit confirmation token."
                         ]
-                    });
+                    };
+                    window.storageRescue.state.receipt = rec;
+                    window.storageRescue.openReceiptModal(rec);
                 }
             }""")
             time.sleep(1.2)
             shot6 = OUTPUT_DIR / "06-storage-rescue-receipt-and-cleanup.png"
             page.screenshot(path=str(shot6))
             results["06-storage-rescue-receipt-and-cleanup.png"] = {"captured": True, "size": shot6.stat().st_size}
+
+            # -----------------------------------------------------------------
+            # 7. Storage Rescue Activated & Validation Passed (Cleanup Unlocked)
+            # -----------------------------------------------------------------
+            print("Capturing 07-storage-rescue-activated-cleanup-unlocked.png...")
+            time.sleep(1.0)
+            page.click("#sr-receipt-finalize")
+            page.wait_for_function(
+                "() => document.getElementById('sr-receipt-finalize').textContent.includes('Activated')",
+                timeout=35000,
+            )
+            time.sleep(0.8)
+            shot7 = OUTPUT_DIR / "07-storage-rescue-activated-cleanup-unlocked.png"
+            page.screenshot(path=str(shot7))
+            results["07-storage-rescue-activated-cleanup-unlocked.png"] = {"captured": True, "size": shot7.stat().st_size}
+
+            page.click("#sr-receipt-done")
+            time.sleep(0.5)
+
+            # -----------------------------------------------------------------
+            # 8. Windows Defender Native Verification & Threat Response Modal
+            # -----------------------------------------------------------------
+            print("Capturing 08-defender-threat-response-modal.png...")
+            page.click("#nav-scan")
+            time.sleep(0.8)
+            page.click("#xray-defender-scan-btn")
+            time.sleep(1.0)
+            # Demonstrate journal cryptographic hash verification and Defender target input
+            page.evaluate("""() => {
+                if (window.openDefenderModal) {
+                    window.openDefenderModal();
+                }
+                const inp = document.getElementById('xray-defender-path-input');
+                if (inp) inp.value = 'C:\\\\Windows\\\\System32\\\\cmd.exe';
+            }""")
+            time.sleep(0.5)
+            page.click("#xray-defender-verify-journal")
+            page.wait_for_function(
+                "() => !document.getElementById('xray-defender-output-box').classList.contains('hidden')",
+                timeout=15000,
+            )
+            time.sleep(1.0)
+            shot8 = OUTPUT_DIR / "08-defender-threat-response-modal.png"
+            page.screenshot(path=str(shot8))
+            results["08-defender-threat-response-modal.png"] = {"captured": True, "size": shot8.stat().st_size}
+
+            close_def = page.query_selector("#xray-defender-modal-done")
+            if close_def:
+                close_def.click()
+                time.sleep(0.5)
+
+            print("\nRecent console logs:")
+            for l in console_logs[-25:]:
+                print("  ", l)
 
     finally:
         kill_lingering()

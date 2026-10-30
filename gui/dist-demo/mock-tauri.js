@@ -2452,12 +2452,54 @@
               shell_notification_broadcast: isKnown,
             });
           }
+          case "storage_rescue_activate": {
+            const candId = (args && (args.candidate_id || args.candidateId)) || "downloads";
+            const tgtPath = (args && (args.target_path || args.targetPath)) || "D:\\CURE_Relocated\\Downloads";
+            const isKnown = ["downloads", "documents", "pictures", "videos", "desktop"].includes(candId.toLowerCase());
+            return Promise.resolve({
+              candidate_id: candId,
+              target_path: tgtPath,
+              previous_path: `C:\\Users\\Operator\\${candId}`,
+              configuration_action: isKnown
+                ? `Windows Known Folder '${candId}' updated to '${tgtPath}'. Shell change notified.`
+                : `Set user environment variable CARGO_HOME / PIP_CACHE_DIR to '${tgtPath}'. Broadcasted WM_SETTINGCHANGE.`,
+              env_var_updated: isKnown ? null : "CARGO_HOME",
+              known_folder_updated: isKnown ? candId : null,
+              application_validation_passed: true,
+              activation_succeeded: true,
+              cleanup_unlocked: true,
+              cleanup_nonce: "b7e419a2",
+              required_cleanup_token: `CONFIRM_CLEANUP_${candId}_b7e419a2`,
+              notes: [
+                "Target path verified accessible and writable.",
+                "Configuration repointed successfully.",
+                "Application validation confirmed: path resolves to relocated destination.",
+                "Source cleanup gate unlocked with dynamic verification token.",
+              ],
+            });
+          }
+          case "storage_rescue_rollback": {
+            const candId = (args && (args.candidate_id || args.candidateId)) || "downloads";
+            const origPath = (args && (args.original_path || args.originalPath)) || `C:\\Users\\Operator\\${candId}`;
+            return Promise.resolve({
+              candidate_id: candId,
+              restored_path: origPath,
+              rollback_action: `Configuration restored to original source '${origPath}'. Shell notification broadcasted.`,
+              rollback_succeeded: true,
+              notes: [
+                "Restored registry / environment variable to original path.",
+                "Application resolution verified against original path.",
+                "Relocation status cleared.",
+              ],
+            });
+          }
           case "storage_rescue_cleanup_source": {
-            const candId = (args && args.candidate_id) || "downloads";
-            const srcPath = (args && args.source_path) || "C:\\Users\\Operator\\Downloads";
-            const token = (args && args.confirmation_token) || "";
-            if (token !== `CONFIRM_CLEANUP_${candId}`) {
-              return Promise.reject(new Error(`Invalid confirmation token. Expected 'CONFIRM_CLEANUP_${candId}'`));
+            const candId = (args && (args.candidate_id || args.candidateId)) || "downloads";
+            const srcPath = (args && (args.source_path || args.sourcePath)) || "C:\\Users\\Operator\\Downloads";
+            const token = (args && (args.confirmation_token || args.confirmationToken)) || "";
+            const expectedNonce = (args && (args.expected_nonce || args.expectedNonce)) || "b7e419a2";
+            if (!token.startsWith(`CONFIRM_CLEANUP_${candId}`)) {
+              return Promise.reject(new Error(`Invalid confirmation token. Expected 'CONFIRM_CLEANUP_${candId}_${expectedNonce}'`));
             }
             return Promise.resolve({
               candidate_id: candId,
@@ -2571,14 +2613,32 @@
             });
           }
           case "operator_defender_scan": {
-            const p = (args && args.file_path) || "C:\\test.exe";
+            const p = (args && (args.file_path || args.filePath)) || "C:\\test.exe";
+            const isThreat = p.toLowerCase().includes("threat") || p.toLowerCase().includes("malware");
             return Promise.resolve({
-              target_path: p,
-              status: "Clean (No threats detected by Windows Defender)",
-              return_code: 0,
-              threat_detected: false,
-              raw_output: "MpCmdRun: Scan completed with 0 threats detected.",
+              exit_code: isThreat ? 2 : 0,
+              threats_found: isThreat,
+              raw_output: isThreat 
+                ? "MpCmdRun: Threat detected in file. [Threat: Trojan:Win32/SampleMasquerade.A]"
+                : "MpCmdRun: Scan finished. No threats were found.",
+              scanned_path: p,
+              engine_status: isThreat ? "THREAT_DETECTED" : "CLEAN",
+              is_read_only: true,
             });
+          }
+          case "operator_defender_contain": {
+            const p = (args && (args.file_path || args.filePath)) || "C:\\test.exe";
+            return Promise.resolve({
+              exit_code: 0,
+              threats_found: true,
+              raw_output: "MpCmdRun: Threat remediated and quarantined by Microsoft Defender Antivirus.",
+              scanned_path: p,
+              engine_status: "CONTAINED",
+              is_read_only: false,
+            });
+          }
+          case "operator_verify_audit_journal": {
+            return Promise.resolve(42);
           }
           case "operator_audit_log": {
             return Promise.resolve([
