@@ -220,7 +220,7 @@
       saved = localStorage.getItem("cure-theme");
     } catch (_) {}
     if (!saved) {
-      saved = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      saved = "dark";
     }
     applyTheme(saved);
     const btn = document.getElementById("theme-toggle");
