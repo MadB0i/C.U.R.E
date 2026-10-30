@@ -1,4 +1,0 @@
-[CURE evidence] AcmeTray0.bat | StartupFolder | score 55 (HighRisk)
-command: C:\Users\bob\AppData\Local\Temp\acmetray0.exe -q
-location: C:\Users\bob\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\AcmeTray0.bat
-evidence: Observed: +30 command path sits in a temp/downloads/public drop zone; Observed: +25 entry name looks randomly generated

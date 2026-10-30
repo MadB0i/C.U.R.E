@@ -17,9 +17,9 @@ from pathlib import Path
 import psutil
 from playwright.sync_api import sync_playwright
 
-REPO = Path(r"D:\Projects\CURE")
+REPO = Path(__file__).resolve().parents[1]
 EXE = REPO / "gui" / "src-tauri" / "target" / "release" / "cure-gui.exe"
-OUTPUT_DIR = REPO / "testing" / "native" / "screenshots-final"
+OUTPUT_DIR = REPO / "gui" / "dev-screenshots"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
