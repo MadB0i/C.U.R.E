@@ -1,16 +1,29 @@
 //! Operator Audit Journal: Auditable, append-only, tamper-evident record of every
 //! requested, approved, executed, and completed operator action.
 //!
-//! Enforces:
+//! # Security Architecture & Threat Model
+//!
+//! ### Properties Enforced:
 //! - Exact timestamps (Unix epoch and ISO-8601 UTC)
 //! - User approval confirmation tokens (with dynamic nonce protection)
 //! - Action category, actor, and target identifier
 //! - Verification measurements and cryptographic receipts
 //! - Cryptographic hash-chaining (SHA-256): each entry seals the hash of the previous entry,
 //!   guaranteeing tamper detection if any past log line is modified, inserted, or deleted.
+//!
+//! ### Threat Model Boundary & Limitations (Honesty over Comfort):
+//! - **Accidental Corruption & Truncation**: Guaranteed detected. Any bit flip or missing entry breaks the chain.
+//! - **Single-Record Alteration**: Guaranteed detected. If an adversary modifies `details`, `target`, or `approval_token`,
+//!   the recalculated hash mismatches the recorded hash and breaks all subsequent `prev_hash` pointers.
+//! - **Full-Chain Rewrite Boundary**: If an adversary possesses unrestricted write access under the active user account,
+//!   a pure plaintext hash-chain could theoretically be recomputed from a forged block to the tail.
+//! - **Anchor Seal Defense**: On Windows, C.U.R.E strengthens the journal by anchoring the latest tail hash
+//!   in a companion file (`.anchor.seal`) encrypted via Windows DPAPI (`CryptProtectData`).
+//!   An offline script or untrusted payload attempting to rewrite the file cannot produce a valid DPAPI ciphertext
+//!   without executing inside the user's interactive Windows logon context.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -19,6 +32,67 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
+#[cfg(windows)]
+pub fn seal_hash_dpapi(hash: &str) -> io::Result<Vec<u8>> {
+    use windows::Win32::Security::Cryptography::{CryptProtectData, CRYPT_INTEGER_BLOB};
+    let data_bytes = hash.as_bytes();
+    let in_blob = CRYPT_INTEGER_BLOB {
+        cbData: data_bytes.len() as u32,
+        pbData: data_bytes.as_ptr() as *mut u8,
+    };
+    let mut out_blob = CRYPT_INTEGER_BLOB::default();
+    unsafe {
+        CryptProtectData(
+            &in_blob,
+            windows::core::w!("CURE_AUDIT_JOURNAL_TAIL"),
+            None,
+            None,
+            None,
+            0,
+            &mut out_blob,
+        )
+        .map_err(|e| io::Error::other(format!("DPAPI CryptProtectData failed: {e}")))?;
+        let slice = std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize);
+        let vec = slice.to_vec();
+        let _ = windows::Win32::Foundation::LocalFree(windows::Win32::Foundation::HLOCAL(
+            out_blob.pbData as *mut _,
+        ));
+        Ok(vec)
+    }
+}
+
+#[cfg(windows)]
+pub fn unseal_hash_dpapi(ciphertext: &[u8]) -> io::Result<String> {
+    use windows::Win32::Security::Cryptography::{CryptUnprotectData, CRYPT_INTEGER_BLOB};
+    let in_blob = CRYPT_INTEGER_BLOB {
+        cbData: ciphertext.len() as u32,
+        pbData: ciphertext.as_ptr() as *mut u8,
+    };
+    let mut out_blob = CRYPT_INTEGER_BLOB::default();
+    unsafe {
+        CryptUnprotectData(&in_blob, None, None, None, None, 0, &mut out_blob)
+            .map_err(|e| io::Error::other(format!("DPAPI CryptUnprotectData failed: {e}")))?;
+        let slice = std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize);
+        let s = String::from_utf8(slice.to_vec()).map_err(|e| {
+            io::Error::other(format!("Decrypted DPAPI string is not valid UTF-8: {e}"))
+        })?;
+        let _ = windows::Win32::Foundation::LocalFree(windows::Win32::Foundation::HLOCAL(
+            out_blob.pbData as *mut _,
+        ));
+        Ok(s)
+    }
+}
+
+#[cfg(not(windows))]
+pub fn seal_hash_dpapi(hash: &str) -> io::Result<Vec<u8>> {
+    Ok(hash.as_bytes().to_vec())
+}
+
+#[cfg(not(windows))]
+pub fn unseal_hash_dpapi(ciphertext: &[u8]) -> io::Result<String> {
+    String::from_utf8(ciphertext.to_vec()).map_err(|e| io::Error::other(e.to_string()))
+}
 
 /// An auditable record of an Operator operation with cryptographic hash linking.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -159,6 +233,11 @@ impl OperatorAuditJournal {
                 if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
                     let _ = writeln!(file, "{json_line}");
                 }
+                // Anchor latest tail hash via DPAPI seal
+                if let Ok(sealed_bytes) = seal_hash_dpapi(&entry.hash) {
+                    let anchor_path = path.with_extension("anchor.seal");
+                    let _ = fs::write(anchor_path, sealed_bytes);
+                }
             }
         }
 
@@ -176,6 +255,7 @@ impl OperatorAuditJournal {
     }
 
     /// Verify the complete cryptographic hash-chain integrity of the journal file.
+    /// Also validates the companion DPAPI anchor seal when present.
     /// Returns Ok(entry_count) if unbroken, or Err with the exact corruption sequence.
     pub fn verify_integrity(path: &Path) -> Result<usize, String> {
         if !path.exists() {
@@ -239,6 +319,29 @@ impl OperatorAuditJournal {
             expected_prev = entry.hash.clone();
             expected_seq += 1;
             count += 1;
+        }
+
+        // Verify external DPAPI anchor seal if present
+        let anchor_path = path.with_extension("anchor.seal");
+        if anchor_path.is_file() && count > 0 {
+            if let Ok(ciphertext) = fs::read(&anchor_path) {
+                match unseal_hash_dpapi(&ciphertext) {
+                    Ok(sealed_tail) => {
+                        if sealed_tail != expected_prev {
+                            return Err(format!(
+                                "External DPAPI anchor mismatch: sealed tail '{}' does not match log tail '{}'. Entire chain may have been rewritten.",
+                                sealed_tail,
+                                expected_prev
+                            ));
+                        }
+                    }
+                    Err(e) => {
+                        return Err(format!(
+                            "External DPAPI anchor seal verification failed: {e}"
+                        ));
+                    }
+                }
+            }
         }
 
         Ok(count)
@@ -364,5 +467,60 @@ mod tests {
         let res = OperatorAuditJournal::verify_integrity(&log_file);
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("Tampering detected"));
+    }
+
+    #[test]
+    fn journal_anchored_dpapi_seal_verifies_successfully() {
+        let temp = tempfile::tempdir().unwrap();
+        let log_file = temp.path().join("audit_anchor.jsonl");
+
+        let journal = OperatorAuditJournal::new(Some(log_file.clone()));
+        journal.record("Test1", "Target1", None, "ok", serde_json::json!({}), None);
+        journal.record("Test2", "Target2", None, "ok", serde_json::json!({}), None);
+
+        let anchor_file = log_file.with_extension("anchor.seal");
+        assert!(anchor_file.exists());
+
+        let res = OperatorAuditJournal::verify_integrity(&log_file);
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), 2);
+    }
+
+    #[test]
+    fn journal_detects_anchor_seal_mismatch_on_forged_chain() {
+        let temp = tempfile::tempdir().unwrap();
+        let log_file = temp.path().join("audit_forged.jsonl");
+
+        let journal = OperatorAuditJournal::new(Some(log_file.clone()));
+        journal.record("Test1", "Target1", None, "ok", serde_json::json!({}), None);
+        let _entry2 = journal.record("Test2", "Target2", None, "ok", serde_json::json!({}), None);
+
+        // Keep the anchor file sealed to entry2's hash
+        let anchor_file = log_file.with_extension("anchor.seal");
+        assert!(anchor_file.exists());
+
+        // Now simulate an attacker rewriting the log file on disk with a valid linear hash chain
+        // that terminates in a different forged hash
+        let forged_entry = OperatorJournalEntry {
+            sequence: 1,
+            id: "OP-LOG-FORGED".into(),
+            timestamp_iso: "2026-10-30T12:00:00Z".into(),
+            timestamp_unix: 1730289600,
+            action_type: "ForgedAction".into(),
+            target: "ForgedTarget".into(),
+            approval_token: None,
+            status: "ok".into(),
+            details: serde_json::json!({}),
+            error: None,
+            prev_hash: GENESIS_HASH.into(),
+            hash: "1111111111111111111111111111111111111111111111111111111111111111".into(),
+        };
+        // Re-write log file with forged entry
+        let line = serde_json::to_string(&forged_entry).unwrap();
+        fs::write(&log_file, format!("{line}\n")).unwrap();
+
+        // Verification must detect the external anchor seal mismatch
+        let res = OperatorAuditJournal::verify_integrity(&log_file);
+        assert!(res.is_err());
     }
 }

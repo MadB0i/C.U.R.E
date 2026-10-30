@@ -54,6 +54,40 @@ impl ResponseLevel {
     }
 }
 
+/// Unambiguous Defender scan and remediation outcomes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DefenderScanOutcome {
+    /// Scan completed cleanly; Defender confirmed no threats found.
+    CleanNoThreats,
+    /// File was skipped by Defender policy, configuration, or exclusion.
+    SkippedByPolicy,
+    /// Malicious software or threat detected (read-only audit mode with -DisableRemediation).
+    ThreatDetectedAudit,
+    /// Malicious threat remediated or quarantined by Defender.
+    ThreatRemediated,
+    /// Threat detected, but Defender could not remediate (e.g. requires reboot, admin elevation, or active lock).
+    ThreatRemediationFailed,
+    /// Defender CLI returned an execution error (e.g. file not found, access denied, invalid parameters).
+    ScanError,
+    /// Output could not be unambiguously categorized.
+    UnknownOutcome,
+}
+
+impl DefenderScanOutcome {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::CleanNoThreats => "Clean: No Threats Detected",
+            Self::SkippedByPolicy => "Skipped by Policy / Exclusion",
+            Self::ThreatDetectedAudit => "Threat Detected (Audit Mode)",
+            Self::ThreatRemediated => "Threat Remediated / Quarantined",
+            Self::ThreatRemediationFailed => "Threat Remediation Failed",
+            Self::ScanError => "Scan Execution Error",
+            Self::UnknownOutcome => "Unknown Scan Outcome",
+        }
+    }
+}
+
 /// Category of threat or anomaly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -88,10 +122,116 @@ pub struct ThreatFinding {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DefenderScanResult {
     pub target_path: PathBuf,
+    pub outcome: DefenderScanOutcome,
     pub status: String,
     pub return_code: i32,
     pub threat_detected: bool,
+    pub detected_threats: Vec<String>,
     pub raw_output: String,
+}
+
+/// Strictly parse output and exit code from Microsoft Defender `MpCmdRun.exe`.
+pub fn parse_defender_scan_output(
+    code: i32,
+    raw_output: &str,
+    remediation_disabled: bool,
+) -> (DefenderScanOutcome, String, Vec<String>) {
+    let lower = raw_output.to_ascii_lowercase();
+
+    // Check for execution error first
+    if code == 1
+        || lower.contains("[failed]")
+        || lower.contains("cmdtool: failed")
+        || lower.contains("cannot find the file specified")
+        || lower.contains("access is denied")
+    {
+        return (
+            DefenderScanOutcome::ScanError,
+            format!("Defender scan execution failed (exit code {code})"),
+            Vec::new(),
+        );
+    }
+
+    // Check for skipped by policy
+    if lower.contains("was skipped.") {
+        return (
+            DefenderScanOutcome::SkippedByPolicy,
+            "File was skipped by Windows Defender policy or system exclusion.".into(),
+            Vec::new(),
+        );
+    }
+
+    // Extract any listed threats: e.g. "Threat : Trojan:Win32/..."
+    let mut detected_threats = Vec::new();
+    for line in raw_output.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("Threat") {
+            let threat_name = rest.trim_start_matches([':', ' ']).trim();
+            if !threat_name.is_empty() {
+                detected_threats.push(threat_name.to_string());
+            }
+        }
+    }
+
+    // If explicit "found no threats" present and code == 0
+    if lower.contains("found no threats.") && code == 0 {
+        return (
+            DefenderScanOutcome::CleanNoThreats,
+            "Clean: Windows Defender scanned the file and detected no threats.".into(),
+            Vec::new(),
+        );
+    }
+
+    // When threats are detected
+    let has_threat_signatures = !detected_threats.is_empty()
+        || lower.contains("list of detected threats")
+        || (code == 2 && !lower.contains("no threats"));
+
+    if has_threat_signatures {
+        let threat_desc = if detected_threats.is_empty() {
+            "Threat detected by Defender signatures".to_string()
+        } else {
+            format!("Detected threat: {}", detected_threats.join(", "))
+        };
+
+        if remediation_disabled {
+            return (
+                DefenderScanOutcome::ThreatDetectedAudit,
+                format!("{threat_desc} (-DisableRemediation was active; file remains untouched)."),
+                detected_threats,
+            );
+        } else if code == 0
+            || lower.contains("remediation successful")
+            || lower.contains("quarantined")
+        {
+            return (
+                DefenderScanOutcome::ThreatRemediated,
+                format!("{threat_desc} (Successfully quarantined/remediated by Defender)."),
+                detected_threats,
+            );
+        } else {
+            return (
+                DefenderScanOutcome::ThreatRemediationFailed,
+                format!("{threat_desc} (Defender remediation failed with code {code}; administrator elevation or system reboot may be required)."),
+                detected_threats,
+            );
+        }
+    }
+
+    // Code 0 with no threats mentioned and scan finished
+    if code == 0 && lower.contains("scan finished") {
+        return (
+            DefenderScanOutcome::CleanNoThreats,
+            "Scan finished with exit code 0; no threat signatures reported.".into(),
+            Vec::new(),
+        );
+    }
+
+    (
+        DefenderScanOutcome::UnknownOutcome,
+        format!("Defender exited with code {code}"),
+        Vec::new(),
+    )
 }
 
 /// Locates the native Microsoft Defender command line utility (`MpCmdRun.exe`).
@@ -144,45 +284,40 @@ pub fn scan_file_with_defender(file_path: &Path) -> Result<DefenderScanResult, S
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     let combined = format!("{stdout}\n{stderr}").trim().to_string();
-
     let code = output.status.code().unwrap_or(-1);
-    // MpCmdRun exit codes:
-    // 0 = No threat found
-    // 2 = Threat detected
-    let lower_combined = combined.to_ascii_lowercase();
-    let has_threat_text = lower_combined.contains("threat")
-        && !lower_combined.contains("no threats")
-        && !lower_combined.contains("0 threat");
-    let threat_detected = code == 2 || has_threat_text;
 
-    let status = if code == 0 {
-        "Clean (No threats detected)".into()
-    } else if code == 2 || threat_detected {
-        "Threat Detected by Defender (Remediation Disabled)".into()
-    } else {
-        format!("Defender scan exited with code {code}")
-    };
+    let (outcome, status, detected_threats) = parse_defender_scan_output(code, &combined, true);
+    let threat_detected = outcome == DefenderScanOutcome::ThreatDetectedAudit;
 
     audit_log(
         "DefenderScan",
         &file_path.to_string_lossy(),
         None,
         &status,
-        serde_json::json!({ "exit_code": code, "threat_detected": threat_detected, "disable_remediation": true }),
+        serde_json::json!({
+            "exit_code": code,
+            "outcome": format!("{:?}", outcome),
+            "threat_detected": threat_detected,
+            "detected_threats": detected_threats,
+            "disable_remediation": true
+        }),
         None,
     );
 
     Ok(DefenderScanResult {
         target_path: file_path.to_path_buf(),
+        outcome,
         status,
         return_code: code,
         threat_detected,
+        detected_threats,
         raw_output: combined,
     })
 }
 
 /// Explicit, user-approved containment scan with remediation enabled.
 /// Requires confirmation token `CONTAIN_DEFENDER_<filename>`.
+/// Executes documented targeted scan without `-DisableRemediation` and verifies post-remediation file state.
 pub fn contain_file_with_defender(
     file_path: &Path,
     confirmation_token: &str,
@@ -206,7 +341,7 @@ pub fn contain_file_with_defender(
     let defender_exe = find_defender_cli()
         .ok_or_else(|| "Windows Defender MpCmdRun.exe not found on system".to_string())?;
 
-    // Remediation scan: does NOT pass -DisableRemediation
+    // Documented targeted remediation scan: calls MpCmdRun.exe -Scan -ScanType 3 -File <file_path> WITHOUT -DisableRemediation
     let output = Command::new(&defender_exe)
         .arg("-Scan")
         .arg("-ScanType")
@@ -219,30 +354,46 @@ pub fn contain_file_with_defender(
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     let combined = format!("{stdout}\n{stderr}").trim().to_string();
-
     let code = output.status.code().unwrap_or(-1);
-    let status = if code == 0 {
-        "Remediation scan completed: No threats found".into()
-    } else if code == 2 {
-        "Remediation applied: Threat quarantined or remediated by Defender".into()
-    } else {
-        format!("Defender remediation exited with code {code}")
-    };
+
+    let (mut outcome, mut status, detected_threats) =
+        parse_defender_scan_output(code, &combined, false);
+
+    // Post-remediation verification: check if file was actually removed/quarantined by Defender
+    let file_still_exists = file_path.exists();
+    if outcome == DefenderScanOutcome::ThreatRemediated && file_still_exists {
+        status.push_str(" [Post-check: Target file still present on disk; in-place disinfection or reboot pending]");
+    } else if outcome == DefenderScanOutcome::ThreatRemediationFailed && !file_still_exists {
+        outcome = DefenderScanOutcome::ThreatRemediated;
+        status = "Target file successfully quarantined/removed by Windows Defender.".into();
+    }
+
+    let threat_detected = outcome == DefenderScanOutcome::ThreatRemediated
+        || outcome == DefenderScanOutcome::ThreatRemediationFailed
+        || outcome == DefenderScanOutcome::ThreatDetectedAudit;
 
     audit_log(
         "DefenderRemediate",
         &file_path.to_string_lossy(),
         Some(confirmation_token),
         &status,
-        serde_json::json!({ "exit_code": code }),
+        serde_json::json!({
+            "exit_code": code,
+            "outcome": format!("{:?}", outcome),
+            "threat_detected": threat_detected,
+            "detected_threats": detected_threats,
+            "file_still_exists": file_still_exists,
+        }),
         None,
     );
 
     Ok(DefenderScanResult {
         target_path: file_path.to_path_buf(),
+        outcome,
         status,
         return_code: code,
-        threat_detected: code == 2,
+        threat_detected,
+        detected_threats,
         raw_output: combined,
     })
 }
@@ -465,6 +616,60 @@ mod tests {
         assert!(res
             .unwrap_err()
             .contains("protected Windows system process"));
+    }
+
+    #[test]
+    fn test_defender_output_parsing_clean_scan() {
+        let raw = "Scan starting...\nScan finished.\nScanning D:\\test.txt found no threats.\n";
+        let (outcome, status, threats) = parse_defender_scan_output(0, raw, true);
+        assert_eq!(outcome, DefenderScanOutcome::CleanNoThreats);
+        assert!(status.contains("Clean"));
+        assert!(threats.is_empty());
+    }
+
+    #[test]
+    fn test_defender_output_parsing_skipped_by_policy() {
+        let raw = "Scan starting...\nScan finished.\nScanning C:\\Windows\\System32\\notepad.exe was skipped.\n";
+        let (outcome, status, threats) = parse_defender_scan_output(0, raw, true);
+        assert_eq!(outcome, DefenderScanOutcome::SkippedByPolicy);
+        assert!(status.contains("skipped"));
+        assert!(threats.is_empty());
+    }
+
+    #[test]
+    fn test_defender_output_parsing_threat_detected_audit() {
+        let raw = "Scan starting...\nLIST OF DETECTED THREATS\nThreat : Trojan:Win32/Wacatac.B!ml\nResources : D:\\sample.exe\nScan finished.\n";
+        let (outcome, status, threats) = parse_defender_scan_output(2, raw, true);
+        assert_eq!(outcome, DefenderScanOutcome::ThreatDetectedAudit);
+        assert!(status.contains("Trojan:Win32/Wacatac.B!ml"));
+        assert_eq!(threats, vec!["Trojan:Win32/Wacatac.B!ml"]);
+    }
+
+    #[test]
+    fn test_defender_output_parsing_threat_remediated() {
+        let raw = "Scan starting...\nLIST OF DETECTED THREATS\nThreat : Virus:DOS/EICAR_Test_File\nRemediation successful.\nScan finished.\n";
+        let (outcome, status, threats) = parse_defender_scan_output(0, raw, false);
+        assert_eq!(outcome, DefenderScanOutcome::ThreatRemediated);
+        assert!(status.contains("quarantined/remediated"));
+        assert_eq!(threats, vec!["Virus:DOS/EICAR_Test_File"]);
+    }
+
+    #[test]
+    fn test_defender_output_parsing_remediation_failed() {
+        let raw = "Scan starting...\nLIST OF DETECTED THREATS\nThreat : Ransom:Win32/Locky\nRemediation failed.\nScan finished.\n";
+        let (outcome, status, threats) = parse_defender_scan_output(2, raw, false);
+        assert_eq!(outcome, DefenderScanOutcome::ThreatRemediationFailed);
+        assert!(status.contains("remediation failed"));
+        assert_eq!(threats, vec!["Ransom:Win32/Locky"]);
+    }
+
+    #[test]
+    fn test_defender_output_parsing_execution_error() {
+        let raw = "[Failed][0x80070002] The system cannot find the file specified.\nCmdTool: Failed with hr = 0x80070002\n";
+        let (outcome, status, threats) = parse_defender_scan_output(1, raw, true);
+        assert_eq!(outcome, DefenderScanOutcome::ScanError);
+        assert!(status.contains("execution failed"));
+        assert!(threats.is_empty());
     }
 
     #[test]

@@ -60,11 +60,14 @@ def capture_all():
     env["WEBVIEW2_USER_DATA_FOLDER"] = str(webview_data)
 
     print(f"Launching native application: {EXE}")
+    gui_log_path = REPO / "testing" / "native" / "cure_gui.log"
+    gui_log_path.parent.mkdir(parents=True, exist_ok=True)
+    gui_log = open(gui_log_path, "w", encoding="utf-8")
     proc = subprocess.Popen(
         [str(EXE)],
         env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=gui_log,
+        stderr=gui_log,
     )
 
     results = {}
@@ -163,7 +166,7 @@ def capture_all():
             page.click("#nav-cleanup")
             time.sleep(0.5)
             page.click("#sw-tab-rescue")
-            page.wait_for_selector("#sr-safe-candidates-body tr", timeout=45000)
+            page.wait_for_selector("#sr-safe-candidates-body tr, #sr-caution-candidates-body tr", timeout=45000)
             time.sleep(1.0)
             shot3 = OUTPUT_DIR / "03-storage-rescue-operator-overview.png"
             page.screenshot(path=str(shot3))
@@ -189,6 +192,10 @@ def capture_all():
             page.evaluate("""() => {
                 const stage = document.querySelector('.stage');
                 if (stage) stage.scrollTop = 0;
+                const cb = document.querySelector('.sr-checkbox');
+                if (cb && !cb.checked) {
+                    cb.click();
+                }
             }""")
             time.sleep(0.5)
             page.click("#sr-btn-build-plan")
@@ -202,10 +209,14 @@ def capture_all():
             # 6. Storage Rescue Verified Receipt & Recovery / Cleanup Controls
             # -----------------------------------------------------------------
             print("Capturing 06-storage-rescue-receipt-and-cleanup.png...")
-            page.evaluate("""() => {
-                if (window.storageRescue && window.storageRescue.openReceiptModal) {
+            fixture_target = REPO / "testing" / "fixtures" / "operator_relocated_demo"
+            fixture_target.mkdir(parents=True, exist_ok=True)
+            fixture_target_str = str(fixture_target).replace("\\", "\\\\")
+
+            page.evaluate(f"""() => {{
+                if (window.storageRescue && window.storageRescue.openReceiptModal) {{
                     window.storageRescue.closePlanModal();
-                    const rec = {
+                    const rec = {{
                         receipt_id: "REC-20261030-C2D-OPERATOR-9140",
                         completed_at: new Date().toISOString(),
                         source_drive: "C:",
@@ -213,13 +224,13 @@ def capture_all():
                         total_files_copied: 1845,
                         total_bytes_copied: 28456128000,
                         duration_ms: 22100,
-                        items: [{
+                        items: [{{
                             candidate_id: "workspace_demo",
                             source_path: "C:\\\\Projects\\\\webapp",
-                            target_path: "D:\\\\CURE_Relocated\\\\webapp",
+                            target_path: "{fixture_target_str}",
                             files_copied: 1845,
                             bytes_copied: 28456128000,
-                            verification: {
+                            verification: {{
                                 source_file_count: 1845,
                                 target_file_count: 1845,
                                 source_total_bytes: 28456128000,
@@ -228,26 +239,26 @@ def capture_all():
                                 sha256_matched: 1845,
                                 sampled_hashes_verified: true,
                                 integrity_status: "VerifiedBitExact",
-                                metadata_preservation: {
+                                metadata_preservation: {{
                                     timestamps_preserved: true,
                                     readonly_flags_preserved: true,
                                     reparse_points_safely_skipped: 0
-                                }
-                            },
+                                }}
+                            }},
                             source_preserved: true,
-                        }],
+                        }}],
                         recovery_notes: [
                             "100% SHA-256 verified copy: 1,845 files (26.5 GB) verified bit-exact on target.",
                             "Non-destructive copy completed: Source files remain completely untouched on C:.",
-                            "Target established at D:\\\\CURE_Relocated\\\\Downloads.",
+                            "Target established at {fixture_target_str}.",
                             "Known Folder redirection or toolchain environment switch can now be finalized.",
                             "User-approved source cleanup is optional and requires explicit confirmation token."
                         ]
-                    };
+                    }};
                     window.storageRescue.state.receipt = rec;
                     window.storageRescue.openReceiptModal(rec);
-                }
-            }""")
+                }}
+            }}""")
             time.sleep(1.2)
             shot6 = OUTPUT_DIR / "06-storage-rescue-receipt-and-cleanup.png"
             page.screenshot(path=str(shot6))

@@ -195,10 +195,11 @@ pub enum AgentKind {
     GeminiCli,
     Copilot,
     Antigravity,
+    Windsurf,
 }
 
 impl AgentKind {
-    pub const ALL: [AgentKind; 11] = [
+    pub const ALL: [AgentKind; 12] = [
         AgentKind::OpenCode,
         AgentKind::Codex,
         AgentKind::Claude,
@@ -210,9 +211,10 @@ impl AgentKind {
         AgentKind::GeminiCli,
         AgentKind::Copilot,
         AgentKind::Antigravity,
+        AgentKind::Windsurf,
     ];
 
-    pub const SUPPORTED: [AgentKind; 11] = Self::ALL;
+    pub const SUPPORTED: [AgentKind; 12] = Self::ALL;
 
     pub fn id(self) -> &'static str {
         match self {
@@ -227,6 +229,7 @@ impl AgentKind {
             Self::GeminiCli => "gemini_cli",
             Self::Copilot => "copilot",
             Self::Antigravity => "antigravity",
+            Self::Windsurf => "windsurf",
         }
     }
 
@@ -243,6 +246,7 @@ impl AgentKind {
             Self::GeminiCli => "Gemini CLI",
             Self::Copilot => "GitHub Copilot",
             Self::Antigravity => "Antigravity",
+            Self::Windsurf => "Windsurf",
         }
     }
 
@@ -273,6 +277,7 @@ impl AgentKind {
             Self::GeminiCli => &["gemini", "gemini-cli"],
             Self::Copilot => &["copilot"],
             Self::Antigravity => &["antigravity", "agy"],
+            Self::Windsurf => &["windsurf"],
         }
     }
 

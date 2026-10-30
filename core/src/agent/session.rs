@@ -55,11 +55,40 @@ impl SessionProcessState {
     }
 }
 
+/// Detailed taxonomy separating process execution, on-disk artifacts, active locking, and recovery viability.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionStateKind {
+    /// Live process executing on the host, but no local session directory or files exist.
+    RunningProcessOnly,
+    /// Saved session artifacts exist on disk, but the process is not currently running.
+    ExistingSessionFilesOnly,
+    /// Active session: Live running process with concurrently open/updated session store.
+    ActiveSession,
+    /// Offline session files exist and can be safely parsed or restored without data loss.
+    RecoverableSession,
+    /// Proprietary/opaque binary format (e.g. SQLite, LevelDB, internal IPC) - recovery unsupported.
+    UnsupportedSessionFormat,
+}
+
+impl SessionStateKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::RunningProcessOnly => "Running Process Only",
+            Self::ExistingSessionFilesOnly => "Existing Session Files (Inactive)",
+            Self::ActiveSession => "Active Session",
+            Self::RecoverableSession => "Recoverable Session",
+            Self::UnsupportedSessionFormat => "Unsupported Session Format",
+        }
+    }
+}
+
 /// Real session recovery capabilities discovered from supported local on-disk stores.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionRecoveryInfo {
     pub supported: bool,
     pub status: String,
+    pub state_kind: SessionStateKind,
     pub session_count: usize,
     pub storage_path: Option<String>,
     pub latest_session_utc: Option<String>,
@@ -95,20 +124,68 @@ pub fn discover_agent_session_storage(kind: AgentKind) -> SessionRecoveryInfo {
         AgentKind::Codex => {
             let p1 = std::path::Path::new(&local_app_data).join("OpenAI").join("Codex").join("sessions");
             let p2 = std::path::Path::new(&user_profile).join(".codex").join("sessions");
-            inspect_session_dir_candidate(&[&p1, &p2], "Codex JSON session journal store")
+            inspect_session_dir_candidate(&[&p1, &p2], "Codex JSON session journal store", false)
         }
         AgentKind::OpenCode => {
             let p1 = std::path::Path::new(&app_data).join("ai.opencode.desktop").join("sessions");
             let p2 = std::path::Path::new(&user_profile).join(".opencode").join("sessions");
-            inspect_session_dir_candidate(&[&p1, &p2], "OpenCode desktop session history database")
+            inspect_session_dir_candidate(&[&p1, &p2], "OpenCode desktop session history database", false)
         }
         AgentKind::Antigravity => {
             let p = std::path::Path::new(&user_profile).join(".gemini").join("antigravity").join("brain");
-            inspect_session_dir_candidate(&[&p], "Antigravity active conversation workspaces")
+            inspect_session_dir_candidate(&[&p], "Antigravity active conversation workspaces", false)
+        }
+        AgentKind::Claude => {
+            let p1 = std::path::Path::new(&user_profile).join(".claude").join("projects");
+            let p2 = std::path::Path::new(&user_profile).join(".claude");
+            inspect_session_dir_candidate(&[&p1, &p2], "Claude Code project transcripts", false)
+        }
+        AgentKind::Aider => {
+            let p = std::path::Path::new(&user_profile).join(".aider.chat.history.md");
+            if p.is_file() {
+                let count = 1;
+                let m = p.metadata().ok();
+                let latest_str = m.and_then(|meta| meta.modified().ok()).map(|t| {
+                    let dt: chrono::DateTime<chrono::Utc> = t.into();
+                    dt.to_rfc3339()
+                });
+                SessionRecoveryInfo {
+                    supported: true,
+                    status: "RECOVERABLE SESSIONS FOUND".into(),
+                    state_kind: SessionStateKind::RecoverableSession,
+                    session_count: count,
+                    storage_path: Some(p.to_string_lossy().to_string()),
+                    latest_session_utc: latest_str,
+                    details: format!("Aider markdown chat history discovered at {}", p.display()),
+                }
+            } else {
+                SessionRecoveryInfo {
+                    supported: true,
+                    status: "NO SAVED SESSIONS FOUND".into(),
+                    state_kind: SessionStateKind::ExistingSessionFilesOnly,
+                    session_count: 0,
+                    storage_path: Some(p.to_string_lossy().to_string()),
+                    latest_session_utc: None,
+                    details: "Aider chat history file does not exist in user profile.".into(),
+                }
+            }
+        }
+        AgentKind::Cursor => {
+            let p = std::path::Path::new(&app_data).join("Cursor").join("User").join("workspaceStorage");
+            inspect_session_dir_candidate(&[&p], "Cursor workspace storage (VSCode SQLite/VSCDB format)", true)
+        }
+        AgentKind::Windsurf => {
+            let p = std::path::Path::new(&app_data).join("Windsurf").join("User").join("workspaceStorage");
+            inspect_session_dir_candidate(&[&p], "Windsurf workspace storage (Codeium SQLite format)", true)
+        }
+        AgentKind::Ollama => {
+            let p = std::path::Path::new(&user_profile).join(".ollama").join("models");
+            inspect_session_dir_candidate(&[&p], "Ollama model weight repository (inference cache, not conversation session)", true)
         }
         _ => SessionRecoveryInfo {
             supported: false,
             status: "SESSION RECOVERY UNSUPPORTED".into(),
+            state_kind: SessionStateKind::UnsupportedSessionFormat,
             session_count: 0,
             storage_path: None,
             latest_session_utc: None,
@@ -123,6 +200,7 @@ pub fn discover_agent_session_storage(kind: AgentKind) -> SessionRecoveryInfo {
 fn inspect_session_dir_candidate(
     candidates: &[&std::path::Path],
     description: &str,
+    is_proprietary_format: bool,
 ) -> SessionRecoveryInfo {
     for dir in candidates {
         if dir.is_dir() {
@@ -144,9 +222,25 @@ fn inspect_session_dir_candidate(
                 let dt: chrono::DateTime<chrono::Utc> = t.into();
                 dt.to_rfc3339()
             });
+
+            if is_proprietary_format {
+                return SessionRecoveryInfo {
+                    supported: false,
+                    status: "UNSUPPORTED SESSION FORMAT (PROPRIETARY)".into(),
+                    state_kind: SessionStateKind::UnsupportedSessionFormat,
+                    session_count: count,
+                    storage_path: Some(dir.to_string_lossy().to_string()),
+                    latest_session_utc: latest_str,
+                    details: format!(
+                        "{description}: Found {count} database files. Direct offline recovery unsupported to prevent binary database corruption."
+                    ),
+                };
+            }
+
             return SessionRecoveryInfo {
                 supported: true,
                 status: "RECOVERABLE SESSIONS FOUND".into(),
+                state_kind: SessionStateKind::RecoverableSession,
                 session_count: count,
                 storage_path: Some(dir.to_string_lossy().to_string()),
                 latest_session_utc: latest_str,
@@ -157,9 +251,23 @@ fn inspect_session_dir_candidate(
             };
         }
     }
+
+    if is_proprietary_format {
+        return SessionRecoveryInfo {
+            supported: false,
+            status: "NO SESSION STORE FOUND".into(),
+            state_kind: SessionStateKind::UnsupportedSessionFormat,
+            session_count: 0,
+            storage_path: candidates.first().map(|p| p.to_string_lossy().to_string()),
+            latest_session_utc: None,
+            details: format!("{description}: Directory not found on disk."),
+        };
+    }
+
     SessionRecoveryInfo {
         supported: true,
         status: "NO SAVED SESSIONS FOUND".into(),
+        state_kind: SessionStateKind::ExistingSessionFilesOnly,
         session_count: 0,
         storage_path: candidates.first().map(|p| p.to_string_lossy().to_string()),
         latest_session_utc: None,
@@ -167,6 +275,14 @@ fn inspect_session_dir_candidate(
             "{description}: Local session directory exists but contains zero saved sessions."
         ),
     }
+}
+
+/// Enumerates offline session directories across all supported agents regardless of whether processes are running.
+pub fn inspect_offline_agent_sessions() -> Vec<(AgentKind, SessionRecoveryInfo)> {
+    AgentKind::ALL
+        .into_iter()
+        .map(|kind| (kind, discover_agent_session_storage(kind)))
+        .collect()
 }
 
 /// Investigates active agent processes, constructs process tree hierarchies,
@@ -226,6 +342,17 @@ pub fn inspect_agent_sessions() -> Vec<AgentSessionDetail> {
             )
         };
 
+        let mut recovery = discover_agent_session_storage(proc.kind);
+        if recovery.supported && recovery.session_count > 0 {
+            recovery.state_kind = SessionStateKind::ActiveSession;
+            recovery.status = "ACTIVE SESSION (PROCESS RUNNING)".into();
+        } else if !recovery.supported {
+            // Keep UnsupportedSessionFormat with clear explanation
+        } else {
+            recovery.state_kind = SessionStateKind::RunningProcessOnly;
+            recovery.status = "PROCESS RUNNING (NO SAVED SESSIONS)".into();
+        }
+
         sessions.push(AgentSessionDetail {
             pid: proc.pid,
             parent_pid: proc.parent_pid,
@@ -240,7 +367,7 @@ pub fn inspect_agent_sessions() -> Vec<AgentSessionDetail> {
             child_pids,
             evidence_summary,
             limitations: proc.limitations,
-            recovery: discover_agent_session_storage(proc.kind),
+            recovery,
         });
     }
 
@@ -345,6 +472,72 @@ mod tests {
             SessionProcessState::UnknownSessionState.label(),
             "UNKNOWN SESSION STATE"
         );
+    }
+
+    #[test]
+    fn session_taxonomy_distinguishes_all_five_lifecycle_states() {
+        assert_eq!(
+            SessionStateKind::RunningProcessOnly.label(),
+            "Running Process Only"
+        );
+        assert_eq!(
+            SessionStateKind::ExistingSessionFilesOnly.label(),
+            "Existing Session Files (Inactive)"
+        );
+        assert_eq!(SessionStateKind::ActiveSession.label(), "Active Session");
+        assert_eq!(
+            SessionStateKind::RecoverableSession.label(),
+            "Recoverable Session"
+        );
+        assert_eq!(
+            SessionStateKind::UnsupportedSessionFormat.label(),
+            "Unsupported Session Format"
+        );
+    }
+
+    #[test]
+    fn inspect_session_dir_candidate_discovers_offline_sessions() {
+        let temp = tempfile::tempdir().unwrap();
+        let sessions_dir = temp.path().join("sessions");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+
+        // Create 2 mock session files
+        std::fs::write(sessions_dir.join("session_1.json"), "{\"chat\": 1}").unwrap();
+        std::fs::write(sessions_dir.join("session_2.json"), "{\"chat\": 2}").unwrap();
+
+        let info = inspect_session_dir_candidate(&[&sessions_dir], "Mock Codex store", false);
+        assert!(info.supported);
+        assert_eq!(info.session_count, 2);
+        assert_eq!(info.state_kind, SessionStateKind::RecoverableSession);
+        assert!(info.status.contains("RECOVERABLE"));
+        assert!(info.latest_session_utc.is_some());
+    }
+
+    #[test]
+    fn inspect_session_dir_identifies_proprietary_format_honestly() {
+        let temp = tempfile::tempdir().unwrap();
+        let vscdb_dir = temp.path().join("workspaceStorage");
+        std::fs::create_dir_all(&vscdb_dir).unwrap();
+        std::fs::write(vscdb_dir.join("state.vscdb"), "SQLite format 3").unwrap();
+
+        let info = inspect_session_dir_candidate(&[&vscdb_dir], "Cursor proprietary storage", true);
+        assert!(!info.supported);
+        assert_eq!(info.session_count, 1);
+        assert_eq!(info.state_kind, SessionStateKind::UnsupportedSessionFormat);
+        assert!(info.status.contains("UNSUPPORTED"));
+        assert!(info.details.contains("unsupported"));
+    }
+
+    #[test]
+    fn empty_or_missing_session_directory_reports_honestly() {
+        let temp = tempfile::tempdir().unwrap();
+        let missing = temp.path().join("non_existent_folder");
+
+        let info = inspect_session_dir_candidate(&[&missing], "Missing store", false);
+        assert!(info.supported);
+        assert_eq!(info.session_count, 0);
+        assert_eq!(info.state_kind, SessionStateKind::ExistingSessionFilesOnly);
+        assert_eq!(info.status, "NO SAVED SESSIONS FOUND");
     }
 
     #[test]

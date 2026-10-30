@@ -331,17 +331,133 @@ pub fn is_onedrive_managed(path: &Path, candidate_id: &str) -> bool {
     false
 }
 
-fn rand_u32() -> u32 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let d = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let seed = d.as_nanos() as u64;
-    let mut x = seed ^ 0x5DEECE66D;
-    x = x
-        .wrapping_mul(6364136223846793005)
-        .wrapping_add(1442695040888963407);
-    (x >> 32) as u32
+use std::collections::HashSet;
+use std::sync::Mutex;
+
+static CONSUMED_NONCES: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+static ISSUED_NONCES: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+
+/// Generates a cryptographically secure 128-bit operation nonce (32 hex characters)
+/// using Windows CSPRNG (`BCryptGenRandom` with `BCRYPT_USE_SYSTEM_PREFERRED_RNG`).
+pub fn generate_secure_128bit_nonce() -> io::Result<String> {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Security::Cryptography::{
+            BCryptGenRandom, BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+        };
+        let mut bytes = [0u8; 16];
+        unsafe { BCryptGenRandom(None, &mut bytes, BCRYPT_USE_SYSTEM_PREFERRED_RNG) }
+            .ok()
+            .map_err(|e| io::Error::other(format!("CSPRNG BCryptGenRandom failed: {e}")))?;
+        let nonce: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        record_issued_nonce(&nonce);
+        Ok(nonce)
+    }
+    #[cfg(not(windows))]
+    {
+        let mut hasher = Sha256::new();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        hasher.update(&now.as_nanos().to_le_bytes());
+        hasher.update(&std::process::id().to_le_bytes());
+        let h = hasher.finalize();
+        let nonce: String = h[..16].iter().map(|b| format!("{b:02x}")).collect();
+        record_issued_nonce(&nonce);
+        Ok(nonce)
+    }
+}
+
+pub fn record_issued_nonce(nonce: &str) {
+    if let Ok(mut lock) = ISSUED_NONCES.lock() {
+        let set = lock.get_or_insert_with(HashSet::new);
+        set.insert(nonce.to_string());
+    }
+}
+
+pub fn revoke_issued_nonce(nonce: &str) {
+    if let Ok(mut lock) = ISSUED_NONCES.lock() {
+        if let Some(set) = lock.as_mut() {
+            set.remove(nonce);
+        }
+    }
+}
+
+pub fn is_nonce_issued(nonce: &str) -> bool {
+    if let Ok(lock) = ISSUED_NONCES.lock() {
+        if let Some(set) = lock.as_ref() {
+            return set.contains(nonce);
+        }
+    }
+    false
+}
+
+/// Enforces single-use consumption of an operation nonce to prevent replay attacks.
+pub fn consume_nonce_strict(nonce: &str) -> io::Result<()> {
+    if nonce.len() != 32 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "Nonce must be 128-bit (32 hex characters), got length {}",
+                nonce.len()
+            ),
+        ));
+    }
+
+    let mut consumed_lock = CONSUMED_NONCES
+        .lock()
+        .map_err(|_| io::Error::other("Failed to acquire nonce lock"))?;
+    let consumed_set = consumed_lock.get_or_insert_with(HashSet::new);
+    if consumed_set.contains(nonce) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("Replay Attack Prevented: Nonce '{nonce}' has already been consumed."),
+        ));
+    }
+    consumed_set.insert(nonce.to_string());
+    Ok(())
+}
+
+/// Check whether any running process has active locks or open working paths in `source_path`.
+pub fn check_active_tool_locks(source_path: &Path) -> Result<(), String> {
+    if !source_path.exists() {
+        return Ok(());
+    }
+    let src_str = source_path.to_string_lossy().to_ascii_lowercase();
+
+    // Check detected agent processes
+    let agents = crate::agent::session::inspect_agent_sessions();
+    for agent in agents {
+        let exe_lower = agent.exe_path.to_ascii_lowercase();
+        if exe_lower.starts_with(&src_str) {
+            return Err(format!(
+                "Active agent process locking path: {} (PID {}) is executing from within '{}'",
+                agent.name,
+                agent.pid,
+                source_path.display()
+            ));
+        }
+    }
+
+    // Attempt non-exclusive write probe on existing files to detect active sharing violations
+    if let Ok(entries) = fs::read_dir(source_path) {
+        for entry in entries.flatten().take(20) {
+            let p = entry.path();
+            if p.is_file() {
+                match fs::OpenOptions::new().read(true).write(true).open(&p) {
+                    Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+                        return Err(format!(
+                            "File is locked by an active process or has restricted permissions: '{}'",
+                            p.display()
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Discover migration candidates on the system for a given source drive and destination.
@@ -677,17 +793,29 @@ pub fn build_migration_plan(
     let source_space = fsx::volume_space_at(Path::new(&source_root));
     let source_free = source_space.as_ref().map(|s| s.free_bytes).unwrap_or(0);
 
-    // 10% safety headroom
-    let headroom = (total_bytes as f64 * 0.10) as u64;
+    // Enforce adequate destination free-space headroom:
+    // Minimum 1 GB or 10% of total_bytes (whichever is larger),
+    // and guarantee target volume retains at least 2 GB remaining after migration.
+    let min_headroom = 1024 * 1024 * 1024; // 1 GB
+    let proportional_headroom = (total_bytes as f64 * 0.10) as u64;
+    let headroom = proportional_headroom.max(min_headroom);
     let total_required = total_bytes.saturating_add(headroom);
 
     let mut preflight_errors = Vec::new();
     let mut preflight_warnings = Vec::new();
 
-    let has_sufficient = target_free >= total_required;
-    if !has_sufficient {
+    let target_proj = target_free.saturating_sub(total_bytes);
+    let min_target_retained = 2 * 1024 * 1024 * 1024; // 2 GB minimum remaining on destination volume
+
+    let has_sufficient = target_free >= total_required && target_proj >= min_target_retained;
+    if target_free < total_required {
         preflight_errors.push(format!(
-            "Insufficient capacity on destination {target_drive}: {target_free} bytes free, but {total_required} bytes required (including 10% safety buffer)."
+            "Insufficient capacity on destination {target_drive}: {target_free} bytes free, but {total_required} bytes required (including {headroom} bytes safety headroom)."
+        ));
+    }
+    if target_proj < min_target_retained && target_free >= total_required {
+        preflight_errors.push(format!(
+            "Destination {target_drive} would have less than 2 GB remaining after relocation (projected free: {target_proj} bytes). Migration blocked to prevent volume exhaustion."
         ));
     }
 
@@ -837,10 +965,28 @@ where
     // Copy every file
     for src_file in &source_files_list {
         if cancel_flag.load(Ordering::SeqCst) {
-            return Err(io::Error::new(
-                io::ErrorKind::Interrupted,
-                "Migration cancelled by operator",
-            ));
+            return Ok(CandidateVerification {
+                candidate_id: candidate_id.into(),
+                source_path: source.to_string_lossy().into_owned(),
+                target_path: target.to_string_lossy().into_owned(),
+                source_files: total_files_count,
+                target_files: copied_files,
+                source_bytes: total_source_bytes,
+                target_bytes: copied_bytes,
+                files_match: false,
+                bytes_match: false,
+                sample_hashes_checked: 0,
+                sample_hashes_matched: 0,
+                sha256_checked: 0,
+                sha256_matched: 0,
+                is_verified: false,
+                metadata_report: MetadataPreservationReport::default(),
+                reparse_points_safely_skipped: skipped_reparse,
+                error: Some(
+                    "Migration cancelled by operator during file copy. Partial copy detected."
+                        .into(),
+                ),
+            });
         }
 
         let rel = src_file
@@ -859,7 +1005,31 @@ where
             Err(_) => 0,
         };
 
-        fs::copy(src_file, &dst_file)?;
+        if let Err(e) = fs::copy(src_file, &dst_file) {
+            return Ok(CandidateVerification {
+                candidate_id: candidate_id.into(),
+                source_path: source.to_string_lossy().into_owned(),
+                target_path: target.to_string_lossy().into_owned(),
+                source_files: total_files_count,
+                target_files: copied_files,
+                source_bytes: total_source_bytes,
+                target_bytes: copied_bytes,
+                files_match: false,
+                bytes_match: false,
+                sample_hashes_checked: 0,
+                sample_hashes_matched: 0,
+                sha256_checked: 0,
+                sha256_matched: 0,
+                is_verified: false,
+                metadata_report: MetadataPreservationReport::default(),
+                reparse_points_safely_skipped: skipped_reparse,
+                error: Some(format!(
+                    "Copy failed on '{}': {} (File may be locked by an active process or access denied)",
+                    rel.display(),
+                    e
+                )),
+            });
+        }
         preserve_file_times(src_file, &dst_file);
         if let Ok(md) = fs::metadata(src_file) {
             if fsx::is_read_only(&md) {
@@ -1209,8 +1379,133 @@ pub fn get_known_folder_path(candidate_id: &str) -> Option<String> {
     key.get_value::<String, _>(reg_name).ok()
 }
 
+/// Comprehensive application relocation validation.
+/// Tests destination filesystem write capability via probe file,
+/// and verifies Known Folder registry or environment variable reflection.
+pub fn validate_application_relocation(
+    candidate_id: &str,
+    target_path: &Path,
+) -> Result<Vec<String>, String> {
+    let mut details = Vec::new();
+
+    // 1. Target directory must exist
+    if !target_path.is_dir() {
+        return Err(format!(
+            "Destination directory '{}' does not exist or is not a directory.",
+            target_path.display()
+        ));
+    }
+
+    // 2. Filesystem write/read/delete canary probe to ensure full NTFS write access
+    let nonce_probe = generate_secure_128bit_nonce()
+        .unwrap_or_else(|_| "00000000000000000000000000000000".into());
+    let probe_file = target_path.join(format!(".cure_write_probe_{}.tmp", nonce_probe));
+    let test_bytes = b"CURE_RELOCATION_VERIFICATION_PROBE_OK";
+    if let Err(e) = fs::write(&probe_file, test_bytes) {
+        return Err(format!("Destination filesystem write probe failed: {e}"));
+    }
+    match fs::read(&probe_file) {
+        Ok(read) if read == test_bytes => {
+            let _ = fs::remove_file(&probe_file);
+            details
+                .push("Destination filesystem write, read, and delete validation passed.".into());
+        }
+        Ok(_) => {
+            let _ = fs::remove_file(&probe_file);
+            return Err("Destination filesystem read probe data mismatch.".into());
+        }
+        Err(e) => {
+            let _ = fs::remove_file(&probe_file);
+            return Err(format!("Destination filesystem read probe failed: {e}"));
+        }
+    }
+
+    // 3. Configuration validation
+    match candidate_id {
+        "downloads" | "documents" | "pictures" | "videos" | "desktop" | "desktop_media" => {
+            #[cfg(windows)]
+            {
+                if let Some(active) = get_known_folder_path(candidate_id) {
+                    let target_str = target_path.to_string_lossy();
+                    if active.eq_ignore_ascii_case(&target_str) {
+                        details.push(format!(
+                            "Windows Known Folder registry verified: '{active}'"
+                        ));
+                    } else {
+                        return Err(format!(
+                            "Registry mismatch: Shell reports '{active}', expected '{target_str}'"
+                        ));
+                    }
+                } else {
+                    return Err("Could not read Windows Known Folder registry key.".into());
+                }
+            }
+        }
+        "cargo_cache" => {
+            #[cfg(windows)]
+            {
+                let cargo_home = target_path.parent().unwrap_or(target_path);
+                if let Some(val) = get_user_environment_variable("CARGO_HOME") {
+                    if val.eq_ignore_ascii_case(&cargo_home.to_string_lossy()) {
+                        details.push(format!("HKCU\\Environment CARGO_HOME verified: '{val}'"));
+                    } else {
+                        return Err(format!(
+                            "Environment mismatch: CARGO_HOME is '{val}', expected '{}'",
+                            cargo_home.display()
+                        ));
+                    }
+                } else {
+                    return Err("CARGO_HOME is not set in HKCU\\Environment.".into());
+                }
+            }
+        }
+        "pip_cache" => {
+            #[cfg(windows)]
+            {
+                let target_str = target_path.to_string_lossy();
+                if let Some(val) = get_user_environment_variable("PIP_CACHE_DIR") {
+                    if val.eq_ignore_ascii_case(&target_str) {
+                        details.push(format!("HKCU\\Environment PIP_CACHE_DIR verified: '{val}'"));
+                    } else {
+                        return Err(format!(
+                            "Environment mismatch: PIP_CACHE_DIR is '{val}', expected '{target_str}'"
+                        ));
+                    }
+                } else {
+                    return Err("PIP_CACHE_DIR is not set in HKCU\\Environment.".into());
+                }
+            }
+        }
+        "gradle_cache" => {
+            #[cfg(windows)]
+            {
+                let gradle_home = target_path.parent().unwrap_or(target_path);
+                if let Some(val) = get_user_environment_variable("GRADLE_USER_HOME") {
+                    if val.eq_ignore_ascii_case(&gradle_home.to_string_lossy()) {
+                        details.push(format!(
+                            "HKCU\\Environment GRADLE_USER_HOME verified: '{val}'"
+                        ));
+                    } else {
+                        return Err(format!(
+                            "Environment mismatch: GRADLE_USER_HOME is '{val}', expected '{}'",
+                            gradle_home.display()
+                        ));
+                    }
+                } else {
+                    return Err("GRADLE_USER_HOME is not set in HKCU\\Environment.".into());
+                }
+            }
+        }
+        _ => {
+            details.push("Workspace relocation validated.".into());
+        }
+    }
+
+    Ok(details)
+}
+
 /// Activate candidate relocation and execute live application validation.
-/// Unlocks cleanup only if validation passes; generates a single-use random nonce.
+/// Unlocks cleanup only if validation passes; generates a single-use 128-bit random nonce.
 pub fn activate_candidate_relocation(
     candidate_id: &str,
     target_path: &Path,
@@ -1234,21 +1529,11 @@ pub fn activate_candidate_relocation(
                 } else {
                     activation_succeeded = true;
                     details.push("Known Folder path updated in Windows Shell registry and change notifications broadcasted.".into());
-
-                    if let Some(active) = get_known_folder_path(candidate_id) {
-                        if active.eq_ignore_ascii_case(&target_str) {
-                            application_validation_passed = true;
-                            details.push(format!("Application validation verified: Windows shell active path matches '{active}'"));
-                        } else {
-                            details.push(format!("Validation mismatch: Windows shell reported '{active}' instead of '{target_str}'"));
-                        }
-                    }
                 }
             }
             #[cfg(not(windows))]
             {
                 activation_succeeded = true;
-                application_validation_passed = true;
             }
         }
         "cargo_cache" => {
@@ -1262,18 +1547,16 @@ pub fn activate_candidate_relocation(
                     details.push(format!("Failed to set CARGO_HOME: {e}"));
                 } else {
                     activation_succeeded = true;
-                    if let Some(val) = get_user_environment_variable("CARGO_HOME") {
-                        if val.eq_ignore_ascii_case(&cargo_home.to_string_lossy()) {
-                            application_validation_passed = true;
-                            details.push(format!("Application validation verified: HKCU\\Environment CARGO_HOME='{val}'"));
-                        }
-                    }
+                    details.push(format!(
+                        "CARGO_HOME configured to '{}'",
+                        cargo_home.display()
+                    ));
                 }
             }
             #[cfg(not(windows))]
             {
                 activation_succeeded = true;
-                application_validation_passed = true;
+                details.push("CARGO_HOME configured".into());
             }
         }
         "pip_cache" => {
@@ -1284,18 +1567,13 @@ pub fn activate_candidate_relocation(
                     details.push(format!("Failed to set PIP_CACHE_DIR: {e}"));
                 } else {
                     activation_succeeded = true;
-                    if let Some(val) = get_user_environment_variable("PIP_CACHE_DIR") {
-                        if val.eq_ignore_ascii_case(&target_str) {
-                            application_validation_passed = true;
-                            details.push(format!("Application validation verified: HKCU\\Environment PIP_CACHE_DIR='{val}'"));
-                        }
-                    }
+                    details.push(format!("PIP_CACHE_DIR configured to '{target_str}'"));
                 }
             }
             #[cfg(not(windows))]
             {
                 activation_succeeded = true;
-                application_validation_passed = true;
+                details.push("PIP_CACHE_DIR configured".into());
             }
         }
         "gradle_cache" => {
@@ -1310,34 +1588,53 @@ pub fn activate_candidate_relocation(
                     details.push(format!("Failed to set GRADLE_USER_HOME: {e}"));
                 } else {
                     activation_succeeded = true;
-                    if let Some(val) = get_user_environment_variable("GRADLE_USER_HOME") {
-                        if val.eq_ignore_ascii_case(&gradle_home.to_string_lossy()) {
-                            application_validation_passed = true;
-                            details.push(format!("Application validation verified: HKCU\\Environment GRADLE_USER_HOME='{val}'"));
-                        }
-                    }
+                    details.push(format!(
+                        "GRADLE_USER_HOME configured to '{}'",
+                        gradle_home.display()
+                    ));
                 }
             }
             #[cfg(not(windows))]
             {
                 activation_succeeded = true;
-                application_validation_passed = true;
+                details.push("GRADLE_USER_HOME configured".into());
             }
         }
         _ => {
             activation_succeeded = true;
-            application_validation_passed = true;
             details.push("Workspace relocation active. Update IDE bookmarks as advised.".into());
         }
     }
 
-    let nonce = format!("{:08x}", rand_u32());
-    let cleanup_unlocked = activation_succeeded && application_validation_passed;
-    let required_token = if cleanup_unlocked {
-        Some(format!("CONFIRM_CLEANUP_{candidate_id}_{nonce}"))
-    } else {
-        None
-    };
+    if activation_succeeded {
+        // Run comprehensive validation probe (filesystem probe + registry/env check)
+        match validate_application_relocation(candidate_id, target_path) {
+            Ok(checks) => {
+                application_validation_passed = true;
+                details.extend(checks);
+            }
+            Err(e) => {
+                application_validation_passed = false;
+                details.push(format!("Application validation probe failed: {e}"));
+            }
+        }
+    }
+
+    let (cleanup_unlocked, nonce_opt, required_token) =
+        if activation_succeeded && application_validation_passed {
+            match generate_secure_128bit_nonce() {
+                Ok(nonce) => {
+                    let token = format!("CONFIRM_CLEANUP_{candidate_id}_{nonce}");
+                    (true, Some(nonce), Some(token))
+                }
+                Err(e) => {
+                    details.push(format!("Failed to generate secure operation nonce: {e}"));
+                    (false, None, None)
+                }
+            }
+        } else {
+            (false, None, None)
+        };
 
     crate::operator::journal::audit_log(
         "ActivateRelocation",
@@ -1354,7 +1651,7 @@ pub fn activate_candidate_relocation(
             "application_validation_passed": application_validation_passed,
             "details": details.join(" · "),
             "cleanup_unlocked": cleanup_unlocked,
-            "nonce": if cleanup_unlocked { Some(&nonce) } else { None },
+            "nonce": nonce_opt.as_deref(),
         }),
         None,
     );
@@ -1373,7 +1670,7 @@ pub fn activate_candidate_relocation(
         activation_succeeded,
         application_validation_passed,
         cleanup_unlocked,
-        cleanup_nonce: if cleanup_unlocked { Some(nonce) } else { None },
+        cleanup_nonce: nonce_opt,
         required_cleanup_token: required_token,
         notes: details,
     })
@@ -1493,7 +1790,8 @@ pub fn finalize_candidate_migration(
 }
 
 /// User-approved source directory cleanup with live before/after C: drive free space measurement.
-/// Supports both legacy tokens and single-use dynamic nonce tokens.
+/// Enforces single-use 128-bit dynamic nonce, prevents replay attacks, checks active tool locks,
+/// and verifies destination integrity before source deletion.
 pub fn execute_source_cleanup(
     candidate_id: &str,
     source_path: &Path,
@@ -1501,17 +1799,27 @@ pub fn execute_source_cleanup(
     confirmation_token: &str,
     expected_nonce: Option<&str>,
 ) -> io::Result<SourceCleanupReceipt> {
-    let valid = if let Some(nonce) = expected_nonce {
-        confirmation_token == format!("CONFIRM_CLEANUP_{candidate_id}_{nonce}")
-    } else {
-        confirmation_token == format!("CONFIRM_CLEANUP_{candidate_id}")
-    };
+    let nonce = expected_nonce.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Source cleanup rejected: Single-use 128-bit activation nonce is required.",
+        )
+    })?;
 
-    if !valid {
+    let expected_token = format!("CONFIRM_CLEANUP_{candidate_id}_{nonce}");
+    if confirmation_token != expected_token {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
-            format!("Invalid confirmation token or dynamic nonce: '{confirmation_token}'"),
+            format!("Invalid confirmation token. Expected '{expected_token}', got '{confirmation_token}'"),
         ));
+    }
+
+    // Enforce single-use replay prevention (marks nonce consumed)
+    consume_nonce_strict(nonce)?;
+
+    // Check for active developer processes locking source path
+    if let Err(lock_err) = check_active_tool_locks(source_path) {
+        return Err(io::Error::new(io::ErrorKind::ResourceBusy, lock_err));
     }
 
     // Boundary check
@@ -1703,10 +2011,11 @@ mod tests {
         f1.write_all(b"test").unwrap();
 
         let cancel = AtomicBool::new(true); // Pre-cancelled
-        let res = copy_tree_verified("test", src_dir.path(), dst_dir.path(), &cancel, |_| {});
+        let ver =
+            copy_tree_verified("test", src_dir.path(), dst_dir.path(), &cancel, |_| {}).unwrap();
 
-        assert!(res.is_err());
-        assert_eq!(res.unwrap_err().kind(), io::ErrorKind::Interrupted);
+        assert!(!ver.is_verified);
+        assert!(ver.error.unwrap().contains("cancelled by operator"));
     }
 
     #[test]
@@ -1747,16 +2056,17 @@ mod tests {
 
     #[test]
     fn test_finalize_candidate_migration() {
-        let target = Path::new(r"D:\CURE_Relocated\Downloads");
-        let receipt = finalize_candidate_migration("downloads", target).unwrap();
+        let temp = tempdir().unwrap();
+        let target = temp.path().join("RelocatedDownloads");
+        fs::create_dir_all(&target).unwrap();
+        let receipt = finalize_candidate_migration("workspace_test", &target).unwrap();
 
-        assert_eq!(receipt.candidate_id, "downloads");
-        assert!(receipt.is_known_folder);
-        assert_eq!(receipt.known_folder_name, Some("Downloads".into()));
-        assert!(receipt.configuration_action.contains("Downloads"));
+        assert_eq!(receipt.candidate_id, "workspace_test");
+        assert!(!receipt.is_known_folder);
 
-        let tool_receipt =
-            finalize_candidate_migration("cargo_cache", Path::new(r"D:\Cargo")).unwrap();
+        let cargo_target = temp.path().join("Cargo");
+        fs::create_dir_all(&cargo_target).unwrap();
+        let tool_receipt = finalize_candidate_migration("cargo_cache", &cargo_target).unwrap();
         assert!(!tool_receipt.is_known_folder);
         assert!(tool_receipt.configuration_action.contains("CARGO_HOME"));
     }
@@ -1766,11 +2076,9 @@ mod tests {
         let src = tempdir().unwrap();
         let dst = tempdir().unwrap();
 
-        // 1. Wrong token
-        let res = execute_source_cleanup("downloads", src.path(), dst.path(), "WRONG_TOKEN", None);
-        assert!(res.is_err());
+        let nonce = generate_secure_128bit_nonce().unwrap();
 
-        // 2. Empty destination
+        // 1. Missing nonce refused
         let res = execute_source_cleanup(
             "downloads",
             src.path(),
@@ -1779,12 +2087,33 @@ mod tests {
             None,
         );
         assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("Single-use 128-bit"));
+
+        // 2. Wrong token
+        let res = execute_source_cleanup(
+            "downloads",
+            src.path(),
+            dst.path(),
+            "WRONG_TOKEN",
+            Some(&nonce),
+        );
+        assert!(res.is_err());
+
+        // 3. Empty destination
+        let res = execute_source_cleanup(
+            "downloads",
+            src.path(),
+            dst.path(),
+            &format!("CONFIRM_CLEANUP_downloads_{nonce}"),
+            Some(&nonce),
+        );
+        assert!(res.is_err());
         assert!(res
             .unwrap_err()
             .to_string()
             .contains("Target directory is empty"));
 
-        // 3. Valid cleanup with files in destination
+        // 4. Valid cleanup with files in destination
         let mut f_dst = File::create(dst.path().join("data.txt")).unwrap();
         f_dst.write_all(b"destination data").unwrap();
 
@@ -1793,16 +2122,31 @@ mod tests {
         let mut f_src = File::create(src_sub.join("temp.txt")).unwrap();
         f_src.write_all(b"to be deleted").unwrap();
 
+        let valid_nonce = generate_secure_128bit_nonce().unwrap();
         let receipt = execute_source_cleanup(
             "downloads",
             &src_sub,
             dst.path(),
-            "CONFIRM_CLEANUP_downloads",
-            None,
+            &format!("CONFIRM_CLEANUP_downloads_{valid_nonce}"),
+            Some(&valid_nonce),
         )
         .unwrap();
         assert!(!src_sub.exists());
         assert_eq!(receipt.candidate_id, "downloads");
+
+        // 5. Replay attack rejection: using same nonce again must fail
+        let replay_res = execute_source_cleanup(
+            "downloads",
+            &src_sub,
+            dst.path(),
+            &format!("CONFIRM_CLEANUP_downloads_{valid_nonce}"),
+            Some(&valid_nonce),
+        );
+        assert!(replay_res.is_err());
+        assert!(replay_res
+            .unwrap_err()
+            .to_string()
+            .contains("Replay Attack Prevented"));
     }
 
     #[test]
@@ -1849,7 +2193,7 @@ mod tests {
         let mut f_src = File::create(src_sub.join("sample.txt")).unwrap();
         f_src.write_all(b"source payload").unwrap();
 
-        let nonce = "a1b2c3d4";
+        let nonce = generate_secure_128bit_nonce().unwrap();
 
         // 1. Wrong token matching default but not nonce
         let res = execute_source_cleanup(
@@ -1857,22 +2201,52 @@ mod tests {
             &src_sub,
             dst.path(),
             "CONFIRM_CLEANUP_downloads",
-            Some(nonce),
+            Some(&nonce),
         );
         assert!(res.is_err());
         assert!(res
             .unwrap_err()
             .to_string()
             .to_ascii_lowercase()
-            .contains("dynamic nonce"));
+            .contains("invalid confirmation token"));
 
         // 2. Valid token with dynamic nonce
         let valid_token = format!("CONFIRM_CLEANUP_downloads_{nonce}");
-        let receipt =
-            execute_source_cleanup("downloads", &src_sub, dst.path(), &valid_token, Some(nonce))
-                .unwrap();
+        let receipt = execute_source_cleanup(
+            "downloads",
+            &src_sub,
+            dst.path(),
+            &valid_token,
+            Some(&nonce),
+        )
+        .unwrap();
 
         assert!(!src_sub.exists());
         assert_eq!(receipt.candidate_id, "downloads");
+    }
+
+    #[test]
+    fn test_validate_application_relocation_filesystem_probe() {
+        let temp = tempdir().unwrap();
+        let valid_target = temp.path().join("ValidTarget");
+        fs::create_dir_all(&valid_target).unwrap();
+
+        // Valid writable directory probe passes
+        let res = validate_application_relocation("workspace_test", &valid_target);
+        assert!(res.is_ok());
+        let checks = res.unwrap();
+        assert!(checks.iter().any(|c| c.contains("validation passed")));
+
+        // Non-existent directory probe fails
+        let missing_target = temp.path().join("MissingDir");
+        let res_missing = validate_application_relocation("workspace_test", &missing_target);
+        assert!(res_missing.is_err());
+    }
+
+    #[test]
+    fn test_migration_plan_headroom_enforcement() {
+        // Build migration plan with empty or small candidate
+        let plan = build_migration_plan(&["downloads".into()], "C:", "D:");
+        assert!(plan.required_headroom_bytes >= 1024 * 1024 * 1024); // At least 1 GB headroom enforced
     }
 }

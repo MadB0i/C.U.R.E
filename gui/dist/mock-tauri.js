@@ -2456,6 +2456,7 @@
             const candId = (args && (args.candidate_id || args.candidateId)) || "downloads";
             const tgtPath = (args && (args.target_path || args.targetPath)) || "D:\\CURE_Relocated\\Downloads";
             const isKnown = ["downloads", "documents", "pictures", "videos", "desktop"].includes(candId.toLowerCase());
+            const nonce = "b7e419a2e3f1c508d92a47b610c3e5a7";
             return Promise.resolve({
               candidate_id: candId,
               target_path: tgtPath,
@@ -2468,13 +2469,14 @@
               application_validation_passed: true,
               activation_succeeded: true,
               cleanup_unlocked: true,
-              cleanup_nonce: "b7e419a2",
-              required_cleanup_token: `CONFIRM_CLEANUP_${candId}_b7e419a2`,
+              cleanup_nonce: nonce,
+              required_cleanup_token: `CONFIRM_CLEANUP_${candId}_${nonce}`,
               notes: [
                 "Target path verified accessible and writable.",
+                "Destination filesystem write/read probe validated.",
                 "Configuration repointed successfully.",
                 "Application validation confirmed: path resolves to relocated destination.",
-                "Source cleanup gate unlocked with dynamic verification token.",
+                "Source cleanup gate unlocked with 128-bit dynamic verification token.",
               ],
             });
           }
@@ -2489,7 +2491,7 @@
               notes: [
                 "Restored registry / environment variable to original path.",
                 "Application resolution verified against original path.",
-                "Relocation status cleared.",
+                "Relocation status cleared and issued nonces revoked.",
               ],
             });
           }
@@ -2497,8 +2499,8 @@
             const candId = (args && (args.candidate_id || args.candidateId)) || "downloads";
             const srcPath = (args && (args.source_path || args.sourcePath)) || "C:\\Users\\Operator\\Downloads";
             const token = (args && (args.confirmation_token || args.confirmationToken)) || "";
-            const expectedNonce = (args && (args.expected_nonce || args.expectedNonce)) || "b7e419a2";
-            if (!token.startsWith(`CONFIRM_CLEANUP_${candId}`)) {
+            const expectedNonce = (args && (args.expected_nonce || args.expectedNonce)) || "b7e419a2e3f1c508d92a47b610c3e5a7";
+            if (token !== `CONFIRM_CLEANUP_${candId}_${expectedNonce}`) {
               return Promise.reject(new Error(`Invalid confirmation token. Expected 'CONFIRM_CLEANUP_${candId}_${expectedNonce}'`));
             }
             return Promise.resolve({
@@ -2616,25 +2618,29 @@
             const p = (args && (args.file_path || args.filePath)) || "C:\\test.exe";
             const isThreat = p.toLowerCase().includes("threat") || p.toLowerCase().includes("malware");
             return Promise.resolve({
-              exit_code: isThreat ? 2 : 0,
-              threats_found: isThreat,
-              raw_output: isThreat 
-                ? "MpCmdRun: Threat detected in file. [Threat: Trojan:Win32/SampleMasquerade.A]"
-                : "MpCmdRun: Scan finished. No threats were found.",
-              scanned_path: p,
-              engine_status: isThreat ? "THREAT_DETECTED" : "CLEAN",
-              is_read_only: true,
+              target_path: p,
+              outcome: isThreat ? "threat_detected_audit" : "clean_no_threats",
+              status: isThreat
+                ? "Threat detected by Defender signatures (-DisableRemediation was active; file remains untouched)."
+                : "Clean: Windows Defender scanned the file and detected no threats.",
+              return_code: isThreat ? 2 : 0,
+              threat_detected: isThreat,
+              detected_threats: isThreat ? ["Trojan:Win32/SampleMasquerade.A"] : [],
+              raw_output: isThreat
+                ? "Scan starting...\nLIST OF DETECTED THREATS\nThreat : Trojan:Win32/SampleMasquerade.A\nResources : " + p + "\nScan finished."
+                : "Scan starting...\nScan finished.\nScanning " + p + " found no threats.",
             });
           }
           case "operator_defender_contain": {
             const p = (args && (args.file_path || args.filePath)) || "C:\\test.exe";
             return Promise.resolve({
-              exit_code: 0,
-              threats_found: true,
-              raw_output: "MpCmdRun: Threat remediated and quarantined by Microsoft Defender Antivirus.",
-              scanned_path: p,
-              engine_status: "CONTAINED",
-              is_read_only: false,
+              target_path: p,
+              outcome: "threat_remediated",
+              status: "Threat remediated: Target file quarantined by Windows Defender.",
+              return_code: 0,
+              threat_detected: true,
+              detected_threats: ["Trojan:Win32/SampleMasquerade.A"],
+              raw_output: "Scan starting...\nLIST OF DETECTED THREATS\nThreat : Trojan:Win32/SampleMasquerade.A\nRemediation successful.\nScan finished.",
             });
           }
           case "operator_verify_audit_journal": {
