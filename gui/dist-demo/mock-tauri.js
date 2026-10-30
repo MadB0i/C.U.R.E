@@ -108,8 +108,12 @@
             i,
           risk: "Safe",
           score: 0,
-          reasons: [
-            "-20 command path is a trusted install location (Program Files/System32)",
+          evidence: [
+            {
+              level: "Observed",
+              detail:
+                "-20 command path is a trusted install location (Program Files/System32)",
+            },
           ],
         });
       }
@@ -132,9 +136,16 @@
             location: STARTUP_DIR + base + ".bat",
             risk: "HighRisk",
             score: 55,
-            reasons: [
-              "+30 command path sits in a temp/downloads/public drop zone",
-              "+25 entry name looks randomly generated",
+            evidence: [
+              {
+                level: "Observed",
+                detail:
+                  "+30 command path sits in a temp/downloads/public drop zone",
+              },
+              {
+                level: "Observed",
+                detail: "+25 entry name looks randomly generated",
+              },
             ],
           };
           break;
@@ -149,8 +160,12 @@
               base,
             risk: "Safe",
             score: 0,
-            reasons: [
-              "-20 command path is a trusted install location (Program Files/System32)",
+            evidence: [
+              {
+                level: "Observed",
+                detail:
+                  "-20 command path is a trusted install location (Program Files/System32)",
+              },
             ],
           };
           break;
@@ -162,8 +177,11 @@
             location: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
             risk: "Safe",
             score: 10,
-            reasons: [
-              "+10 executable runs directly from a user profile folder",
+            evidence: [
+              {
+                level: "Observed",
+                detail: "+10 executable runs directly from a user profile folder",
+              },
             ],
           };
           break;
@@ -179,9 +197,13 @@
               "C:\\Windows\\System32\\Tasks\\EvilCorp\\" + base + "Persist.xml",
             risk: "HighRisk",
             score: 70,
-            reasons: [
-              "+30 command path sits in a temp/downloads/public drop zone",
-              "+40 Invalid Signature",
+            evidence: [
+              {
+                level: "Observed",
+                detail:
+                  "+30 command path sits in a temp/downloads/public drop zone",
+              },
+              { level: "Observed", detail: "+40 Invalid Signature" },
             ],
           };
           break;
@@ -196,8 +218,12 @@
             location: STARTUP_DIR + base + "Check.lnk",
             risk: "Suspicious",
             score: 30,
-            reasons: [
-              "+25 PowerShell invoked with encoded command or hidden window",
+            evidence: [
+              {
+                level: "Observed",
+                detail:
+                  "+25 PowerShell invoked with encoded command or hidden window",
+              },
             ],
           };
           break;
@@ -212,17 +238,25 @@
             location: "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
             risk: "HighRisk",
             score: 30,
-            reasons: [
-              "+30 command path sits in a temp/downloads/public drop zone",
-              "Known Malware Hash",
+            evidence: [
+              {
+                level: "Observed",
+                detail:
+                  "+30 command path sits in a temp/downloads/public drop zone",
+              },
+              { level: "Observed", detail: "Known Malware Hash" },
             ],
           };
       }
       if (window.__CURE_MOCK_ALL_SAFE) {
         item.risk = "Safe";
         item.score = 0;
-        item.reasons = [
-          "-20 command path is a trusted install location (Program Files/System32)",
+        item.evidence = [
+          {
+            level: "Observed",
+            detail:
+              "-20 command path is a trusted install location (Program Files/System32)",
+          },
         ];
       }
       item.id = "mock-item-" + i;
@@ -243,7 +277,12 @@
       },
       score: item.score,
       risk: item.risk,
-      reasons: item.reasons || [],
+      // __CURE_MOCK_LEGACY_EVIDENCE simulates a pre-evidence payload:
+      // findings carry no evidence list at all, so the UI must show its
+      // explicit "Legacy report: evidence not recorded" state.
+      evidence: window.__CURE_MOCK_LEGACY_EVIDENCE
+        ? []
+        : item.evidence || [],
       attack: MOCK_ATTACK[source] || { id: "", name: "" },
     };
   }
@@ -1575,7 +1614,10 @@
             "C:\\Users\\test\\AppData\\Local\\Temp\\suspicious_loader.exe",
           score: 62,
           risk: "HighRisk",
-          reasons: ["Unsigned binary", "Random name"],
+          evidence: [
+            { level: "Observed", detail: "Unsigned binary" },
+            { level: "Observed", detail: "Random name" },
+          ],
         },
         {
           name: "unknown_tool.exe",
@@ -1583,7 +1625,10 @@
           exe_path: "C:\\Users\\test\\Downloads\\unknown_tool.exe",
           score: 41,
           risk: "HighRisk",
-          reasons: ["Profile exe", "Unsigned Binary"],
+          evidence: [
+            { level: "Observed", detail: "Profile exe" },
+            { level: "Observed", detail: "Unsigned Binary" },
+          ],
         },
         {
           name: "helper.dll",
@@ -1591,7 +1636,7 @@
           exe_path: "C:\\ProgramData\\helper.dll",
           score: 22,
           risk: "Suspicious",
-          reasons: ["Unsigned Binary"],
+          evidence: [{ level: "Observed", detail: "Unsigned Binary" }],
         },
       ];
       var sweepRansom = [
@@ -1628,6 +1673,258 @@
     return result;
   }
 
+  const MOCK_AGENT_WORKSPACE = "C:\\Projects\\cure-demo-app";
+
+  function mockAgentSession() {
+    const now = Math.floor(Date.now() / 1000);
+    const events = [
+      {
+        seq: 1,
+        at_unix: now - 84,
+        kind: "created",
+        path: "src/lib/agent-radar.ts",
+        from_path: null,
+        size_before: null,
+        size_after: 4820,
+        source: "directory_watcher",
+        confidence: "correlated",
+        agents: ["opencode"],
+        note: "Filesystem change observed while a supported agent process was present. Correlation is not attribution.",
+      },
+      {
+        seq: 2,
+        at_unix: now - 67,
+        kind: "modified",
+        path: "src/App.tsx",
+        from_path: null,
+        size_before: 6144,
+        size_after: 7188,
+        source: "directory_watcher",
+        confidence: "correlated",
+        agents: ["opencode"],
+        note: "Filesystem change observed while a supported agent process was present. Correlation is not attribution.",
+      },
+      {
+        seq: 3,
+        at_unix: now - 51,
+        kind: "modified",
+        path: "package.json",
+        from_path: null,
+        size_before: 1890,
+        size_after: 1962,
+        source: "directory_watcher",
+        confidence: "correlated",
+        agents: ["opencode"],
+        note: "Filesystem change observed while a supported agent process was present. Correlation is not attribution.",
+      },
+      {
+        seq: 4,
+        at_unix: now - 38,
+        kind: "renamed",
+        path: "docs/agent-notes.md",
+        from_path: "docs/notes.md",
+        size_before: 2048,
+        size_after: 2048,
+        source: "directory_watcher",
+        confidence: "correlated",
+        agents: ["opencode"],
+        note: "Rename was observed from the watcher's old/new pair. Correlation is not attribution.",
+      },
+      {
+        seq: 5,
+        at_unix: now - 24,
+        kind: "removed",
+        path: "src/legacy/panel.tsx",
+        from_path: null,
+        size_before: 3911,
+        size_after: null,
+        source: "directory_watcher",
+        confidence: "observed",
+        agents: [],
+        note: "Filesystem change observed after the agent process sample no longer contained a supported agent.",
+      },
+      {
+        seq: 6,
+        at_unix: now - 9,
+        kind: "modified",
+        path: ".gitignore",
+        from_path: null,
+        size_before: 410,
+        size_after: 438,
+        source: "snapshot_reconciliation",
+        confidence: "correlated",
+        agents: ["opencode"],
+        note: "Change recovered by final snapshot reconciliation. Correlation is not attribution.",
+      },
+    ];
+    return {
+      id: "session-demo-1",
+      workspace: MOCK_AGENT_WORKSPACE,
+      started_unix: now - 96,
+      ended_unix: null,
+      active: true,
+      files_at_start: 284,
+      events: events,
+      agents_seen: ["opencode"],
+      coverage: {
+        baseline_captured: true,
+        baseline_truncated: false,
+        baseline_files: 284,
+        unreadable_dirs: 0,
+        skipped_links: 0,
+        watcher_started: true,
+        overflow_batches: 0,
+        dropped_events: 0,
+        snapshot_reconciled: false,
+        complete: true,
+        note: "",
+      },
+    };
+  }
+
+  const mockAgent = {
+    session: null,
+    last: null,
+    windows: null,
+    snapshotAt: null,
+    snapshotEntries: 0,
+  };
+
+  function mockAgentRadar() {
+    const opencodeProcess = {
+      pid: 6214,
+      name: "opencode.exe",
+      exe_path: "C:\\Users\\demo\\AppData\\Local\\Programs\\opencode\\opencode.exe",
+      started_unix: Math.floor(Date.now() / 1000) - 420,
+      identity: "Verified",
+      identity_label: "verified tool identity (canonical path / verified signer)",
+    };
+    const active = mockAgent.session && mockAgent.session.active;
+    return {
+      generated_unix: Math.floor(Date.now() / 1000),
+      detected_count: 1,
+      supported_agents: [
+        {
+          id: "opencode",
+          label: "OpenCode",
+          detected: true,
+          process_count: 1,
+          state: active ? "session_connected" : "idle",
+          state_label: active ? "Present during session" : "Present / idle",
+          state_note: active
+            ? "The process was present in the latest sample. Presence does not prove code generation."
+            : "The process is present but has not been correlated with a recorded change in this session.",
+          integration_note:
+            "Supported local integration: process image name only. No session API is consumed.",
+          processes: [opencodeProcess],
+        },
+        {
+          id: "codex_cli",
+          label: "Codex CLI",
+          detected: false,
+          process_count: 0,
+          state: "not_detected",
+          state_label: "Not detected",
+          state_note: "No process with a documented Codex CLI image name appeared in this sample.",
+          integration_note:
+            "Supported local integration: process image name only. No session API is consumed.",
+          processes: [],
+        },
+      ],
+      processes: [opencodeProcess],
+      monitoring: active ? mockAgent.session : null,
+      windows: mockAgent.windows,
+      workspace: active ? MOCK_AGENT_WORKSPACE : mockAgent.last ? mockAgent.last.workspace : null,
+      notes: [
+        "A running process does not prove that an agent is generating code or executing tasks.",
+        "Synthetic demo data. No process on this machine is inspected.",
+      ],
+    };
+  }
+
+  function mockAgentCaseFile(summary, includeSummary) {
+    const session = mockAgent.last || mockAgent.session;
+    if (!session) throw new Error("Run and stop a monitoring session before building a case file.");
+    /* The demo note is intentionally plain: a note with path-like or
+       credential-like text is withheld by the real sanitizer, and this
+       sample only mirrors that boundary when it is obvious. */
+    const looksPrivate = /(?:[A-Za-z]:\\|\\Users\\|@|token|password|secret)/i.test(summary || "");
+    const note = includeSummary && summary && !looksPrivate ? String(summary).slice(0, 160) : null;
+    const ends = session.ended_unix || Math.floor(Date.now() / 1000);
+    const counts = session.events.reduce(
+      function (acc, e) {
+        acc.total += 1;
+        acc[e.kind] = (acc[e.kind] || 0) + 1;
+        return acc;
+      },
+      { total: 0 },
+    );
+    return {
+      case_id: "8f2a1c7d",
+      kind: "agent_session",
+      title: "AGENT SESSION CASE",
+      generated_unix: ends,
+      agent_label: "OpenCode",
+      agent_presence: "A supported agent process was observed during the session.",
+      observation_seconds: Math.max(1, ends - session.started_unix),
+      observation_label: Math.max(1, ends - session.started_unix) + "s",
+      changes_total: counts.total,
+      created: counts.created || 0,
+      modified: counts.modified || 0,
+      removed: counts.removed || 0,
+      renamed: counts.renamed || 0,
+      storage_delta_bytes: 4097,
+      storage_delta_label: "+4.0 KB",
+      storage_note: "Net metadata size change across observed events, not verified free space.",
+      confidence_label: "Correlated, not attributed",
+      confidence_note:
+        "Changes happened while a supported agent process was present. Presence does not establish causation.",
+      completeness: session.coverage.complete
+        ? "Complete within recorder limits"
+        : "Incomplete coverage",
+      coverage_note: session.coverage.complete
+        ? "Baseline and watcher coverage were complete within the recorder's documented limits."
+        : session.coverage.note,
+      observed_events: 1,
+      correlated_events: 5,
+      unknown_events: 0,
+      windows_added: mockAgent.windows ? (mockAgent.windows.added || []).length : 0,
+      windows_removed: mockAgent.windows ? (mockAgent.windows.removed || []).length : 0,
+      windows_changed: mockAgent.windows ? (mockAgent.windows.changed || []).length : 0,
+      windows_note: mockAgent.windows
+        ? "Windows persistence differences are review leads, not malware verdicts."
+        : "No Windows persistence comparison was included.",
+      reconciliation_used: true,
+      summary: note,
+      summary_withheld: !!(includeSummary && summary && looksPrivate),
+      demo: true,
+    };
+  }
+
+  function mockWindowsItem(status, name, source, hint) {
+    return {
+      status: status,
+      source: source,
+      source_label:
+        source === "registry_run"
+          ? "Registry Run key"
+          : source === "startup_folder"
+            ? "Startup folder"
+            : source === "scheduled_task"
+              ? "Scheduled task"
+              : "Windows service",
+      name: name,
+      location_before: null,
+      location_after: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+      command_before: null,
+      command_after: "C:\\Projects\\cure-demo-app\\tools\\preview.exe --agent-demo",
+      review_hints: [hint],
+      evidence: "Observed in the supported persistence inventory. This is a review lead.",
+    };
+  }
+
+
+  
   window.__TAURI__ = {
     core: {
       invoke(command, args) {
@@ -1990,7 +2287,7 @@
                     exe_path: "",
                     score: 0,
                     risk: "HighRisk",
-                    reasons: [],
+                    evidence: [],
                   });
                 }
               });
@@ -2019,6 +2316,131 @@
           case "canary_status":
             return delay(20).then(function () {
               return { active: false, alert_count: 0 };
+            });
+          case "agent_radar":
+            return delay(120).then(function () {
+              return mockAgentRadar();
+            });
+          case "flight_start": {
+            const requested = String((args && args.workspace) || "").trim();
+            if (!requested) {
+              return Promise.reject(new Error("Choose an existing workspace directory to monitor."));
+            }
+            if (mockAgent.session && mockAgent.session.active) {
+              return Promise.reject(
+                new Error("A monitoring session is already active. Stop it before starting another."),
+              );
+            }
+            const session = mockAgentSession();
+            session.workspace = requested;
+            mockAgent.session = session;
+            mockAgent.last = session;
+            setTimeout(function () {
+              emit("flight-update", {});
+            }, 250);
+            return delay(320).then(function () {
+              return session;
+            });
+          }
+          case "flight_status":
+            return delay(40).then(function () {
+              return mockAgent.session || mockAgent.last;
+            });
+          case "flight_stop": {
+            const session = mockAgent.session || mockAgent.last;
+            if (!session) {
+              return Promise.reject(new Error("No monitoring session is active."));
+            }
+            const ended = Math.floor(Date.now() / 1000);
+            session.active = false;
+            session.ended_unix = Math.max(ended, session.started_unix + 1);
+            session.coverage.snapshot_reconciled = true;
+            mockAgent.session = null;
+            mockAgent.last = session;
+            setTimeout(function () {
+              emit("flight-update", {});
+            }, 60);
+            return delay(260).then(function () {
+              return session;
+            });
+          }
+          case "windows_change_capture": {
+            const prior = mockAgent.snapshotAt;
+            mockAgent.snapshotAt = Math.floor(Date.now() / 1000);
+            mockAgent.snapshotEntries = 128;
+            mockAgent.windows = null;
+            return delay(280).then(function () {
+              return {
+                saved_at_unix: mockAgent.snapshotAt,
+                entry_count: mockAgent.snapshotEntries,
+                previous_saved_at_unix: prior,
+                path: "C:\\mock\\data\\agents\\windows-snapshot.json",
+                note: prior
+                  ? "Trusted snapshot replaced. Future comparisons use this timestamp."
+                  : "First trusted snapshot captured. Future comparisons use this timestamp.",
+              };
+            });
+          }
+          case "windows_change_compare": {
+            if (!mockAgent.snapshotAt) {
+              const empty = {
+                compared_unix: Math.floor(Date.now() / 1000),
+                snapshot_saved_at_unix: null,
+                entries_before: 0,
+                entries_after: 128,
+                added: [],
+                removed: [],
+                changed: [],
+                complete: false,
+                note: "No trusted snapshot is stored. Capture a snapshot before making changes.",
+              };
+              mockAgent.windows = empty;
+              return delay(160).then(function () {
+                return empty;
+              });
+            }
+            const added = [
+              mockWindowsItem(
+                "added",
+                "CureDemoPreview",
+                "registry_run",
+                "New Run entry references a path outside Program Files. Review the executable before trusting it.",
+              ),
+            ];
+            const changed = [
+              mockWindowsItem(
+                "changed",
+                "AcmeAgentHelper",
+                "startup_folder",
+                "The launcher command changed. Verify the new target; a change alone is not a verdict.",
+              ),
+            ];
+            const result = {
+              compared_unix: Math.floor(Date.now() / 1000),
+              snapshot_saved_at_unix: mockAgent.snapshotAt,
+              entries_before: mockAgent.snapshotEntries,
+              entries_after: 130,
+              added: added,
+              removed: [],
+              changed: changed,
+              complete: true,
+              note: "Differences are review leads, not malware verdicts.",
+            };
+            mockAgent.windows = result;
+            return delay(240).then(function () {
+              return result;
+            });
+          }
+          case "agent_case_file":
+            return delay(120).then(function () {
+              return mockAgentCaseFile(
+                String((args && args.summary) || ""),
+                !!(args && args.includeSummary),
+              );
+            });
+                    case "export_agent_case_file":
+            return delay(50).then(function () {
+              return "C:\\Users\\demo\\.cure\\exports\\case-demo." + (args && args.format || "md");
             });
           default:
             return Promise.reject(

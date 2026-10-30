@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::evidence::Evidence;
 use crate::hash_intel::ThreatIntelProvider;
 use crate::model::{AttackInfo, PersistenceEntry, PersistenceSource, RiskLevel, ScoredEntry};
 use crate::signature::SignatureStatus;
@@ -113,7 +114,8 @@ pub fn score_entry(entry: &PersistenceEntry, exe_path: Option<&Path>) -> ScoredE
     score_with_signals(entry, signature, hash_match.as_deref())
 }
 
-/// Reason text for a hash-IOC hit: verdict + feed provenance + description.
+/// Evidence detail text for a hash-IOC hit: verdict + feed provenance +
+/// description.
 ///
 /// The description comes from the IOC list (fixture data today); it is shown
 /// — capped — so the operator can judge evidence quality instead of staring
@@ -187,7 +189,7 @@ fn score_with_expander(
     expand: &dyn Fn(&str) -> String,
 ) -> ScoredEntry {
     let mut score: i32 = 0;
-    let mut reasons: Vec<String> = Vec::new();
+    let mut evidence: Vec<Evidence> = Vec::new();
 
     // F-LOLBIN-1: expand `%VAR%` across the WHOLE command line (program and
     // arguments alike) before any heuristic sees it, so `%TEMP%\payload.exe`
@@ -225,68 +227,86 @@ fn score_with_expander(
         is_lolbin_program(&program_norm) && (drop_zone || sneaky_powershell || remote_arg);
     let trusted_effective = trusted && !discounts_suppressed;
     if discounts_suppressed {
-        reasons.push("script host with suspicious arguments: trust discounts withheld".to_string());
+        evidence.push(Evidence::observed(
+            "script host with suspicious arguments: trust discounts withheld",
+        ));
     }
 
     if drop_zone {
         score += 30;
-        reasons.push("+30 command path sits in a temp/downloads/public drop zone".to_string());
+        evidence.push(Evidence::observed(
+            "+30 command path sits in a temp/downloads/public drop zone",
+        ));
     }
     if trusted_effective {
         score -= 20;
-        reasons.push(
-            "-20 command path is a trusted install location (Program Files/System32)".to_string(),
-        );
+        evidence.push(Evidence::observed(
+            "-20 command path is a trusted install location (Program Files/System32)",
+        ));
     }
 
     if looks_randomized(&entry.name) && entry.source != PersistenceSource::ComHijack {
         // COM finding names are CLSID GUIDs by construction — every one of
         // them "looks random", so the heuristic must not fire there.
         score += 25;
-        reasons.push("+25 entry name looks randomly generated".to_string());
+        evidence.push(Evidence::observed(
+            "+25 entry name looks randomly generated",
+        ));
     }
 
     // COM TreatAs redirections point at another class GUID, not a path:
     // evidence only, never scored (a bare GUID is not a program).
     if entry.source == PersistenceSource::ComHijack && is_bare_guid(&entry.command) {
-        reasons.push("COM class redirection target (TreatAs)".to_string());
+        evidence.push(Evidence::observed("COM class redirection target (TreatAs)"));
     }
     if sneaky_powershell {
         score += 25;
-        reasons.push("+25 PowerShell invoked with encoded command or hidden window".to_string());
+        evidence.push(Evidence::observed(
+            "+25 PowerShell invoked with encoded command or hidden window",
+        ));
     }
 
     if remote_arg {
         score += 25;
-        reasons.push("+25 script host invoked with remote argument (URL/UNC)".to_string());
+        evidence.push(Evidence::observed(
+            "+25 script host invoked with remote argument (URL/UNC)",
+        ));
     }
 
     let profile_exe =
         program_norm.ends_with(".exe") && program_norm.contains("/users/") && !trusted_effective;
     if profile_exe {
         score += 10;
-        reasons.push("+10 executable runs directly from a user profile folder".to_string());
+        evidence.push(Evidence::observed(
+            "+10 executable runs directly from a user profile folder",
+        ));
     }
 
     // --- Detection Engine v2: binary reputation signals ---
     // Applied after heuristics so the unsigned penalty can see whether
-    // other warning signs are already on the board. Reason strings double
+    // other warning signs are already on the board. Evidence details double
     // as GUI chip tags — keep them short (see app.js reasonChipLabel).
     match signature {
         // F-LOLBIN-1: the Valid discount is withheld for script hosts with
         // suspicious arguments (already noted above); the binary is still
         // scored on its heuristics alone.
         SignatureStatus::ValidSigned if !discounts_suppressed => {
-            reasons.push(format!("-{SIGNED_DISCOUNT} Valid Signature"));
+            evidence.push(Evidence::observed(format!(
+                "-{SIGNED_DISCOUNT} Valid Signature"
+            )));
             score -= SIGNED_DISCOUNT;
         }
         SignatureStatus::ValidSigned => {}
         SignatureStatus::Invalid => {
-            reasons.push(format!("+{INVALID_SIGNATURE_PENALTY} Invalid Signature"));
+            evidence.push(Evidence::observed(format!(
+                "+{INVALID_SIGNATURE_PENALTY} Invalid Signature"
+            )));
             score += INVALID_SIGNATURE_PENALTY;
         }
         SignatureStatus::Unsigned if score > 0 => {
-            reasons.push(format!("+{UNSIGNED_WITH_WARNINGS_PENALTY} Unsigned Binary"));
+            evidence.push(Evidence::observed(format!(
+                "+{UNSIGNED_WITH_WARNINGS_PENALTY} Unsigned Binary"
+            )));
             score += UNSIGNED_WITH_WARNINGS_PENALTY;
         }
         SignatureStatus::ValidRevocationUnknown => {
@@ -295,7 +315,9 @@ fn score_with_expander(
             // a penalty. Worded to avoid the GUI's "valid signature" chip
             // matcher (see app.js reasonChipLabel) — this must not render
             // as a trust chip.
-            reasons.push("signed but revocation unverified (offline)".to_string());
+            evidence.push(Evidence::observed(
+                "signed but revocation unverified (offline)",
+            ));
         }
         SignatureStatus::Unsigned | SignatureStatus::Unknown => {}
     }
@@ -304,7 +326,7 @@ fn score_with_expander(
         entry: entry.clone(),
         score: score.max(0),
         risk: RiskLevel::Safe,
-        reasons,
+        evidence,
         attack: attack_info_for(&entry.source),
     };
     scored.risk = risk_level(scored.score);
@@ -313,7 +335,9 @@ fn score_with_expander(
         // Precedence 1: exact IOC match beats every heuristic, even a valid
         // signature (signed malware exists). Provenance + description shown
         // so the operator sees WHAT matched and from WHICH feed.
-        scored.reasons.push(hash_hit_reason(description));
+        scored
+            .evidence
+            .push(Evidence::observed(hash_hit_reason(description)));
         scored.risk = RiskLevel::HighRisk;
     }
 
@@ -388,7 +412,7 @@ pub fn score_service(
     hash_match: Option<&str>,
 ) -> ScoredEntry {
     let mut score: i32 = 0;
-    let mut reasons: Vec<String> = Vec::new();
+    let mut evidence: Vec<Evidence> = Vec::new();
 
     let image_norm = normalize(&record.image_path);
     let drop_zone = DROP_ZONE_TOKENS
@@ -400,20 +424,21 @@ pub fn score_service(
 
     if image_missing {
         score += 30;
-        reasons.push(
-            "+30 service image is missing from disk (hollowed, removed, or typo-squat path)"
-                .to_string(),
-        );
+        evidence.push(Evidence::observed(
+            "+30 service image is missing from disk (hollowed, removed, or typo-squat path)",
+        ));
     }
     if drop_zone {
         score += 30;
-        reasons.push("+30 service image sits in a temp/downloads/public drop zone".to_string());
+        evidence.push(Evidence::observed(
+            "+30 service image sits in a temp/downloads/public drop zone",
+        ));
     }
     if trusted {
         score -= 20;
-        reasons.push(
-            "-20 service image is a trusted install location (Program Files/System32)".to_string(),
-        );
+        evidence.push(Evidence::observed(
+            "-20 service image is a trusted install location (Program Files/System32)",
+        ));
     }
 
     let sneaky_powershell = image_norm.contains("powershell")
@@ -422,52 +447,68 @@ pub fn score_service(
             .any(|t| image_norm.contains(t));
     if sneaky_powershell {
         score += 25;
-        reasons.push(
-            "+25 service command line hides PowerShell (encoded or hidden window)".to_string(),
-        );
+        evidence.push(Evidence::observed(
+            "+25 service command line hides PowerShell (encoded or hidden window)",
+        ));
     }
 
     match signature {
         SignatureStatus::ValidSigned => {
-            reasons.push(format!("-{SIGNED_DISCOUNT} Valid Signature"));
+            evidence.push(Evidence::observed(format!(
+                "-{SIGNED_DISCOUNT} Valid Signature"
+            )));
             score -= SIGNED_DISCOUNT;
         }
         SignatureStatus::Invalid => {
-            reasons.push(format!("+{INVALID_SIGNATURE_PENALTY} Invalid Signature"));
+            evidence.push(Evidence::observed(format!(
+                "+{INVALID_SIGNATURE_PENALTY} Invalid Signature"
+            )));
             score += INVALID_SIGNATURE_PENALTY;
         }
         SignatureStatus::Unsigned if score > 0 => {
-            reasons.push(format!("+{UNSIGNED_WITH_WARNINGS_PENALTY} Unsigned Binary"));
+            evidence.push(Evidence::observed(format!(
+                "+{UNSIGNED_WITH_WARNINGS_PENALTY} Unsigned Binary"
+            )));
             score += UNSIGNED_WITH_WARNINGS_PENALTY;
         }
         SignatureStatus::ValidRevocationUnknown => {
             // Scoreless evidence (see score_with_signals): not trusted,
             // not bad.
-            reasons.push("signed but revocation unverified (offline)".to_string());
+            evidence.push(Evidence::observed(
+                "signed but revocation unverified (offline)",
+            ));
         }
         SignatureStatus::Unsigned | SignatureStatus::Unknown => {}
     }
 
     // Evidence last (chips show the first rows): start type, account, state.
-    reasons.push(format!("service starts {}", record.start_type.label()));
+    evidence.push(Evidence::observed(format!(
+        "service starts {}",
+        record.start_type.label()
+    )));
     if !record.account.is_empty() {
-        reasons.push(format!("runs as {}", record.account));
+        evidence.push(Evidence::observed(format!("runs as {}", record.account)));
     }
     if !record.state.is_empty() {
-        reasons.push(format!("state at scan: {}", record.state));
+        evidence.push(Evidence::observed(format!(
+            "state at scan: {}",
+            record.state
+        )));
     }
 
     let mut scored = ScoredEntry {
         entry: record.entry.clone(),
         score: score.max(0),
         risk: RiskLevel::Safe,
-        reasons,
+        evidence,
         attack: attack_info_for(&record.entry.source),
     };
     scored.risk = risk_level(scored.score);
 
     if let Some(description) = hash_match {
-        scored.reasons.push(hash_hit_reason(description));
+        scored
+            .evidence
+            .push(Evidence::observed(hash_hit_reason(description)));
         scored.risk = RiskLevel::HighRisk;
     }
     scored
@@ -506,7 +547,10 @@ mod tests {
         );
         assert_eq!(scored.risk, RiskLevel::Safe);
         assert_eq!(scored.score, 0);
-        assert!(scored.reasons.iter().any(|r| r.starts_with("-20")));
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|r| r.detail().starts_with("-20")));
     }
 
     #[test]
@@ -532,12 +576,18 @@ mod tests {
         );
         assert_eq!(scored.risk, RiskLevel::HighRisk);
         assert!(scored.score >= 40);
-        assert!(scored.reasons.iter().any(|r| r.starts_with("+30")));
         assert!(scored
-            .reasons
+            .evidence
             .iter()
-            .any(|r| r.starts_with("+25 entry name")));
-        assert!(scored.reasons.iter().any(|r| r.starts_with("+10")));
+            .any(|r| r.detail().starts_with("+30")));
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|r| r.detail().starts_with("+25 entry name")));
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|r| r.detail().starts_with("+10")));
     }
 
     #[test]
@@ -550,7 +600,10 @@ mod tests {
             SignatureStatus::Unknown,
             None,
         );
-        assert!(scored.reasons.iter().any(|r| r.contains("PowerShell")));
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|r| r.detail().contains("PowerShell")));
         assert_eq!(scored.score, 25);
         assert_eq!(scored.risk, RiskLevel::Suspicious);
     }
@@ -565,7 +618,10 @@ mod tests {
             SignatureStatus::Unknown,
             None,
         );
-        assert!(scored.reasons.iter().any(|r| r.contains("PowerShell")));
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|r| r.detail().contains("PowerShell")));
         assert_eq!(scored.score, 25);
     }
 
@@ -593,9 +649,9 @@ mod tests {
         assert_eq!(live.risk, pure.risk);
         assert_eq!(pure.score, 25);
         assert!(!pure
-            .reasons
+            .evidence
             .iter()
-            .any(|r| r.contains("signature") || r.contains("hash")));
+            .any(|r| r.detail().contains("signature") || r.detail().contains("hash")));
     }
 
     // ---- Detection Engine v2: signature scoring ----
@@ -610,15 +666,18 @@ mod tests {
         // 65 heuristic - 40 discount = 25 => drops a level
         assert_eq!(signed.score, 25);
         assert_eq!(signed.risk, RiskLevel::Suspicious);
-        assert!(signed.reasons.iter().any(|r| r.starts_with("-40")));
+        assert!(signed
+            .evidence
+            .iter()
+            .any(|r| r.detail().starts_with("-40")));
 
         // unsigned +10 fires only because other warning signs exist here
         assert_eq!(unsigned.score, 75);
         assert_eq!(unsigned.risk, RiskLevel::HighRisk);
         assert!(unsigned
-            .reasons
+            .evidence
             .iter()
-            .any(|r| r.starts_with("+10 Unsigned Binary")));
+            .any(|r| r.detail().starts_with("+10 Unsigned Binary")));
     }
 
     #[test]
@@ -632,7 +691,10 @@ mod tests {
         assert_eq!(scored.score, 0);
         assert_eq!(scored.risk, RiskLevel::Safe);
         assert!(
-            scored.reasons.iter().all(|r| r.starts_with("-20")),
+            scored
+                .evidence
+                .iter()
+                .all(|r| r.detail().starts_with("-20")),
             "only the trusted-location discount should be present"
         );
     }
@@ -647,7 +709,10 @@ mod tests {
         // 10 profile bump + 40 invalid signature = 50
         assert_eq!(scored.score, 50);
         assert_eq!(scored.risk, RiskLevel::HighRisk);
-        assert!(scored.reasons.iter().any(|r| r.starts_with("+40")));
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|r| r.detail().starts_with("+40")));
     }
 
     #[test]
@@ -668,11 +733,11 @@ mod tests {
         assert_eq!(scored.risk, RiskLevel::Suspicious);
         assert!(
             scored
-                .reasons
+                .evidence
                 .iter()
-                .all(|r| !r.starts_with("-40 Valid Signature")),
+                .all(|r| !r.detail().starts_with("-40 Valid Signature")),
             "discount must be withheld: {:?}",
-            scored.reasons
+            scored.evidence
         );
     }
 
@@ -690,9 +755,9 @@ mod tests {
         );
         assert_eq!(scored.risk, RiskLevel::HighRisk);
         assert!(scored
-            .reasons
+            .evidence
             .iter()
-            .any(|r| r.starts_with("Known Malware Hash")));
+            .any(|r| r.detail().starts_with("Known Malware Hash")));
     }
 
     #[test]
@@ -717,13 +782,21 @@ mod tests {
         );
         assert_eq!(scored.risk, RiskLevel::HighRisk);
         let reason = scored
-            .reasons
+            .evidence
             .iter()
-            .find(|r| r.starts_with("Known Malware Hash"))
-            .expect("hash reason present");
+            .find(|r| r.detail().starts_with("Known Malware Hash"))
+            .expect("hash evidence present");
         // Operator sees WHAT matched and from WHICH feed — never a bare chip.
-        assert!(reason.contains("Evil Fixture"), "reason: {reason}");
-        assert!(reason.contains("DEMO"), "reason: {reason}");
+        assert!(
+            reason.detail().contains("Evil Fixture"),
+            "evidence: {}",
+            reason.detail()
+        );
+        assert!(
+            reason.detail().contains("DEMO"),
+            "evidence: {}",
+            reason.detail()
+        );
     }
 
     #[test]
@@ -735,9 +808,9 @@ mod tests {
         );
         assert_eq!(scored.risk, RiskLevel::HighRisk);
         assert!(scored
-            .reasons
+            .evidence
             .iter()
-            .any(|r| r.starts_with("Known Malware Hash")));
+            .any(|r| r.detail().starts_with("Known Malware Hash")));
     }
 
     #[test]
@@ -749,9 +822,9 @@ mod tests {
         );
         assert_eq!(scored.risk, RiskLevel::HighRisk);
         assert!(scored
-            .reasons
+            .evidence
             .iter()
-            .any(|r| r.contains("Invalid Signature")));
+            .any(|r| r.detail().contains("Invalid Signature")));
     }
 
     #[test]
@@ -762,7 +835,10 @@ mod tests {
             None,
         );
         assert_eq!(scored.risk, RiskLevel::Safe);
-        assert!(scored.reasons.iter().any(|r| r.contains("Valid Signature")));
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|r| r.detail().contains("Valid Signature")));
     }
 
     #[test]
@@ -786,10 +862,9 @@ mod tests {
             Some("Svc Fixture"),
         );
         assert_eq!(scored.risk, RiskLevel::HighRisk);
-        assert!(scored
-            .reasons
-            .iter()
-            .any(|r| r.starts_with("Known Malware Hash") && r.contains("Svc Fixture")));
+        assert!(scored.evidence.iter().any(|r| {
+            r.detail().starts_with("Known Malware Hash") && r.detail().contains("Svc Fixture")
+        }));
     }
 
     #[test]
@@ -846,9 +921,12 @@ mod tests {
             None,
         );
         assert!(
-            !scored.reasons.iter().any(|r| r.starts_with("-20")),
+            !scored
+                .evidence
+                .iter()
+                .any(|r| r.detail().starts_with("-20")),
             "reasons: {:?}",
-            scored.reasons
+            scored.evidence
         );
     }
 
@@ -893,9 +971,9 @@ mod tests {
         let scored = score_entry(&entry("NotepadAutostart", &cmd), Some(resolved.as_path()));
         assert_eq!(scored.risk, RiskLevel::Safe);
         assert!(scored
-            .reasons
+            .evidence
             .iter()
-            .any(|r| r.starts_with("-40 Valid Signature")));
+            .any(|r| r.detail().starts_with("-40 Valid Signature")));
     }
 
     #[cfg(windows)]
@@ -922,14 +1000,13 @@ mod tests {
         // systems the verdict is Invalid (+40); on catalog-only systems it
         // degrades to Unsigned (+10 alongside the other warning signs).
         assert_eq!(scored.risk, RiskLevel::HighRisk);
-        assert!(scored
-            .reasons
-            .iter()
-            .any(|r| r.starts_with("+40") || r.starts_with("+10 Unsigned Binary")));
+        assert!(scored.evidence.iter().any(|r| {
+            r.detail().starts_with("+40") || r.detail().starts_with("+10 Unsigned Binary")
+        }));
         assert!(!scored
-            .reasons
+            .evidence
             .iter()
-            .any(|r| r.starts_with("-40 Valid Signature")));
+            .any(|r| r.detail().starts_with("-40 Valid Signature")));
     }
 
     // ---- helpers (unchanged) ----
@@ -994,10 +1071,19 @@ mod tests {
         let scored = score_service(&record, false, SignatureStatus::ValidSigned, None);
         assert_eq!(scored.risk, RiskLevel::Safe);
         assert_eq!(scored.attack.id, "T1543.003");
-        assert!(scored.reasons.iter().any(|r| r.contains("Valid Signature")));
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|r| r.detail().contains("Valid Signature")));
         // Evidence rows exist but carry no score.
-        assert!(scored.reasons.iter().any(|r| r.contains("Automatic")));
-        assert!(scored.reasons.iter().any(|r| r.contains("LocalSystem")));
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|r| r.detail().contains("Automatic")));
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|r| r.detail().contains("LocalSystem")));
     }
 
     #[test]
@@ -1016,9 +1102,9 @@ mod tests {
         let scored = score_service(&record, true, SignatureStatus::Unknown, None);
         assert!(scored.score >= 30);
         assert!(scored
-            .reasons
+            .evidence
             .iter()
-            .any(|r| r.contains("missing from disk")));
+            .any(|r| r.detail().contains("missing from disk")));
     }
 
     #[test]
@@ -1041,9 +1127,9 @@ mod tests {
         );
         assert_eq!(scored.risk, RiskLevel::HighRisk);
         assert!(scored
-            .reasons
+            .evidence
             .iter()
-            .any(|r| r.contains("Known Malware Hash")));
+            .any(|r| r.detail().contains("Known Malware Hash")));
     }
 
     #[test]
@@ -1073,9 +1159,9 @@ mod tests {
         let scored = score_with_signals(&entry, SignatureStatus::Unknown, None);
         assert!(
             !scored
-                .reasons
+                .evidence
                 .iter()
-                .any(|r| r.contains("randomly generated")),
+                .any(|r| r.detail().contains("randomly generated")),
             "CLSID names must not earn random-name points: {scored:?}"
         );
     }
@@ -1093,7 +1179,10 @@ mod tests {
         );
         let scored = score_with_signals(&entry, SignatureStatus::Unknown, None);
         assert_eq!(scored.risk, RiskLevel::Safe);
-        assert!(scored.reasons.iter().any(|r| r.contains("TreatAs")));
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|r| r.detail().contains("TreatAs")));
     }
 
     #[test]
@@ -1131,7 +1220,7 @@ mod tests {
         );
         let scored = score_with_signals(&entry, SignatureStatus::ValidSigned, None);
         // Desired: no -40 when powershell + hidden/encoded triggers
-        assert_ne!(scored.risk, RiskLevel::Safe, "LOLBin powershell with Hidden+Encoded must not be Safe even when signed; got {:?} score {} reasons {:?}", scored.risk, scored.score, scored.reasons);
+        assert_ne!(scored.risk, RiskLevel::Safe, "LOLBin powershell with Hidden+Encoded must not be Safe even when signed; got {:?} score {} reasons {:?}", scored.risk, scored.score, scored.evidence);
         assert!(scored.score >= 15, "should remain at least Suspicious");
     }
 
@@ -1149,7 +1238,7 @@ mod tests {
             RiskLevel::Safe,
             "cmd with Temp payload must not be Safe even when signed; got {:?} {:?}",
             scored.risk,
-            scored.reasons
+            scored.evidence
         );
     }
 
@@ -1170,7 +1259,7 @@ mod tests {
             RiskLevel::Safe,
             "mshta with http should not be Safe even when signed; got {:?} {:?}",
             scored.risk,
-            scored.reasons
+            scored.evidence
         );
     }
 
@@ -1188,7 +1277,7 @@ mod tests {
             RiskLevel::Safe,
             "rundll32 with Temp DLL must not be Safe even when signed; got {:?} {:?}",
             scored.risk,
-            scored.reasons
+            scored.evidence
         );
     }
 
@@ -1220,15 +1309,18 @@ mod tests {
         let expand = |s: &str| s.replace("%TEMP%", r"C:\Users\fixture\AppData\Local\Temp");
         let scored = score_with_expander(&entry, SignatureStatus::ValidSigned, None, &expand);
         assert!(
-            scored.reasons.iter().any(|r| r.starts_with("+30")),
+            scored
+                .evidence
+                .iter()
+                .any(|r| r.detail().starts_with("+30")),
             "expanded %TEMP% must hit the drop-zone token: {:?}",
-            scored.reasons
+            scored.evidence
         );
         assert_ne!(
             scored.risk,
             RiskLevel::Safe,
             "cmd with %TEMP% payload must not be Safe even when signed: {:?}",
-            scored.reasons
+            scored.evidence
         );
     }
 
@@ -1249,18 +1341,18 @@ mod tests {
         // With a fixture drop zone the pinned expander fires the heuristic.
         assert!(
             score_with_expander(&entry, SignatureStatus::ValidSigned, None, &pinned)
-                .reasons
+                .evidence
                 .iter()
-                .any(|r| r.starts_with("+30"))
+                .any(|r| r.detail().starts_with("+30"))
         );
 
         // Without expansion the literal `%TEMP%` is not a drop-zone token:
         // proves the +30 comes from expansion, not from the constant.
         assert!(
             !score_with_expander(&entry, SignatureStatus::ValidSigned, None, &identity)
-                .reasons
+                .evidence
                 .iter()
-                .any(|r| r.starts_with("+30"))
+                .any(|r| r.detail().starts_with("+30"))
         );
 
         // The real expander is wired in and is not the identity function
@@ -1325,7 +1417,7 @@ mod tests {
                 RiskLevel::Safe,
                 "{label}: benign control must stay Safe, got {:?} {:?}",
                 run_scored.risk,
-                run_scored.reasons
+                run_scored.evidence
             );
         }
     }
@@ -1352,7 +1444,7 @@ mod tests {
                 RiskLevel::Safe,
                 "benign control must stay Safe unsigned too: {command} -> {:?} {:?}",
                 scored.risk,
-                scored.reasons
+                scored.evidence
             );
         }
     }

@@ -90,9 +90,6 @@
     const el = document.getElementById("session-meta");
     if (!el) return;
 
-    const rescueWhen = lastScanAt ? lastScanAt.getTime() : 0;
-    const storageWhen = lastStorageScan ? lastStorageScan.at : 0;
-
     /* A storage scan that is running says so. The topbar is the one place
        that is true for the whole application, so it is where the operator
        finds out that a measurement is in flight. */
@@ -101,6 +98,22 @@
       el.setAttribute("data-scan", "storage");
       return;
     }
+
+    /* Active rescue scan status in the header */
+    if (["running", "preparing"].includes(scanPhase)) {
+      el.textContent = "RESCUE SCAN · SCANNING…";
+      el.setAttribute("data-scan", "rescue");
+      return;
+    }
+
+    if (scanPhase === "failed") {
+      el.textContent = "RESCUE SCAN · FAILED";
+      el.setAttribute("data-scan", "rescue");
+      return;
+    }
+
+    const rescueWhen = lastScanAt ? lastScanAt.getTime() : 0;
+    const storageWhen = lastStorageScan ? lastStorageScan.at : 0;
 
     if (!summary && !lastStorageScan) {
       el.textContent = "NO SCAN THIS SESSION";
@@ -148,7 +161,9 @@
   function rescueClause(summary, full) {
     const review = (summary.suspicious_for_review || []).length;
     const when = lastScanAt ? lastScanAt.toLocaleTimeString() : "—";
-    if (!full) return "RESCUE " + when;
+    if (!full) return "RESCUE " + when + (coverageIncomplete(summary) ? " (INCOMPLETE)" : "");
+    var suffix = "";
+    if (coverageIncomplete(summary)) suffix = " · INCOMPLETE";
     return (
       "RESCUE SCAN " +
       when +
@@ -156,7 +171,8 @@
       summary.total +
       " CHECKED · " +
       review +
-      " TO REVIEW"
+      " TO REVIEW" +
+      suffix
     );
   }
 
@@ -177,6 +193,45 @@
       renderSessionMeta(lastSummary);
     },
   };
+
+  // Theme toggle: switches between dark and light themes, persists to localStorage
+  function applyTheme(theme) {
+    const isLight = theme === "light";
+    document.documentElement.dataset.theme = isLight ? "light" : "dark";
+    try {
+      localStorage.setItem("cure-theme", isLight ? "light" : "dark");
+    } catch (_) {}
+    const btn = document.getElementById("theme-toggle");
+    if (btn) {
+      btn.setAttribute("aria-label", isLight ? "Switch to dark theme" : "Switch to light theme");
+      btn.title = isLight ? "Switch to dark theme" : "Switch to light theme";
+      const iconDark = btn.querySelector(".theme-icon-dark");
+      const iconLight = btn.querySelector(".theme-icon-light");
+      if (iconDark && iconLight) {
+        iconDark.classList.toggle("hidden", isLight);
+        iconLight.classList.toggle("hidden", !isLight);
+      }
+    }
+  }
+
+  function initTheme() {
+    let saved = null;
+    try {
+      saved = localStorage.getItem("cure-theme");
+    } catch (_) {}
+    if (!saved) {
+      saved = "dark";
+    }
+    applyTheme(saved);
+    const btn = document.getElementById("theme-toggle");
+    if (btn) {
+      btn.addEventListener("click", () => {
+        const current = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+        applyTheme(current === "light" ? "dark" : "light");
+      });
+    }
+  }
+  initTheme();
 
   // Topbar clock — real local system time, refreshed every 15 s.
   function tickClock() {
@@ -368,6 +423,16 @@
     return s;
   }
 
+  // Evidence items arrive as {level, detail} objects (core Evidence model).
+  // String fallbacks keep odd payloads readable instead of printing [object].
+  function evDetail(ev) {
+    if (typeof ev === "string") return ev;
+    return (ev && ev.detail) || "";
+  }
+  function evLabel(ev) {
+    return (ev && typeof ev === "object" && ev.level) || "";
+  }
+
   function reasonChipLabel(reason) {
     const lower = reason.toLowerCase();
     if (lower.includes("drop zone")) return ["Suspicious path", "red"];
@@ -422,6 +487,20 @@
     if (cls) node.className = cls;
     return node;
   }
+  // One badge for the card's evidence items: the shared level when they
+  // all agree, "mixed levels" when they do not. Empty shows nothing here —
+  // the legacy note below covers that case honestly.
+  function evidenceBadge(evidence) {
+    const levels = [];
+    for (const ev of evidence) {
+      const l = evLabel(ev);
+      if (l && !levels.includes(l)) levels.push(l);
+    }
+    if (levels.length === 1) return ["Evidence: " + levels[0], "teal"];
+    if (levels.length > 1) return ["Evidence: mixed levels", "amber"];
+    return null;
+  }
+
   function buildCard(scored, cleaned) {
     const card = document.createElement("li");
     card.className = "review-card risk-" + scoreChipClass(scored.score);
@@ -465,14 +544,26 @@
       "finding-loc selectable",
     );
     loc.title = loc.textContent;
-    const reasons = makeText(
+    const evidence = scored.evidence || [];
+    const badge = evidenceBadge(evidence);
+    if (badge) meta.append(makeText("span", badge[0], "chip " + badge[1]));
+    const evidenceRow = makeText(
       "div",
-      (scored.reasons || [])
-        .map((r) => String(r).replace(/^[+-]\d+\s*/, ""))
+      evidence
+        .map((ev) => evDetail(ev).replace(/^[+-]\d+\s*/, ""))
+        .filter(Boolean)
         .join(" · "),
       "finding-reasons",
     );
-    main.append(top, meta, loc, reasons);
+    if (!evidence.length) {
+      // Pre-evidence data: never render as a normal finding with nothing
+      // wrong. The level is unknown, so none is shown.
+      evidenceRow.textContent = "Legacy report: evidence not recorded";
+      evidenceRow.classList.add("dim");
+      evidenceRow.title =
+        "This finding comes from data recorded before evidence levels existed.";
+    }
+    main.append(top, meta, loc, evidenceRow);
     card.append(main);
     card.append(actionButton(scored, cleaned));
     return card;
@@ -592,11 +683,30 @@
         " · " +
         (done ? "Quarantined" : "Awaiting operator decision"),
     );
-    const reasons = section(body, "Why C.U.R.E flagged this", "");
-    reasons.querySelector("p").remove();
-    const ul = document.createElement("ul");
-    (scored.reasons || []).forEach((r) => ul.append(makeText("li", r)));
-    reasons.append(ul);
+    const evidenceSection = section(body, "Why C.U.R.E flagged this", "");
+    evidenceSection.querySelector("p").remove();
+    const evidence = scored.evidence || [];
+    if (evidence.length) {
+      const ul = document.createElement("ul");
+      evidence.forEach((ev) =>
+        ul.append(
+          makeText(
+            "li",
+            (evLabel(ev) ? "[" + evLabel(ev) + "] " : "") + evDetail(ev),
+          ),
+        ),
+      );
+      evidenceSection.append(ul);
+    } else {
+      // Pre-evidence data: state it, never show an empty list as normal.
+      evidenceSection.append(
+        makeText(
+          "p",
+          "Legacy report: evidence not recorded — this finding comes from data recorded before evidence levels existed.",
+          "dim",
+        ),
+      );
+    }
     const attack = attackFor(scored);
     section(
       body,
@@ -962,13 +1072,13 @@
             exeChip.title = p.exe_path;
             chips.appendChild(exeChip);
           }
-          var reasons = Array.isArray(p.reasons) ? p.reasons : [];
-          for (var ri = 0; ri < Math.min(reasons.length, 4); ri++) {
-            var lr = reasonChipLabel(String(reasons[ri]));
+          var evidence = Array.isArray(p.evidence) ? p.evidence : [];
+          for (var ri = 0; ri < Math.min(evidence.length, 4); ri++) {
+            var lr = reasonChipLabel(evDetail(evidence[ri]));
             var rc = document.createElement("span");
             rc.className = "chip" + (lr[1] ? " " + lr[1] : "");
             rc.textContent = lr[0];
-            rc.title = reasons[ri];
+            rc.title = evDetail(evidence[ri]);
             chips.appendChild(rc);
           }
           if (chips.children.length > 0) main.appendChild(chips);
@@ -1092,6 +1202,7 @@
 
   const VIEW_TITLES = {
     "view-overview": "Overview",
+    "view-agents": "AI Agent Radar",
     "scan-center": "Rescue",
     "scan-view": "Rescue",
     "landing-view": "Rescue",
@@ -1158,15 +1269,17 @@
   // open/close ceremony, no pill save/restore, nothing to unwind.
   async function navTo(viewId) {
     if (viewId === "scan-center") {
-      showViewInstant(
-        ["running", "preparing"].includes(scanPhase) ? scanView : landingView,
-      );
+      showViewInstant(scanView);
+      if (window.CureSweep) window.CureSweep.layout();
       return;
     }
     const el = document.getElementById(viewId);
     if (!el) return;
     showViewInstant(el);
     if (viewId === "view-overview" && lastSummary) renderOverview(lastSummary);
+    if (viewId === "view-agents" && window.CureAgentRadar) {
+      window.CureAgentRadar.refresh();
+    }
     if (viewId === "view-detective" && window.CureDetective) {
       /* Re-render from the investigation already in memory; opening the
          board never starts a measurement. */
@@ -1210,6 +1323,15 @@
 
   async function runScan(preLines = []) {
     if (scanPhase === "running") return;
+    const xrayStartBtn = document.getElementById("xray-start-btn");
+    const xrayInvestigateBtn = document.getElementById("xray-investigate-btn");
+    if (xrayStartBtn) {
+      xrayStartBtn.disabled = true;
+      xrayStartBtn.textContent = "Scanning…";
+    }
+    if (xrayInvestigateBtn) {
+      xrayInvestigateBtn.classList.add("hidden");
+    }
     document.getElementById("scan-retry").classList.add("hidden");
     evidenceCache.clear();
     const token = ++scanToken;
@@ -1238,6 +1360,14 @@
       appendLog("overlay", line);
     }
     setPill("scanning", "Collecting evidence");
+    // BUG 2 fix: update topbar to reflect active scan state
+    {
+      const metaEl = document.getElementById("session-meta");
+      if (metaEl) {
+        metaEl.textContent = "RESCUE SCAN · SCANNING…";
+        metaEl.setAttribute("data-scan", "rescue");
+      }
+    }
     window.CureSweep.start();
     try {
       const summary = await invoke("run_auto_scan");
@@ -1264,6 +1394,15 @@
       );
       appendLog("done", summary.total + " entries processed — scan finished");
       window.CureSweep.finish(summary);
+      if (xrayStartBtn) {
+        xrayStartBtn.disabled = false;
+        xrayStartBtn.textContent = "Scan Again";
+      }
+      if (xrayInvestigateBtn) {
+        const fCount = (summary && summary.findings_count) || (summary && summary.findings && summary.findings.length) || 0;
+        xrayInvestigateBtn.textContent = "Investigate Findings (" + fCount + ") →";
+        xrayInvestigateBtn.classList.remove("hidden");
+      }
       renderResults(summary);
       await switchView(currentView(), resultsView);
       setNav("results-view");
@@ -1273,7 +1412,8 @@
       clearInterval(elapsedTimer);
       window.CureSweep.fail();
       document.getElementById("scan-retry").classList.remove("hidden");
-      scanPhase = "idle";
+      scanPhase = "failed";
+      renderSessionMeta(lastSummary);
       setPill("error", String(err));
       appendLog("error", String(err));
       logEvent("info", "scan failed: " + String(err));
@@ -2329,8 +2469,10 @@
       "location: " +
       e.location +
       "\n" +
-      "reasons: " +
-      (scored.reasons || []).join("; ")
+      "evidence: " +
+      (scored.evidence || [])
+        .map((ev) => (evLabel(ev) ? evLabel(ev) + ": " : "") + evDetail(ev))
+        .join("; ")
     );
   }
 
@@ -2438,9 +2580,20 @@
     const rsnTd = document.createElement("td");
     rsnTd.className = "row-reasons selectable";
     rsnTd.tabIndex = 0;
-    const reasons = Array.isArray(p.reasons) ? p.reasons : [];
-    rsnTd.textContent = reasons.slice(0, 3).join(" · ") || "—";
-    rsnTd.title = reasons.join("\n") || "Not collected";
+    const evidence = Array.isArray(p.evidence) ? p.evidence : [];
+    if (evidence.length) {
+      rsnTd.textContent =
+        evidence
+          .slice(0, 3)
+          .map((ev) => evDetail(ev).replace(/^[+-]\d+\s*/, ""))
+          .filter(Boolean)
+          .join(" · ") || "—";
+      rsnTd.title = evidence.map(evDetail).join("\n") || "Not collected";
+    } else {
+      // Pre-evidence data: explicit, never a silent dash.
+      rsnTd.textContent = "Legacy report: evidence not recorded";
+      rsnTd.classList.add("dim");
+    }
     const actTd = document.createElement("td");
     const kill = document.createElement("button");
     kill.className = "kill-one";
@@ -3841,6 +3994,7 @@
       .addEventListener("click", async () => {
         if (["running", "preparing"].includes(scanPhase)) return;
         scanPhase = "preparing";
+        renderSessionMeta(lastSummary);
         window.CureSweep.start();
         setPill("scanning", "Reviewing overlay candidates");
         await switchView(currentView(), scanView);
@@ -3880,6 +4034,22 @@
     document
       .getElementById("scan-retry")
       .addEventListener("click", () => runScan());
+    const xStart = document.getElementById("xray-start-btn");
+    if (xStart) {
+      xStart.addEventListener("click", () => {
+        const srBtn = document.getElementById("start-rescue-btn");
+        if (srBtn) srBtn.click();
+        else runScan();
+      });
+    }
+    const xInv = document.getElementById("xray-investigate-btn");
+    if (xInv) {
+      xInv.addEventListener("click", () => navTo("results-view"));
+    }
+    const rView = document.getElementById("radar-view-btn");
+    if (rView) {
+      rView.addEventListener("click", () => navTo("scan-center"));
+    }
     document.querySelectorAll(".nav-item").forEach((btn) => {
       btn.addEventListener("click", () => {
         if (!btn.disabled) navTo(btn.getAttribute("data-view"));

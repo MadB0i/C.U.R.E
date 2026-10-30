@@ -386,9 +386,34 @@ mod imp {
                 }
                 prev = Some(ctx);
             }
+            // The leaf / end-entity certificate is non-self-signed and does not
+            // issue any other certificate in the store.
             let chosen = certs
                 .iter()
-                .find(|c| !is_self_signed(&***c))
+                .find(|&&c| {
+                    if is_self_signed(&*c) {
+                        return false;
+                    }
+                    let ctx = &*c;
+                    if ctx.pCertInfo.is_null() {
+                        return false;
+                    }
+                    let info = &*ctx.pCertInfo;
+                    let subj = blob_bytes(&info.Subject);
+                    let is_issuer_of_other = certs.iter().any(|&other| {
+                        if std::ptr::eq(c, other) {
+                            return false;
+                        }
+                        let other_ctx = &*other;
+                        if other_ctx.pCertInfo.is_null() {
+                            return false;
+                        }
+                        let other_info = &*other_ctx.pCertInfo;
+                        blob_bytes(&other_info.Issuer) == subj
+                    });
+                    !is_issuer_of_other
+                })
+                .or_else(|| certs.iter().find(|c| !is_self_signed(&***c)))
                 .or_else(|| certs.first());
             let name = match chosen {
                 Some(&ctx) => name_of(ctx),
@@ -949,11 +974,11 @@ mod tests {
         assert_eq!(scored.risk, crate::model::RiskLevel::Safe);
         assert!(
             scored
-                .reasons
+                .evidence
                 .iter()
-                .any(|r| r.contains("revocation unverified")),
-            "reasons: {:?}",
-            scored.reasons
+                .any(|r| r.detail().contains("revocation unverified")),
+            "evidence: {:?}",
+            scored.evidence
         );
     }
 

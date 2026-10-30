@@ -11,12 +11,14 @@
       "../dist/luma.css",
       "../dist/storage-workstation.css",
       "../dist/detective.css",
+      "../dist/agent.css",
+      "../dist/app.js",
       "../dist/luma.js",
       "../dist/xray.js",
       "../dist/storage-workstation.js",
       "../dist/casefile.js",
       "../dist/detective.js",
-      "../dist/app.js"
+      "../dist/agent-radar.js"
     ]
   },
   "app": {
@@ -28,7 +30,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -41,7 +45,9 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "languages": ["English"],
+        "languages": [
+          "English"
+        ],
         "displayLanguageSelector": false
       }
     }

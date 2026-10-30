@@ -49,7 +49,9 @@ pub struct ProcessInfo {
 pub struct ProcessScore {
     pub score: i32,
     pub risk: RiskLevel,
-    pub reasons: Vec<String>,
+    /// What backs this score — each item built through the explicit
+    /// `Evidence` constructors (scorer items are `Observed`).
+    pub evidence: Vec<crate::evidence::Evidence>,
 }
 
 // ── helpers ───────────────────────────────────────────────────────────
@@ -92,62 +94,71 @@ pub fn score_process(
     hash_match: Option<&str>,
 ) -> ProcessScore {
     let mut score: i32 = 0;
-    let mut reasons: Vec<String> = Vec::new();
+    let mut evidence: Vec<crate::evidence::Evidence> = Vec::new();
 
     // location heuristic
     if in_drop_zone(&info.exe_path) {
         score += UNSIGNED_FROM_DROP_ZONE;
-        reasons.push(format!(
+        evidence.push(crate::evidence::Evidence::observed(format!(
             "+{UNSIGNED_FROM_DROP_ZONE} running from drop-zone location"
-        ));
+        )));
     }
     if in_trusted(&info.exe_path) {
         score += UNSIGNED_FROM_TRUSTED;
-        reasons.push(format!(
-            "{}{UNSIGNED_FROM_TRUSTED} running from trusted location",
-            UNSIGNED_FROM_TRUSTED
-        ));
+        evidence.push(crate::evidence::Evidence::observed(format!(
+            "{UNSIGNED_FROM_TRUSTED} running from trusted location"
+        )));
     }
     if info.from_user_profile {
         score += RUNNING_FROM_PROFILE;
-        reasons.push(format!(
+        evidence.push(crate::evidence::Evidence::observed(format!(
             "+{RUNNING_FROM_PROFILE} running from user profile directory"
-        ));
+        )));
     }
 
     // no visible window → higher suspicion (headless background process)
     if !info.has_visible_window {
         score += NO_VISIBLE_WINDOW;
-        reasons.push(format!("+{NO_VISIBLE_WINDOW} no visible window"));
+        evidence.push(crate::evidence::Evidence::observed(format!(
+            "+{NO_VISIBLE_WINDOW} no visible window"
+        )));
     }
 
     // randomized filename
     if looks_randomized(&info.name) {
         score += RANDOMIZED_NAME_BONUS;
-        reasons.push(format!("+{RANDOMIZED_NAME_BONUS} randomized filename"));
+        evidence.push(crate::evidence::Evidence::observed(format!(
+            "+{RANDOMIZED_NAME_BONUS} randomized filename"
+        )));
     }
 
     // binary reputation
     match signature {
         SignatureStatus::ValidSigned => {
             score -= SIGNED_DISCOUNT;
-            reasons.push(format!("-{SIGNED_DISCOUNT} valid signature"));
+            evidence.push(crate::evidence::Evidence::observed(format!(
+                "-{SIGNED_DISCOUNT} valid signature"
+            )));
         }
         SignatureStatus::Invalid => {
             score += INVALID_SIGNATURE_PENALTY;
-            reasons.push(format!("+{INVALID_SIGNATURE_PENALTY} invalid signature"));
+            evidence.push(crate::evidence::Evidence::observed(format!(
+                "+{INVALID_SIGNATURE_PENALTY} invalid signature"
+            )));
         }
         SignatureStatus::Unsigned => {
             if score > 0 {
                 score += UNSIGNED_WITH_POSITIVE_SCORE;
-                reasons.push(format!(
+                evidence.push(crate::evidence::Evidence::observed(format!(
                     "+{UNSIGNED_WITH_POSITIVE_SCORE} unsigned (elevated by other signals)"
-                ));
+                )));
             }
         }
         SignatureStatus::ValidRevocationUnknown => {
             // Scoreless evidence: verified signature, unverified revocation.
-            reasons.push("signed but revocation unverified (offline)".to_string());
+            evidence.push(crate::evidence::Evidence::observed(
+                "signed but revocation unverified (offline)",
+            ));
         }
         SignatureStatus::Unknown => {}
     }
@@ -156,8 +167,10 @@ pub fn score_process(
     // exact IOC beats signature and heuristics; provenance shown).
     if let Some(desc) = hash_match {
         score = KNOWN_BAD_HASH_FORCE;
-        reasons.clear();
-        reasons.push(crate::risk::hash_hit_reason(desc));
+        evidence.clear();
+        evidence.push(crate::evidence::Evidence::observed(
+            crate::risk::hash_hit_reason(desc),
+        ));
     }
 
     let score = score.max(0);
@@ -165,7 +178,7 @@ pub fn score_process(
     ProcessScore {
         score,
         risk,
-        reasons,
+        evidence,
     }
 }
 
@@ -392,8 +405,8 @@ mod tests {
         let ps = score_process(&i, &SignatureStatus::ValidSigned, Some("known malware"));
         assert_eq!(ps.risk, RiskLevel::HighRisk);
         // Precedence 1 with provenance: verdict + feed label + description.
-        assert!(ps.reasons[0].starts_with("Known Malware Hash ["));
-        assert!(ps.reasons[0].contains("known malware"));
+        assert!(ps.evidence[0].detail().starts_with("Known Malware Hash ["));
+        assert!(ps.evidence[0].detail().contains("known malware"));
     }
 
     #[test]

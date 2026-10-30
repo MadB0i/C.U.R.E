@@ -1,10 +1,12 @@
 pub mod acl;
+pub mod agent;
 pub mod attack;
 pub mod baseline;
 pub mod canary;
 pub mod cleanup;
 pub mod elevation;
 pub mod entry_details;
+pub mod evidence;
 #[cfg(test)]
 pub mod fixtures;
 pub mod hash_intel;

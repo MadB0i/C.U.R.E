@@ -12,6 +12,7 @@
     <link href="luma.css" rel="stylesheet" />
     <link href="storage-workstation.css" rel="stylesheet" />
     <link href="detective.css" rel="stylesheet" />
+    <link href="agent.css" rel="stylesheet" />
   </head>
   <body>
     <div class="fallback hidden" id="fallback">
@@ -54,6 +55,18 @@
               <path d="M4 13h6V4H4zM14 20h6v-6h-6zM4 20h6v-4H4zM14 11h6V4h-6z"
               ></path></svg
             ><span>Overview</span></button>
+          <button
+            aria-current="false"
+            class="nav-item"
+            data-view="view-agents"
+            id="nav-agents"
+            type="button"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="9"></circle>
+              <circle cx="12" cy="12" r="4"></circle>
+              <path d="M12 3v3M21 12h-3M12 21v-3M3 12h3"></path>
+            </svg><span>Agents</span></button>
           <button
             aria-current="false"
             class="nav-item"
@@ -142,12 +155,352 @@
             id="topbar-clock"
             title="Local system time"
           ></span>
+          <button
+            class="btn-theme-toggle"
+            id="theme-toggle"
+            type="button"
+            title="Toggle theme (Dark / Light)"
+            aria-label="Toggle theme (Dark / Light)"
+          >
+            <svg class="theme-icon-dark" aria-hidden="true" viewBox="0 0 24 24" width="14" height="14">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+            <svg class="theme-icon-light hidden" aria-hidden="true" viewBox="0 0 24 24" width="14" height="14">
+              <circle cx="12" cy="12" r="5"></circle>
+              <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" stroke="currentColor" stroke-width="2" fill="none"></path>
+            </svg>
+          </button>
           <div class="pill scanning" id="status-pill">
             <span class="pill-dot"></span>
             <span aria-live="polite" id="status-text">Ready</span>
           </div>
         </header>
         <main class="stage" id="stage-main" tabindex="-1">
+          <!-- ============================================================
+               AI AGENT RADAR · monitored workspace + flight recorder
+               ============================================================ -->
+          <section
+            aria-label="AI Agent Radar"
+            class="view hidden"
+            id="view-agents"
+          >
+            <div class="ar-demo-banner hidden" id="ar-demo-banner" role="status">
+              <strong>SYNTHETIC DEMO</strong>
+              <span
+                >Every process, change and Windows item on this screen is
+                deterministic sample data. Nothing on this machine is read,
+                watched or written.</span
+              >
+            </div>
+
+            <div class="ar-head">
+              <div class="ar-head-copy">
+                <div class="eyebrow">AI agent visibility / flight recorder</div>
+                <h1 class="headline">See what changed while agents were running.</h1>
+                <p class="subline">
+                  Detect supported coding agents, record observable workspace
+                  changes during an explicit session, and separate what was
+                  observed from what can only be correlated.
+                </p>
+              </div>
+              <div class="ar-head-actions">
+                <div
+                  class="companion ar-companion"
+                  data-companion="agents"
+                ></div>
+                <button class="btn btn-primary" id="ar-jump-monitor" type="button">
+                  Set up recording
+                </button>
+              </div>
+            </div>
+
+            <ol aria-label="How this investigation works" class="ar-steps">
+              <li><span>01</span>Choose workspace</li>
+              <li><span>02</span>Detect supported agents</li>
+              <li><span>03</span>Record observable changes</li>
+              <li><span>04</span>Investigate evidence</li>
+              <li><span>05</span>Export privacy-safe case file</li>
+            </ol>
+
+            <div class="ar-layout">
+              <section class="ar-panel ar-radar-panel">
+                <div class="ar-panel-head">
+                  <div>
+                    <h2 class="section-title">Agent radar</h2>
+                    <p class="ar-panel-sub">
+                      Local process presence sample. Presence is not activity.
+                    </p>
+                  </div>
+                  <div class="ar-head-actions-group">
+                    <button class="btn btn-primary" id="ar-scan-now" type="button">
+                      Scan Now
+                    </button>
+                    <button class="ghost-btn" id="ar-refresh" type="button">
+                      Refresh
+                    </button>
+                    <button class="ghost-btn hidden" id="ar-scan-cancel" type="button">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+
+                <div class="ar-radar" id="ar-radar" data-signal="none">
+                  <div aria-hidden="true" class="ar-radar-sweep"></div>
+                  <div aria-hidden="true" class="ar-radar-ring r1"></div>
+                  <div aria-hidden="true" class="ar-radar-ring r2"></div>
+                  <div aria-hidden="true" class="ar-radar-ring r3"></div>
+                  <div aria-hidden="true" class="ar-radar-axis x"></div>
+                  <div aria-hidden="true" class="ar-radar-axis y"></div>
+                  <div class="ar-radar-core">
+                    <span class="ar-radar-count" id="ar-detected-count">0</span>
+                    <span class="ar-radar-label" id="ar-radar-label">supported detected</span>
+                  </div>
+                  <div class="ar-blips" id="ar-blips"></div>
+                </div>
+
+                <div class="ar-radar-readout">
+                  <span class="ar-live-dot" id="ar-live-dot"></span>
+                  <span id="ar-radar-note"
+                    >No supported agent process detected in this sample.</span
+                  >
+                </div>
+
+                <ul aria-label="Supported agents" class="ar-agent-list" id="ar-agent-list"></ul>
+                <div class="empty-state ar-rich-empty" id="ar-agents-empty">
+                  <div class="ar-empty-title">
+                    <svg class="ar-empty-radar-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+                      <circle cx="12" cy="12" r="6" stroke-opacity="0.5"/>
+                      <circle cx="12" cy="12" r="2"/>
+                      <path d="M12 2 L12 12 L18 18" stroke-linecap="round"/>
+                    </svg>
+                    <strong>No Supported AI Agents Detected in Sample</strong>
+                  </div>
+                  <p class="ar-empty-lead">
+                    C.U.R.E queries local Windows process tables on-demand. A terminal, Node.js or Python runtime is never guessed to be an agent. Only recognized tool binaries and Authenticode digital signatures are validated.
+                  </p>
+                  <div class="ar-supported-grid">
+                    <span class="ar-tool-chip"><code>OpenCode</code> CLI / Server</span>
+                    <span class="ar-tool-chip"><code>Codex CLI</code> Authenticode</span>
+                    <span class="ar-tool-chip"><code>Claude Code</code> Terminal</span>
+                    <span class="ar-tool-chip"><code>Aider</code> Git-paired</span>
+                    <span class="ar-tool-chip"><code>Ollama</code> Model Server</span>
+                    <span class="ar-tool-chip"><code>Cursor</code> Editor Agent</span>
+                    <span class="ar-tool-chip"><code>Cline / Continue</code> Extension</span>
+                  </div>
+                  <div class="ar-empty-foot">
+                    <span>Start the agent or model server normally, then click <b>Scan Now</b> or <b>Refresh</b>.</span>
+                  </div>
+                </div>
+              </section>
+
+              <section class="ar-panel ar-flight-panel">
+                <div class="ar-panel-head">
+                  <div>
+                    <h2 class="section-title">Agent Flight Recorder</h2>
+                    <p class="ar-panel-sub" id="ar-session-sub">
+                      Nothing is watched until you start a session.
+                    </p>
+                  </div>
+                  <span class="ar-state-badge" id="ar-session-badge">Idle</span>
+                </div>
+
+                <div class="ar-workspace-row">
+                  <label class="ar-field" for="ar-workspace">
+                    <span>Workspace to monitor</span>
+                    <input
+                      autocomplete="off"
+                      id="ar-workspace"
+                      placeholder="C:\Projects\my-app"
+                      spellcheck="false"
+                      type="text"
+                    />
+                  </label>
+                  <button class="btn btn-primary" id="ar-start" type="button">
+                    Start monitoring
+                  </button>
+                  <button class="btn btn-danger hidden" id="ar-stop" type="button">
+                    Stop and review
+                  </button>
+                </div>
+                <p class="ar-error hidden" id="ar-workspace-error" role="alert"></p>
+
+                <div class="empty-state ar-flight-empty" id="ar-flight-empty">
+                  <strong>No recording in progress</strong>
+                  <span
+                    >Choose a local folder, start monitoring, then make changes
+                    with your agent. C.U.R.E records metadata only: no file
+                    contents, prompts, credentials or chat transcripts.</span
+                  >
+                  <ul class="ar-empty-facts">
+                    <li><b>Recorded</b> workspace-relative paths, change kind, size metadata, observation source and coverage limits.</li>
+                    <li><b>Never read</b> file contents, prompts, credentials, chat transcripts or clipboard data.</li>
+                    <li><b>Never attributed</b> a running agent is not named as the author of a change.</li>
+                  </ul>
+                </div>
+
+                <div class="ar-flight hidden" id="ar-flight-live">
+                  <dl class="ar-stats">
+                    <div><dt>Observed changes</dt><dd id="ar-stat-total">0</dd></div>
+                    <div><dt>Created</dt><dd id="ar-stat-created">0</dd></div>
+                    <div><dt>Modified</dt><dd id="ar-stat-modified">0</dd></div>
+                    <div><dt>Removed</dt><dd id="ar-stat-removed">0</dd></div>
+                    <div><dt>Net metadata size</dt><dd id="ar-stat-bytes">0 B</dd></div>
+                    <div><dt>Evidence state</dt><dd id="ar-stat-confidence">—</dd></div>
+                  </dl>
+
+                  <div class="ar-coverage" id="ar-coverage" role="status"></div>
+
+                  <div class="ar-scrub-row">
+                    <label for="ar-scrub">Replay recorded observations</label>
+                    <input id="ar-scrub" max="0" min="0" step="1" type="range" value="0" />
+                    <span class="ar-scrub-label" id="ar-scrub-label">Live</span>
+                  </div>
+
+                  <div class="ar-timeline-wrap">
+                    <div
+                      aria-label="Recorded observation timeline"
+                      class="ar-timeline"
+                      id="ar-timeline"
+                    ></div>
+                  </div>
+
+                  <div class="ar-filters" id="ar-filters" role="group" aria-label="Filter recorded changes">
+                    <button aria-pressed="true" class="ar-chip is-on" data-filter="all" type="button">All</button>
+                    <button aria-pressed="false" class="ar-chip" data-filter="created" type="button">Created</button>
+                    <button aria-pressed="false" class="ar-chip" data-filter="modified" type="button">Modified</button>
+                    <button aria-pressed="false" class="ar-chip" data-filter="removed" type="button">Removed</button>
+                    <button aria-pressed="false" class="ar-chip" data-filter="renamed" type="button">Renamed</button>
+                    <button aria-pressed="false" class="ar-chip" data-filter="correlated" type="button">Correlated</button>
+                  </div>
+
+                  <div class="ar-flight-body">
+                    <div class="ar-event-column">
+                      <ul aria-label="Observed changes" class="ar-event-list" id="ar-event-list"></ul>
+                      <div class="empty-state" id="ar-event-empty">
+                        <strong>No changes observed yet</strong>
+                        <span
+                          >Save a file, run a build, or let the agent edit the
+                          workspace. New metadata changes appear here as they
+                          are observed.</span
+                        >
+                      </div>
+                    </div>
+                    <aside aria-label="Evidence details" class="ar-evidence" id="ar-evidence">
+                      <div class="empty-state" id="ar-evidence-empty">
+                        <strong>Select an observation</strong>
+                        <span
+                          >The evidence panel shows the observed metadata, the
+                          source of the observation and what remains
+                          unknown.</span
+                        >
+                      </div>
+                      <div class="hidden" id="ar-evidence-card"></div>
+                    </aside>
+                  </div>
+
+                  <p class="ar-caveat">
+                    Watcher events do not identify the process that wrote a
+                    file. <b>Correlated</b> means a supported agent process was
+                    present while the change was observed. It is not
+                    attribution. Reconciliation at stop can recover changes the
+                    watcher missed but cannot recover files created and removed
+                    between snapshots.
+                  </p>
+                </div>
+              </section>
+            </div>
+
+            <section class="ar-panel ar-windows-panel">
+              <div class="ar-panel-head">
+                <div>
+                  <h2 class="section-title">Windows Change Radar</h2>
+                  <p class="ar-panel-sub">
+                    Reuses the same read-only persistence evidence as Rescue.
+                    No registry or service is modified.
+                  </p>
+                </div>
+                <div class="ar-win-actions">
+                  <button class="btn" id="ar-win-capture" type="button">
+                    Capture trusted snapshot
+                  </button>
+                  <button class="btn btn-primary" id="ar-win-compare" type="button">
+                    Compare now
+                  </button>
+                </div>
+              </div>
+              <div class="ar-win-state" id="ar-winsnap-state">
+                No trusted persistence snapshot is stored yet.
+              </div>
+              <div class="ar-win-summary hidden" id="ar-win-summary"></div>
+              <div class="ar-win-lists" id="ar-win-lists"></div>
+              <p class="ar-caveat" id="ar-win-note">
+                Differences are review leads, not malware verdicts. An agent is
+                never named as the cause without direct evidence.
+              </p>
+            </section>
+
+            <section class="ar-panel ar-case-panel">
+              <div class="ar-panel-head">
+                <div>
+                  <h2 class="section-title">Agent Case File</h2>
+                  <p class="ar-panel-sub">
+                    An allowlisted dossier: counts and labels only, plus an
+                    optional free-text note you choose to include. The engine
+                    captures no paths, folder names, file names, prompts,
+                    credentials or machine identifiers.
+                  </p>
+                </div>
+              </div>
+              <div class="ar-case-controls">
+                <label class="ar-field" for="ar-case-summary">
+                  <span>Optional operator note (free text; screened for paths and addresses)</span>
+                  <input
+                    autocomplete="off"
+                    id="ar-case-summary"
+                    maxlength="160"
+                    placeholder="e.g. Investigated a suspicious build"
+                    type="text"
+                  />
+                </label>
+                <label class="ar-check">
+                  <input id="ar-case-include" type="checkbox" />
+                  <span>Include the note</span>
+                </label>
+                <button class="btn" id="ar-case-preview" type="button" disabled>
+                  Preview case file
+                </button>
+                <button class="btn btn-primary" id="ar-case-export" type="button">
+                  Export Evidence Card
+                </button>
+                <button class="btn" id="ar-case-export-md" type="button">
+                  Export Markdown
+                </button>
+                <button class="btn" id="ar-case-export-json" type="button">
+                  Export JSON
+                </button>
+                <button class="btn" id="ar-case-export-html" type="button">
+                  Export HTML
+                </button>
+              </div>
+              <p class="ar-caveat" id="ar-case-status" role="status">
+                Stop a monitoring session to unlock the case file.
+              </p>
+              <div class="ar-case-stage" id="ar-case-stage"></div>
+            </section>
+
+            <!-- Agent Detail Inspector Dialog -->
+            <dialog class="modal-dialog ar-inspector-modal hidden" id="ar-agent-inspector">
+              <div class="modal-card">
+                <div class="modal-head">
+                  <h3 class="section-title" id="ar-insp-title">Agent Detail Inspector</h3>
+                  <button class="ghost-btn icon-only" id="ar-insp-close" type="button" aria-label="Close">✕</button>
+                </div>
+                <div class="modal-body" id="ar-insp-body"></div>
+              </div>
+            </dialog>
+          </section>
+
           <!-- ============================================================
                RESCUE · live collection
                ============================================================ -->
@@ -162,6 +515,12 @@
                 </p>
               </div>
               <div class="rescue-head-actions">
+                <button class="btn btn-primary" id="xray-start-btn" type="button">
+                  Start Rescue Scan
+                </button>
+                <button class="btn btn-secondary hidden" id="xray-investigate-btn" type="button">
+                  Investigate Findings &rarr;
+                </button>
                 <button class="btn hidden" id="scan-retry" type="button">
                   Retry scan
                 </button>
@@ -175,11 +534,10 @@
                   id="xray-canvas"
                 ></canvas>
                 <div class="xray-corner top">
-                  <span class="xray-tag">Sectioned chassis · 9 inspection
-                    layers</span>
+                  <span class="xray-tag">Holographic Security Radar · 9 Persistence Vectors</span>
                 </div>
                 <div class="xray-corner bottom">
-                  <span class="xray-live" id="xray-live">Collecting</span>
+                  <span class="xray-live" id="xray-live">Radar Standby</span>
                   <button
                     class="ghost-btn xray-motion"
                     id="xray-motion"
@@ -189,10 +547,37 @@
                   </button>
                 </div>
                 <div class="xray-core-readout" id="xray-core-readout">
-                  Awaiting collection
+                  READY // STANDBY
                 </div>
               </div>
               <div class="xray-side">
+                <div class="xray-telemetry-hud" id="xray-telemetry-hud">
+                  <div class="xray-hud-header">
+                    <span class="xray-hud-eyebrow">FORENSIC TELEMETRY</span>
+                    <span class="xray-hud-badge" id="xray-hud-badge">STANDBY</span>
+                  </div>
+                  <div class="xray-hud-target">
+                    <span class="xray-hud-icon" id="xray-hud-icon">⚡</span>
+                    <div class="xray-hud-target-meta">
+                      <strong class="xray-hud-name" id="xray-hud-name">All 9 Vectors Primed</strong>
+                      <span class="xray-hud-detail" id="xray-hud-detail">Read-only offline persistence verification</span>
+                    </div>
+                  </div>
+                  <div class="xray-hud-metrics">
+                    <div class="xray-hud-metric">
+                      <span class="xray-metric-label">INSPECTED</span>
+                      <span class="xray-metric-val" id="xray-hud-inspected">0</span>
+                    </div>
+                    <div class="xray-hud-metric">
+                      <span class="xray-metric-label">COVERAGE</span>
+                      <span class="xray-metric-val" id="xray-hud-coverage">0 / 9</span>
+                    </div>
+                    <div class="xray-hud-metric">
+                      <span class="xray-metric-label">FINDINGS</span>
+                      <span class="xray-metric-val" id="xray-hud-findings">0</span>
+                    </div>
+                  </div>
+                </div>
                 <div
                   class="companion scan-companion"
                   data-companion="scan"
@@ -201,7 +586,7 @@
             </div>
             <div class="instrument">
               <div class="ins-cell lead">
-                <span class="ins-label">Current collector</span>
+                <span class="ins-label" id="xray-phase-label">Current collector</span>
                 <span class="ins-value" id="xray-phase">Preparing
                   collection</span>
               </div>
@@ -361,7 +746,10 @@
                     <div class="headline-rule"></div>
                   </div>
                   <span class="flex-spacer"></span>
-                  <button class="btn" id="rescan-btn" type="button">
+                  <button class="btn" id="radar-view-btn" type="button">
+                    Scan Radar
+                  </button>
+                  <button class="btn btn-primary" id="rescan-btn" type="button">
                     Scan again
                   </button>
                 </div>
@@ -401,9 +789,24 @@
                   <h2 class="section-title">Persistence findings</h2>
                   <ul class="entry-cards" id="review-cards"></ul>
                   <div class="all-clear" id="review-clear">
-                    <span
-                      >No evidence collected yet. Run a scan from Rescue.</span
-                    >
+                    <div class="dossier-empty-card">
+                      <div class="dossier-hero">
+                        <div class="dossier-badge">INVESTIGATION DOSSIER</div>
+                        <h3 class="dossier-title">No Findings Collected This Session</h3>
+                        <span>Run a Rescue Scan to collect findings for review.</span>
+                      </div>
+                      <div class="dossier-vectors">
+                        <span class="d-chip">Registry</span>
+                        <span class="d-chip">Startup</span>
+                        <span class="d-chip">Tasks</span>
+                        <span class="d-chip">Services</span>
+                        <span class="d-chip">WMI</span>
+                        <span class="d-chip">IFEO</span>
+                        <span class="d-chip">COM</span>
+                        <span class="d-chip">Processes</span>
+                        <span class="d-chip">Ransom</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <div class="panel hidden" id="cleaned-block">
@@ -1310,6 +1713,9 @@
                     <button class="btn" data-route="cleanup-view" type="button">
                       Measure storage
                     </button>
+                    <button class="btn" data-route="view-agents" type="button">
+                      Monitor agents
+                    </button>
                   </div>
                 </div>
                 <div class="ov-hero-figure">
@@ -1607,9 +2013,48 @@
               <div class="panel">
                 <div class="receipt hidden" id="q-receipt" role="status"></div>
                 <ul class="entry-cards" id="q-list"></ul>
-                <div class="empty-state hidden" id="q-empty">
-                  <strong>Quarantine is empty</strong>Confirmed file moves will
-                  appear here with integrity metadata and Undo.
+                <div class="empty-state hidden vault-empty-state" id="q-empty">
+                  <div class="vault-hero">
+                    <div class="vault-icon-wrap">
+                      <svg class="vault-svg" viewBox="0 0 96 96" width="76" height="76" aria-hidden="true">
+                        <circle cx="48" cy="48" r="42" fill="none" stroke="var(--hair)" stroke-width="1.8" stroke-dasharray="4 4" />
+                        <circle cx="48" cy="48" r="35" fill="var(--ink-100)" stroke="var(--cure-purple)" stroke-width="2" />
+                        <circle cx="48" cy="48" r="26" fill="none" stroke="var(--cure-cyan)" stroke-width="1.2" />
+                        <path d="M48 22 V32 M48 64 V74 M22 48 H32 M64 48 H74" stroke="var(--cure-cyan)" stroke-width="2.2" stroke-linecap="round" />
+                        <circle cx="48" cy="48" r="13" fill="var(--ink-200)" stroke="var(--cure-purple)" stroke-width="1.8" />
+                        <path d="M44 46 L47.5 49.5 L53 43" fill="none" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                    </div>
+                    <div class="vault-copy">
+                      <h2 class="vault-title">Secure Vault Enclave · Ready</h2>
+                      <p class="vault-subline">
+                        Quarantine isolates dangerous persistence files under <code>%LOCALAPPDATA%\CURE\quarantine</code> with preserved metadata and zero deletions.
+                      </p>
+                    </div>
+                  </div>
+                  <div class="vault-pillars">
+                    <div class="vault-pillar">
+                      <div class="pillar-icon">🔒</div>
+                      <div class="pillar-body">
+                        <strong>Move, Never Delete</strong>
+                        <span>Files are moved to an isolated enclave with preserved NTFS attributes and timestamps.</span>
+                      </div>
+                    </div>
+                    <div class="vault-pillar">
+                      <div class="pillar-icon">🛡️</div>
+                      <div class="pillar-body">
+                        <strong>Cryptographic Integrity</strong>
+                        <span>Original SHA-256 hashes, security descriptors, and registry mappings are sealed for forensic review.</span>
+                      </div>
+                    </div>
+                    <div class="vault-pillar">
+                      <div class="pillar-icon">↩️</div>
+                      <div class="pillar-body">
+                        <strong>100% Scoped Reversible Undo</strong>
+                        <span>Every confirmed move can be restored byte-for-byte to its original path with a single click.</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2135,6 +2580,7 @@
     <script src="storage-workstation.js"></script>
     <script src="casefile.js"></script>
     <script src="detective.js"></script>
+    <script src="agent-radar.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

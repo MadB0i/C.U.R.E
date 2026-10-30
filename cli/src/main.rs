@@ -461,8 +461,12 @@ fn print_report(scored: &[ScoredEntry], data_dir: &Path) {
                 None => println!("             lnk→: (unparseable shortcut)"),
             }
         }
-        for reason in &s.reasons {
-            println!("             why: {reason}");
+        for ev in &s.evidence {
+            println!(
+                "             why [{}]: {}",
+                ev.level().label().to_lowercase(),
+                ev.detail()
+            );
         }
         if quarantine::is_quarantined(data_dir, &s.entry.id) {
             println!(

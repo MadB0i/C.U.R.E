@@ -131,11 +131,13 @@ def main() -> None:
         "luma.css",
         "storage-workstation.css",
         "detective.css",
+        "agent.css",
         "luma.js",
         "xray.js",
         "storage-workstation.js",
         "casefile.js",
         "detective.js",
+        "agent-radar.js",
         "app.js",
         "mock-tauri.js",
     ):
