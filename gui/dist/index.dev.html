@@ -196,7 +196,7 @@
             <div class="ar-head">
               <div class="ar-head-copy">
                 <div class="eyebrow">AI agent visibility / flight recorder</div>
-                <h1 class="headline">See what your agents changed.</h1>
+                <h1 class="headline">See what changed while agents were running.</h1>
                 <p class="subline">
                   Detect supported coding agents, record observable workspace
                   changes during an explicit session, and separate what was
@@ -253,7 +253,7 @@
                   <div aria-hidden="true" class="ar-radar-axis y"></div>
                   <div class="ar-radar-core">
                     <span class="ar-radar-count" id="ar-detected-count">0</span>
-                    <span class="ar-radar-label">supported detected</span>
+                    <span class="ar-radar-label" id="ar-radar-label">supported detected</span>
                   </div>
                   <div class="ar-blips" id="ar-blips"></div>
                 </div>
@@ -266,14 +266,31 @@
                 </div>
 
                 <ul aria-label="Supported agents" class="ar-agent-list" id="ar-agent-list"></ul>
-                <div class="empty-state" id="ar-agents-empty">
-                  <strong>No supported agent detected</strong>
-                  <span
-                    >C.U.R.E recognises documented OpenCode and Codex CLI
-                    executable names. A terminal or Node.js process is not
-                    guessed to be an agent. Start the agent normally and
-                    refresh the sample.</span
-                  >
+                <div class="empty-state ar-rich-empty" id="ar-agents-empty">
+                  <div class="ar-empty-title">
+                    <svg class="ar-empty-radar-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+                      <circle cx="12" cy="12" r="6" stroke-opacity="0.5"/>
+                      <circle cx="12" cy="12" r="2"/>
+                      <path d="M12 2 L12 12 L18 18" stroke-linecap="round"/>
+                    </svg>
+                    <strong>No Supported AI Agents Detected in Sample</strong>
+                  </div>
+                  <p class="ar-empty-lead">
+                    C.U.R.E queries local Windows process tables on-demand. A terminal, Node.js or Python runtime is never guessed to be an agent. Only recognized tool binaries and Authenticode digital signatures are validated.
+                  </p>
+                  <div class="ar-supported-grid">
+                    <span class="ar-tool-chip"><code>OpenCode</code> CLI / Server</span>
+                    <span class="ar-tool-chip"><code>Codex CLI</code> Authenticode</span>
+                    <span class="ar-tool-chip"><code>Claude Code</code> Terminal</span>
+                    <span class="ar-tool-chip"><code>Aider</code> Git-paired</span>
+                    <span class="ar-tool-chip"><code>Ollama</code> Model Server</span>
+                    <span class="ar-tool-chip"><code>Cursor</code> Editor Agent</span>
+                    <span class="ar-tool-chip"><code>Cline / Continue</code> Extension</span>
+                  </div>
+                  <div class="ar-empty-foot">
+                    <span>Start the agent or model server normally, then click <b>Scan Now</b> or <b>Refresh</b>.</span>
+                  </div>
                 </div>
               </section>
 
@@ -498,6 +515,12 @@
                 </p>
               </div>
               <div class="rescue-head-actions">
+                <button class="btn btn-primary" id="xray-start-btn" type="button">
+                  Start Rescue Scan
+                </button>
+                <button class="btn btn-secondary hidden" id="xray-investigate-btn" type="button">
+                  Investigate Findings &rarr;
+                </button>
                 <button class="btn hidden" id="scan-retry" type="button">
                   Retry scan
                 </button>
@@ -537,7 +560,7 @@
             </div>
             <div class="instrument">
               <div class="ins-cell lead">
-                <span class="ins-label">Current collector</span>
+                <span class="ins-label" id="xray-phase-label">Current collector</span>
                 <span class="ins-value" id="xray-phase">Preparing
                   collection</span>
               </div>
@@ -697,7 +720,10 @@
                     <div class="headline-rule"></div>
                   </div>
                   <span class="flex-spacer"></span>
-                  <button class="btn" id="rescan-btn" type="button">
+                  <button class="btn" id="radar-view-btn" type="button">
+                    Scan Radar
+                  </button>
+                  <button class="btn btn-primary" id="rescan-btn" type="button">
                     Scan again
                   </button>
                 </div>
@@ -737,9 +763,24 @@
                   <h2 class="section-title">Persistence findings</h2>
                   <ul class="entry-cards" id="review-cards"></ul>
                   <div class="all-clear" id="review-clear">
-                    <span
-                      >No evidence collected yet. Run a scan from Rescue.</span
-                    >
+                    <div class="dossier-empty-card">
+                      <div class="dossier-hero">
+                        <div class="dossier-badge">INVESTIGATION DOSSIER</div>
+                        <h3 class="dossier-title">No Findings Collected This Session</h3>
+                        <span>Run a Rescue Scan to collect findings for review.</span>
+                      </div>
+                      <div class="dossier-vectors">
+                        <span class="d-chip">Registry</span>
+                        <span class="d-chip">Startup</span>
+                        <span class="d-chip">Tasks</span>
+                        <span class="d-chip">Services</span>
+                        <span class="d-chip">WMI</span>
+                        <span class="d-chip">IFEO</span>
+                        <span class="d-chip">COM</span>
+                        <span class="d-chip">Processes</span>
+                        <span class="d-chip">Ransom</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <div class="panel hidden" id="cleaned-block">
@@ -1946,9 +1987,48 @@
               <div class="panel">
                 <div class="receipt hidden" id="q-receipt" role="status"></div>
                 <ul class="entry-cards" id="q-list"></ul>
-                <div class="empty-state hidden" id="q-empty">
-                  <strong>Quarantine is empty</strong>Confirmed file moves will
-                  appear here with integrity metadata and Undo.
+                <div class="empty-state hidden vault-empty-state" id="q-empty">
+                  <div class="vault-hero">
+                    <div class="vault-icon-wrap">
+                      <svg class="vault-svg" viewBox="0 0 96 96" width="76" height="76" aria-hidden="true">
+                        <circle cx="48" cy="48" r="42" fill="none" stroke="var(--hair)" stroke-width="1.8" stroke-dasharray="4 4" />
+                        <circle cx="48" cy="48" r="35" fill="var(--ink-100)" stroke="var(--cure-purple)" stroke-width="2" />
+                        <circle cx="48" cy="48" r="26" fill="none" stroke="var(--cure-cyan)" stroke-width="1.2" />
+                        <path d="M48 22 V32 M48 64 V74 M22 48 H32 M64 48 H74" stroke="var(--cure-cyan)" stroke-width="2.2" stroke-linecap="round" />
+                        <circle cx="48" cy="48" r="13" fill="var(--ink-200)" stroke="var(--cure-purple)" stroke-width="1.8" />
+                        <path d="M44 46 L47.5 49.5 L53 43" fill="none" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                    </div>
+                    <div class="vault-copy">
+                      <h2 class="vault-title">Secure Vault Enclave · Ready</h2>
+                      <p class="vault-subline">
+                        Quarantine isolates dangerous persistence files under <code>%LOCALAPPDATA%\CURE\quarantine</code> with preserved metadata and zero deletions.
+                      </p>
+                    </div>
+                  </div>
+                  <div class="vault-pillars">
+                    <div class="vault-pillar">
+                      <div class="pillar-icon">🔒</div>
+                      <div class="pillar-body">
+                        <strong>Move, Never Delete</strong>
+                        <span>Files are moved to an isolated enclave with preserved NTFS attributes and timestamps.</span>
+                      </div>
+                    </div>
+                    <div class="vault-pillar">
+                      <div class="pillar-icon">🛡️</div>
+                      <div class="pillar-body">
+                        <strong>Cryptographic Integrity</strong>
+                        <span>Original SHA-256 hashes, security descriptors, and registry mappings are sealed for forensic review.</span>
+                      </div>
+                    </div>
+                    <div class="vault-pillar">
+                      <div class="pillar-icon">↩️</div>
+                      <div class="pillar-body">
+                        <strong>100% Scoped Reversible Undo</strong>
+                        <span>Every confirmed move can be restored byte-for-byte to its original path with a single click.</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
