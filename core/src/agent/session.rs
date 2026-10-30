@@ -92,8 +92,14 @@ pub struct SessionRecoveryInfo {
     pub session_count: usize,
     pub storage_path: Option<String>,
     pub latest_session_utc: Option<String>,
+    /// Unix seconds of the most recent artifact modification, when known.
+    /// Distinguishes "recently active" from "artifacts exist but stale".
+    pub latest_activity_unix: Option<u64>,
     pub details: String,
 }
+
+/// An artifact modified within this window counts as recent activity.
+pub const RECENT_ACTIVITY_WINDOW_SECS: u64 = 30 * 60;
 
 /// Detailed session investigation record for an observed AI agent or model server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,10 +151,13 @@ pub fn discover_agent_session_storage(kind: AgentKind) -> SessionRecoveryInfo {
             if p.is_file() {
                 let count = 1;
                 let m = p.metadata().ok();
-                let latest_str = m.and_then(|meta| meta.modified().ok()).map(|t| {
+                let latest_str = m.as_ref().and_then(|meta| meta.modified().ok()).map(|t| {
                     let dt: chrono::DateTime<chrono::Utc> = t.into();
                     dt.to_rfc3339()
                 });
+                let latest_unix = m
+                    .and_then(|meta| meta.modified().ok())
+                    .and_then(|t| crate::storage::fsx::unix_seconds(Ok(t)));
                 SessionRecoveryInfo {
                     supported: true,
                     status: "RECOVERABLE SESSIONS FOUND".into(),
@@ -156,6 +165,7 @@ pub fn discover_agent_session_storage(kind: AgentKind) -> SessionRecoveryInfo {
                     session_count: count,
                     storage_path: Some(p.to_string_lossy().to_string()),
                     latest_session_utc: latest_str,
+                    latest_activity_unix: latest_unix,
                     details: format!("Aider markdown chat history discovered at {}", p.display()),
                 }
             } else {
@@ -166,6 +176,7 @@ pub fn discover_agent_session_storage(kind: AgentKind) -> SessionRecoveryInfo {
                     session_count: 0,
                     storage_path: Some(p.to_string_lossy().to_string()),
                     latest_session_utc: None,
+                    latest_activity_unix: None,
                     details: "Aider chat history file does not exist in user profile.".into(),
                 }
             }
@@ -189,6 +200,7 @@ pub fn discover_agent_session_storage(kind: AgentKind) -> SessionRecoveryInfo {
             session_count: 0,
             storage_path: None,
             latest_session_utc: None,
+            latest_activity_unix: None,
             details: format!(
                 "{} does not expose a documented offline session restoration mechanism. Running process presence is monitored, but conversation recovery is not supported.",
                 kind.label()
@@ -222,6 +234,7 @@ fn inspect_session_dir_candidate(
                 let dt: chrono::DateTime<chrono::Utc> = t.into();
                 dt.to_rfc3339()
             });
+            let latest_unix = latest_mod.and_then(|t| crate::storage::fsx::unix_seconds(Ok(t)));
 
             if is_proprietary_format {
                 return SessionRecoveryInfo {
@@ -231,6 +244,7 @@ fn inspect_session_dir_candidate(
                     session_count: count,
                     storage_path: Some(dir.to_string_lossy().to_string()),
                     latest_session_utc: latest_str,
+                    latest_activity_unix: latest_unix,
                     details: format!(
                         "{description}: Found {count} database files. Direct offline recovery unsupported to prevent binary database corruption."
                     ),
@@ -244,6 +258,7 @@ fn inspect_session_dir_candidate(
                 session_count: count,
                 storage_path: Some(dir.to_string_lossy().to_string()),
                 latest_session_utc: latest_str,
+                latest_activity_unix: latest_unix,
                 details: format!(
                     "{description}: {count} session artifacts discovered at {}",
                     dir.display()
@@ -260,6 +275,7 @@ fn inspect_session_dir_candidate(
             session_count: 0,
             storage_path: candidates.first().map(|p| p.to_string_lossy().to_string()),
             latest_session_utc: None,
+            latest_activity_unix: None,
             details: format!("{description}: Directory not found on disk."),
         };
     }
@@ -271,6 +287,7 @@ fn inspect_session_dir_candidate(
         session_count: 0,
         storage_path: candidates.first().map(|p| p.to_string_lossy().to_string()),
         latest_session_utc: None,
+        latest_activity_unix: None,
         details: format!(
             "{description}: Local session directory exists but contains zero saved sessions."
         ),
@@ -344,8 +361,21 @@ pub fn inspect_agent_sessions() -> Vec<AgentSessionDetail> {
 
         let mut recovery = discover_agent_session_storage(proc.kind);
         if recovery.supported && recovery.session_count > 0 {
-            recovery.state_kind = SessionStateKind::ActiveSession;
-            recovery.status = "ACTIVE SESSION (PROCESS RUNNING)".into();
+            // "Active session" requires RECENT artifact activity, not merely a
+            // non-empty store: a running tool with days-old artifacts is a
+            // process with stale session files, not an active conversation.
+            let recent = recovery
+                .latest_activity_unix
+                .map(|t| now_unix.saturating_sub(t) < RECENT_ACTIVITY_WINDOW_SECS)
+                .unwrap_or(false);
+            if recent {
+                recovery.state_kind = SessionStateKind::ActiveSession;
+                recovery.status = "ACTIVE SESSION (RECENT ARTIFACT ACTIVITY)".into();
+            } else {
+                recovery.state_kind = SessionStateKind::ExistingSessionFilesOnly;
+                recovery.status =
+                    "PROCESS RUNNING (SESSION ARTIFACTS PRESENT BUT NOT RECENTLY ACTIVE)".into();
+            }
         } else if !recovery.supported {
             // Keep UnsupportedSessionFormat with clear explanation
         } else {

@@ -195,9 +195,15 @@ pub struct ActivationReceipt {
     pub is_known_folder: bool,
     pub activation_succeeded: bool,
     pub application_validation_passed: bool,
+    /// Configuration value observed BEFORE the activation write (registry Known
+    /// Folder or HKCU\\Environment variable). Empty when none was recorded.
+    pub previous_configuration: Option<String>,
     pub cleanup_unlocked: bool,
     pub cleanup_nonce: Option<String>,
     pub required_cleanup_token: Option<String>,
+    /// True when a failed validation automatically restored the previous
+    /// configuration so the system was not left pointing at the new location.
+    pub auto_rollback_performed: bool,
     pub notes: Vec<String>,
 }
 
@@ -331,11 +337,143 @@ pub fn is_onedrive_managed(path: &Path, candidate_id: &str) -> bool {
     false
 }
 
-use std::collections::HashSet;
 use std::sync::Mutex;
 
-static CONSUMED_NONCES: Mutex<Option<HashSet<String>>> = Mutex::new(None);
-static ISSUED_NONCES: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+/// Durable operation-nonce ledger. Both lists are insertion-ordered so the
+/// oldest entries can be evicted deterministically once the caps are hit.
+#[derive(Default)]
+struct NonceLedger {
+    issued: Vec<String>,
+    consumed: Vec<String>,
+}
+
+/// Maximum persisted entries per list. Beyond this, the oldest entries are
+/// evicted. A consumed nonce evicted from the ledger would weaken replay
+/// prevention, so the cap is generous (thousands of operations).
+const NONCE_LEDGER_MAX_ENTRIES: usize = 8192;
+
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct NonceLedgerFile {
+    issued: Vec<String>,
+    consumed: Vec<String>,
+}
+
+impl NonceLedger {
+    fn truncate_oldest(list: &mut Vec<String>) {
+        if list.len() > NONCE_LEDGER_MAX_ENTRIES {
+            let excess = list.len() - NONCE_LEDGER_MAX_ENTRIES;
+            list.drain(0..excess);
+        }
+    }
+
+    fn record_issued(&mut self, nonce: &str) {
+        if !self.issued.iter().any(|n| n == nonce) {
+            self.issued.push(nonce.to_string());
+        }
+        Self::truncate_oldest(&mut self.issued);
+    }
+
+    fn revoke_issued(&mut self, nonce: &str) {
+        self.issued.retain(|n| n != nonce);
+    }
+
+    fn is_issued(&self, nonce: &str) -> bool {
+        self.issued.iter().any(|n| n == nonce)
+    }
+
+    /// Enforces single-use consumption: a nonce is only consumable if it was
+    /// actually issued (activation flow) and never consumed before — including
+    /// across process restarts when state was loaded from a durable store.
+    fn consume_strict(&mut self, nonce: &str) -> io::Result<()> {
+        if nonce.len() != 32 || !nonce.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "Nonce must be 128-bit (32 hex characters), got length {}",
+                    nonce.len()
+                ),
+            ));
+        }
+        if !self.is_issued(nonce) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Unknown nonce: this installation never issued it. Operation rejected (fabricated or stale nonce).",
+            ));
+        }
+        if self.consumed.iter().any(|n| n == nonce) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("Replay Attack Prevented: Nonce '{nonce}' has already been consumed."),
+            ));
+        }
+        self.consumed.push(nonce.to_string());
+        Self::truncate_oldest(&mut self.consumed);
+        Ok(())
+    }
+
+    fn load_from_file(&mut self, path: &Path) {
+        let Ok(content) = fs::read_to_string(path) else {
+            return;
+        };
+        let Ok(parsed) = serde_json::from_str::<NonceLedgerFile>(&content) else {
+            return;
+        };
+        for n in parsed.issued {
+            self.record_issued(&n);
+        }
+        for n in parsed.consumed {
+            if !self.consumed.iter().any(|c| c == &n) {
+                self.consumed.push(n);
+            }
+        }
+    }
+
+    /// Atomically persist (write to temp file, then rename) so a restarted
+    /// process still enforces the ledger.
+    fn persist_to_file(&self, path: &Path) -> io::Result<()> {
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let snapshot = NonceLedgerFile {
+            issued: self.issued.clone(),
+            consumed: self.consumed.clone(),
+        };
+        let tmp = path.with_extension("json.tmp");
+        let json = serde_json::to_string_pretty(&snapshot)
+            .map_err(|e| io::Error::other(format!("Cannot serialize nonce ledger: {e}")))?;
+        fs::write(&tmp, json)?;
+        fs::rename(&tmp, path)
+    }
+}
+
+static NONCE_LEDGER: Mutex<Option<NonceLedger>> = Mutex::new(None);
+static NONCE_STORE_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// Point the nonce ledger at a durable store file and load any prior state.
+/// Call once at startup (e.g. with the app data directory) so nonces issued
+/// and consumed by previous processes remain enforceable after a restart.
+pub fn set_nonce_store_path(path: &Path) {
+    if let Ok(mut lock) = NONCE_STORE_PATH.lock() {
+        *lock = Some(path.to_path_buf());
+    }
+    if let Ok(mut guard) = NONCE_LEDGER.lock() {
+        guard
+            .get_or_insert_with(NonceLedger::default)
+            .load_from_file(path);
+    }
+}
+
+fn persist_nonce_ledger() {
+    let store_path = NONCE_STORE_PATH.lock().ok().and_then(|g| g.clone());
+    let Some(path) = store_path else {
+        return;
+    };
+    if let Ok(guard) = NONCE_LEDGER.lock() {
+        if let Some(ledger) = guard.as_ref() {
+            let _ = ledger.persist_to_file(&path);
+        }
+    }
+}
 
 /// Generates a cryptographically secure 128-bit operation nonce (32 hex characters)
 /// using Windows CSPRNG (`BCryptGenRandom` with `BCRYPT_USE_SYSTEM_PREFERRED_RNG`).
@@ -369,56 +507,57 @@ pub fn generate_secure_128bit_nonce() -> io::Result<String> {
 }
 
 pub fn record_issued_nonce(nonce: &str) {
-    if let Ok(mut lock) = ISSUED_NONCES.lock() {
-        let set = lock.get_or_insert_with(HashSet::new);
-        set.insert(nonce.to_string());
+    if let Ok(mut guard) = NONCE_LEDGER.lock() {
+        guard
+            .get_or_insert_with(NonceLedger::default)
+            .record_issued(nonce);
     }
+    persist_nonce_ledger();
 }
 
 pub fn revoke_issued_nonce(nonce: &str) {
-    if let Ok(mut lock) = ISSUED_NONCES.lock() {
-        if let Some(set) = lock.as_mut() {
-            set.remove(nonce);
+    if let Ok(mut guard) = NONCE_LEDGER.lock() {
+        if let Some(ledger) = guard.as_mut() {
+            ledger.revoke_issued(nonce);
         }
     }
+    persist_nonce_ledger();
 }
 
 pub fn is_nonce_issued(nonce: &str) -> bool {
-    if let Ok(lock) = ISSUED_NONCES.lock() {
-        if let Some(set) = lock.as_ref() {
-            return set.contains(nonce);
+    if let Ok(guard) = NONCE_LEDGER.lock() {
+        if let Some(ledger) = guard.as_ref() {
+            return ledger.is_issued(nonce);
         }
     }
     false
 }
 
 /// Enforces single-use consumption of an operation nonce to prevent replay attacks.
+/// A nonce is only consumable if this installation actually issued it (activation
+/// flow), and only once — including across process restarts when a durable nonce
+/// store has been configured via [`set_nonce_store_path`].
 pub fn consume_nonce_strict(nonce: &str) -> io::Result<()> {
-    if nonce.len() != 32 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!(
-                "Nonce must be 128-bit (32 hex characters), got length {}",
-                nonce.len()
-            ),
-        ));
+    let result = {
+        let mut guard = NONCE_LEDGER
+            .lock()
+            .map_err(|_| io::Error::other("Failed to acquire nonce lock"))?;
+        guard
+            .get_or_insert_with(NonceLedger::default)
+            .consume_strict(nonce)
+    };
+    if result.is_ok() {
+        persist_nonce_ledger();
     }
-
-    let mut consumed_lock = CONSUMED_NONCES
-        .lock()
-        .map_err(|_| io::Error::other("Failed to acquire nonce lock"))?;
-    let consumed_set = consumed_lock.get_or_insert_with(HashSet::new);
-    if consumed_set.contains(nonce) {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            format!("Replay Attack Prevented: Nonce '{nonce}' has already been consumed."),
-        ));
-    }
-    consumed_set.insert(nonce.to_string());
-    Ok(())
+    result
 }
 
 /// Check whether any running process has active locks or open working paths in `source_path`.
+///
+/// The file probe is a bounded recursive walk; each sampled file is opened with
+/// zero sharing allowed. Only kernel sharing/lock violations count as "in use" —
+/// permission errors and read-only attributes do not, because those are not
+/// evidence of a lock (see [`fsx::is_in_use`]).
 pub fn check_active_tool_locks(source_path: &Path) -> Result<(), String> {
     if !source_path.exists() {
         return Ok(());
@@ -439,20 +578,119 @@ pub fn check_active_tool_locks(source_path: &Path) -> Result<(), String> {
         }
     }
 
-    // Attempt non-exclusive write probe on existing files to detect active sharing violations
-    if let Ok(entries) = fs::read_dir(source_path) {
-        for entry in entries.flatten().take(20) {
-            let p = entry.path();
-            if p.is_file() {
-                match fs::OpenOptions::new().read(true).write(true).open(&p) {
-                    Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-                        return Err(format!(
-                            "File is locked by an active process or has restricted permissions: '{}'",
-                            p.display()
-                        ));
-                    }
-                    _ => {}
-                }
+    // Sampled lock probe over a bounded recursive walk. walkdir is configured
+    // not to follow symlinks, so junctions/reparse points are never descended.
+    const MAX_PROBED_FILES: usize = 500;
+    let mut probed = 0usize;
+    for entry in walkdir::WalkDir::new(source_path)
+        .max_depth(8)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if probed >= MAX_PROBED_FILES {
+            break;
+        }
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if !meta.is_file() || fsx::is_reparse_point(&meta) {
+            continue;
+        }
+        probed += 1;
+        if fsx::is_in_use(entry.path()) {
+            return Err(format!(
+                "File is locked by an active process: '{}' (lock probe sampled {} of the source files)",
+                entry.path().display(),
+                probed
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// FINAL gate before source deletion: prove that `target` currently contains a
+/// faithful copy of `source` — identical file sets, identical byte sizes, and
+/// identical SHA-256 content for every file. Any mismatch, missing file, or
+/// reparse-point asymmetry refuses the cleanup. This deliberately re-hashes the
+/// whole tree at deletion time so a stale "verified" receipt from an earlier
+/// step can never authorize deleting original data whose copy has drifted.
+pub fn verify_copy_parity_for_cleanup(source: &Path, target: &Path) -> Result<(), String> {
+    let mut src_files = Vec::new();
+    let mut src_skipped = 0usize;
+    collect_files_recursive(source, &mut src_files, &mut src_skipped)
+        .map_err(|e| format!("Cannot enumerate source tree: {e}"))?;
+    let mut dst_files = Vec::new();
+    let mut dst_skipped = 0usize;
+    collect_files_recursive(target, &mut dst_files, &mut dst_skipped)
+        .map_err(|e| format!("Cannot enumerate destination tree: {e}"))?;
+
+    if src_files.is_empty() {
+        return Err(
+            "Source contains no regular files; refusing deletion based on an unverifiable state."
+                .into(),
+        );
+    }
+    if src_skipped > 0 || dst_skipped > 0 {
+        return Err(format!(
+            "Reparse points detected during parity check (source: {src_skipped}, target: {dst_skipped}) — destination cannot be proven equivalent. Refusing source cleanup."
+        ));
+    }
+
+    // Case-insensitive relative path -> (byte length, path) maps.
+    let mut src_map = std::collections::BTreeMap::new();
+    for f in &src_files {
+        let rel = f
+            .strip_prefix(source)
+            .map_err(|e| format!("Cannot relativize source path: {e}"))?;
+        let key = rel.to_string_lossy().to_ascii_lowercase();
+        let len = fs::metadata(f).map(|m| m.len()).unwrap_or(0);
+        src_map.insert(key, (len, f.clone()));
+    }
+    let mut dst_map = std::collections::BTreeMap::new();
+    for f in &dst_files {
+        let rel = f
+            .strip_prefix(target)
+            .map_err(|e| format!("Cannot relativize target path: {e}"))?;
+        let key = rel.to_string_lossy().to_ascii_lowercase();
+        let len = fs::metadata(f).map(|m| m.len()).unwrap_or(0);
+        dst_map.insert(key, (len, f.clone()));
+    }
+
+    for key in src_map.keys() {
+        if !dst_map.contains_key(key) {
+            return Err(format!(
+                "Destination is missing copied file '{key}' — source cleanup refused."
+            ));
+        }
+    }
+    for key in dst_map.keys() {
+        if !src_map.contains_key(key) {
+            return Err(format!(
+                "Destination contains unexpected file '{key}' — source cleanup refused."
+            ));
+        }
+    }
+
+    for (key, (src_len, src_path)) in &src_map {
+        let (dst_len, dst_path) = &dst_map[key];
+        if src_len != dst_len {
+            return Err(format!(
+                "Size mismatch for '{key}' (source {src_len} bytes, destination {dst_len} bytes) — source cleanup refused."
+            ));
+        }
+        let (h_src, h_dst) = (hash_file_sha256(src_path), hash_file_sha256(dst_path));
+        match (h_src, h_dst) {
+            (Ok(s), Ok(d)) if s == d => {}
+            (Ok(s), Ok(d)) => {
+                return Err(format!(
+                    "SHA-256 mismatch for '{key}' (source {s}, destination {d}) — source cleanup refused."
+                ));
+            }
+            (Err(e), _) | (_, Err(e)) => {
+                return Err(format!(
+                    "Could not hash file pair for '{key}': {e} — source cleanup refused."
+                ));
             }
         }
     }
@@ -1323,6 +1561,37 @@ pub fn get_user_environment_variable(name: &str) -> Option<String> {
     key.get_value::<String, _>(name).ok()
 }
 
+/// Removes a user environment variable from `HKCU\Environment` and broadcasts
+/// `WM_SETTINGCHANGE`. Used to undo an activation that created a variable which
+/// did not exist before.
+#[cfg(windows)]
+pub fn remove_user_environment_variable(name: &str) -> io::Result<()> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let key = hkcu.open_subkey_with_flags("Environment", KEY_SET_VALUE)?;
+    key.delete_value(name)?;
+
+    unsafe {
+        use windows::Win32::Foundation::{LPARAM, WPARAM};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE,
+        };
+        let param = windows::core::w!("Environment");
+        let mut result = 0usize;
+        let _ = SendMessageTimeoutW(
+            HWND_BROADCAST,
+            WM_SETTINGCHANGE,
+            WPARAM(0),
+            LPARAM(param.as_ptr() as isize),
+            SMTO_ABORTIFHUNG,
+            1000,
+            Some(&mut result),
+        );
+    }
+    Ok(())
+}
+
 #[cfg(windows)]
 pub fn set_known_folder_path(candidate_id: &str, target_path: &Path) -> io::Result<()> {
     let target_str = target_path.to_string_lossy().to_string();
@@ -1517,6 +1786,9 @@ pub fn activate_candidate_relocation(
     let mut details = Vec::new();
     let mut env_var_updated = None;
     let mut known_folder_updated = None;
+    // Capture the configuration value BEFORE any write so a failed activation
+    // can be rolled back to the exact prior state.
+    let mut previous_configuration: Option<String> = None;
 
     match candidate_id {
         "downloads" | "documents" | "pictures" | "videos" | "desktop" | "desktop_media" => {
@@ -1524,6 +1796,7 @@ pub fn activate_candidate_relocation(
             known_folder_updated = Some(candidate_id.to_string());
             #[cfg(windows)]
             {
+                previous_configuration = get_known_folder_path(candidate_id);
                 if let Err(e) = set_known_folder_path(candidate_id, target_path) {
                     details.push(format!("Failed to update Known Folder registry: {e}"));
                 } else {
@@ -1540,6 +1813,7 @@ pub fn activate_candidate_relocation(
             env_var_updated = Some("CARGO_HOME".into());
             #[cfg(windows)]
             {
+                previous_configuration = get_user_environment_variable("CARGO_HOME");
                 let cargo_home = target_path.parent().unwrap_or(target_path);
                 if let Err(e) =
                     set_user_environment_variable("CARGO_HOME", &cargo_home.to_string_lossy())
@@ -1563,6 +1837,7 @@ pub fn activate_candidate_relocation(
             env_var_updated = Some("PIP_CACHE_DIR".into());
             #[cfg(windows)]
             {
+                previous_configuration = get_user_environment_variable("PIP_CACHE_DIR");
                 if let Err(e) = set_user_environment_variable("PIP_CACHE_DIR", &target_str) {
                     details.push(format!("Failed to set PIP_CACHE_DIR: {e}"));
                 } else {
@@ -1580,6 +1855,7 @@ pub fn activate_candidate_relocation(
             env_var_updated = Some("GRADLE_USER_HOME".into());
             #[cfg(windows)]
             {
+                previous_configuration = get_user_environment_variable("GRADLE_USER_HOME");
                 let gradle_home = target_path.parent().unwrap_or(target_path);
                 if let Err(e) = set_user_environment_variable(
                     "GRADLE_USER_HOME",
@@ -1618,6 +1894,92 @@ pub fn activate_candidate_relocation(
                 details.push(format!("Application validation probe failed: {e}"));
             }
         }
+    }
+
+    // Rollback after failed activation: never leave the system pointing at the
+    // new location when validation could not prove the relocation works.
+    let mut auto_rollback_performed = false;
+    if activation_succeeded && !application_validation_passed {
+        let mut restore_notes: Vec<String> = Vec::new();
+        match candidate_id {
+            "downloads" | "documents" | "pictures" | "videos" | "desktop" | "desktop_media" => {
+                #[cfg(windows)]
+                match previous_configuration.as_deref() {
+                    Some(prev) => match set_known_folder_path(candidate_id, Path::new(prev)) {
+                        Ok(()) => {
+                            auto_rollback_performed = true;
+                            restore_notes.push(format!(
+                                "Known Folder automatically restored to previous value '{prev}'"
+                            ));
+                        }
+                        Err(e) => restore_notes.push(format!(
+                            "AUTOMATIC ROLLBACK FAILED — Known Folder still points at '{target_str}' (error: {e}). Manual review required."
+                        )),
+                    },
+                    None => restore_notes.push(
+                        "No previous Known Folder value was recorded; the new value was left in place. Manual review required.".into(),
+                    ),
+                }
+            }
+            "cargo_cache" | "pip_cache" | "gradle_cache" => {
+                #[cfg(windows)]
+                {
+                    let var_name = match candidate_id {
+                        "cargo_cache" => "CARGO_HOME",
+                        "pip_cache" => "PIP_CACHE_DIR",
+                        _ => "GRADLE_USER_HOME",
+                    };
+                    match previous_configuration.as_deref() {
+                        Some(prev) => {
+                            match set_user_environment_variable(var_name, prev) {
+                                Ok(()) => {
+                                    auto_rollback_performed = true;
+                                    restore_notes.push(format!(
+                                        "{var_name} automatically restored to previous value '{prev}'"
+                                    ));
+                                }
+                                Err(e) => restore_notes.push(format!(
+                                    "AUTOMATIC ROLLBACK FAILED — {var_name} still points at '{target_str}' (error: {e}). Manual review required."
+                                )),
+                            }
+                        }
+                        None => match remove_user_environment_variable(var_name) {
+                            Ok(()) => {
+                                auto_rollback_performed = true;
+                                restore_notes.push(format!(
+                                    "{var_name} removed again (no previous value existed before activation)"
+                                ));
+                            }
+                            Err(e) => restore_notes.push(format!(
+                                "AUTOMATIC ROLLBACK FAILED — {var_name} still points at '{target_str}' (error: {e}). Manual review required."
+                            )),
+                        },
+                    }
+                }
+            }
+            _ => {
+                restore_notes.push(
+                    "Workspace candidates have no persisted configuration to roll back.".into(),
+                );
+            }
+        }
+        details.extend(restore_notes);
+        crate::operator::journal::audit_log(
+            "ActivationAutoRollback",
+            &format!("{candidate_id} -> {target_str}"),
+            None,
+            if auto_rollback_performed {
+                "RestoredPreviousConfiguration"
+            } else {
+                "RollbackIncomplete"
+            },
+            serde_json::json!({
+                "candidate_id": candidate_id,
+                "previous_configuration": previous_configuration,
+                "validation_failure": true,
+            }),
+            None,
+        );
     }
 
     let (cleanup_unlocked, nonce_opt, required_token) =
@@ -1661,7 +2023,7 @@ pub fn activate_candidate_relocation(
     Ok(ActivationReceipt {
         candidate_id: candidate_id.into(),
         target_path: target_str,
-        previous_path: String::new(),
+        previous_path: previous_configuration.clone().unwrap_or_default(),
         configuration_action: val_str.clone(),
         validation_details: val_str,
         env_var_updated,
@@ -1669,9 +2031,11 @@ pub fn activate_candidate_relocation(
         is_known_folder,
         activation_succeeded,
         application_validation_passed,
+        previous_configuration,
         cleanup_unlocked,
         cleanup_nonce: nonce_opt,
         required_cleanup_token: required_token,
+        auto_rollback_performed,
         notes: details,
     })
 }
@@ -1814,9 +2178,6 @@ pub fn execute_source_cleanup(
         ));
     }
 
-    // Enforce single-use replay prevention (marks nonce consumed)
-    consume_nonce_strict(nonce)?;
-
     // Check for active developer processes locking source path
     if let Err(lock_err) = check_active_tool_locks(source_path) {
         return Err(io::Error::new(io::ErrorKind::ResourceBusy, lock_err));
@@ -1853,6 +2214,32 @@ pub fn execute_source_cleanup(
             format!("Source path '{}' does not exist.", source_path.display()),
         ));
     }
+
+    // FINAL SAFETY GATE: re-prove the destination is a faithful copy of the
+    // source RIGHT NOW (file sets, sizes, full SHA-256) before any deletion.
+    // A stale verified receipt from the copy step is not sufficient evidence.
+    if let Err(parity_err) = verify_copy_parity_for_cleanup(source_path, target_path) {
+        crate::operator::journal::audit_log(
+            "SourceCleanup",
+            &source_path.to_string_lossy(),
+            Some(confirmation_token),
+            "RefusedByParityCheck",
+            serde_json::json!({
+                "candidate_id": candidate_id,
+                "reason": parity_err,
+            }),
+            Some(&parity_err),
+        );
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Source cleanup refused: {parity_err}"),
+        ));
+    }
+
+    // All verification gates passed. Only now is the single-use nonce consumed
+    // (immediately before deletion): a refused attempt must not burn the
+    // operator's token, and a consumed nonce must always mean "a deletion ran".
+    consume_nonce_strict(nonce)?;
 
     // Measure C: drive free space BEFORE cleanup
     let c_root = Path::new("C:\\");
@@ -1897,6 +2284,240 @@ pub fn execute_source_cleanup(
         actual_bytes_freed: freed,
         cleanup_status: status,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Durable transaction records & restart recovery
+// ---------------------------------------------------------------------------
+
+/// Durable, machine- and human-readable record of one migration lifecycle step.
+/// Persisted to `<data_dir>/migration-receipts/` so a restarted application can
+/// reconstruct what was done and reconcile it against the live system. Records
+/// are evidence, not instructions: reconciliation NEVER mutates anything.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MigrationTransactionRecord {
+    pub record_id: String,
+    /// One of: "migration_copy", "activation", "rollback", "source_cleanup".
+    pub kind: String,
+    pub candidate_id: String,
+    pub timestamp_unix: u64,
+    pub timestamp_utc: String,
+    pub source_path: Option<String>,
+    pub target_path: Option<String>,
+    pub outcome: String,
+    pub payload: serde_json::Value,
+}
+
+/// Directory holding persisted migration transaction records.
+pub fn migration_receipts_dir(data_dir: &Path) -> PathBuf {
+    data_dir.join("migration-receipts")
+}
+
+/// Build a collision-resistant record id for one lifecycle step.
+pub fn new_transaction_record_id(kind: &str) -> String {
+    let safe_kind: String = kind
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!(
+        "{safe_kind}-{}",
+        chrono::Utc::now().timestamp_millis().max(0)
+    )
+}
+
+/// Construct a record stamped with the current time.
+pub fn new_transaction_record(
+    kind: &str,
+    candidate_id: &str,
+    source_path: Option<String>,
+    target_path: Option<String>,
+    outcome: &str,
+    payload: serde_json::Value,
+) -> MigrationTransactionRecord {
+    let now = chrono::Utc::now();
+    MigrationTransactionRecord {
+        record_id: new_transaction_record_id(kind),
+        kind: kind.to_string(),
+        candidate_id: candidate_id.to_string(),
+        timestamp_unix: now.timestamp().max(0) as u64,
+        timestamp_utc: now.to_rfc3339(),
+        source_path,
+        target_path,
+        outcome: outcome.to_string(),
+        payload,
+    }
+}
+
+/// Persist a transaction record atomically (write to temp file, then rename).
+pub fn persist_transaction_record(
+    dir: &Path,
+    record: &MigrationTransactionRecord,
+) -> io::Result<PathBuf> {
+    if record.record_id.is_empty()
+        || !record
+            .record_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Transaction record id must be non-empty and filename-safe",
+        ));
+    }
+    fs::create_dir_all(dir)?;
+    let path = dir.join(format!("{}.json", record.record_id));
+    let tmp = dir.join(format!(".{}.tmp", record.record_id));
+    let json = serde_json::to_string_pretty(record)
+        .map_err(|e| io::Error::other(format!("Cannot serialize transaction record: {e}")))?;
+    fs::write(&tmp, json)?;
+    fs::rename(&tmp, &path)?;
+    Ok(path)
+}
+
+/// Load all persisted transaction records, oldest first. Corrupt or unreadable
+/// files are skipped (they remain on disk for manual inspection).
+pub fn load_transaction_records(dir: &Path) -> Vec<MigrationTransactionRecord> {
+    let mut out = Vec::new();
+    let Ok(entries) = fs::read_dir(dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        if let Ok(content) = fs::read_to_string(&p) {
+            if let Ok(record) = serde_json::from_str::<MigrationTransactionRecord>(&content) {
+                out.push(record);
+            }
+        }
+    }
+    out.sort_by_key(|r| (r.timestamp_unix, r.record_id.clone()));
+    out
+}
+
+/// Current persisted configuration value for a relocation candidate
+/// (Known Folder registry value or HKCU\\Environment variable).
+#[cfg(windows)]
+pub fn current_relocation_config(candidate_id: &str) -> Option<String> {
+    match candidate_id {
+        "downloads" | "documents" | "pictures" | "videos" | "desktop" | "desktop_media" => {
+            get_known_folder_path(candidate_id)
+        }
+        "cargo_cache" => get_user_environment_variable("CARGO_HOME"),
+        "pip_cache" => get_user_environment_variable("PIP_CACHE_DIR"),
+        "gradle_cache" => get_user_environment_variable("GRADLE_USER_HOME"),
+        _ => None,
+    }
+}
+
+#[cfg(not(windows))]
+pub fn current_relocation_config(_candidate_id: &str) -> Option<String> {
+    None
+}
+
+/// Read-only, honest reconciliation of a persisted record against the live
+/// filesystem and configuration. Used at startup and on demand so an operator
+/// can understand the state of an interrupted migration after a crash/restart.
+/// Never mutates anything.
+pub fn reconcile_transaction_record(record: &MigrationTransactionRecord) -> String {
+    let source = record.source_path.as_deref().map(Path::new);
+    let target = record.target_path.as_deref().map(Path::new);
+
+    match record.kind.as_str() {
+        "migration_copy" => {
+            let src_exists = source.map(|p| p.exists()).unwrap_or(false);
+            let dst_exists = target.map(|p| p.exists()).unwrap_or(false);
+            match (src_exists, dst_exists) {
+                (true, true) => "Source and copy both still present. Copy was verified at record time; awaiting operator decision (activate, rollback, or keep both). No source data has been deleted.".into(),
+                (true, false) => "WARNING: the recorded copy no longer exists on disk. The source is still intact. Do NOT delete the source — the verified copy is gone.".into(),
+                (false, true) => "Source path no longer exists (removed by an approved cleanup or externally). The copy is present.".into(),
+                (false, false) => "Neither source nor copy exists anymore. This migration left no data on disk.".into(),
+            }
+        }
+        "activation" => {
+            let Some(target) = target else {
+                return "Record does not name a target path; cannot reconcile configuration."
+                    .into();
+            };
+            let target_str = target.display().to_string();
+            let current = current_relocation_config(&record.candidate_id);
+            match current {
+                Some(cur) if cur.eq_ignore_ascii_case(&target_str) => {
+                    format!("Configuration currently points at the activated target '{target_str}'.")
+                }
+                Some(cur) => format!(
+                    "Configuration currently points at '{cur}', not the activated target '{target_str}'. It was reconfigured or rolled back after this record was written."
+                ),
+                None => format!(
+                    "No persisted configuration value found for candidate '{}'. Workspace/advice-only relocations have no registry state to reconcile.",
+                    record.candidate_id
+                ),
+            }
+        }
+        "rollback" => {
+            let Some(source) = source else {
+                return "Record does not name the original path; cannot reconcile rollback.".into();
+            };
+            let source_str = source.display().to_string();
+            match current_relocation_config(&record.candidate_id) {
+                Some(cur) if cur.eq_ignore_ascii_case(&source_str) => format!(
+                    "Configuration currently points at the restored original '{source_str}'. Rollback is in effect."
+                ),
+                Some(cur) => format!(
+                    "Configuration currently points at '{cur}', not the restored original '{source_str}'."
+                ),
+                None => format!(
+                    "No persisted configuration value for candidate '{}'; nothing to reconcile for workspace/advice-only relocations.",
+                    record.candidate_id
+                ),
+            }
+        }
+        "source_cleanup" => {
+            let src_exists = source.map(|p| p.exists()).unwrap_or(false);
+            if src_exists {
+                "WARNING: the record says source cleanup ran, but the source path exists again (or was never removed). Inspect before trusting this record.".into()
+            } else {
+                "Source cleanup confirmed: the original path no longer exists. The verified copy is the surviving data.".into()
+            }
+        }
+        other => {
+            format!("Unknown record kind '{other}'; reconciliation unsupported for this record.")
+        }
+    }
+}
+
+/// Recover nonce issuances from a persisted operator audit journal. When an
+/// activation happened in a previous process, its cleanup nonce is recorded in
+/// the journal (action `ActivateRelocation`, `details.nonce`); replaying those
+/// issuances into the ledger keeps the activation → cleanup gate enforceable
+/// after a restart even if the nonce store file was lost.
+pub fn recover_nonce_issuances_from_journal(journal_path: &Path) -> usize {
+    let Ok(content) = fs::read_to_string(journal_path) else {
+        return 0;
+    };
+    let mut recovered = 0usize;
+    for line in content.lines() {
+        let Ok(entry) = serde_json::from_str::<crate::operator::OperatorJournalEntry>(line) else {
+            continue;
+        };
+        if entry.action_type != "ActivateRelocation" {
+            continue;
+        }
+        if let Some(nonce) = entry.details.get("nonce").and_then(|v| v.as_str()) {
+            if nonce.len() == 32 && !is_nonce_issued(nonce) {
+                record_issued_nonce(nonce);
+                recovered += 1;
+            }
+        }
+    }
+    recovered
 }
 
 // ---------------------------------------------------------------------------
@@ -2113,14 +2734,15 @@ mod tests {
             .to_string()
             .contains("Target directory is empty"));
 
-        // 4. Valid cleanup with files in destination
-        let mut f_dst = File::create(dst.path().join("data.txt")).unwrap();
-        f_dst.write_all(b"destination data").unwrap();
-
+        // 4. Valid cleanup with a faithful copy in the destination
         let src_sub = src.path().join("removable_src");
         fs::create_dir_all(&src_sub).unwrap();
         let mut f_src = File::create(src_sub.join("temp.txt")).unwrap();
         f_src.write_all(b"to be deleted").unwrap();
+        drop(f_src); // close our own handle so the lock probe sees no locks
+                     // Destination must be a verified copy of the source — same relative
+                     // paths, same content — the parity gate refuses deletion otherwise.
+        fs::copy(src_sub.join("temp.txt"), dst.path().join("temp.txt")).unwrap();
 
         let valid_nonce = generate_secure_128bit_nonce().unwrap();
         let receipt = execute_source_cleanup(
@@ -2134,7 +2756,14 @@ mod tests {
         assert!(!src_sub.exists());
         assert_eq!(receipt.candidate_id, "downloads");
 
-        // 5. Replay attack rejection: using same nonce again must fail
+        // 5. Replay attack rejection: using same nonce again must fail.
+        // Recreate the source first — with it gone, the NotFound gate fires
+        // before the nonce gate.
+        fs::create_dir_all(&src_sub).unwrap();
+        let mut f_re = File::create(src_sub.join("temp.txt")).unwrap();
+        f_re.write_all(b"to be deleted").unwrap();
+        drop(f_re);
+        fs::copy(src_sub.join("temp.txt"), dst.path().join("temp.txt")).unwrap();
         let replay_res = execute_source_cleanup(
             "downloads",
             &src_sub,
@@ -2147,6 +2776,7 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Replay Attack Prevented"));
+        assert!(src_sub.exists(), "refused replay must not delete anything");
     }
 
     #[test]
@@ -2185,13 +2815,13 @@ mod tests {
         let src = tempdir().unwrap();
         let dst = tempdir().unwrap();
 
-        let mut f_dst = File::create(dst.path().join("data.txt")).unwrap();
-        f_dst.write_all(b"destination payload").unwrap();
-
         let src_sub = src.path().join("payload_dir");
         fs::create_dir_all(&src_sub).unwrap();
         let mut f_src = File::create(src_sub.join("sample.txt")).unwrap();
         f_src.write_all(b"source payload").unwrap();
+        drop(f_src); // close our own handle so the lock probe sees no locks
+                     // Destination is a faithful copy of the source (parity gate requirement).
+        fs::copy(src_sub.join("sample.txt"), dst.path().join("sample.txt")).unwrap();
 
         let nonce = generate_secure_128bit_nonce().unwrap();
 
@@ -2248,5 +2878,237 @@ mod tests {
         // Build migration plan with empty or small candidate
         let plan = build_migration_plan(&["downloads".into()], "C:", "D:");
         assert!(plan.required_headroom_bytes >= 1024 * 1024 * 1024); // At least 1 GB headroom enforced
+    }
+
+    #[test]
+    fn nonce_ledger_rejects_fabricated_nonces() {
+        // A syntactically valid 128-bit nonce that this installation never
+        // issued must be rejected — a caller cannot mint its own cleanup
+        // authorization without completing a validated activation.
+        let mut ledger = NonceLedger::default();
+        let fabricated = "deadbeefdeadbeefdeadbeefdeadbeef";
+        let err = ledger.consume_strict(fabricated).unwrap_err();
+        assert!(err.to_string().contains("never issued"));
+
+        // The production global path must reject it as well.
+        let err = consume_nonce_strict(fabricated).unwrap_err();
+        assert!(err.to_string().contains("never issued"));
+    }
+
+    #[test]
+    fn nonce_ledger_survives_process_restart() {
+        let temp = tempdir().unwrap();
+        let store = temp.path().join("operator_nonces.json");
+
+        // Process 1: issue a nonce and persist it.
+        let mut ledger = NonceLedger::default();
+        let nonce = "0123456789abcdef0123456789abcdef".to_string();
+        ledger.record_issued(&nonce);
+        ledger.persist_to_file(&store).unwrap();
+        assert!(store.exists());
+
+        // Process 2 (restart): fresh in-memory state, reloaded from disk.
+        let mut restarted = NonceLedger::default();
+        restarted.load_from_file(&store);
+        assert!(restarted.is_issued(&nonce));
+        restarted.consume_strict(&nonce).unwrap();
+        restarted.persist_to_file(&store).unwrap();
+
+        // Process 3 (restart after consumption): replay must still be refused.
+        let mut third = NonceLedger::default();
+        third.load_from_file(&store);
+        let err = third.consume_strict(&nonce).unwrap_err();
+        assert!(err.to_string().contains("Replay Attack Prevented"));
+    }
+
+    #[test]
+    fn nonce_ledger_persists_atomically_without_temp_litter() {
+        let temp = tempdir().unwrap();
+        let store = temp.path().join("nested").join("operator_nonces.json");
+        let mut ledger = NonceLedger::default();
+        ledger.record_issued("ffffffffffffffffffffffffffffffff");
+        ledger.persist_to_file(&store).unwrap();
+        assert!(store.exists());
+        let parent = store.parent().unwrap();
+        let leftovers: Vec<_> = fs::read_dir(parent)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty());
+    }
+
+    #[test]
+    fn nonce_issuances_recover_from_audit_journal() {
+        let temp = tempdir().unwrap();
+        let journal = temp.path().join("audit.jsonl");
+        let nonce = "1234567890abcdef1234567890abcdef";
+
+        // Hand-craft one ActivateRelocation journal entry carrying a nonce.
+        let details = serde_json::json!({ "nonce": nonce });
+        let mut hasher = Sha256::new();
+        hasher.update(crate::operator::journal::GENESIS_HASH.as_bytes());
+        hasher.update(b":0:1700000000:ActivateRelocation:target:ok:");
+        hasher.update(serde_json::to_string(&details).unwrap().as_bytes());
+        let hash = format!("{:x}", hasher.finalize());
+        let entry = crate::operator::OperatorJournalEntry {
+            sequence: 0,
+            id: "OP-LOG-TEST-0".into(),
+            timestamp_iso: "2026-10-30T00:00:00Z".into(),
+            timestamp_unix: 1_700_000_000,
+            action_type: "ActivateRelocation".into(),
+            target: "cargo_cache -> D:\\CURE_Relocated".into(),
+            approval_token: None,
+            status: "ValidatedAndUnlocked".into(),
+            details,
+            error: None,
+            prev_hash: crate::operator::journal::GENESIS_HASH.into(),
+            hash,
+        };
+        fs::write(&journal, serde_json::to_string(&entry).unwrap() + "\n").unwrap();
+
+        let recovered = recover_nonce_issuances_from_journal(&journal);
+        assert_eq!(recovered, 1);
+        assert!(is_nonce_issued(nonce));
+        // Journal recovery must be idempotent.
+        assert_eq!(recover_nonce_issuances_from_journal(&journal), 0);
+    }
+
+    #[test]
+    fn source_cleanup_refused_when_destination_is_not_a_faithful_copy() {
+        let src = tempdir().unwrap();
+        let dst = tempdir().unwrap();
+
+        let src_sub = src.path().join("data");
+        fs::create_dir_all(&src_sub).unwrap();
+        File::create(src_sub.join("a.txt"))
+            .unwrap()
+            .write_all(b"alpha")
+            .unwrap();
+        File::create(src_sub.join("b.txt"))
+            .unwrap()
+            .write_all(b"beta")
+            .unwrap();
+        // Destination is missing b.txt entirely — the copy is incomplete.
+        File::create(dst.path().join("a.txt"))
+            .unwrap()
+            .write_all(b"alpha")
+            .unwrap();
+
+        let nonce = generate_secure_128bit_nonce().unwrap();
+        let res = execute_source_cleanup(
+            "downloads",
+            &src_sub,
+            dst.path(),
+            &format!("CONFIRM_CLEANUP_downloads_{nonce}"),
+            Some(&nonce),
+        );
+        let err = res.unwrap_err().to_string();
+        assert!(err.contains("Source cleanup refused"), "got: {err}");
+        assert!(err.contains("missing copied file"), "got: {err}");
+        // Source must be untouched.
+        assert!(src_sub.join("a.txt").exists());
+        assert!(src_sub.join("b.txt").exists());
+    }
+
+    #[test]
+    fn source_cleanup_refused_when_destination_content_drifted() {
+        let src = tempdir().unwrap();
+        let dst = tempdir().unwrap();
+
+        let src_sub = src.path().join("data");
+        fs::create_dir_all(&src_sub).unwrap();
+        File::create(src_sub.join("a.txt"))
+            .unwrap()
+            .write_all(b"original content")
+            .unwrap();
+        File::create(dst.path().join("a.txt"))
+            .unwrap()
+            .write_all(b"TAMPERED content")
+            .unwrap();
+
+        let nonce = generate_secure_128bit_nonce().unwrap();
+        let res = execute_source_cleanup(
+            "downloads",
+            &src_sub,
+            dst.path(),
+            &format!("CONFIRM_CLEANUP_downloads_{nonce}"),
+            Some(&nonce),
+        );
+        let err = res.unwrap_err().to_string();
+        assert!(err.contains("SHA-256 mismatch"), "got: {err}");
+        assert!(src_sub.join("a.txt").exists(), "source must survive");
+    }
+
+    #[test]
+    fn transaction_records_persist_load_and_reconcile_honestly() {
+        let temp = tempdir().unwrap();
+        let receipts_dir = migration_receipts_dir(temp.path());
+
+        let src = temp.path().join("src_data");
+        let dst = temp.path().join("dst_data");
+        fs::create_dir_all(&src).unwrap();
+        fs::create_dir_all(&dst).unwrap();
+        File::create(src.join("f.txt"))
+            .unwrap()
+            .write_all(b"payload")
+            .unwrap();
+        File::create(dst.join("f.txt"))
+            .unwrap()
+            .write_all(b"payload")
+            .unwrap();
+
+        let record = MigrationTransactionRecord {
+            record_id: new_transaction_record_id("migration_copy"),
+            kind: "migration_copy".into(),
+            candidate_id: "downloads".into(),
+            timestamp_unix: 1_700_000_000,
+            timestamp_utc: "2026-10-30T00:00:00Z".into(),
+            source_path: Some(src.to_string_lossy().into_owned()),
+            target_path: Some(dst.to_string_lossy().into_owned()),
+            outcome: "copy_verified".into(),
+            payload: serde_json::json!({ "files": 1 }),
+        };
+
+        let path = persist_transaction_record(&receipts_dir, &record).unwrap();
+        assert!(path.exists());
+        // Atomic write must not leave temp files behind.
+        assert!(fs::read_dir(&receipts_dir)
+            .unwrap()
+            .flatten()
+            .all(|e| !e.file_name().to_string_lossy().starts_with('.')));
+
+        let loaded = load_transaction_records(&receipts_dir);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].kind, "migration_copy");
+
+        let reconciliation = reconcile_transaction_record(&loaded[0]);
+        assert!(reconciliation.contains("both still present"));
+
+        // Missing copy must be flagged as a warning, never as "safe".
+        let _ = fs::remove_dir_all(&dst);
+        let reconciliation_missing = reconcile_transaction_record(&loaded[0]);
+        assert!(reconciliation_missing.contains("WARNING"));
+        assert!(reconciliation_missing.contains("Do NOT delete the source"));
+    }
+
+    #[test]
+    fn transaction_record_rejects_unsafe_record_ids() {
+        let temp = tempdir().unwrap();
+        let mut record = MigrationTransactionRecord {
+            record_id: new_transaction_record_id("migration_copy"),
+            kind: "migration_copy".into(),
+            candidate_id: "downloads".into(),
+            timestamp_unix: 1,
+            timestamp_utc: "x".into(),
+            source_path: None,
+            target_path: None,
+            outcome: "copy_verified".into(),
+            payload: serde_json::json!({}),
+        };
+        // A path-traversal record id must never choose where the file lands.
+        record.record_id = "..\\evil".into();
+        assert!(persist_transaction_record(&migration_receipts_dir(temp.path()), &record).is_err());
     }
 }

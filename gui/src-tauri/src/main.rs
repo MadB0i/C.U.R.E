@@ -1521,7 +1521,9 @@ fn storage_rescue_status(
 ) -> Result<cure_core::storage::StorageRescueStatus, String> {
     let src = source_drive.unwrap_or_else(|| "C:".into());
     let tgt = target_drive.unwrap_or_default();
-    Ok(cure_core::storage::discover_migration_candidates(&src, &tgt))
+    Ok(cure_core::storage::discover_migration_candidates(
+        &src, &tgt,
+    ))
 }
 
 /// Build a preflight-verified migration plan for selected candidate folders.
@@ -1562,7 +1564,46 @@ async fn storage_rescue_execute(
             let _ = app.emit("rescue-migration-progress", progress);
         },
     )
+    .inspect(|receipt| {
+        let outcome = match receipt.items.first() {
+            Some(item) if item.is_verified => "copy_verified",
+            _ => "copy_failed",
+        };
+        persist_rescue_record(
+            "migration_copy",
+            outcome,
+            &candidate_id,
+            Some(&source_path),
+            Some(&target_path),
+            serde_json::to_value(receipt).unwrap_or(serde_json::Value::Null),
+        );
+    })
     .map_err(|e| format!("Migration failed: {e}"))
+}
+
+/// Persist a migration lifecycle record to the app data directory so a
+/// restarted application can reconstruct and reconcile interrupted work.
+/// Persistence failures are logged but never fail the operator action.
+fn persist_rescue_record(
+    kind: &str,
+    outcome: &str,
+    candidate_id: &str,
+    source_path: Option<&str>,
+    target_path: Option<&str>,
+    payload: serde_json::Value,
+) {
+    let record = cure_core::storage::new_transaction_record(
+        kind,
+        candidate_id,
+        source_path.map(str::to_string),
+        target_path.map(str::to_string),
+        outcome,
+        payload,
+    );
+    let dir = cure_core::storage::migration_receipts_dir(&resolve_data_dir());
+    if let Err(e) = cure_core::storage::persist_transaction_record(&dir, &record) {
+        eprintln!("[cure] failed to persist migration record '{kind}': {e}");
+    }
 }
 
 /// Finalize candidate relocation (e.g. repointing Windows Known Folders or toolchains).
@@ -1572,6 +1613,20 @@ fn storage_rescue_finalize(
     target_path: String,
 ) -> Result<cure_core::storage::FinalizationReceipt, String> {
     cure_core::storage::finalize_candidate_migration(&candidate_id, Path::new(&target_path))
+        .inspect(|receipt| {
+            persist_rescue_record(
+                "activation",
+                if receipt.registry_updated {
+                    "finalized"
+                } else {
+                    "finalization_failed"
+                },
+                &candidate_id,
+                None,
+                Some(&target_path),
+                serde_json::to_value(receipt).unwrap_or(serde_json::Value::Null),
+            );
+        })
         .map_err(|e| format!("Finalization failed: {e}"))
 }
 
@@ -1582,6 +1637,23 @@ fn storage_rescue_activate(
     target_path: String,
 ) -> Result<cure_core::storage::ActivationReceipt, String> {
     cure_core::storage::activate_candidate_relocation(&candidate_id, Path::new(&target_path))
+        .inspect(|receipt| {
+            let outcome = if receipt.activation_succeeded && receipt.application_validation_passed {
+                "activated_validated"
+            } else if receipt.activation_succeeded {
+                "activation_failed_auto_rolled_back"
+            } else {
+                "activation_failed"
+            };
+            persist_rescue_record(
+                "activation",
+                outcome,
+                &candidate_id,
+                Some(receipt.previous_configuration.as_deref().unwrap_or("")),
+                Some(&target_path),
+                serde_json::to_value(receipt).unwrap_or(serde_json::Value::Null),
+            );
+        })
         .map_err(|e| format!("Activation failed: {e}"))
 }
 
@@ -1592,6 +1664,20 @@ fn storage_rescue_rollback(
     original_path: String,
 ) -> Result<cure_core::storage::RollbackReceipt, String> {
     cure_core::storage::rollback_candidate_relocation(&candidate_id, Path::new(&original_path))
+        .inspect(|receipt| {
+            persist_rescue_record(
+                "rollback",
+                if receipt.rollback_succeeded {
+                    "rolled_back"
+                } else {
+                    "rollback_failed"
+                },
+                &candidate_id,
+                Some(&original_path),
+                None,
+                serde_json::to_value(receipt).unwrap_or(serde_json::Value::Null),
+            );
+        })
         .map_err(|e| format!("Rollback failed: {e}"))
 }
 
@@ -1611,15 +1697,53 @@ fn storage_rescue_cleanup_source(
         &confirmation_token,
         expected_nonce.as_deref(),
     )
+    .inspect(|receipt| {
+        persist_rescue_record(
+            "source_cleanup",
+            "cleaned",
+            &candidate_id,
+            Some(&source_path),
+            Some(&target_path),
+            serde_json::to_value(receipt).unwrap_or(serde_json::Value::Null),
+        );
+    })
     .map_err(|e| format!("Source cleanup failed: {e}"))
+}
+
+/// List persisted migration lifecycle records, reconciled against the live
+/// system. Read-only: this surfaces the state of interrupted migrations after
+/// an application restart without mutating anything.
+#[derive(serde::Serialize)]
+struct ReconciledRescueReceipt {
+    #[serde(flatten)]
+    record: cure_core::storage::MigrationTransactionRecord,
+    reconciliation: String,
+}
+
+#[tauri::command]
+fn storage_rescue_receipts() -> Result<Vec<ReconciledRescueReceipt>, String> {
+    let dir = cure_core::storage::migration_receipts_dir(&resolve_data_dir());
+    Ok(cure_core::storage::load_transaction_records(&dir)
+        .into_iter()
+        .map(|record| {
+            let reconciliation = cure_core::storage::reconcile_transaction_record(&record);
+            ReconciledRescueReceipt {
+                record,
+                reconciliation,
+            }
+        })
+        .collect())
 }
 
 /// Retrieve overall system posture and operator recommendations.
 #[tauri::command]
 fn operator_status() -> Result<cure_core::operator::OperatorPosture, String> {
     let pressures = cure_core::storage::assess_drive_pressures();
-    let c_drive = pressures.iter().find(|d| d.is_system).cloned().unwrap_or_else(|| {
-        cure_core::storage::DrivePressure {
+    let c_drive = pressures
+        .iter()
+        .find(|d| d.is_system)
+        .cloned()
+        .unwrap_or_else(|| cure_core::storage::DrivePressure {
             drive_letter: "C:".into(),
             volume_label: None,
             total_bytes: 0,
@@ -1628,17 +1752,24 @@ fn operator_status() -> Result<cure_core::operator::OperatorPosture, String> {
             pressure_pct: 0.0,
             is_system: true,
             is_congested: false,
-        }
-    });
+        });
 
     let status = cure_core::storage::discover_migration_candidates("C:", "D:");
-    let safe_relief: u64 = status.candidates.iter()
+    let safe_relief: u64 = status
+        .candidates
+        .iter()
         .filter(|c| c.safety == cure_core::storage::MigrationSafety::Safe)
         .map(|c| c.size_bytes)
         .sum();
 
     let sessions = cure_core::agent::inspect_agent_sessions();
-    let unverified_count = sessions.iter().filter(|s| s.state == cure_core::agent::SessionProcessState::Unverified || s.state == cure_core::agent::SessionProcessState::SuspectMismatch).count();
+    let unverified_count = sessions
+        .iter()
+        .filter(|s| {
+            s.state == cure_core::agent::SessionProcessState::Unverified
+                || s.state == cure_core::agent::SessionProcessState::SuspectMismatch
+        })
+        .count();
 
     let mut recommendations = Vec::new();
     let mut highest_level = cure_core::operator::ResponseLevel::Level0Observe;
@@ -1655,7 +1786,8 @@ fn operator_status() -> Result<cure_core::operator::OperatorPosture, String> {
             target: "C:".into(),
             required_confirmation_token: None,
         });
-        highest_level = highest_level.max(cure_core::operator::ResponseLevel::Level2ActionRecommended);
+        highest_level =
+            highest_level.max(cure_core::operator::ResponseLevel::Level2ActionRecommended);
     }
 
     for s in &sessions {
@@ -1719,7 +1851,9 @@ fn operator_agent_terminate(
 
 /// Scan a specific file with native Windows Defender without shell expansion.
 #[tauri::command]
-fn operator_defender_scan(file_path: String) -> Result<cure_core::operator::DefenderScanResult, String> {
+fn operator_defender_scan(
+    file_path: String,
+) -> Result<cure_core::operator::DefenderScanResult, String> {
     cure_core::operator::scan_file_with_defender(Path::new(&file_path))
 }
 
@@ -1734,7 +1868,9 @@ fn operator_defender_contain(
 
 /// Fetch recent operator audit log entries.
 #[tauri::command]
-fn operator_audit_log(limit: Option<usize>) -> Result<Vec<cure_core::operator::OperatorJournalEntry>, String> {
+fn operator_audit_log(
+    limit: Option<usize>,
+) -> Result<Vec<cure_core::operator::OperatorJournalEntry>, String> {
     Ok(cure_core::operator::get_audit_log(limit.unwrap_or(50)))
 }
 
@@ -2504,6 +2640,22 @@ fn main() {
             "[cure-demo] public demo build: the engine is not reachable; \
              every command is answered by the deterministic sample backend"
         );
+    } else {
+        // Production engine only: activate the durable operator safeguards.
+        // - The hash-chained audit journal (otherwise every audit_log call is
+        //   a silent no-op and operator_audit.jsonl is never written).
+        // - The durable nonce ledger, so activation/cleanup nonces survive a
+        //   process restart and consumed nonces cannot be replayed.
+        // - Journal-based nonce recovery for activations that happened in a
+        //   previous process.
+        let data_dir = resolve_data_dir();
+        let journal_path = data_dir.join("operator_audit.jsonl");
+        cure_core::operator::init_global_journal(&journal_path);
+        cure_core::storage::set_nonce_store_path(&data_dir.join("operator_nonces.json"));
+        let recovered = cure_core::storage::recover_nonce_issuances_from_journal(&journal_path);
+        if recovered > 0 {
+            eprintln!("[cure] recovered {recovered} activation nonce(s) from the audit journal");
+        }
     }
 
     let builder = tauri::Builder::default();
@@ -2546,6 +2698,7 @@ fn main() {
             storage_rescue_activate,
             storage_rescue_rollback,
             storage_rescue_cleanup_source,
+            storage_rescue_receipts,
             operator_status,
             operator_agent_sessions,
             operator_agent_graceful_shutdown,
@@ -3439,6 +3592,7 @@ struct AgentProcessDto {
     exe_path: String,
     command_line: Option<String>,
     started_unix: Option<u64>,
+    memory_usage_bytes: Option<u64>,
     identity: String,
     identity_label: String,
     evidence: String,
@@ -3464,6 +3618,7 @@ fn agent_process_dto(process: &agent::DetectedAgentProcess) -> AgentProcessDto {
         exe_path: process.exe_path.clone(),
         command_line: process.command_line.clone(),
         started_unix: process.started_unix,
+        memory_usage_bytes: process.memory_usage_bytes,
         identity: format!("{:?}", process.identity),
         identity_label: process.identity.label().to_string(),
         evidence: process.evidence.clone(),

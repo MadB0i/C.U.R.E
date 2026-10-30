@@ -326,6 +326,9 @@ pub struct DetectedAgentProcess {
     pub command_line: Option<String>,
     /// Unix seconds from the process creation time, when Windows returned it.
     pub started_unix: Option<u64>,
+    /// Working set size in bytes, when Windows returned it. Read-only
+    /// observation via GetProcessMemoryInfo; None when unavailable.
+    pub memory_usage_bytes: Option<u64>,
     /// How strongly the executable was identified.
     pub identity: ExecutableIdentity,
     pub evidence: String,
@@ -419,63 +422,71 @@ pub fn verify_process_identity(kind: AgentKind, path: &str) -> ExecutableIdentit
 
     // Check Authenticode signature
     let sig = crate::signature::signature_detail(p);
-    if let Some(ref pub_name) = sig.publisher {
-        let pub_lower = pub_name.to_ascii_lowercase();
+    // Publisher evidence is only meaningful when the signature verdict is
+    // actually trusted. An unsigned or unknown-verdict file can still expose a
+    // stray embedded certificate blob (e.g. a leftover or malformed signature
+    // block); treating that as "signed by X" produces false mismatch verdicts
+    // against genuine, canonically-installed tools.
+    let signature_trusted = matches!(
+        sig.status,
+        crate::signature::SignatureStatus::ValidSigned
+            | crate::signature::SignatureStatus::ValidRevocationUnknown
+    );
+    if signature_trusted {
+        if let Some(ref pub_name) = sig.publisher {
+            let pub_lower = pub_name.to_ascii_lowercase();
 
-        // Check for conflicting known runtimes:
-        // E.g. Python executable renamed to opencode.exe or claude.exe
-        let is_python_runtime = pub_lower.contains("python software foundation");
-        let is_node_runtime =
-            pub_lower.contains("node.js foundation") || pub_lower.contains("openjs foundation");
-        let is_ms_system = pub_lower.contains("microsoft windows");
+            // Check for conflicting known runtimes:
+            // E.g. Python executable renamed to opencode.exe or claude.exe
+            let is_python_runtime = pub_lower.contains("python software foundation");
+            let is_node_runtime =
+                pub_lower.contains("node.js foundation") || pub_lower.contains("openjs foundation");
+            let is_ms_system = pub_lower.contains("microsoft windows");
 
-        if is_python_runtime && kind != AgentKind::Aider {
-            return ExecutableIdentity::SuspectMismatch;
-        }
-
-        if is_ms_system && kind != AgentKind::Copilot {
-            return ExecutableIdentity::SuspectMismatch;
-        }
-
-        if is_node_runtime && kind != AgentKind::Cline && kind != AgentKind::Continue {
-            return ExecutableIdentity::SuspectMismatch;
-        }
-
-        // Expected publishers for specific tools:
-        let is_expected_publisher = match kind {
-            AgentKind::Ollama => pub_lower.contains("ollama"),
-            AgentKind::Cursor => pub_lower.contains("anysphere"),
-            AgentKind::Copilot => pub_lower.contains("microsoft"),
-            AgentKind::Claude => pub_lower.contains("anthropic"),
-            AgentKind::GeminiCli => pub_lower.contains("google"),
-            AgentKind::Codex => pub_lower.contains("openai"),
-            AgentKind::Aider => pub_lower.contains("aider") || pub_lower.contains("paul gauthier"),
-            AgentKind::Continue => pub_lower.contains("continue"),
-            AgentKind::Cline => pub_lower.contains("cline"),
-            AgentKind::Antigravity => pub_lower.contains("google"),
-            _ => false,
-        };
-
-        if is_expected_publisher {
-            if sig.status == crate::signature::SignatureStatus::ValidSigned
-                || sig.status == crate::signature::SignatureStatus::ValidRevocationUnknown
-            {
-                return ExecutableIdentity::Verified;
-            } else {
+            if is_python_runtime && kind != AgentKind::Aider {
                 return ExecutableIdentity::SuspectMismatch;
             }
-        }
 
-        // If signed by a completely unexpected company for a known branded tool
-        if (kind == AgentKind::Ollama && !pub_lower.contains("ollama"))
-            || (kind == AgentKind::Cursor && !pub_lower.contains("anysphere"))
-            || (kind == AgentKind::Claude && !pub_lower.contains("anthropic"))
-            || (kind == AgentKind::Copilot && !pub_lower.contains("microsoft"))
-            || (kind == AgentKind::GeminiCli && !pub_lower.contains("google"))
-            || (kind == AgentKind::Codex && !pub_lower.contains("openai"))
-            || (kind == AgentKind::Antigravity && !pub_lower.contains("google"))
-        {
-            return ExecutableIdentity::SuspectMismatch;
+            if is_ms_system && kind != AgentKind::Copilot {
+                return ExecutableIdentity::SuspectMismatch;
+            }
+
+            if is_node_runtime && kind != AgentKind::Cline && kind != AgentKind::Continue {
+                return ExecutableIdentity::SuspectMismatch;
+            }
+
+            // Expected publishers for specific tools:
+            let is_expected_publisher = match kind {
+                AgentKind::Ollama => pub_lower.contains("ollama"),
+                AgentKind::Cursor => pub_lower.contains("anysphere"),
+                AgentKind::Copilot => pub_lower.contains("microsoft"),
+                AgentKind::Claude => pub_lower.contains("anthropic"),
+                AgentKind::GeminiCli => pub_lower.contains("google"),
+                AgentKind::Codex => pub_lower.contains("openai"),
+                AgentKind::Aider => {
+                    pub_lower.contains("aider") || pub_lower.contains("paul gauthier")
+                }
+                AgentKind::Continue => pub_lower.contains("continue"),
+                AgentKind::Cline => pub_lower.contains("cline"),
+                AgentKind::Antigravity => pub_lower.contains("google"),
+                _ => false,
+            };
+
+            if is_expected_publisher {
+                return ExecutableIdentity::Verified;
+            }
+
+            // If signed by a completely unexpected company for a known branded tool
+            if (kind == AgentKind::Ollama && !pub_lower.contains("ollama"))
+                || (kind == AgentKind::Cursor && !pub_lower.contains("anysphere"))
+                || (kind == AgentKind::Claude && !pub_lower.contains("anthropic"))
+                || (kind == AgentKind::Copilot && !pub_lower.contains("microsoft"))
+                || (kind == AgentKind::GeminiCli && !pub_lower.contains("google"))
+                || (kind == AgentKind::Codex && !pub_lower.contains("openai"))
+                || (kind == AgentKind::Antigravity && !pub_lower.contains("google"))
+            {
+                return ExecutableIdentity::SuspectMismatch;
+            }
         }
     } else if sig.status == crate::signature::SignatureStatus::Invalid {
         return ExecutableIdentity::SuspectMismatch;
@@ -555,6 +566,7 @@ pub fn enumerate_agent_processes() -> Vec<DetectedAgentProcess> {
         if let Some(kind) = AgentKind::from_executable_name(&name) {
             let mut exe_path = String::new();
             let mut started_unix = None;
+            let mut memory_usage_bytes = None;
             let mut access_denied = false;
             // SAFETY: OpenProcess with PROCESS_QUERY_LIMITED_INFORMATION is safe and read-only.
             unsafe {
@@ -585,6 +597,18 @@ pub fn enumerate_agent_processes() -> Vec<DetectedAgentProcess> {
                             if ticks >= 116_444_736_000_000_000 {
                                 started_unix = Some((ticks - 116_444_736_000_000_000) / 10_000_000);
                             }
+                        }
+
+                        // Working set (resource usage) — read-only observation.
+                        use windows::Win32::System::ProcessStatus::{
+                            GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+                        };
+                        let mut pmc = PROCESS_MEMORY_COUNTERS {
+                            cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+                            ..Default::default()
+                        };
+                        if GetProcessMemoryInfo(handle, &mut pmc, pmc.cb).is_ok() {
+                            memory_usage_bytes = Some(pmc.WorkingSetSize as u64);
                         }
                         let _ = CloseHandle(handle);
                     }
@@ -664,6 +688,7 @@ pub fn enumerate_agent_processes() -> Vec<DetectedAgentProcess> {
                 exe_path,
                 command_line: None,
                 started_unix,
+                memory_usage_bytes,
                 evidence,
                 confidence,
                 limitations,
@@ -855,6 +880,29 @@ mod tests {
         let _ = std::fs::remove_file(&dummy);
         let _ = std::fs::remove_dir_all(&pf_dir);
         assert_eq!(identity, ExecutableIdentity::Unverified);
+    }
+
+    #[test]
+    fn unsigned_verdict_is_never_labelled_suspect_mismatch() {
+        // Regression: an unsigned binary whose PE happens to contain a stray
+        // certificate blob (so publisher extraction returns Some) must not be
+        // graded "SuspectMismatch" — that verdict is reserved for binaries
+        // whose signature actually verified against an unexpected publisher.
+        let temp_dir = std::env::temp_dir();
+        let ag_dir = temp_dir
+            .join("cure-sig-regression")
+            .join("programs")
+            .join("antigravity");
+        let _ = std::fs::create_dir_all(&ag_dir);
+        let dummy = ag_dir.join("Antigravity.exe");
+        let _ = std::fs::write(&dummy, b"unsigned binary with no signature");
+        let identity = verify_process_identity(AgentKind::Antigravity, &dummy.to_string_lossy());
+        let _ = std::fs::remove_dir_all(ag_dir.parent().unwrap().parent().unwrap());
+        assert_ne!(
+            identity,
+            ExecutableIdentity::SuspectMismatch,
+            "unsigned verdicts must never be graded as a signer mismatch"
+        );
     }
 
     #[test]

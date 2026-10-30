@@ -31,7 +31,8 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+/// Hash anchor of the first journal entry (chain genesis).
+pub const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 #[cfg(windows)]
 pub fn seal_hash_dpapi(hash: &str) -> io::Result<Vec<u8>> {
