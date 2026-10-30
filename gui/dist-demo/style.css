@@ -156,7 +156,7 @@
   --text: #0f172a;
   --text-2: #334155;
   --text-muted: var(--text-2);
-  --text-3: #64748b;
+  --text-3: #475569;
   --dim: var(--text-3);
 
   /* C.U.R.E identity accent for light mode. */
@@ -172,11 +172,11 @@
   --accent-dim: var(--cure-tint);
 
   /* Semantic for light mode. */
-  --ok: #059669;
-  --ok-tint: rgba(5, 150, 105, 0.12);
-  --warning: #d97706;
+  --ok: #065f46;
+  --ok-tint: rgba(6, 95, 70, 0.12);
+  --warning: #92400e;
   --warning-tint: rgba(217, 119, 6, 0.12);
-  --danger: #dc2626;
+  --danger: #b91c1c;
   --danger-tint: rgba(220, 38, 38, 0.12);
   --safe: var(--ok);
 
@@ -2390,6 +2390,11 @@ code,
   max-width: 860px;
   width: 100%;
   text-align: left;
+}
+@media (max-width: 680px) {
+  .vault-pillars {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
 }
 .vault-pillar {
   display: flex;

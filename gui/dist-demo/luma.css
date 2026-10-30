@@ -50,7 +50,7 @@
 }
 
 /* Host Specific Sizing */
-.luma-host:where([data-companion="overview"])  { --luma-size: 176px; }
+.luma-host:where([data-companion="overview"])  { --luma-size: 150px; }
 .luma-host:where([data-companion="agents"])    { --luma-size: 124px; }
 .luma-host:where([data-companion="scan"])      { --luma-size: 168px; }
 .luma-host:where([data-companion="detective"]) { --luma-size: 160px; }

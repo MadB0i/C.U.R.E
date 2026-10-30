@@ -697,7 +697,6 @@
 
       // Notify LUMA companion
       if (window.CureCompanion) window.CureCompanion.scan("scan", "Collection started");
-      if (window.Luma) window.Luma.scanning("Holographic radar scanning persistence vectors…");
 
       paintLedger();
       layout();
@@ -748,7 +747,6 @@
             if (p.risk === "HighRisk") layer.tone = "highrisk";
             else if (layer.tone !== "highrisk") layer.tone = "review";
             pushBeacon(layer.id, p.risk);
-            if (window.Luma) window.Luma.curious("Persistence finding noted for review");
           }
         }
         state.items += 1;
@@ -774,7 +772,6 @@
           layer.risk += 1;
           layer.tone = "highrisk";
           pushBeacon("ransom", "HighRisk");
-          if (window.Luma) window.Luma.warning("Ransom indicator identified");
         }
       }
 
@@ -924,14 +921,25 @@
       stopLoop();
     },
 
-    motion: function (on) {
-      motionPaused = !on;
+    motion: function (paused) {
+      motionPaused = !!paused;
+      try {
+        localStorage.setItem("cure-motion-paused", String(motionPaused));
+      } catch (_) {}
       if (motionBtn) {
         motionBtn.textContent = motionPaused ? "Resume field motion" : "Pause field motion";
         motionBtn.setAttribute("aria-pressed", String(motionPaused));
       }
-      if (state.running && prefersMotion()) startLoop();
-      else { stopLoop(); draw(); }
+      if (motionPaused || reducedMedia.matches || document.hidden) {
+        stopLoop();
+        draw();
+      } else if (state.running) {
+        startLoop();
+      }
+    },
+
+    motionPaused: function () {
+      return motionPaused;
     },
 
     layout: function () {

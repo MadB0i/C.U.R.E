@@ -705,6 +705,9 @@
       if (off) park(inst);
       else resume(inst);
     }
+    if (window.CureSweep && typeof window.CureSweep.motion === "function") {
+      window.CureSweep.motion(paused);
+    }
   }
 
   function park(inst) {
@@ -996,6 +999,10 @@
         }
       }
     },
+    scanning: function (detail) {
+      asleep = false;
+      apply("scan", null, detail || null);
+    },
     review: function (count, detail) {
       asleep = false;
       apply("review", count ? count + " to review" : "Review", detail || null);
@@ -1076,6 +1083,7 @@
       return {
         idle:        (detail)            => scopedApply("idle", null, detail || null),
         scan:        (stateName, detail) => scopedApply(stateName || "scan", null, detail || null),
+        scanning:    (detail)            => scopedApply("scan", null, detail || null),
         curious:     (detail)            => scopedApply("curious", null, detail || null),
         thinking:    (detail)            => scopedApply("thinking", null, detail || null),
         discovering: (count, detail)     => {

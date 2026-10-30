@@ -702,6 +702,11 @@
 .ar-event-kind[data-kind="removed"] { background: var(--danger-tint); color: var(--danger); }
 .ar-event-kind[data-kind="renamed"] { background: var(--cure-tint); color: var(--cure-300); }
 
+[data-theme="light"] .ar-event-kind[data-kind="created"] { background: rgba(4, 120, 87, 0.12); color: #065f46; }
+[data-theme="light"] .ar-event-kind[data-kind="modified"] { background: rgba(146, 64, 14, 0.12); color: #78350f; }
+[data-theme="light"] .ar-event-kind[data-kind="removed"] { background: rgba(185, 28, 28, 0.12); color: #991b1b; }
+[data-theme="light"] .ar-event-kind[data-kind="renamed"] { background: rgba(21, 94, 117, 0.12); color: #155e75; }
+
 .ar-evidence {
   position: sticky;
   top: var(--s2);
