@@ -2,6 +2,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::evidence::Evidence;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PersistenceSource {
     RegistryRun,
@@ -102,7 +104,12 @@ pub struct ScoredEntry {
     pub entry: PersistenceEntry,
     pub score: i32,
     pub risk: RiskLevel,
-    pub reasons: Vec<String>,
+    /// What backs this finding — every item built through the explicit
+    /// `Evidence` constructors. Scorer-produced items are `Observed` with a
+    /// detail stating WHAT was witnessed (path token, signature verdict,
+    /// hash hit). The `+30 `/-40 ` numeric prefix convention is kept in the
+    /// detail for score transparency; frontends strip it for chips.
+    pub evidence: Vec<Evidence>,
     /// MITRE ATT&CK technique for the finding's source — the single source
     /// of truth (see `attack::technique_for_source`). Empty when the source
     /// has no mapping. Frontends must prefer these fields over any local

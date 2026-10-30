@@ -11,6 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::evidence::Evidence;
 use crate::hash_intel::ThreatIntelProvider;
 use crate::model::{RiskLevel, ScoredEntry};
 use crate::process_scan::{ProcessInfo, ProcessScore};
@@ -119,7 +120,12 @@ pub struct FindingReport {
     pub location: String,
     pub score: i32,
     pub risk: String,
-    pub reasons: Vec<String>,
+    /// What backs this finding, each item carrying its explicit evidence
+    /// level. Exports from before evidence levels existed have no
+    /// `evidence` field; they load with an EMPTY list — which claims
+    /// nothing, and never a default `Observed`.
+    #[serde(default)]
+    pub evidence: Vec<Evidence>,
     pub attack_id: String,
     pub attack_name: String,
     /// VALID / INVALID / UNSIGNED / UNKNOWN / UNVERIFIED, or NOT ASSESSED.
@@ -334,7 +340,11 @@ pub fn assemble_with_identity(
             location: redact(&scored.entry.location),
             score: scored.score,
             risk: format!("{:?}", scored.risk),
-            reasons: scored.reasons.clone(),
+            evidence: scored
+                .evidence
+                .iter()
+                .map(|ev| ev.map_detail(|d| redact(d)))
+                .collect(),
             attack_id: scored.attack.id.clone(),
             attack_name: scored.attack.name.clone(),
             signature,
@@ -358,7 +368,11 @@ pub fn assemble_with_identity(
             location: redact(&info.exe_path),
             score: ps.score,
             risk: format!("{:?}", ps.risk),
-            reasons: ps.reasons.clone(),
+            evidence: ps
+                .evidence
+                .iter()
+                .map(|ev| ev.map_detail(|d| redact(d)))
+                .collect(),
             attack_id: String::new(),
             attack_name: String::new(),
             signature: "NOT ASSESSED".to_string(),
@@ -392,7 +406,7 @@ pub fn assemble_with_identity(
             location: redact(&path),
             score: 100,
             risk: "HighRisk".to_string(),
-            reasons: vec![redact(&detail)],
+            evidence: vec![Evidence::observed(redact(&detail))],
             attack_id: "T1486".to_string(),
             attack_name: "Data Encrypted for Impact".to_string(),
             signature: "NOT ASSESSED".to_string(),
@@ -570,8 +584,20 @@ pub fn render_txt(report: &Report) -> String {
         if let Some(sha256) = &f.sha256 {
             out.push_str(&format!("   sha256   : {sha256}\n"));
         }
-        for reason in &f.reasons {
-            out.push_str(&format!("   evidence : {reason}\n"));
+        if f.evidence.is_empty() {
+            // Pre-evidence exports carry no levels. Say so explicitly — an
+            // empty list must never read as "checked, nothing backing it".
+            // No level is invented for data that never had one.
+            out.push_str(
+                "   evidence : LEGACY REPORT — evidence not recorded (this export predates evidence levels)\n",
+            );
+        }
+        for ev in &f.evidence {
+            out.push_str(&format!(
+                "   evidence [{}]: {}\n",
+                ev.level().label().to_lowercase(),
+                ev.detail()
+            ));
         }
         out.push_str(&format!("   action   : {}\n", f.recommended_action));
     }
@@ -693,7 +719,7 @@ mod tests {
                     .contains(&user.to_ascii_lowercase()),
                 "{label} export leaks identity"
             );
-            // Reasons carry evidence text — also covered.
+            // Evidence details carry identity text — also covered.
             assert!(!body.contains("CURE-SYNTH-USER"));
         }
     }
@@ -736,7 +762,7 @@ mod tests {
             ),
             score: 0,
             risk: RiskLevel::Safe,
-            reasons: vec![],
+            evidence: vec![],
             attack: crate::risk::attack_info_for(&crate::model::PersistenceSource::StartupFolder),
         };
         let input = ScanInput {
@@ -752,5 +778,82 @@ mod tests {
         );
         assert!(report.findings.is_empty());
         assert_eq!(report.safe_persistence, 1);
+    }
+
+    /// Old-format export (pre-evidence): findings carry a `reasons` string
+    /// array and no `evidence` field. It must still LOAD, and the default
+    /// must claim nothing — empty evidence, never an implicit `Observed`.
+    #[test]
+    fn old_format_report_fixture_loads_without_claiming_observed() {
+        const OLD: &str = include_str!("../../testing/formats/report-v0.json");
+        let report: Report = serde_json::from_str(OLD).expect("old report fixture must load");
+
+        assert_eq!(report.findings.len(), 1);
+        let finding = &report.findings[0];
+        assert_eq!(finding.name, "CURE-SYNTH-SyncHelper.exe");
+        // The serde default is an EMPTY list: it asserts nothing. It must
+        // not fabricate Observed items the old export never made.
+        assert!(
+            finding.evidence.is_empty(),
+            "old-format load must not claim evidence: {:?}",
+            finding.evidence
+        );
+        // The unchanged incident section (string evidence) still loads.
+        let incident = report.incident.as_ref().expect("incident section loads");
+        assert_eq!(incident.correlations.len(), 1);
+        assert_eq!(incident.correlations[0].evidence.len(), 2);
+        // It still renders in both formats. The empty evidence list is
+        // displayed as an explicit legacy state, never as a silent normal
+        // finding, and no level is invented for the old data.
+        let txt = render_txt(&report);
+        assert!(txt.contains("CURE-SYNTH-SyncHelper.exe"));
+        assert!(!txt.contains("evidence ["));
+        assert!(
+            txt.contains("LEGACY REPORT — evidence not recorded"),
+            "old-format finding must show the legacy evidence state:\n{txt}"
+        );
+        assert!(render_json(&report).contains("\"evidence\": ["));
+    }
+
+    /// New-format round trip: evidence levels serialize next to their
+    /// details and survive a JSON round trip.
+    #[test]
+    fn new_format_report_round_trips_evidence_levels() {
+        let report = Report {
+            generated_at: "2026-01-01T00:00:00Z".to_string(),
+            cure_version: "0.2.0".to_string(),
+            windows_version: "test".to_string(),
+            coverage: vec![],
+            findings: vec![FindingReport {
+                kind: "persistence".to_string(),
+                name: "CURE-SYNTH-x".to_string(),
+                source: "startup-folder".to_string(),
+                command: String::new(),
+                location: String::new(),
+                score: 30,
+                risk: "Suspicious".to_string(),
+                evidence: vec![
+                    Evidence::observed("+30 command path sits in a drop zone"),
+                    Evidence::correlated("an agent process was running at that time"),
+                ],
+                attack_id: String::new(),
+                attack_name: String::new(),
+                signature: "NOT ASSESSED".to_string(),
+                publisher: None,
+                sha256: None,
+                recommended_action: String::new(),
+            }],
+            safe_persistence: 0,
+            safe_processes: 0,
+            intel_provider: "DEMO".to_string(),
+            redacted: false,
+            incident: None,
+        };
+        let json = render_json(&report);
+        let back: Report = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.findings[0].evidence, report.findings[0].evidence);
+        assert_eq!(back.findings[0].evidence[1].level().label(), "Correlated");
+        // A report that DOES carry evidence never shows the legacy state.
+        assert!(!render_txt(&report).contains("LEGACY REPORT"));
     }
 }

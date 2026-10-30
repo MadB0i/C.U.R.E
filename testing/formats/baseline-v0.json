@@ -1,0 +1,19 @@
+{
+  "saved_at": "2026-01-15T10:30:00Z",
+  "entries": [
+    {
+      "id": "0123456789abcdef",
+      "source": "StartupFolder",
+      "name": "CURE-SYNTH-OneDriveStandaloneUpdater",
+      "command": "C:\\Windows\\System32\\CURE-SYNTH-Updater.exe /background",
+      "location": "C:\\cure-synth\\Startup\\CURE-SYNTH-OneDriveStandaloneUpdater.lnk"
+    },
+    {
+      "id": "fedcba9876543210",
+      "source": "RegistryRun",
+      "name": "CURE-SYNTH-AcmeTray",
+      "command": "\"C:\\Program Files\\CURE-SYNTH-Acme\\acmetray.exe\" /quiet",
+      "location": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+    }
+  ]
+}

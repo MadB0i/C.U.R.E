@@ -82,6 +82,21 @@ pub struct QuarantineRecord {
 
 type Records = HashMap<String, QuarantineRecord>;
 
+pub fn is_reparse_point(md: &fs::Metadata) -> bool {
+    if md.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if md.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return true;
+        }
+    }
+    false
+}
+
 fn quarantine_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("quarantine")
 }
@@ -320,10 +335,25 @@ pub fn quarantine_entry(data_dir: &Path, entry: &PersistenceEntry) -> io::Result
     let _ = reconcile(data_dir);
 
     let original = PathBuf::from(&entry.location);
-    if !original.is_file() {
-        return Err(io::Error::new(
+    let md = fs::symlink_metadata(&original).map_err(|e| {
+        io::Error::new(
             io::ErrorKind::NotFound,
-            format!("entry file not found: {}", original.display()),
+            format!("entry file not found: {}: {e}", original.display()),
+        )
+    })?;
+    if is_reparse_point(&md) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "refusing to quarantine symlink or reparse point: {}",
+                original.display()
+            ),
+        ));
+    }
+    if !md.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("entry is not a regular file: {}", original.display()),
         ));
     }
     fs::create_dir_all(quarantine_dir(data_dir))?;
@@ -479,7 +509,7 @@ fn restore(record: &QuarantineRecord) -> io::Result<Vec<String>> {
             ),
         ));
     }
-    if record.original_path.exists() {
+    if fs::symlink_metadata(&record.original_path).is_ok() {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
             format!(
@@ -487,6 +517,30 @@ fn restore(record: &QuarantineRecord) -> io::Result<Vec<String>> {
                 record.original_path.display()
             ),
         ));
+    }
+    if let Some(parent) = record.original_path.parent() {
+        let mut curr = parent;
+        while curr.exists() {
+            if let Ok(md) = fs::symlink_metadata(curr) {
+                if is_reparse_point(&md) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        format!(
+                            "refusing restore through parent reparse point: {}",
+                            curr.display()
+                        ),
+                    ));
+                }
+            }
+            if let Some(p) = curr.parent() {
+                if p == curr {
+                    break;
+                }
+                curr = p;
+            } else {
+                break;
+            }
+        }
     }
     // Integrity: the quarantined bytes must be what we archived. A mismatch
     // means the store was tampered with (or bit-rotted) — planting altered
@@ -981,5 +1035,68 @@ mod tests {
         assert!(original.is_file());
         assert!(!is_quarantined(data.path(), &old_id));
         assert!(!is_quarantined(data.path(), &new_id));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn quarantine_refuses_file_symlink() {
+        use std::os::windows::fs::symlink_file;
+
+        let user_land = tempdir().unwrap();
+        let data = tempdir().unwrap();
+        let target_file = user_land.path().join("real_target.exe");
+        fs::write(&target_file, b"safe real binary").unwrap();
+
+        let link_file = user_land.path().join("link_entry.exe");
+        if symlink_file(&target_file, &link_file).is_err() {
+            eprintln!("SKIP: no symlink privilege in test environment");
+            return;
+        }
+
+        let entry = PersistenceEntry {
+            id: "symlink-entry-id".to_string(),
+            name: "link_entry.exe".to_string(),
+            location: link_file.to_string_lossy().to_string(),
+            command: link_file.to_string_lossy().to_string(),
+            source: PersistenceSource::StartupFolder,
+        };
+
+        let err = quarantine_entry(data.path(), &entry).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+        assert!(err
+            .to_string()
+            .contains("refusing to quarantine symlink or reparse point"));
+
+        // Target file must be untouched!
+        assert!(target_file.is_file());
+        assert_eq!(fs::read(&target_file).unwrap(), b"safe real binary");
+        // No quarantine records created
+        assert!(list_records(data.path()).is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn undo_refuses_broken_symlink_at_destination() {
+        use std::os::windows::fs::symlink_file;
+
+        let user_land = tempdir().unwrap();
+        let data = tempdir().unwrap();
+        let (entry, original) = setup_entry(user_land.path(), "broken_link_test.exe");
+
+        let quarantined = quarantine_entry(data.path(), &entry).unwrap();
+        assert_eq!(quarantined.id, entry.id);
+
+        // Plant a broken symlink at original path
+        let non_existent_target = user_land.path().join("does_not_exist_12345.bin");
+        if symlink_file(&non_existent_target, &original).is_err() {
+            eprintln!("SKIP: no symlink privilege in test environment");
+            return;
+        }
+
+        // `original.exists()` would return false because it's a broken link!
+        // But symlink_metadata detects the link file, refusing restore.
+        let err = undo(data.path(), &entry.id).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        assert!(err.to_string().contains("original path is occupied"));
     }
 }

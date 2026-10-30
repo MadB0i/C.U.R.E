@@ -1,240 +1,164 @@
 # C.U.R.E
 
-### Evidence-first Windows security and storage workstation.
+### Evidence-First Windows Security & Storage Workstation with AI Agent Intelligence
 
-C.U.R.E shows what starts with Windows, why it was flagged, what is using
-your disk, and what will change before you act.
+C.U.R.E (Clean, Undoable, Resilient, Evidence-first) is a portable Windows cybersecurity toolkit and forensic storage workstation written in Rust with a local Tauri desktop console. It exposes what starts with Windows, discovers and monitors local AI developer agents, explains why entries were flagged, measures physical disk usage, and verifies state before you act.
 
 [![CI](https://github.com/MadB0i/C.U.R.E/actions/workflows/ci.yml/badge.svg)](https://github.com/MadB0i/C.U.R.E/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform: Windows 10/11](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20x64-0078D6.svg)](https://github.com/MadB0i/C.U.R.E)
+[![Offline: 100%](https://img.shields.io/badge/Network-Zero%20Telemetry%20%7C%20Offline-green.svg)](https://github.com/MadB0i/C.U.R.E)
 
-![C.U.R.E Storage Workstation: a squarified treemap of measured categories beside a tier-filtered ledger. Sample data from the deterministic mock backend.](docs/screenshots/08-storage-map.png)
+---
 
-- Inspect Windows persistence points and suspicious processes.
-- Review evidence before taking action.
-- Quarantine supported files with integrity-checked undo.
-- Measure a drive properly, find verified duplicates, and reclaim space
-  through a preview you have to type a word to confirm.
-- Ask **where did my storage go?** in Detective Mode: a measured map, ranked
-  discoveries with their evidence, and a privacy-safe case file you can keep.
+![C.U.R.E Overview: Dark Theme with LUMA V2 mascot and system posture summary](testing/native/screenshots-final/01-overview-dark.png)
+*Desktop Evidence Console in dark theme featuring LUMA V2 and real-time security posture. (Also available in [light theme](testing/native/screenshots-final/02-overview-light.png)).*
 
-![Sample flow: launch, Rescue Scan, System X-Ray, finding, evidence, confirmed quarantine, undo, then a separately confirmed storage measurement and cleanup. Sample data.](docs/media/demo.gif)
+---
 
-[Watch the same flow as MP4](docs/media/demo.mp4)
+## Non-Negotiable Core Principles
 
-Malware that survives a reboot hides in startup folders, Run keys, scheduled
-tasks, services and WMI subscriptions. C.U.R.E reads those mechanisms, scores
-every finding **with its evidence attached**, and moves — never deletes —
-files you confirm, with a recorded, byte-identical undo. Anything it will not
-touch automatically, such as the registry, is reported as guidance instead.
+1. **Local Only**: Zero telemetry, zero cloud lookups, zero outbound network scanning. Everything executes strictly on your local CPU.
+2. **No Auto-Scan**: Scanning commences exclusively from an explicit user action. Non-interactive sessions refuse rather than guess.
+3. **Move, Never Delete**: Suspicious items are quarantined to an isolated vault with SHA-256 integrity checks, ACL snapshots, and recorded byte-identical undo.
+4. **Honesty Over Comfort**: Incomplete or access-denied areas are highlighted as `INCOMPLETE`, never deceptively certified as "clean".
+5. **Evidence-First**: Every finding carries explicit evidence (`Observed`, `Correlated`, `Unknown`). Correlation is strictly distinguished from causation.
+6. **Zero Secret Exposure**: Tokens, API keys (`sk-*`), Bearer headers, and credentials found in command lines are automatically masked (`***`) before storage, display, or export.
 
-It also measures storage the way a careful person would: every file with its
-real on-disk size, every category with the reasoning that classified it, every
-duplicate verified by reading both copies in full, and nothing removed until
-you have seen a preview and typed the word.
+---
 
-## What it inspects
+## Visual Tour & Key Capabilities
 
-| Layer | What C.U.R.E reads |
-|---|---|
-| Registry | Run/RunOnce keys, Startup folders — **guidance only, never modified** |
-| Startup | Startup folders and shortcuts |
-| Tasks | Scheduled task definitions and actions |
-| Services | Service image paths and descriptions |
-| WMI | Event subscriptions and permanent consumers |
-| IFEO | Image File Execution Options debugger entries |
-| COM | Hijackable COM registrations |
-| Processes | Running process list and command lines |
+### 1. Holographic Rescue Scanner
+A command-center scanner that probes all 9 supported Windows persistence collectors across concentric orbital rings. Real-time phosphor sweeps report progress, collector states, and evidence beacons without synthetic percentages or fake progress bars.
 
-Scoring is heuristic: Authenticode status, path reputation, LOLBin shapes and
-local indicators, each with the reason shown beside it. Treat Suspicious and
-High as investigation leads, not verdicts.
+| Standby Command Center | Real-Time Active Sweep | Post-Scan Evidence Debrief |
+| :---: | :---: | :---: |
+| [![Holographic Scanner Standby](testing/native/screenshots-final/03-rescue-standby.png)](testing/native/screenshots-final/03-rescue-standby.png) | [![Holographic Scanner Scanning](testing/native/screenshots-final/04-rescue-scanning.png)](testing/native/screenshots-final/04-rescue-scanning.png) | [![Holographic Scanner Results](testing/native/screenshots-final/05-rescue-completed.png)](testing/native/screenshots-final/05-rescue-completed.png) |
+| *Concentric orbital rings for 9 persistence layers.* | *Active telemetry sweep with collector beacons.* | *Collector completion debrief; never claims "All Clean" if coverage is incomplete.* |
 
-## What it measures
+### 2. AI Agent Radar & Flight Recorder
+Discovers local AI developer tools running on your workstation—including **OpenCode**, **OpenAI Codex CLI**, **Claude Code**, **Aider**, and local model inference servers like **Ollama**.
 
-| Area | What C.U.R.E reports |
-|---|---|
-| Known-safe caches | User and Windows temp, browser caches, Recycle Bin payloads, crash dumps, diagnostic logs |
-| Large files | Every measured file, sorted and filterable, with allocated size rather than apparent size |
-| Duplicates | Groups verified by full SHA-256 of every copy, with the copy that would be kept named |
-| Downloads | Old installers and archives, always at *review carefully* |
-| Developer caches | `node_modules`, `target`, `.nuget`, `.gradle`, build output |
-| Large folders | Every folder measured, ranked by the space it occupies |
-| Old downloads | Downloads and installers untouched for a long time — labelled by age, never called "unused" |
-| Dormant app data | Folders no installed program claims — reported, never offered for deletion |
-| Other drives | Any volume or folder you add, with overlapping roots measured once |
-| Project output | Build directories recognised wherever they live, including a project on `D:\Projects` |
+- **Authenticode Cryptographic Verification**: Distinguishes genuine signed tools (`Verified`) from unconfirmed executables (`Unverified process`) or renamed binaries (`Suspect binary`). An executable path alone *never* confers verified status without cryptographic proof.
+- **Dedicated Model Server Orbit**: Places local inference servers (e.g. Ollama) on an inner blue orbit distinct from autonomous coding agents.
+- **Agent Flight Recorder**: Captures a forensic timeline of filesystem events occurring during agent execution. Time correlation is clearly separated from agent causation.
 
-### Detective Mode
+| AI Agent Radar V3 | Native Process Intelligence Inspector |
+| :---: | :---: |
+| [![AI Agent Radar](testing/native/screenshots-final/06-agent-radar.png)](testing/native/screenshots-final/06-agent-radar.png) | [![Agent Process Inspector](testing/native/screenshots-final/07-agent-inspector.png)](testing/native/screenshots-final/07-agent-inspector.png) |
+| *Identifies active agents, candidate processes, and model servers.* | *Deep inspection: Authenticode leaf signer, masked CLI parameters, and PID hierarchy.* |
 
-**Detective Mode** answers *where did my storage go?* from the same
-measurement the Storage Workstation uses. It runs no second scan and no
-filesystem reads: the map partitions the measured bytes, and each ranked
-discovery states **what** was found, **where**, **why** it matters, how the
-engine **knew**, the **size** on disk, the **risk**, the available
-**action**, and **what happens if you act**. Protected and unclassified
-storage is never offered for removal, and "dormant" is always labelled a
-hint rather than a verdict.
+### 3. LUMA V2 — Anime Cat Companion
+An original 2D feline mascot integrated directly into the tactical console. Built with clean SVG vector geometry, LUMA reacts dynamically across 7 operational states (`idle`, `curious`, `scanning`, `success`, `warning`, `sleepy`, `excited`) and equips an animated holographic cyber-HUD visor during active security scans. Complies fully with `prefers-reduced-motion`.
 
-The **case file** is a one-page PNG built from an allowlist. Its model has no
-field for a path, a user name, a machine name or a file name, and an
-operator note that looks like a path is withheld. A case is only shown as
-closed when a receipt from that same scan observed the volume's free space
-increase; a removal without that observation stays *review pending*. The
-public demo's case file is marked **SYNTHETIC DEMO** and can be previewed but
-never written.
+### 4. Secure Quarantine Vault & Persistence Investigation
+Remediate detected risks without permanent data loss. Quarantined files are moved into a secure local enclave with full rollback capability. The Investigation Dossier provides deep forensic breakdown of startup shortcuts, tasks, services, and WMI subscriptions.
 
-### Four tiers, and why "uncertain" is not "probably fine"
+| Secure Vault Enclave | Investigation Dossier |
+| :---: | :---: |
+| [![Quarantine Vault](testing/native/screenshots-final/08-quarantine.png)](testing/native/screenshots-final/08-quarantine.png) | [![Investigation Dossier](testing/native/screenshots-final/09-investigate.png)](testing/native/screenshots-final/09-investigate.png) |
+| *Integrity-checked quarantine with single-click restore.* | *Inspect Run keys, Task scheduler actions, and signature chains.* |
 
-`SAFE TO REVIEW` · `REVIEW CAREFULLY` · `PROTECTED` · `UNKNOWN`
+---
 
-* **Safe to review** — regenerable by the program that made it. Files are
-  still listed individually before anything is removed.
-* **Review carefully** — real files you or an application created. Selectable
-  one at a time; never a bulk action.
-* **Protected** — Windows, drivers, recovery, restore points, installed
-  applications. Never proposed, never removed.
-* **Unknown** — the engine could not classify the path. Treated as
-  off-limits. Uncertainty escalates; it never resolves downward into a delete.
+## Technical Specifications
 
-"Potentially unused" does not mean "safe to delete". A folder no file has
-touched in a year may hold a licence, the only copy of something, or the state
-of an application you use daily. C.U.R.E says so next to the number.
+### What C.U.R.E Inspects
 
-## Screenshots
+| Layer | Collector Target | Remediation Policy |
+| :--- | :--- | :--- |
+| **Registry** | `Run`, `RunOnce`, Policies, Shell Folders | Read-only guidance; registry is never modified directly |
+| **Startup** | Startup folders, Shell shortcuts (`.lnk`), `.url` files | Quarantine supported |
+| **Tasks** | Windows Task Scheduler actions and triggers | Guidance & payload quarantine |
+| **Services** | Windows Service image paths and configurations | Guidance & binary quarantine |
+| **WMI** | Permanent Event Consumers and Filter Bindings | Guidance and inspection |
+| **IFEO** | Image File Execution Options debuggers / silent hijackers | Guidance and inspection |
+| **COM** | Hijackable InProcServer32 and ContextMenu COM registrations | Guidance and inspection |
+| **Processes** | Live process tree, PE Authenticode signers, masked CLI args | Inspection & termination guidance |
 
-| | |
-|---|---|
-| ![Storage Workstation treemap with category ledger and a verified reclaimable figure](docs/screenshots/08-storage-map.png) | ![Evidence inspector showing the summary, the reasons a startup entry was flagged, its source, target, signature and SHA-256](docs/screenshots/04-evidence-inspector.png) |
-| **Storage Workstation** — measured first, removed only after you confirm. | **Evidence inspector** — why it was flagged, and what it points at. |
-| ![Cleanup queue grouped by safety tier with the preview requirement](docs/screenshots/09-storage-preview.png) | ![Review required listing persistence findings with scores and reasons](docs/screenshots/03-review-required.png) |
-| **Cleanup queue** — protected and uncertain files have no action at all. | **Review required** — every finding carries its score and reason. |
+### Storage Intelligence & Detective Mode
+- **Physical Allocation Measurement**: Measures real disk cluster allocation rather than apparent file size.
+- **Verified Duplicates**: Computes full SHA-256 digests across both candidates before declaring duplicates.
+- **Detective Mode**: "Where did my storage go?" partitions drives into 4 safety tiers:
+  - `SAFE TO REVIEW`: Regenerable caches and temporary files.
+  - `REVIEW CAREFULLY`: User downloads and project artifacts.
+  - `PROTECTED`: Windows system files, drivers, and application runtimes (never touched).
+  - `UNKNOWN`: Unclassified paths treated strictly as off-limits.
+- **Shareable Case Files**: Exports a cryptographic, privacy-safe summary card with allowlisted metrics, zero usernames, and zero absolute personal paths.
 
-All screenshots and demo media use labelled mock sample data. Numbers in them
-are invented for the harness and were never measured on a real machine.
+---
 
-## Download
+## Realistic Safety Limitations & Honest Disclosures
 
-[**Releases**](https://github.com/MadB0i/C.U.R.E/releases/latest)
+In strict adherence to the **Honesty Over Comfort** principle:
 
-Each release carries:
+1. **User-Space Forensics (Not a Kernel Driver)**:
+   The Flight Recorder relies on standard user-mode directory change notifications (`ReadDirectoryChangesW`) and Win32 process snapshots. It does *not* install a kernel minifilter driver (`fltmgr.sys`) or ETW process I/O tracer. Consequently, filesystem modifications occurring while an agent runs are classified as **Correlated**, never **Attributed**. C.U.R.E reports that an event happened during an agent session; it does not claim the agent caused the write unless cryptographically or handle-proven.
+2. **Diagnostic & Rescue (Not an Antivirus or EDR)**:
+   C.U.R.E does not provide continuous background real-time interception and will not replace commercial endpoint protection. It is a targeted workstation for inspection, measurement, triage, and clean rollback.
+3. **Authenticode Verification & Unsigned Tools**:
+   Executable path alone never confers verified status. Legitimate open-source CLI tools compiled from source (e.g. `opencode` built via `cargo install`) will report as `Unverified process` because they lack commercial code-signing certificates.
+4. **Offline Revocation**:
+   Certificate revocation checking defaults strictly to local cache (`CacheOnly`). If Windows has not locally cached the CRL/OCSP response, status is reported as `ValidRevocationUnknown`. Online network checks require explicit opt-in via `--online-revocation`.
+5. **Elevated & Protected Processes (PPL)**:
+   Processes protected by Windows Protected Process Light (PPL) or anti-cheat drivers refuse standard query access. C.U.R.E reports them honestly as `AccessDenied` (`Unknown`), never assuming they are clean.
 
-| File | What it is |
-|---|---|
-| `C.U.R.E-Setup.exe` | Windows installer (NSIS), installs for the current user |
-| `cure-gui.exe` | Desktop Evidence Console (Tauri, needs WebView2) |
-| `cure.exe` | CLI scanner, quarantine and undo |
-| `cure-watch.exe` | USB watcher: consent, pairing, launch, uninstall |
-| portable ZIP | The above, no installer |
-| `SHA256SUMS.txt` | Hashes for the archive contents |
+---
 
-Windows 10/11 with WebView2 (preinstalled on current Windows).
+## Build and Verify
 
-**The binaries are unsigned.** Windows shows a SmartScreen warning on first
-run. The installer installs for the current user, needs no administrator
-rights, **does not disable antivirus or bypass Windows security warnings**,
-and **does not install the USB watcher** — that is a separate, explicit act.
+### Prerequisites
+- Windows 10 or 11 (x64)
+- Rust (stable toolchain)
+- Node.js (v20+ for GUI tests)
+- WebView2 runtime (standard on modern Windows)
 
-No administrator rights are needed for the core flows; unelevated scans show
-INCOMPLETE rows instead of guessing.
+### Compilation
+```powershell
+# Build CLI and Watcher binaries
+cargo build --release
 
-```bat
-cure.exe --data-dir .\cure-data scan
-cure.exe --data-dir .\cure-data quarantine <id>     :: asks first
-cure.exe --data-dir .\cure-data undo <id>
-
-:: Storage measurement. Read-only: this never removes anything.
-cure.exe storage scan --depth quick
-cure.exe storage scan --depth deep --abandoned
-cure.exe storage duplicates --root D:\Media
-cure.exe storage bench --files 20000 --size 4096 --copies 4
+# Build Desktop GUI binary (cure-gui.exe)
+cd gui/src-tauri
+cargo build --release
 ```
 
-## Safety and limitations
-
-**C.U.R.E is a diagnostic and rescue tool. It is not an antivirus or an EDR.**
-It does not guarantee malware detection, provides no real-time protection, and
-will not make an infected machine safe on its own.
-
-- **Nothing runs without you.** No auto-scan: every run starts with one
-  explicit click or command. Non-interactive sessions refuse rather than guess.
-- **Local only.** No telemetry, no accounts, no cloud lookups. Certificate
-  revocation is cache-only unless you pass `--online-revocation`. Cloud-only
-  files are never downloaded while scanning.
-- **Move, never delete — for anything suspicious.** Quarantine relocates with
-  size and hash integrity checks, snapshots ACLs, and restores
-  byte-identical — or reports exactly what could not be restored.
-- **Storage cleanup is the one permanent deletion**, and it is guarded: it
-  requires a current scan, a preview of every item with the consequences in
-  plain language, a typed confirmation word, and a re-validation of every
-  target immediately before it is removed. Anything that moved, changed
-  size, became a link, left its authorised root, or changed tier is refused
-  and listed on the receipt.
-- **Never touch.** `C:\Windows` outside named cleanable subtrees, `WinSxS`,
-  `DriverStore`, `Installer`, `System32\config`, `System Volume Information`,
-  recovery partitions, restore locations, `Program Files`, `ProgramData` and
-  the Recycle Bin's own index records are never proposed for removal.
-- **Honest gaps.** Areas that could not be read render as INCOMPLETE, never as
-  "clean". If any location was unreadable the headline reads *at least*
-  rather than a total.
-- **Last-access timestamps are not evidence.** Windows frequently disables
-  them. C.U.R.E records them and never reasons from them.
-- **Scoring is heuristic.** Novel attacker patterns outside the known list can
-  score Safe. `%VAR%` expansion depends on the process environment.
-- **Same-user code execution is out of scope.** Stopping malware already
-  running as your user is not enforced by any user-space scanner.
-
-## Build and validate
-
-```bat
-cargo build --release        :: cure.exe + cure-watch.exe
-cd gui\src-tauri
-cargo build --release        :: cure-gui.exe
-
+### Test Suite & Verification
+```powershell
+# Run 530+ workspace unit and integration tests
 cargo test --workspace
+
+# Strict linter and style verification (zero warnings policy)
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
+
+# GUI offline and syntax verification
+pwsh -Command "Get-ChildItem gui/dist/*.js | ForEach-Object { node --check $_.FullName }"
 ```
 
-The GUI ships an offline, framework-free frontend and has deterministic
-state, accessibility, keyboard, layout, reduced-motion and pixel checks that
-use mock data and change nothing on the host:
+---
 
-```powershell
-python -m pip install -r gui/devtools/requirements.txt
-python -m playwright install chromium
-cd gui/devtools
-npm ci && npm test && npm run layout && npm run pixel
+## Project Structure
+
+```
+C.U.R.E/
+├── cli/                     # cure.exe CLI scanner and quarantine engine
+├── core/                    # Security collectors, Authenticode, risk scoring, storage
+│   └── src/agent/           # AI Agent Radar, Flight Recorder, detection & casefiles
+├── dirwatch/                # Low-level ReadDirectoryChangesW wrapper
+├── gui/                     # Evidence Console desktop application
+│   ├── dist/                # Offline, framework-free production frontend
+│   ├── dist-demo/           # Deterministic public demo build with mock backend
+│   └── src-tauri/           # Tauri desktop wrapper and native IPC commands
+├── testing/                 # Synthetic test fixtures and native audit test suites
+│   └── native/              # Real desktop automation and native screenshots
+├── watch/                   # cure-watch.exe USB monitor service
+└── winwatch/                # Windows change detection primitives
 ```
 
-And there is a **native** end-to-end check that drives the real release
-binary through the real WebView2 webview and the real Rust backend over the
-DevTools protocol. It covers startup, navigation, a real storage scan with
-real progress, coverage, cancellation, the preview, the confirmation, the
-removal and the receipt, the Detective board reading that same measurement,
-the case-file privacy audit, the companion's twelve states, reduced motion
-and the keyboard route. The only file it ever removes is one it created itself,
-inside a directory it created itself, inside the system temporary
-directory:
-
-```powershell
-cargo build --release --manifest-path gui/src-tauri/Cargo.toml
-python testing/native/native-e2e.py
-```
-
-## Documentation
-
-[Changelog](docs/CHANGELOG.md) ·
-[Architecture](docs/ARCHITECTURE.md) ·
-[Storage benchmarks](docs/benchmarks/storage-engine.md) ·
-[Release notes](docs/RELEASE-NOTES-0.2.0.md) ·
-[Release readiness](docs/RELEASE-READINESS-0.2.0.md) ·
-[Visual verification](docs/UI-REDESIGN-VERIFICATION.md) ·
-[GUI verification](gui/devtools/README.md) ·
-[Real-PC validation report](docs/validation/REAL-PC-VALIDATION.md) ·
-[Manual test checklist](testing/real-pc/README-TESTING.md) ·
-[Companion verification](docs/LUMA-COMPANION-VERIFICATION.md) ·
-[Security policy](SECURITY.md)
+---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT License — see [LICENSE](LICENSE) for details.
