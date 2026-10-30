@@ -13,6 +13,7 @@ pub mod hash_intel;
 pub mod incident;
 pub mod lnk;
 pub mod model;
+pub mod operator;
 pub mod overlay;
 pub mod process_scan;
 pub mod quarantine;

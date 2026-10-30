@@ -58,7 +58,9 @@ def main() -> None:
         raise SystemExit("index.html wordmark marker not found")
     html = html.replace(PROD_WORDMARK, DEMO_WORDMARK)
 
-    marker = '<script src="luma.js"></script>'
+    marker = '<script src="operator.js"></script>'
+    if marker not in html:
+        marker = '<script src="luma.js"></script>'
     if marker not in html:
         raise SystemExit("index.html script marker not found")
     # The demo replaces the Tauri API with the deterministic sample backend.
@@ -127,12 +129,14 @@ def main() -> None:
 
     for name in (
         "style.css",
+        "operator.css",
         "xray.css",
         "luma.css",
         "storage-workstation.css",
         "storage-rescue.css",
         "detective.css",
         "agent.css",
+        "operator.js",
         "luma.js",
         "xray.js",
         "storage-workstation.js",

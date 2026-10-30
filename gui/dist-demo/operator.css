@@ -1,0 +1,254 @@
+/* ==========================================================================
+   C.U.R.E OPERATOR — Professional Systems & Recovery Console Suite
+   Color System: Graphite (#0a0d14), Cyan (#00f5ff / #22d3ee),
+                 Violet (#a855f7), Amber (#f59e0b), Restrained Red (#f43f5e).
+   Strictly functional: zero decorative cartoon animations, zero fake chatbots.
+   ========================================================================== */
+
+/* ---------- Operator Console Node (Replaces Mascot Region) ---------- */
+.operator-node {
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(135deg, rgba(17, 24, 39, 0.95), rgba(15, 23, 42, 0.98));
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  border-left: 3px solid #00f5ff;
+  border-radius: var(--r-card, 8px);
+  padding: 12px 14px;
+  min-width: 260px;
+  max-width: 380px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+  font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
+}
+
+.operator-node-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.operator-id {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #00f5ff;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.operator-pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #00f5ff;
+  box-shadow: 0 0 6px #00f5ff;
+}
+
+.operator-level-badge {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.level-0-observe {
+  background: rgba(34, 211, 238, 0.12);
+  color: #22d3ee;
+  border: 1px solid rgba(34, 211, 238, 0.3);
+}
+
+.level-1-review {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.level-2-action {
+  background: rgba(249, 115, 22, 0.18);
+  color: #fb923c;
+  border: 1px solid rgba(249, 115, 22, 0.4);
+}
+
+.level-3-containment {
+  background: rgba(244, 63, 94, 0.22);
+  color: #f43f5e;
+  border: 1px solid rgba(244, 63, 94, 0.5);
+}
+
+.operator-recommendation-card {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  padding: 9px 11px;
+  margin-top: 4px;
+}
+
+.operator-rec-title {
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: #f1f5f9;
+  margin-bottom: 3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.operator-rec-desc {
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: #94a3b8;
+  margin-bottom: 8px;
+}
+
+.operator-rec-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.operator-action-btn {
+  background: #00f5ff;
+  color: #050b14;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 5px 11px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: background 0.15s ease;
+}
+
+.operator-action-btn:hover {
+  background: #38bdf8;
+}
+
+.operator-action-btn.btn-danger {
+  background: #f43f5e;
+  color: #ffffff;
+}
+
+.operator-action-btn.btn-danger:hover {
+  background: #e11d48;
+}
+
+.operator-action-btn.btn-secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.operator-action-btn.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* ---------- Operator Modal Overlay & Confirmation Dialogs ---------- */
+.op-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 7, 18, 0.82);
+  backdrop-filter: blur(6px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.op-modal-overlay.hidden {
+  display: none !important;
+}
+
+.op-modal-card {
+  background: #0f172a;
+  border: 1px solid rgba(34, 211, 238, 0.3);
+  border-radius: 10px;
+  width: 100%;
+  max-width: 580px;
+  box-shadow: 0 10px 35px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+  animation: op-modal-in 0.2s ease-out;
+}
+
+@keyframes op-modal-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.op-modal-head {
+  padding: 14px 18px;
+  background: rgba(15, 23, 42, 0.95);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.op-modal-title {
+  font-size: 0.94rem;
+  font-weight: 700;
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.op-modal-body {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: #cbd5e1;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.op-modal-foot {
+  padding: 12px 18px;
+  background: rgba(10, 15, 29, 0.95);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.op-confirmation-input-wrap {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(244, 63, 94, 0.35);
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 6px;
+}
+
+.op-confirmation-input {
+  width: 100%;
+  background: #020617;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  padding: 7px 10px;
+  color: #f8fafc;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.85rem;
+  margin-top: 6px;
+}
+
+.op-confirmation-input:focus {
+  outline: none;
+  border-color: #f43f5e;
+  box-shadow: 0 0 6px rgba(244, 63, 94, 0.4);
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .operator-pulse-dot {
+    box-shadow: none;
+  }
+  .op-modal-card {
+    animation: none;
+  }
+}

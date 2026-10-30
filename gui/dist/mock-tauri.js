@@ -2436,6 +2436,165 @@
               }, 600);
             });
           }
+          case "storage_rescue_finalize": {
+            const candId = (args && args.candidate_id) || "downloads";
+            const tgtPath = (args && args.target_path) || "D:\\CURE_Relocated\\Downloads";
+            const isKnown = ["downloads", "documents", "pictures", "videos", "desktop"].includes(candId);
+            return Promise.resolve({
+              candidate_id: candId,
+              target_path: tgtPath,
+              is_known_folder: isKnown,
+              known_folder_name: isKnown ? candId.charAt(0).toUpperCase() + candId.slice(1) : null,
+              registry_updated: isKnown,
+              configuration_action: isKnown 
+                ? `Windows Known Folder '${candId}' repointed to '${tgtPath}'. Shell notification broadcasted.`
+                : `Set toolchain configuration: CARGO_HOME / PIP_CACHE_DIR -> ${tgtPath}`,
+              shell_notification_broadcast: isKnown,
+            });
+          }
+          case "storage_rescue_cleanup_source": {
+            const candId = (args && args.candidate_id) || "downloads";
+            const srcPath = (args && args.source_path) || "C:\\Users\\Operator\\Downloads";
+            const token = (args && args.confirmation_token) || "";
+            if (token !== `CONFIRM_CLEANUP_${candId}`) {
+              return Promise.reject(new Error(`Invalid confirmation token. Expected 'CONFIRM_CLEANUP_${candId}'`));
+            }
+            return Promise.resolve({
+              candidate_id: candId,
+              source_path: srcPath,
+              c_free_before_bytes: 18.2 * 1024 * 1024 * 1024,
+              c_free_after_bytes: 42.8 * 1024 * 1024 * 1024,
+              actual_bytes_freed: 24.6 * 1024 * 1024 * 1024,
+              cleanup_status: "Source cleaned up successfully. C: drive freed 24.6 GB.",
+            });
+          }
+          case "operator_status": {
+            return Promise.resolve({
+              timestamp_unix: Math.floor(Date.now() / 1000),
+              highest_threat_level: "level_2_action_recommended",
+              c_drive_congested: true,
+              c_drive_pressure_pct: 92.9,
+              c_drive_free_bytes: 18.2 * 1024 * 1024 * 1024,
+              recommended_storage_relief_bytes: 55.4 * 1024 * 1024 * 1024,
+              active_agent_count: 2,
+              unverified_agent_count: 1,
+              threat_findings: [
+                {
+                  id: "THREAT-1",
+                  level: "level_2_action_recommended",
+                  category: "process_masquerade",
+                  title: "Unverified Process Claiming Agent Identity",
+                  details: "Process 'opencode.exe' (PID 1600) lacks Authenticode signature and was spawned from AppData\Local\Temp.",
+                  target_path: "C:\\Users\\Operator\\AppData\\Local\\Temp\\opencode.exe",
+                  target_pid: 1600,
+                  expected_exe: "opencode.exe",
+                  timestamp_unix: Math.floor(Date.now() / 1000) - 120,
+                }
+              ],
+              recommendations: [
+                {
+                  id: "rec_drive_pressure",
+                  level: "level_2_action_recommended",
+                  title: "C: Drive Pressure Relief Available",
+                  description: "System drive C: is 92.9% full (18.2 GB remaining). Relocating Downloads & Media to D: will recover 55.4 GB safely.",
+                  risk_assessment: "Non-destructive. Dual-copy verification guaranteed before source retirement.",
+                  action_type: "storage_rescue",
+                  action_label: "Open Storage Rescue",
+                  target: "C:",
+                  required_confirmation_token: null,
+                },
+                {
+                  id: "rec_orphan_worker",
+                  level: "level_1_review",
+                  title: "Orphaned AI Worker Detected (PID 1600)",
+                  description: "Worker process 'opencode.exe' survived parent IDE termination and is holding background CPU.",
+                  risk_assessment: "Non-critical toolchain process. Safe to end session gracefully.",
+                  action_type: "agent_session",
+                  action_label: "Inspect Session",
+                  target: "1600",
+                  required_confirmation_token: "TERMINATE_1600",
+                }
+              ]
+            });
+          }
+          case "operator_agent_sessions": {
+            return Promise.resolve([
+              {
+                pid: 1600,
+                parent_pid: 840,
+                kind: "opencode",
+                category: "agent",
+                name: "opencode-cli.exe",
+                exe_path: "C:\\Users\\Operator\\AppData\\Local\\Programs\\OpenCode\\opencode-cli.exe",
+                started_unix: Math.floor(Date.now() / 1000) - 3600,
+                uptime_seconds: 3600,
+                state: "unverified",
+                is_orphan: true,
+                child_pids: [1604, 1608],
+                evidence_summary: "Process PID 1600 is running as an ORPHANED process (parent PID 840 exited). 2 child worker processes active.",
+                limitations: "Process query metadata only. Private prompts and conversation transcripts are never inspected.",
+              },
+              {
+                pid: 4120,
+                parent_pid: 1100,
+                kind: "ollama",
+                category: "model_server",
+                name: "ollama.exe",
+                exe_path: "C:\\Program Files\\Ollama\\ollama.exe",
+                started_unix: Math.floor(Date.now() / 1000) - 7200,
+                uptime_seconds: 7200,
+                state: "verified",
+                is_orphan: false,
+                child_pids: [],
+                evidence_summary: "Local Model Server PID 4120 running normally with verified Authenticode signature.",
+                limitations: "Model server process. Not an autonomous agent.",
+              }
+            ]);
+          }
+          case "operator_agent_graceful_shutdown": {
+            return Promise.resolve(true);
+          }
+          case "operator_agent_terminate": {
+            const pid = (args && args.pid) || 0;
+            const exe = (args && args.expected_exe) || "process.exe";
+            const token = (args && args.confirmation_token) || "";
+            if (token !== `TERMINATE_${pid}`) {
+              return Promise.reject(new Error(`Invalid confirmation token. Expected 'TERMINATE_${pid}'`));
+            }
+            return Promise.resolve({
+              target_pid: pid,
+              target_exe: exe,
+              pids_terminated: [pid, pid + 4],
+              pids_failed: [],
+              outcome: `Successfully terminated target PID ${pid} and 1 child process`,
+              verified_stopped: true,
+            });
+          }
+          case "operator_defender_scan": {
+            const p = (args && args.file_path) || "C:\\test.exe";
+            return Promise.resolve({
+              target_path: p,
+              status: "Clean (No threats detected by Windows Defender)",
+              return_code: 0,
+              threat_detected: false,
+              raw_output: "MpCmdRun: Scan completed with 0 threats detected.",
+            });
+          }
+          case "operator_audit_log": {
+            return Promise.resolve([
+              {
+                id: "OP-LOG-1",
+                timestamp_iso: new Date().toISOString(),
+                timestamp_unix: Math.floor(Date.now() / 1000),
+                action_type: "SystemAssessment",
+                target: "HostTelemetry",
+                approval_token: null,
+                status: "success",
+                details: { status: "Active" },
+                error: null,
+              }
+            ]);
+          }
           case "storage_scan":
             if (window.__CURE_MOCK_STORAGE_ERROR)
               return Promise.reject(

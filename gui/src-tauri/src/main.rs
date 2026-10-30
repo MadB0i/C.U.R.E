@@ -1565,6 +1565,148 @@ async fn storage_rescue_execute(
     .map_err(|e| format!("Migration failed: {e}"))
 }
 
+/// Finalize candidate relocation (e.g. repointing Windows Known Folders or toolchains).
+#[tauri::command]
+fn storage_rescue_finalize(
+    candidate_id: String,
+    target_path: String,
+) -> Result<cure_core::storage::FinalizationReceipt, String> {
+    cure_core::storage::finalize_candidate_migration(&candidate_id, Path::new(&target_path))
+        .map_err(|e| format!("Finalization failed: {e}"))
+}
+
+/// User-approved source directory cleanup with live before/after C: free space measurement.
+#[tauri::command]
+fn storage_rescue_cleanup_source(
+    candidate_id: String,
+    source_path: String,
+    target_path: String,
+    confirmation_token: String,
+) -> Result<cure_core::storage::SourceCleanupReceipt, String> {
+    cure_core::storage::execute_source_cleanup(
+        &candidate_id,
+        Path::new(&source_path),
+        Path::new(&target_path),
+        &confirmation_token,
+    )
+    .map_err(|e| format!("Source cleanup failed: {e}"))
+}
+
+/// Retrieve overall system posture and operator recommendations.
+#[tauri::command]
+fn operator_status() -> Result<cure_core::operator::OperatorPosture, String> {
+    let pressures = cure_core::storage::assess_drive_pressures();
+    let c_drive = pressures.iter().find(|d| d.is_system).cloned().unwrap_or_else(|| {
+        cure_core::storage::DrivePressure {
+            drive_letter: "C:".into(),
+            volume_label: None,
+            total_bytes: 0,
+            free_bytes: 0,
+            used_bytes: 0,
+            pressure_pct: 0.0,
+            is_system: true,
+            is_congested: false,
+        }
+    });
+
+    let status = cure_core::storage::discover_migration_candidates("C:", "D:");
+    let safe_relief: u64 = status.candidates.iter()
+        .filter(|c| c.safety == cure_core::storage::MigrationSafety::Safe)
+        .map(|c| c.size_bytes)
+        .sum();
+
+    let sessions = cure_core::agent::inspect_agent_sessions();
+    let unverified_count = sessions.iter().filter(|s| s.state == cure_core::agent::SessionProcessState::Unverified || s.state == cure_core::agent::SessionProcessState::SuspectMismatch).count();
+
+    let mut recommendations = Vec::new();
+    let mut highest_level = cure_core::operator::ResponseLevel::Level0Observe;
+
+    if c_drive.is_congested && safe_relief > 0 {
+        recommendations.push(cure_core::operator::OperatorRecommendation {
+            id: "rec_drive_pressure".into(),
+            level: cure_core::operator::ResponseLevel::Level2ActionRecommended,
+            title: "C: Drive Pressure Relief Available".into(),
+            description: format!("System drive is {:.1}% full. Relocating {} safe personal libraries can relieve storage pressure.", c_drive.pressure_pct, status.candidates.len()),
+            risk_assessment: "Non-destructive. Source preserved until verified.".into(),
+            action_type: "storage_rescue".into(),
+            action_label: "Open Storage Rescue".into(),
+            target: "C:".into(),
+            required_confirmation_token: None,
+        });
+        highest_level = highest_level.max(cure_core::operator::ResponseLevel::Level2ActionRecommended);
+    }
+
+    for s in &sessions {
+        if s.is_orphan {
+            recommendations.push(cure_core::operator::OperatorRecommendation {
+                id: format!("rec_orphan_{}", s.pid),
+                level: cure_core::operator::ResponseLevel::Level1Review,
+                title: format!("Orphaned Worker Detected (PID {})", s.pid),
+                description: format!("Process '{}' has survived the exit of its parent process.", s.name),
+                risk_assessment: "Worker may be consuming background CPU/RAM without active user session.".into(),
+                action_type: "agent_session".into(),
+                action_label: "Inspect Session".into(),
+                target: format!("{}", s.pid),
+                required_confirmation_token: Some(format!("TERMINATE_{}", s.pid)),
+            });
+            highest_level = highest_level.max(cure_core::operator::ResponseLevel::Level1Review);
+        }
+    }
+
+    Ok(cure_core::operator::OperatorPosture {
+        timestamp_unix: cure_core::agent::now_unix(),
+        highest_threat_level: highest_level,
+        c_drive_congested: c_drive.is_congested,
+        c_drive_pressure_pct: c_drive.pressure_pct,
+        c_drive_free_bytes: c_drive.free_bytes,
+        recommended_storage_relief_bytes: safe_relief,
+        active_agent_count: sessions.len(),
+        unverified_agent_count: unverified_count,
+        threat_findings: vec![],
+        recommendations,
+    })
+}
+
+/// Retrieve deep agent session hierarchy and orphan states.
+#[tauri::command]
+fn operator_agent_sessions() -> Result<Vec<cure_core::agent::AgentSessionDetail>, String> {
+    Ok(cure_core::agent::inspect_agent_sessions())
+}
+
+/// Request non-destructive graceful shutdown of an agent window or session.
+#[tauri::command]
+fn operator_agent_graceful_shutdown(pid: u32) -> Result<bool, String> {
+    cure_core::agent::request_graceful_shutdown(pid)
+}
+
+/// Safely terminate an agent process tree with explicit user confirmation token.
+#[tauri::command]
+fn operator_agent_terminate(
+    pid: u32,
+    expected_exe: String,
+    expected_start_time: Option<u64>,
+    confirmation_token: String,
+) -> Result<cure_core::operator::ProcessContainmentReceipt, String> {
+    cure_core::agent::end_agent_process_tree(
+        pid,
+        &expected_exe,
+        expected_start_time,
+        &confirmation_token,
+    )
+}
+
+/// Scan a specific file with native Windows Defender without shell expansion.
+#[tauri::command]
+fn operator_defender_scan(file_path: String) -> Result<cure_core::operator::DefenderScanResult, String> {
+    cure_core::operator::scan_file_with_defender(Path::new(&file_path))
+}
+
+/// Fetch recent operator audit log entries.
+#[tauri::command]
+fn operator_audit_log(limit: Option<usize>) -> Result<Vec<cure_core::operator::OperatorJournalEntry>, String> {
+    Ok(cure_core::operator::get_audit_log(limit.unwrap_or(50)))
+}
+
 /// List candidate roots: fixed drives plus the profile's real user folders.
 #[tauri::command]
 fn storage_available_roots() -> Result<Vec<StorageRootOptionDto>, String> {
@@ -2362,6 +2504,14 @@ fn main() {
             storage_rescue_status,
             storage_rescue_plan,
             storage_rescue_execute,
+            storage_rescue_finalize,
+            storage_rescue_cleanup_source,
+            operator_status,
+            operator_agent_sessions,
+            operator_agent_graceful_shutdown,
+            operator_agent_terminate,
+            operator_defender_scan,
+            operator_audit_log,
             start_canary_guard,
             stop_canary_guard,
             canary_status,

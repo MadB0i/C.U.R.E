@@ -275,6 +275,72 @@
 
     pCard.appendChild(grid);
     wrap.appendChild(pCard);
+
+    // Operator Process & Session Controls
+    const actCard = node("div", "ar-insp-proc-card");
+    actCard.style.marginTop = "12px";
+    actCard.appendChild(node("h4", "ar-insp-proc-title", "Operator Session Controls · PID Race Protected"));
+
+    const actRow = node("div", "ar-insp-actions");
+    actRow.style.display = "flex";
+    actRow.style.gap = "10px";
+    actRow.style.marginTop = "10px";
+
+    const softBtn = node("button", "operator-action-btn btn-secondary", "Request Graceful Shutdown (WM_CLOSE)");
+    softBtn.type = "button";
+    softBtn.onclick = async function () {
+      if (!p.pid) return;
+      softBtn.disabled = true;
+      softBtn.textContent = "Signaling...";
+      try {
+        const closed = await invoke("operator_agent_graceful_shutdown", { pid: p.pid });
+        softBtn.textContent = closed ? "✔ Window Closed" : "Signal Sent";
+        setTimeout(() => refreshRadar(false), 800);
+      } catch (e) {
+        alert("Graceful shutdown: " + e);
+        softBtn.disabled = false;
+        softBtn.textContent = "Request Graceful Shutdown (WM_CLOSE)";
+      }
+    };
+    actRow.appendChild(softBtn);
+
+    const termBtn = node("button", "operator-action-btn btn-danger", "End Process Tree");
+    termBtn.type = "button";
+    termBtn.onclick = async function () {
+      if (!p.pid) return;
+      const expectedToken = "TERMINATE_" + p.pid;
+      const typed = prompt(
+        "OPERATOR CONFIRMATION REQUIRED:\n" +
+        "You are requesting the termination of process PID " + p.pid + " (" + (p.name || "") + ") and its child worker tree.\n\n" +
+        "To confirm, type:\n" + expectedToken
+      );
+      if (typed !== expectedToken) {
+        if (typed !== null) alert("Confirmation token mismatch. Termination aborted.");
+        return;
+      }
+
+      termBtn.disabled = true;
+      termBtn.textContent = "Terminating...";
+      try {
+        const res = await invoke("operator_agent_terminate", {
+          pid: p.pid,
+          expectedExe: p.name || "",
+          expectedStartTime: p.started_unix || null,
+          confirmationToken: typed,
+        });
+        alert(res.outcome || "Process tree terminated.");
+        close();
+        refreshRadar(false);
+      } catch (e) {
+        alert("Termination refused: " + e);
+        termBtn.disabled = false;
+        termBtn.textContent = "End Process Tree";
+      }
+    };
+    actRow.appendChild(termBtn);
+
+    actCard.appendChild(actRow);
+    wrap.appendChild(actCard);
     body.appendChild(wrap);
 
     dlg.classList.remove("hidden");

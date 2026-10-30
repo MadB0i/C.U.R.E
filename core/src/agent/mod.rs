@@ -1,6 +1,7 @@
 //! AI coding-agent visibility, flight recorder, change radar and case files.
 //!
 //! * [`detection`] recognises supported agent processes and local model servers.
+//! * [`session`] tracks process hierarchies, orphan state, and graceful termination.
 //! * [`recorder`] records metadata-only workspace changes during an
 //!   explicitly started session.
 //! * [`windows`] compares the persistence evidence C.U.R.E already collects.
@@ -13,6 +14,7 @@
 pub mod casefile;
 pub mod detection;
 pub mod recorder;
+pub mod session;
 pub mod windows;
 
 pub use casefile::AgentCaseFile;
@@ -23,6 +25,10 @@ pub use detection::{
 pub use recorder::{
     capture_workspace, now_unix, ChangeKind, EvidenceConfidence, FlightCoverage, FlightEvent,
     FlightSession, ObservationSource, WorkspaceSnapshot,
+};
+pub use session::{
+    end_agent_process_tree, inspect_agent_sessions, request_graceful_shutdown, AgentSessionDetail,
+    SessionProcessState,
 };
 pub use windows::{
     compare as compare_windows, load as load_windows_snapshot, save as save_windows_snapshot,

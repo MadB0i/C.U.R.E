@@ -487,6 +487,113 @@
         }
       });
     }
+
+    const receiptFinalize = $("sr-receipt-finalize");
+    if (receiptFinalize) {
+      receiptFinalize.addEventListener("click", async () => {
+        if (!state.receipt || !state.receipt.items || !state.receipt.items[0]) return;
+        const item = state.receipt.items[0];
+        try {
+          receiptFinalize.disabled = true;
+          receiptFinalize.textContent = "Repointing...";
+          const finReceipt = await invoke("storage_rescue_finalize", {
+            candidateId: item.candidate_id,
+            targetPath: item.target_path,
+          });
+          receiptFinalize.textContent = "✔ Finalized";
+          const notesEl = $("sr-receipt-notes");
+          if (notesEl) {
+            const row = document.createElement("div");
+            row.style.color = "#34d399";
+            row.style.fontWeight = "bold";
+            row.style.marginTop = "6px";
+            row.textContent = `✔ ${finReceipt.configuration_action}`;
+            notesEl.appendChild(row);
+          }
+        } catch (err) {
+          alert(`Finalization failed: ${clean(err)}`);
+          receiptFinalize.disabled = false;
+          receiptFinalize.textContent = "Finalize (Repoint Known Folder)";
+        }
+      });
+    }
+
+    const receiptCleanup = $("sr-receipt-cleanup-source");
+    if (receiptCleanup) {
+      receiptCleanup.addEventListener("click", () => {
+        if (!state.receipt || !state.receipt.items || !state.receipt.items[0]) return;
+        const item = state.receipt.items[0];
+        const modal = $("sr-cleanup-modal");
+        const tokenTarget = $("sr-cleanup-token-target");
+        const input = $("sr-cleanup-token-input");
+        const resultBox = $("sr-cleanup-result-box");
+        if (!modal) return;
+        const expectedToken = `CONFIRM_CLEANUP_${item.candidate_id}`;
+        if (tokenTarget) tokenTarget.textContent = expectedToken;
+        if (input) { input.value = ""; input.disabled = false; }
+        if (resultBox) { resultBox.classList.add("hidden"); resultBox.textContent = ""; }
+        modal.classList.remove("hidden");
+      });
+    }
+
+    const cleanupCancel = $("sr-cleanup-cancel");
+    const cleanupCancelTop = $("sr-cleanup-cancel-top");
+    const closeCleanup = () => {
+      const modal = $("sr-cleanup-modal");
+      if (modal) modal.classList.add("hidden");
+    };
+    if (cleanupCancel) cleanupCancel.addEventListener("click", closeCleanup);
+    if (cleanupCancelTop) cleanupCancelTop.addEventListener("click", closeCleanup);
+
+    const cleanupConfirm = $("sr-cleanup-confirm");
+    if (cleanupConfirm) {
+      cleanupConfirm.addEventListener("click", async () => {
+        if (!state.receipt || !state.receipt.items || !state.receipt.items[0]) return;
+        const item = state.receipt.items[0];
+        const input = $("sr-cleanup-token-input");
+        const resultBox = $("sr-cleanup-result-box");
+        const typedToken = (input && input.value.trim()) || "";
+        const expectedToken = `CONFIRM_CLEANUP_${item.candidate_id}`;
+
+        if (typedToken !== expectedToken) {
+          alert(`Confirmation token does not match. Please type '${expectedToken}' exactly.`);
+          return;
+        }
+
+        try {
+          cleanupConfirm.disabled = true;
+          cleanupConfirm.textContent = "Measuring & Deleting...";
+          const cleanupReceipt = await invoke("storage_rescue_cleanup_source", {
+            candidateId: item.candidate_id,
+            sourcePath: item.source_path,
+            targetPath: item.target_path,
+            confirmationToken: typedToken,
+          });
+
+          if (resultBox) {
+            resultBox.classList.remove("hidden");
+            resultBox.innerHTML = `
+              <strong>✔ CLEANUP VERIFIED & COMPLETED:</strong><br/>
+              ${cleanupReceipt.cleanup_status}<br/>
+              Original files removed. Measured C: space freed: <strong>${formatBytes(cleanupReceipt.actual_bytes_freed)}</strong>.
+            `;
+          }
+          cleanupConfirm.textContent = "✔ Completed";
+          if (receiptCleanup) {
+            receiptCleanup.disabled = true;
+            receiptCleanup.textContent = "Source Retired & Freed";
+          }
+          setTimeout(() => {
+            closeCleanup();
+            loadRescueStatus();
+          }, 2000);
+        } catch (err) {
+          alert(`Source cleanup failed: ${clean(err)}`);
+          cleanupConfirm.disabled = false;
+          cleanupConfirm.textContent = "Delete Source & Measure Space";
+        }
+      });
+    }
   }
 
   // Expose for external calls and operator hooks
