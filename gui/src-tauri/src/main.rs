@@ -1849,6 +1849,68 @@ fn operator_agent_terminate(
     )
 }
 
+/// End ONE detected agent process, selected from the radar.
+///
+/// Scoped by design: the target must be present in a fresh, backend-side
+/// enumeration of supported agent processes — the renderer cannot name an
+/// arbitrary process. The fresh enumeration also supplies the identity
+/// anchor (image name + creation time) that rejects stale or recycled
+/// PIDs; the renderer's own start time must still agree with it, so a
+/// stale UI snapshot cannot act on a process it last saw earlier. Only
+/// the selected PID is signalled — never its children (tree termination
+/// stays behind the separate, explicitly authorised command). Success is
+/// reported only after Windows confirms the exit; every attempt is
+/// journalled by the core without secrets.
+#[tauri::command]
+fn operator_agent_end_process(
+    pid: u32,
+    expected_name: String,
+    expected_started_unix: Option<u64>,
+    confirmation_token: String,
+) -> Result<cure_core::operator::ProcessContainmentReceipt, String> {
+    let processes = cure_core::agent::enumerate_agent_processes();
+    let live = processes
+        .iter()
+        .find(|p| p.pid == pid)
+        .ok_or_else(|| {
+            format!(
+                "PID {pid} is not a currently detected supported agent process. Refresh the radar and retry."
+            )
+        })?
+        .clone();
+
+    if !live.name.eq_ignore_ascii_case(expected_name.trim()) {
+        return Err(format!(
+            "The selected snapshot does not match the live process ('{}' vs '{}'). Refresh the radar and retry.",
+            expected_name.trim(),
+            live.name
+        ));
+    }
+
+    match (live.started_unix, expected_started_unix) {
+        (Some(actual), Some(expected)) if actual.abs_diff(expected) > 2 => {
+            return Err(
+                "The selected snapshot is stale: the process start time no longer matches. Refresh the radar and retry."
+                    .into(),
+            );
+        }
+        (None, Some(_)) => {
+            return Err(
+                "The live process start time could not be read, so the snapshot cannot be verified. Refresh the radar and retry."
+                    .into(),
+            );
+        }
+        _ => {}
+    }
+
+    cure_core::agent::end_agent_process_single(
+        pid,
+        &live.name,
+        live.started_unix,
+        &confirmation_token,
+    )
+}
+
 /// Scan a specific file with native Windows Defender without shell expansion.
 #[tauri::command]
 fn operator_defender_scan(
@@ -2703,6 +2765,7 @@ fn main() {
             operator_agent_sessions,
             operator_agent_graceful_shutdown,
             operator_agent_terminate,
+            operator_agent_end_process,
             operator_defender_scan,
             operator_defender_contain,
             operator_audit_log,
@@ -3593,6 +3656,7 @@ struct AgentProcessDto {
     command_line: Option<String>,
     started_unix: Option<u64>,
     memory_usage_bytes: Option<u64>,
+    has_windows: bool,
     identity: String,
     identity_label: String,
     evidence: String,
@@ -3619,6 +3683,7 @@ fn agent_process_dto(process: &agent::DetectedAgentProcess) -> AgentProcessDto {
         command_line: process.command_line.clone(),
         started_unix: process.started_unix,
         memory_usage_bytes: process.memory_usage_bytes,
+        has_windows: process.has_windows,
         identity: format!("{:?}", process.identity),
         identity_label: process.identity.label().to_string(),
         evidence: process.evidence.clone(),

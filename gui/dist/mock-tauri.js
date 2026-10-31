@@ -1790,6 +1790,23 @@
     snapshotEntries: 0,
   };
 
+  /* The real backend recovers the newest saved flight session from disk on
+     launch; the mock mirrors that with sessionStorage so a reload behaves
+     like an application restart (stopped session restored as history). */
+  const MOCK_FLIGHT_KEY = "cure-mock-flight";
+  function persistMockFlight() {
+    try {
+      sessionStorage.setItem(MOCK_FLIGHT_KEY, JSON.stringify(mockAgent.last));
+    } catch (_) {}
+  }
+  try {
+    const savedFlight = sessionStorage.getItem(MOCK_FLIGHT_KEY);
+    if (savedFlight) {
+      const restored = JSON.parse(savedFlight);
+      if (restored && !restored.active) mockAgent.last = restored;
+    }
+  } catch (_) {}
+
   function mockAgentRadar() {
     const opencodeProcess = {
       pid: 6214,
@@ -1797,6 +1814,7 @@
       exe_path: "C:\\Users\\demo\\AppData\\Local\\Programs\\opencode\\opencode.exe",
       started_unix: Math.floor(Date.now() / 1000) - 420,
       memory_usage_bytes: 431229312,
+      has_windows: true,
       identity: "Verified",
       identity_label: "verified tool identity (canonical path / verified signer)",
     };
@@ -2638,6 +2656,41 @@
               pids_failed: [],
               outcome: `Successfully terminated target PID ${pid} and 1 child process`,
               verified_stopped: true,
+              method: "forced",
+            });
+          }
+          case "operator_agent_end_process": {
+            const pid = (args && args.pid) || 0;
+            const name = String((args && (args.expected_name || args.expectedName)) || "");
+            const started = args && (args.expected_started_unix ?? args.expectedStartedUnix);
+            const token = (args && (args.confirmation_token || args.confirmationToken)) || "";
+            if (token !== `END_${pid}`) {
+              return Promise.reject(new Error(`Invalid confirmation token. Expected 'END_${pid}'`));
+            }
+            // Mirror the real backend's scope guard: the target must exist in
+            // the current snapshot with matching name and start time.
+            const radar = mockAgentRadar();
+            const live = (radar.processes || []).find(function (p) { return p.pid === pid; });
+            if (!live) {
+              return Promise.reject(new Error(
+                `PID ${pid} is not a currently detected supported agent process. Refresh the radar and retry.`));
+            }
+            if (name && live.name.toLowerCase() !== name.toLowerCase()) {
+              return Promise.reject(new Error(
+                "The selected snapshot does not match the live process. Refresh the radar and retry."));
+            }
+            if (started && live.started_unix && Math.abs(live.started_unix - started) > 2) {
+              return Promise.reject(new Error(
+                "The selected snapshot is stale: the process start time no longer matches. Refresh the radar and retry."));
+            }
+            return Promise.resolve({
+              target_pid: pid,
+              target_exe: live.name,
+              pids_terminated: [pid],
+              pids_failed: [],
+              outcome: `PID ${pid} ${live.has_windows ? "closed gracefully (WM_CLOSE)" : "force-stopped (TerminateProcess)"}.`,
+              verified_stopped: true,
+              method: live.has_windows ? "graceful" : "forced",
             });
           }
           case "operator_defender_scan": {
@@ -2822,6 +2875,7 @@
             session.workspace = requested;
             mockAgent.session = session;
             mockAgent.last = session;
+            persistMockFlight();
             setTimeout(function () {
               emit("flight-update", {});
             }, 250);
@@ -2844,6 +2898,7 @@
             session.coverage.snapshot_reconciled = true;
             mockAgent.session = null;
             mockAgent.last = session;
+            persistMockFlight();
             setTimeout(function () {
               emit("flight-update", {});
             }, 60);

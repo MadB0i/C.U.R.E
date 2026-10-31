@@ -214,131 +214,127 @@
               </div>
             </div>
 
+            <p
+              class="ar-action-status"
+              id="ar-action-status"
+              role="status"
+            ></p>
+
             <div class="ar-layout">
               <section class="ar-panel ar-radar-panel">
-                <div class="ar-panel-head">
-                  <div>
-                    <h2 class="section-title">Detection radar</h2>
-                    <p class="ar-panel-sub">
-                      One manual sweep of the local process table.
-                    </p>
-                  </div>
-                </div>
-
-                <div
-                  class="ar-radar"
-                  data-phase="idle"
-                  data-signal="none"
-                  id="ar-radar"
-                >
-                  <svg
-                    aria-hidden="true"
-                    class="ar-radar-svg"
-                    viewBox="0 0 200 200"
+                <div class="ar-radar-row">
+                  <div
+                    class="ar-radar"
+                    data-phase="idle"
+                    data-signal="none"
+                    id="ar-radar"
                   >
-                    <defs>
-                      <radialGradient
-                        cx="50%"
-                        cy="50%"
-                        id="ar-sweep-grad"
-                        r="50%"
-                      >
-                        <stop
-                          offset="0%"
-                          stop-color="rgba(34, 211, 238, 0.5)"
-                        ></stop>
-                        <stop
-                          offset="70%"
-                          stop-color="rgba(34, 211, 238, 0.14)"
-                        ></stop>
-                        <stop
-                          offset="100%"
-                          stop-color="rgba(34, 211, 238, 0)"
-                        ></stop>
-                      </radialGradient>
-                    </defs>
-                    <circle
-                      cx="100"
-                      cy="100"
-                      r="88"
-                      fill="none"
-                      stroke="var(--hair)"
-                      stroke-width="1"
-                    ></circle>
-                    <circle
-                      class="ar-ring"
-                      cx="100"
-                      cy="100"
-                      r="66"
-                      fill="none"
-                      stroke="rgba(34, 211, 238, 0.16)"
-                      stroke-width="1"
-                    ></circle>
-                    <circle
-                      class="ar-ring"
-                      cx="100"
-                      cy="100"
-                      r="44"
-                      fill="none"
-                      stroke="rgba(34, 211, 238, 0.12)"
-                      stroke-width="1"
-                    ></circle>
-                    <circle
-                      class="ar-ring"
-                      cx="100"
-                      cy="100"
-                      r="22"
-                      fill="none"
-                      stroke="rgba(139, 111, 240, 0.2)"
-                      stroke-width="1"
-                    ></circle>
-                    <line
-                      stroke="var(--hair)"
-                      stroke-width="1"
-                      x1="12"
-                      x2="188"
-                      y1="100"
-                      y2="100"
-                    ></line>
-                    <line
-                      stroke="var(--hair)"
-                      stroke-width="1"
-                      x1="100"
-                      x2="100"
-                      y1="12"
-                      y2="188"
-                    ></line>
-                    <g class="ar-sweep" fill="url(#ar-sweep-grad)">
-                      <path
-                        d="M100 100 L100 12 A88 88 0 0 1 176.2 56 Z"
-                      ></path>
-                    </g>
-                  </svg>
-                  <div class="ar-blips" id="ar-blips"></div>
-                  <div class="ar-radar-core">
-                    <span class="ar-radar-count" id="ar-detected-count">—</span>
-                    <span class="ar-radar-label" id="ar-radar-label"
-                      >not scanned</span
+                    <svg
+                      aria-hidden="true"
+                      class="ar-radar-svg"
+                      viewBox="0 0 200 200"
                     >
+                      <defs>
+                        <radialGradient
+                          cx="50%"
+                          cy="50%"
+                          id="ar-sweep-grad"
+                          r="50%"
+                        >
+                          <stop
+                            offset="0%"
+                            stop-color="rgba(34, 211, 238, 0.5)"
+                          ></stop>
+                          <stop
+                            offset="70%"
+                            stop-color="rgba(34, 211, 238, 0.14)"
+                          ></stop>
+                          <stop
+                            offset="100%"
+                            stop-color="rgba(34, 211, 238, 0)"
+                          ></stop>
+                        </radialGradient>
+                      </defs>
+                      <circle
+                        cx="100"
+                        cy="100"
+                        r="88"
+                        fill="none"
+                        stroke="var(--hair)"
+                        stroke-width="1"
+                      ></circle>
+                      <circle
+                        class="ar-ring"
+                        cx="100"
+                        cy="100"
+                        r="66"
+                        fill="none"
+                        stroke="rgba(34, 211, 238, 0.16)"
+                        stroke-width="1"
+                      ></circle>
+                      <circle
+                        class="ar-ring"
+                        cx="100"
+                        cy="100"
+                        r="44"
+                        fill="none"
+                        stroke="rgba(34, 211, 238, 0.12)"
+                        stroke-width="1"
+                      ></circle>
+                      <circle
+                        class="ar-ring"
+                        cx="100"
+                        cy="100"
+                        r="22"
+                        fill="none"
+                        stroke="rgba(139, 111, 240, 0.2)"
+                        stroke-width="1"
+                      ></circle>
+                      <line
+                        stroke="var(--hair)"
+                        stroke-width="1"
+                        x1="12"
+                        x2="188"
+                        y1="100"
+                        y2="100"
+                      ></line>
+                      <line
+                        stroke="var(--hair)"
+                        stroke-width="1"
+                        x1="100"
+                        x2="100"
+                        y1="12"
+                        y2="188"
+                      ></line>
+                      <g class="ar-sweep" fill="url(#ar-sweep-grad)">
+                        <path
+                          d="M100 100 L100 12 A88 88 0 0 1 176.2 56 Z"
+                        ></path>
+                      </g>
+                    </svg>
+                    <div class="ar-blips" id="ar-blips"></div>
+                    <div class="ar-radar-core">
+                      <span class="ar-radar-count" id="ar-detected-count">—</span>
+                      <span class="ar-radar-label" id="ar-radar-label"
+                        >not scanned</span
+                      >
+                    </div>
                   </div>
-                </div>
-
-                <div
-                  aria-label="Indicator legend"
-                  class="ar-legend"
-                >
-                  <span><i class="ar-legend-dot tone-ok"></i>Verified</span>
-                  <span><i class="ar-legend-dot tone-warn"></i>Unverified</span>
-                  <span><i class="ar-legend-dot tone-bad"></i>Suspect</span>
-                  <span><i class="ar-legend-dot tone-info"></i>Model server</span>
-                </div>
-
-                <div class="ar-radar-readout">
-                  <span class="ar-live-dot" id="ar-live-dot"></span>
-                  <span id="ar-radar-note"
-                    >Not scanned this session. Run a scan to enumerate
-                    supported agent processes.</span
-                  >
+                  <div class="ar-radar-side">
+                    <div class="ar-radar-readout">
+                      <span class="ar-live-dot" id="ar-live-dot"></span>
+                      <span id="ar-radar-note"
+                        >Not scanned this session. Run a scan to enumerate
+                        supported agent processes.</span
+                      >
+                    </div>
+                    <div aria-label="Indicator legend" class="ar-legend">
+                      <span><i class="ar-legend-dot tone-ok"></i>Verified</span>
+                      <span><i class="ar-legend-dot tone-warn"></i>Unverified</span>
+                      <span><i class="ar-legend-dot tone-bad"></i>Suspect</span>
+                      <span><i class="ar-legend-dot tone-info"></i>Model server</span>
+                    </div>
+                  </div>
                 </div>
 
                 <ul
@@ -419,6 +415,18 @@
                 </div>
                 <p class="ar-error hidden" id="ar-workspace-error" role="alert"></p>
 
+                <!-- A recovered previous recording starts collapsed: it is
+                     durable evidence, never a live session. -->
+                <div class="ar-history hidden" id="ar-history">
+                  <div class="ar-history-main">
+                    <span class="ar-history-kicker">Previous recording</span>
+                    <span class="ar-history-meta" id="ar-history-meta">—</span>
+                  </div>
+                  <button class="btn" id="ar-history-open" type="button">
+                    View events
+                  </button>
+                </div>
+
                 <div class="empty-state ar-flight-empty" id="ar-flight-empty">
                   <strong>No recording in progress</strong>
                   <span
@@ -441,27 +449,49 @@
 
                   <div class="ar-coverage" id="ar-coverage" role="status"></div>
 
-                  <div class="ar-scrub-row">
-                    <label for="ar-scrub">Replay</label>
-                    <input id="ar-scrub" max="0" min="0" step="1" type="range" value="0" />
-                    <span class="ar-scrub-label" id="ar-scrub-label">Live</span>
+                  <div class="ar-flight-tools">
+                    <div class="ar-filters" id="ar-filters" role="group" aria-label="Filter recorded changes">
+                      <button aria-pressed="true" class="ar-chip is-on" data-filter="all" type="button">All</button>
+                      <button aria-pressed="false" class="ar-chip" data-filter="created" type="button">Created</button>
+                      <button aria-pressed="false" class="ar-chip" data-filter="modified" type="button">Modified</button>
+                      <button aria-pressed="false" class="ar-chip" data-filter="removed" type="button">Removed</button>
+                      <button aria-pressed="false" class="ar-chip" data-filter="renamed" type="button">Renamed</button>
+                      <button aria-pressed="false" class="ar-chip" data-filter="correlated" type="button">Correlated</button>
+                    </div>
+                    <div class="ar-flight-actions">
+                      <button
+                        aria-pressed="false"
+                        class="ar-chip hidden"
+                        id="ar-review-toggle"
+                        type="button"
+                      >
+                        Review timeline
+                      </button>
+                      <button
+                        aria-pressed="false"
+                        class="ar-chip hidden"
+                        id="ar-export-toggle"
+                        type="button"
+                      >
+                        Export
+                      </button>
+                    </div>
                   </div>
 
-                  <div class="ar-timeline-wrap">
-                    <div
-                      aria-label="Recorded observation timeline"
-                      class="ar-timeline"
-                      id="ar-timeline"
-                    ></div>
-                  </div>
-
-                  <div class="ar-filters" id="ar-filters" role="group" aria-label="Filter recorded changes">
-                    <button aria-pressed="true" class="ar-chip is-on" data-filter="all" type="button">All</button>
-                    <button aria-pressed="false" class="ar-chip" data-filter="created" type="button">Created</button>
-                    <button aria-pressed="false" class="ar-chip" data-filter="modified" type="button">Modified</button>
-                    <button aria-pressed="false" class="ar-chip" data-filter="removed" type="button">Removed</button>
-                    <button aria-pressed="false" class="ar-chip" data-filter="renamed" type="button">Renamed</button>
-                    <button aria-pressed="false" class="ar-chip" data-filter="correlated" type="button">Correlated</button>
+                  <!-- Replay controls exist only in explicit review mode. -->
+                  <div class="ar-review hidden" id="ar-review">
+                    <div class="ar-scrub-row">
+                      <label for="ar-scrub">Replay</label>
+                      <input id="ar-scrub" max="0" min="0" step="1" type="range" value="0" />
+                      <span class="ar-scrub-label" id="ar-scrub-label">Live</span>
+                    </div>
+                    <div class="ar-timeline-wrap">
+                      <div
+                        aria-label="Recorded observation timeline"
+                        class="ar-timeline"
+                        id="ar-timeline"
+                      ></div>
+                    </div>
                   </div>
 
                   <div class="ar-flight-body">
@@ -491,83 +521,46 @@
                     <b>Correlated</b> means a supported agent process was present
                     while the change was observed — it is not attribution.
                   </p>
+
+                  <!-- Privacy-safe case file, revealed on request. -->
+                  <div class="ar-export hidden" id="ar-export">
+                    <div class="ar-case-controls">
+                      <label class="ar-field" for="ar-case-summary">
+                        <span>Optional operator note (screened for paths and addresses)</span>
+                        <input
+                          autocomplete="off"
+                          id="ar-case-summary"
+                          maxlength="160"
+                          placeholder="e.g. Investigated a suspicious build"
+                          type="text"
+                        />
+                      </label>
+                      <label class="ar-check">
+                        <input id="ar-case-include" type="checkbox" />
+                        <span>Include the note</span>
+                      </label>
+                      <button class="btn" id="ar-case-preview" type="button" disabled>
+                        Preview
+                      </button>
+                      <button class="btn btn-primary" id="ar-case-export" type="button">
+                        Evidence Card
+                      </button>
+                      <button class="btn" id="ar-case-export-md" type="button">
+                        Markdown
+                      </button>
+                      <button class="btn" id="ar-case-export-json" type="button">
+                        JSON
+                      </button>
+                      <button class="btn" id="ar-case-export-html" type="button">
+                        HTML
+                      </button>
+                    </div>
+                    <p class="ar-caveat" id="ar-case-status" role="status"></p>
+                    <div class="ar-case-stage" id="ar-case-stage"></div>
+                  </div>
                 </div>
               </section>
             </div>
-
-            <section class="ar-panel ar-windows-panel">
-              <div class="ar-panel-head">
-                <div>
-                  <h2 class="section-title">Windows Change Radar</h2>
-                  <p class="ar-panel-sub">
-                    Read-only persistence snapshot and comparison.
-                  </p>
-                </div>
-                <div class="ar-win-actions">
-                  <button class="btn" id="ar-win-capture" type="button">
-                    Capture trusted snapshot
-                  </button>
-                  <button class="btn btn-primary" id="ar-win-compare" type="button">
-                    Compare now
-                  </button>
-                </div>
-              </div>
-              <div class="ar-win-state" id="ar-winsnap-state">
-                No trusted persistence snapshot is stored yet.
-              </div>
-              <div class="ar-win-summary hidden" id="ar-win-summary"></div>
-              <div class="ar-win-lists" id="ar-win-lists"></div>
-              <p class="ar-caveat" id="ar-win-note">
-                Differences are review leads, not malware verdicts.
-              </p>
-            </section>
-
-            <section class="ar-panel ar-case-panel">
-              <div class="ar-panel-head">
-                <div>
-                  <h2 class="section-title">Agent Case File</h2>
-                  <p class="ar-panel-sub">
-                    An allowlisted dossier: counts and labels only. No paths,
-                    file names, prompts or credentials.
-                  </p>
-                </div>
-              </div>
-              <div class="ar-case-controls">
-                <label class="ar-field" for="ar-case-summary">
-                  <span>Optional operator note (screened for paths and addresses)</span>
-                  <input
-                    autocomplete="off"
-                    id="ar-case-summary"
-                    maxlength="160"
-                    placeholder="e.g. Investigated a suspicious build"
-                    type="text"
-                  />
-                </label>
-                <label class="ar-check">
-                  <input id="ar-case-include" type="checkbox" />
-                  <span>Include the note</span>
-                </label>
-                <button class="btn" id="ar-case-preview" type="button" disabled>
-                  Preview case file
-                </button>
-                <button class="btn btn-primary" id="ar-case-export" type="button">
-                  Export Evidence Card
-                </button>
-                <button class="btn" id="ar-case-export-md" type="button">
-                  Markdown
-                </button>
-                <button class="btn" id="ar-case-export-json" type="button">
-                  JSON
-                </button>
-                <button class="btn" id="ar-case-export-html" type="button">
-                  HTML
-                </button>
-              </div>
-              <p class="ar-caveat" id="ar-case-status" role="status">
-                Stop a monitoring session to unlock the case file.
-              </p>
-              <div class="ar-case-stage" id="ar-case-stage"></div>
-            </section>
 
             <!-- Agent Detail Inspector Dialog -->
             <dialog class="modal-dialog ar-inspector-modal hidden" id="ar-agent-inspector">
@@ -831,15 +824,21 @@
                     type="button"
                   >
                     Processes</button
-                  ><button
-                    class="btn"
-                    data-route="view-incident"
-                    id="nav-incident"
-                    type="button"
-                  >
-                    Login observation
-                  </button>
-                </nav>
+><button
+class="btn"
+data-route="view-incident"
+id="nav-incident"
+type="button"
+>
+Login observation</button
+><button
+class="btn"
+data-route="view-winchanges"
+type="button"
+>
+Windows changes
+</button>
+</nav>
                 <div class="results-head">
                   <div class="headline-wrap">
                     <h1 class="headline" id="headline">No scan this session</h1>
@@ -2176,7 +2175,13 @@
                   id="tool-incident-view-audit"
                   type="button"
                 >
-                  Login observation
+                  Login observation</button
+                ><button
+                  class="btn"
+                  data-route="view-winchanges"
+                  type="button"
+                >
+                  Windows changes
                 </button>
               </nav>
               <div class="results-head">
@@ -2240,7 +2245,13 @@
                   id="tool-incident-view-processes"
                   type="button"
                 >
-                  Login observation
+                  Login observation</button
+                ><button
+                  class="btn"
+                  data-route="view-winchanges"
+                  type="button"
+                >
+                  Windows changes
                 </button>
               </nav>
               <div class="results-head">
@@ -2287,6 +2298,58 @@
                 <div class="empty-state hidden" id="proc-empty">
                   No flagged processes in the last scan.
                 </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ============================================================
+               INVESTIGATE · Windows change radar (moved from Agents, UI-02A)
+               ============================================================ -->
+          <section
+            aria-label="Windows change radar"
+            class="view hidden"
+            id="view-winchanges"
+          >
+            <div class="results-stack">
+              <nav aria-label="Investigation tools" class="tool-nav">
+                <button class="btn" data-route="results-view" type="button">
+                  Findings</button
+                ><button class="btn" data-route="view-audit" type="button">
+                  Persistence audit</button
+                ><button class="btn" data-route="view-processes" type="button">
+                  Processes</button
+                ><button class="btn" data-route="view-incident" type="button">
+                  Login observation</button
+                ><button class="btn" data-route="view-winchanges" type="button">
+                  Windows changes
+                </button>
+              </nav>
+              <div class="results-head">
+                <div class="headline-wrap">
+                  <h1 class="headline">Windows Change Radar</h1>
+                  <div class="subline">
+                    Read-only persistence snapshot and comparison. No registry
+                    or service is modified.
+                  </div>
+                </div>
+              </div>
+              <div class="panel ar-windows-panel">
+                <div class="ar-win-actions">
+                  <button class="btn" id="ar-win-capture" type="button">
+                    Capture trusted snapshot
+                  </button>
+                  <button class="btn btn-primary" id="ar-win-compare" type="button">
+                    Compare now
+                  </button>
+                </div>
+                <div class="ar-win-state" id="ar-winsnap-state">
+                  No trusted persistence snapshot is stored yet.
+                </div>
+                <div class="ar-win-summary hidden" id="ar-win-summary"></div>
+                <div class="ar-win-lists" id="ar-win-lists"></div>
+                <p class="ar-caveat" id="ar-win-note">
+                  Differences are review leads, not malware verdicts.
+                </p>
               </div>
             </div>
           </section>
@@ -2480,7 +2543,13 @@
                   id="tool-incident-view-incident"
                   type="button"
                 >
-                  Login observation
+                  Login observation</button
+                ><button
+                  class="btn"
+                  data-route="view-winchanges"
+                  type="button"
+                >
+                  Windows changes
                 </button>
               </nav>
               <div class="results-head">

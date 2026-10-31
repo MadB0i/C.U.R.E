@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use super::detection::{enumerate_agent_processes, AgentCategory, AgentKind, ExecutableIdentity};
 use crate::operator::defense::{
-    is_critical_system_process, verify_pid_identity, ProcessVerificationAnchor,
+    is_critical_system_process, verify_pid_identity, PidVerificationResult,
+    ProcessVerificationAnchor,
 };
 use crate::operator::response::{
     get_process_descendants, terminate_process_guarded, ProcessContainmentReceipt,
@@ -484,9 +485,275 @@ pub fn end_agent_process_tree(
     )
 }
 
+/// Whether the process owns any top-level window (graceful WM_CLOSE is only
+/// meaningful when it does). Read-only enumeration; never signals anything.
+pub fn process_has_windows(target_pid: u32) -> bool {
+    #[cfg(windows)]
+    unsafe {
+        struct EnumData {
+            target_pid: u32,
+            found: bool,
+        }
+
+        unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+            let data = &mut *(lparam.0 as *mut EnumData);
+            let mut proc_id = 0u32;
+            GetWindowThreadProcessId(hwnd, Some(&mut proc_id));
+            if proc_id == data.target_pid {
+                data.found = true;
+                return BOOL(0);
+            }
+            BOOL(1)
+        }
+
+        let mut data = EnumData {
+            target_pid,
+            found: false,
+        };
+        let _ = EnumWindows(Some(enum_proc), LPARAM(&mut data as *mut EnumData as isize));
+        data.found
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = target_pid;
+        false
+    }
+}
+
+/// Whether Windows itself confirms that this exact PID has exited. Uses the
+/// exit code, not the image name: a terminated process's object can outlive
+/// its PEB, and an image-name query on it fails in ways that look like
+/// access denial rather than exit.
+pub fn process_exit_confirmed(target_pid: u32) -> bool {
+    #[cfg(windows)]
+    unsafe {
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Threading::{
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        // STILL_ACTIVE is the pseudo exit code Windows reports while the
+        // process is running.
+        const STILL_ACTIVE: u32 = 259;
+        let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, target_pid) else {
+            // No handle at all: the process object is gone.
+            return true;
+        };
+        let mut code = 0u32;
+        let confirmed = GetExitCodeProcess(handle, &mut code).is_ok() && code != STILL_ACTIVE;
+        let _ = CloseHandle(handle);
+        confirmed
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = target_pid;
+        true
+    }
+}
+
+/// Safely ends ONE agent process — never its children — with required
+/// explicit confirmation. Graceful WM_CLOSE is attempted only when the
+/// process actually owns a window, and is given a bounded grace period;
+/// otherwise (and if grace does not finish the job) the single process is
+/// force-terminated. Success is only reported once Windows itself confirms
+/// the specific process exited. Every attempt is written to the audit
+/// journal without secrets.
+pub fn end_agent_process_single(
+    target_pid: u32,
+    expected_exe: &str,
+    expected_start_time: Option<u64>,
+    confirmation_token: &str,
+) -> Result<ProcessContainmentReceipt, String> {
+    let expected_token = format!("END_{target_pid}");
+    if confirmation_token != expected_token {
+        return Err(format!(
+            "Invalid confirmation token. Expected '{expected_token}', got '{confirmation_token}'"
+        ));
+    }
+
+    if is_critical_system_process(target_pid, expected_exe) {
+        return Err(format!(
+            "Process {target_pid} ('{expected_exe}') is a protected Windows system process. Termination refused."
+        ));
+    }
+
+    let anchor = ProcessVerificationAnchor {
+        pid: target_pid,
+        expected_exe_name: expected_exe.to_string(),
+        expected_start_time_unix: expected_start_time,
+    };
+
+    // 1. Identity check against the live process: rejects exited, recycled
+    //    and mismatched PIDs before anything is signalled.
+    match verify_pid_identity(&anchor) {
+        PidVerificationResult::VerifiedMatch => {}
+        PidVerificationResult::ProcessExited => {
+            return Ok(ProcessContainmentReceipt {
+                target_pid,
+                target_exe: expected_exe.into(),
+                pids_terminated: vec![],
+                pids_failed: vec![],
+                outcome: "Process already exited before the signal was sent.".into(),
+                verified_stopped: true,
+                method: "already_exited".into(),
+            });
+        }
+        PidVerificationResult::PidReusedMismatch { actual_exe } => {
+            return Err(format!(
+                "Stale or recycled target: PID {target_pid} is now '{actual_exe}', not the selected process. Refresh the radar and retry."
+            ));
+        }
+        PidVerificationResult::CriticalSystemProtected => {
+            return Err("Protected system process. Action prohibited.".into());
+        }
+        PidVerificationResult::AccessDenied => {
+            return Err(
+                "Access denied while querying the process identity. Termination refused.".into(),
+            );
+        }
+    }
+
+    // 2. Graceful close, only when a window exists, with a bounded wait.
+    let mut method = "forced".to_string();
+    let has_window = process_has_windows(target_pid);
+    if has_window {
+        let _ = request_graceful_shutdown(target_pid);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2000);
+        while std::time::Instant::now() < deadline {
+            if matches!(
+                verify_pid_identity(&anchor),
+                PidVerificationResult::ProcessExited
+            ) {
+                method = "graceful".into();
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(150));
+        }
+    }
+
+    // 3. Force-terminate the single selected process if still running.
+    let mut force_attempted = false;
+    if method != "graceful" {
+        #[cfg(windows)]
+        unsafe {
+            use windows::Win32::Foundation::CloseHandle;
+            use windows::Win32::System::Threading::{
+                OpenProcess, TerminateProcess, PROCESS_TERMINATE,
+            };
+            if let Ok(handle) = OpenProcess(PROCESS_TERMINATE, false, target_pid) {
+                force_attempted = TerminateProcess(handle, 1).is_ok();
+                let _ = CloseHandle(handle);
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            force_attempted = false;
+        }
+        if !force_attempted {
+            return Err(format!(
+                "Windows refused termination of PID {target_pid} (permissions or protection). No change was confirmed."
+            ));
+        }
+    }
+
+    // 4. Verify the specific process actually exited before claiming success.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(3000);
+    let stopped = loop {
+        if process_exit_confirmed(target_pid) {
+            break true;
+        }
+        if std::time::Instant::now() >= deadline {
+            break false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(120));
+    };
+
+    let outcome = if stopped {
+        match method.as_str() {
+            "graceful" => format!("PID {target_pid} closed gracefully (WM_CLOSE)."),
+            _ => format!("PID {target_pid} force-stopped (TerminateProcess)."),
+        }
+    } else {
+        format!(
+            "Termination attempted on PID {target_pid}, but Windows has not confirmed the exit. Verify manually."
+        )
+    };
+
+    crate::operator::journal::audit_log(
+        "AgentProcessEnd",
+        &format!("PID {target_pid} ({expected_exe})"),
+        Some(confirmation_token),
+        if stopped { "Terminated" } else { "Unverified" },
+        serde_json::json!({
+            "method": method,
+            "had_window": has_window,
+            "force_attempted": force_attempted,
+            "verified_stopped": stopped,
+        }),
+        if stopped { None } else { Some(&outcome) },
+    );
+
+    Ok(ProcessContainmentReceipt {
+        target_pid,
+        target_exe: expected_exe.into(),
+        pids_terminated: if stopped { vec![target_pid] } else { vec![] },
+        pids_failed: if stopped { vec![] } else { vec![target_pid] },
+        outcome,
+        verified_stopped: stopped,
+        method,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn end_process_single_rejects_wrong_confirmation_token() {
+        // A wrong token must fail before anything is signalled; the error
+        // names the expected token so the caller can recover.
+        let err = end_agent_process_single(999_999, "codex.exe", None, "WRONG").unwrap_err();
+        assert!(err.contains("END_999999"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn end_process_single_refuses_critical_system_process() {
+        // PID 4 (System) is protected regardless of the supplied name.
+        let err = end_agent_process_single(4, "codex.exe", None, "END_4").unwrap_err();
+        assert!(err.contains("protected Windows system process"), "{err}");
+    }
+
+    #[test]
+    fn end_process_single_reports_already_exited_for_absent_pid() {
+        // An unallocated PID is not an error: nothing was signalled and
+        // the desired end state already holds.
+        let receipt =
+            end_agent_process_single(999_998, "codex.exe", Some(1_700_000_000), "END_999998")
+                .expect("an exited target reports honestly");
+        assert!(receipt.verified_stopped);
+        assert_eq!(receipt.method, "already_exited");
+        assert!(receipt.pids_terminated.is_empty());
+    }
+
+    #[test]
+    fn end_process_single_rejects_stale_start_time() {
+        // A start time that cannot match any live process behaves like an
+        // exited/mismatched anchor: reported honestly, never force-killed
+        // against an unverified target.
+        let receipt =
+            end_agent_process_single(999_997, "codex.exe", Some(1_000_000_000), "END_999997")
+                .expect("the anchor check decides before any signal");
+        assert!(receipt.verified_stopped);
+        assert_eq!(receipt.method, "already_exited");
+    }
+
+    #[test]
+    fn process_has_windows_is_total() {
+        // Never panics on unallocated or system PIDs; returns a bool.
+        let _ = process_has_windows(0);
+        let _ = process_has_windows(999_999);
+    }
 
     #[test]
     fn session_process_state_labels_are_defined() {

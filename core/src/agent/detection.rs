@@ -329,6 +329,9 @@ pub struct DetectedAgentProcess {
     /// Working set size in bytes, when Windows returned it. Read-only
     /// observation via GetProcessMemoryInfo; None when unavailable.
     pub memory_usage_bytes: Option<u64>,
+    /// Whether the process owns any top-level window. Graceful WM_CLOSE is
+    /// only meaningful when this is true; console tools have none.
+    pub has_windows: bool,
     /// How strongly the executable was identified.
     pub identity: ExecutableIdentity,
     pub evidence: String,
@@ -620,6 +623,7 @@ pub fn enumerate_agent_processes() -> Vec<DetectedAgentProcess> {
 
             let category = kind.category();
             let is_model_server = kind.is_model_server();
+            let has_windows = super::session::process_has_windows(pid);
             let identity = if access_denied {
                 ExecutableIdentity::AccessDenied
             } else {
@@ -689,6 +693,7 @@ pub fn enumerate_agent_processes() -> Vec<DetectedAgentProcess> {
                 command_line: None,
                 started_unix,
                 memory_usage_bytes,
+                has_windows,
                 evidence,
                 confidence,
                 limitations,

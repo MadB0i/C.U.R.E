@@ -155,6 +155,12 @@
     setPill(st.pill, st.label);
   }
 
+  // Shared confirm dialog for other view modules (Agent Radar process
+  // control uses it). Resolves true only on explicit confirmation.
+  window.CureConfirm = function (opts) {
+    return requestConfirm(opts || {});
+  };
+
   // Theme toggle: switches between dark and light themes, persists to localStorage
   function applyTheme(theme) {
     const isLight = theme === "light";
@@ -1143,6 +1149,7 @@
     "results-view": "Investigate",
     "view-audit": "Investigate / Persistence",
     "view-processes": "Investigate / Processes",
+    "view-winchanges": "Investigate / Windows changes",
     "view-quarantine": "Quarantine",
     "view-detective": "Detective Mode",
     "cleanup-view": "Storage Workstation",
@@ -1158,7 +1165,7 @@
       const active =
         target === viewId ||
         (target === "results-view" &&
-          ["view-audit", "view-processes", "view-incident"].includes(viewId)) ||
+          ["view-audit", "view-processes", "view-incident", "view-winchanges"].includes(viewId)) ||
         (target === "view-eventlog" && viewId === "view-canary") ||
         (target === "scan-center" &&
           (viewId === "scan-view" || viewId === "landing-view"));

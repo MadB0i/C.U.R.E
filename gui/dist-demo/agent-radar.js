@@ -48,6 +48,7 @@
     scanAt: $("ar-scan-at"),
     scanNow: $("ar-scan-now"),
     refresh: $("ar-refresh"),
+    actionStatus: $("ar-action-status"),
     agentList: $("ar-agent-list"),
     agentsEmpty: $("ar-agents-empty"),
     emptyTitle: $("ar-empty-title"),
@@ -59,6 +60,9 @@
     start: $("ar-start"),
     stop: $("ar-stop"),
     error: $("ar-workspace-error"),
+    history: $("ar-history"),
+    historyMeta: $("ar-history-meta"),
+    historyOpen: $("ar-history-open"),
     flightEmpty: $("ar-flight-empty"),
     flight: $("ar-flight-live"),
     statTotal: $("ar-stat-total"),
@@ -68,6 +72,10 @@
     statBytes: $("ar-stat-bytes"),
     statConfidence: $("ar-stat-confidence"),
     coverage: $("ar-coverage"),
+    reviewToggle: $("ar-review-toggle"),
+    review: $("ar-review"),
+    exportToggle: $("ar-export-toggle"),
+    exportMenu: $("ar-export"),
     scrub: $("ar-scrub"),
     scrubLabel: $("ar-scrub-label"),
     timeline: $("ar-timeline"),
@@ -110,6 +118,13 @@
     selectedAgent: null,
     // pid -> AgentSessionDetail (real session-artifact intelligence).
     sessionsByPid: {},
+    // A session restored from disk at launch is durable history: collapsed
+    // and clearly stopped until the operator opens it.
+    recovered: false,
+    everActive: false,
+    historyOpen: false,
+    reviewMode: false,
+    exportOpen: false,
   };
 
   // Monotonic token: a radar snapshot that arrives after a newer scan or
@@ -247,6 +262,94 @@
   function cleanError(err, fallback) {
     const text = err && (err.message || err.toString ? err.toString() : String(err));
     return String(text || fallback).replace(/^Error:\s*/i, "");
+  }
+
+  let actionStatusTimer = 0;
+  /* Outcome line for explicit operator actions (process control). Every
+     state change is reported: success, refusal, staleness, cancellation. */
+  function setActionStatus(text, tone) {
+    if (!els.actionStatus) return;
+    els.actionStatus.textContent = text || "";
+    els.actionStatus.dataset.tone = tone || "idle";
+    els.actionStatus.classList.toggle("visible", !!text);
+    clearTimeout(actionStatusTimer);
+    if (text && (tone === "ok" || tone === "idle")) {
+      actionStatusTimer = setTimeout(function () {
+        els.actionStatus.classList.remove("visible");
+        els.actionStatus.textContent = "";
+      }, 8000);
+    }
+  }
+
+  /* Scoped process control: confirm, then let the backend re-verify the
+     live process identity before anything is signalled. The renderer can
+     never bypass that check — the backend re-enumerates itself. */
+  async function endProcessFlow(agent, proc) {
+    if (!invoke || !proc || !proc.pid) return;
+    if (state.scanning) {
+      setActionStatus("A scan is running — try again when it settles.", "warn");
+      return;
+    }
+    const hasWin = !!proc.has_windows;
+    const confirmed = await (window.CureConfirm
+      ? window.CureConfirm({
+          kicker: "Process control",
+          title: "End " + agent.label + " process?",
+          facts: [
+            ["PID", String(proc.pid)],
+            ["Executable", sanitizeDisplayPath(proc.exe_path || proc.name || "unknown")],
+            [
+              "Started",
+              proc.started_unix
+                ? new Date(proc.started_unix * 1000).toLocaleString()
+                : "unknown",
+            ],
+            ["Identity", proc.identity_label || identityShort(proc.identity)],
+            [
+              "Potential impact",
+              "Active coding tasks and unsaved session work may be interrupted.",
+            ],
+          ],
+          note: hasWin
+            ? "Windows will first be asked to close gracefully (WM_CLOSE); if the process does not exit, it will be force-stopped."
+            : "This process owns no windows, so it cannot close gracefully — it will be force-stopped (TerminateProcess).",
+          okLabel: hasWin ? "End Selected Process" : "Force Stop",
+        })
+      : Promise.resolve(false));
+    if (!confirmed) {
+      setActionStatus(
+        "Cancelled — no change was made to PID " + proc.pid + ".",
+        "idle",
+      );
+      return;
+    }
+    setActionStatus("Ending PID " + proc.pid + "…", "busy");
+    try {
+      const receipt = await invoke("operator_agent_end_process", {
+        pid: proc.pid,
+        expectedName: proc.name || "",
+        expectedStartedUnix: proc.started_unix || null,
+        confirmationToken: "END_" + proc.pid,
+      });
+      if (receipt && receipt.verified_stopped) {
+        setActionStatus(
+          (receipt.method === "graceful" ? "Closed gracefully — " : "Force-stopped — ") +
+            receipt.outcome,
+          "ok",
+        );
+      } else {
+        setActionStatus(
+          receipt
+            ? receipt.outcome
+            : "Windows did not confirm the process exit. Verify manually.",
+          "warn",
+        );
+      }
+    } catch (err) {
+      setActionStatus(cleanError(err, "The process could not be ended."), "bad");
+    }
+    // The snapshot must reflect reality after the action.
+    scanAgents();
   }
 
   /* ---------------------------------------------------------------------
@@ -802,23 +905,51 @@
 
       procs.forEach(function (proc) {
         const line = node("div", "ar-proc");
-        line.appendChild(node("span", "ar-proc-pid", "PID " + proc.pid));
-        line.appendChild(node("span", "ar-proc-name", proc.name || "process"));
+        const facts = node("div", "ar-proc-facts");
+        facts.appendChild(node("span", "ar-proc-pid", "PID " + proc.pid));
+        facts.appendChild(node("span", "ar-proc-name", proc.name || "process"));
         if (proc.started_unix) {
-          line.appendChild(node("span", "ar-proc-started", "started " + clock(proc.started_unix)));
+          facts.appendChild(node("span", "ar-proc-started", "started " + clock(proc.started_unix)));
         }
         const mem = humanBytes(proc.memory_usage_bytes);
-        if (mem) line.appendChild(node("span", "ar-proc-mem", mem + " working set"));
+        if (mem) facts.appendChild(node("span", "ar-proc-mem", mem + " working set"));
         const ident = node(
           "span",
           "ar-agent-note ar-proc-identity tone-" + identityTone(proc.identity),
           proc.identity_label || identityShort(proc.identity),
         );
         ident.title = proc.identity || "";
-        line.appendChild(ident);
+        facts.appendChild(ident);
+        line.appendChild(facts);
         const path = node("code", "ar-proc-path", sanitizeDisplayPath(proc.exe_path));
         path.title = sanitizeDisplayPath(proc.exe_path);
         line.appendChild(path);
+        // Scoped per-process controls: Details and a confirm-gated end for
+        // THIS PID. Tree termination stays in the inspector, separately
+        // authorised; nothing is terminated without the operator.
+        const actions = node("div", "ar-proc-actions");
+        const detailsBtn = node("button", "btn btn-ghost ar-proc-details", "Details");
+        detailsBtn.type = "button";
+        detailsBtn.addEventListener("click", function (ev) {
+          ev.stopPropagation();
+          openAgentInspector(agent, proc);
+        });
+        actions.appendChild(detailsBtn);
+        const endBtn = node(
+          "button",
+          "btn btn-ghost ar-proc-end",
+          proc.has_windows ? "End process" : "Force stop",
+        );
+        endBtn.type = "button";
+        endBtn.title = proc.has_windows
+          ? "Ask this process to close, then force-stop if needed. Confirmed first."
+          : "Force-stop this process (it owns no windows to close gracefully). Confirmed first.";
+        endBtn.addEventListener("click", function (ev) {
+          ev.stopPropagation();
+          endProcessFlow(agent, proc);
+        });
+        actions.appendChild(endBtn);
+        line.appendChild(actions);
         body.appendChild(line);
       });
 
@@ -836,16 +967,6 @@
 
       if (agent.state_note) body.appendChild(node("p", "ar-agent-note", agent.state_note));
       if (agent.integration_note) body.appendChild(node("p", "ar-agent-note", agent.integration_note));
-
-      const actions = node("div", "ar-agent-actions");
-      const inspBtn = node("button", "btn btn-ghost ar-agent-btn-inspect", "Process intelligence");
-      inspBtn.type = "button";
-      inspBtn.addEventListener("click", function (ev) {
-        ev.stopPropagation();
-        openAgentInspector(agent, (agent.processes && agent.processes[0]) || null);
-      });
-      actions.appendChild(inspBtn);
-      body.appendChild(actions);
 
       li.appendChild(body);
       row.addEventListener("click", function () {
@@ -918,6 +1039,9 @@
     const session = state.session;
     const active = !!(session && session.active);
     const hasSession = !!session;
+    // A recovered previous recording starts collapsed: durable evidence,
+    // clearly stopped, never resumed.
+    const collapsed = hasSession && !active && state.recovered && !state.historyOpen;
 
     els.stop.classList.toggle("hidden", !active);
     els.start.classList.toggle("hidden", active);
@@ -928,11 +1052,49 @@
     els.sessionSub.textContent = active
       ? "Recording metadata changes in the selected workspace."
       : hasSession
-        ? "Session stopped. Review the evidence, then build a case file."
+        ? "Session stopped. Review the evidence, then export if needed."
         : "Nothing is watched until you start a session.";
 
-    els.flightEmpty.classList.toggle("hidden", hasSession);
-    els.flight.classList.toggle("hidden", !hasSession);
+    if (els.history) {
+      els.history.classList.toggle("hidden", !collapsed);
+      if (collapsed && session) {
+        const counts = eventCounts(session.events || []);
+        const ended = session.ended_unix
+          ? new Date(session.ended_unix * 1000).toLocaleString()
+          : "unknown time";
+        els.historyMeta.textContent =
+          sanitizeDisplayPath(session.workspace || "") +
+          " · " +
+          counts.total +
+          " event(s) · stopped " +
+          ended;
+      }
+    }
+    if (els.historyOpen) {
+      els.historyOpen.classList.toggle("hidden", !collapsed);
+    }
+
+    els.flightEmpty.classList.toggle("hidden", hasSession && !collapsed);
+    els.flight.classList.toggle("hidden", !hasSession || collapsed);
+
+    // Replay and export exist only for a stopped session, on request.
+    const toolsVisible = hasSession && !active && !collapsed;
+    if (els.reviewToggle) {
+      els.reviewToggle.classList.toggle("hidden", !toolsVisible);
+      els.reviewToggle.textContent = state.reviewMode ? "Close review" : "Review timeline";
+      els.reviewToggle.setAttribute("aria-pressed", String(state.reviewMode));
+    }
+    if (els.exportToggle) {
+      els.exportToggle.classList.toggle("hidden", !toolsVisible);
+      els.exportToggle.setAttribute("aria-pressed", String(state.exportOpen));
+    }
+    if (els.review) {
+      els.review.classList.toggle("hidden", !state.reviewMode);
+    }
+    if (els.exportMenu) {
+      els.exportMenu.classList.toggle("hidden", !state.exportOpen);
+    }
+
     els.casePreview.disabled = !hasSession || active;
     els.caseExport.disabled =
       active ||
@@ -1417,6 +1579,10 @@
       return;
     }
     state.busy = true;
+    state.everActive = true;
+    state.recovered = false;
+    state.historyOpen = false;
+    state.reviewMode = false;
     showError("");
     setBusy(els.start, true, "Capturing baseline…");
     try {
@@ -1481,7 +1647,13 @@
     if (!invoke) return;
     try {
       const session = await invoke("flight_status");
-      if (session) applySession(session);
+      if (session) {
+        // A session the operator never started in this process is durable
+        // history recovered from disk: collapsed and clearly stopped.
+        if (!session.active && !state.everActive) state.recovered = true;
+        if (session.active) state.everActive = true;
+        applySession(session);
+      }
       if (!state.session) renderSession();
     } catch (err) {
       if (!quiet) showError(cleanError(err, "Session state is unavailable."));
@@ -1561,6 +1733,33 @@
   els.caseInclude.addEventListener("change", function () {
     if (state.caseSignature) resetCasePreview("Inputs changed. Preview the case file again.");
   });
+
+  // Replay controls exist only in explicit review mode.
+  if (els.reviewToggle) {
+    els.reviewToggle.addEventListener("click", function () {
+      state.reviewMode = !state.reviewMode;
+      if (state.reviewMode) state.historyOpen = true;
+      else {
+        // Closing review returns the list to the live position.
+        state.scrub = null;
+        state.selectedSeq = null;
+      }
+      renderSession();
+    });
+  }
+  if (els.exportToggle) {
+    els.exportToggle.addEventListener("click", function () {
+      state.exportOpen = !state.exportOpen;
+      if (state.exportOpen) state.historyOpen = true;
+      renderSession();
+    });
+  }
+  if (els.historyOpen) {
+    els.historyOpen.addEventListener("click", function () {
+      state.historyOpen = true;
+      renderSession();
+    });
+  }
 
   if (window.__CURE_FORCE_MOCK) {
     els.demo.classList.remove("hidden");

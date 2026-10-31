@@ -965,6 +965,36 @@ def agent_radar_flow(browser):
     check(page.locator('#ar-scan-at').inner_text().startswith('Snapshot '),
           'refresh produces a fresh snapshot timestamp')
 
+    # Scoped process control on an expanded per-process row.
+    # (The refresh above re-rendered the inventory; wait for it to settle,
+    # then expand.)
+    page.wait_for_function("() => !window.CureAgentRadar.state.scanning")
+    page.locator('#ar-agent-list .ar-agent-card .ar-agent-row').first.click()
+    row = page.locator('#ar-agent-list .ar-agent-card .ar-proc').first
+    expect(row).to_be_visible()
+    check(row.locator('.ar-proc-details').inner_text() == 'Details',
+          'each process row exposes a Details action')
+    end_label = row.locator('.ar-proc-end').inner_text()
+    check(end_label in ('End process', 'Force stop'),
+          'the end action is labelled honestly for the process type: ' + end_label)
+    row.locator('.ar-proc-end').click()
+    expect(page.locator('#confirm-overlay')).to_be_visible()
+    check('End' in page.locator('#confirm-title').inner_text(),
+          'the confirmation names the action')
+    check('Potential impact' in page.locator('#confirm-facts').inner_text(),
+          'the confirmation states the potential impact')
+    page.locator('#confirm-cancel').click()
+    expect(page.locator('#confirm-overlay')).to_be_hidden()
+    check('Cancelled' in page.locator('#ar-action-status').inner_text(),
+          'cancelling reports that no change was made')
+    row.locator('.ar-proc-end').click()
+    expect(page.locator('#confirm-overlay')).to_be_visible()
+    page.locator('#confirm-ok').click()
+    expect(page.locator('#ar-action-status')).to_contain_text('PID', timeout=15000)
+    status_text = page.locator('#ar-action-status').inner_text()
+    check('gracefully' in status_text.lower() or 'force-stopped' in status_text.lower(),
+          'the outcome reports how the process ended: ' + status_text[:70])
+
     check(page.locator('#ar-start').is_visible(), 'recording starts only from the explicit control')
     check(page.locator('#ar-flight-live').is_hidden(), 'no synthetic session exists before start')
 
@@ -978,6 +1008,10 @@ def agent_radar_flow(browser):
           'the recorder states that correlation is not attribution')
     check(page.locator('#ar-radar').get_attribute('data-phase') == 'monitoring',
           'the sweep runs only while a recording is actually active')
+    check(page.locator('#ar-review-toggle').is_hidden(),
+          'replay controls are not offered during live monitoring')
+    check(page.locator('#ar-review').is_hidden(),
+          'the replay slider stays hidden during live monitoring')
 
     page.locator('#ar-event-list .ar-event').first.click()
     expect(page.locator('#ar-evidence-card')).to_be_visible()
@@ -1000,6 +1034,28 @@ def agent_radar_flow(browser):
     expect(page.locator('#ar-session-badge')).to_have_text('Stopped', timeout=10000)
     check(page.locator('#ar-radar').get_attribute('data-phase') == 'idle',
           'the sweep stops when the recording stops')
+
+    # Replay appears only in explicit review mode.
+    check(page.locator('#ar-review-toggle').is_visible(),
+          'a stopped session offers timeline review')
+    check(page.locator('#ar-review').is_hidden(),
+          'the replay slider is hidden until review is requested')
+    page.locator('#ar-review-toggle').click()
+    expect(page.locator('#ar-timeline')).to_be_visible()
+    page.locator('#ar-scrub').fill('2')
+    expect(page.locator('#ar-scrub-label')).to_contain_text('2 / 6')
+    check(page.locator('#ar-event-list .ar-event').count() == 2,
+          'replay position narrows the visible observations')
+    page.locator('#ar-review-toggle').click()
+    expect(page.locator('#ar-timeline')).to_be_hidden()
+    check(page.locator('#ar-event-list .ar-event').count() == 6,
+          'closing review restores the live list')
+
+    # Export lives behind the compact Export menu.
+    check(page.locator('#ar-export').is_hidden(),
+          'export controls stay hidden until requested')
+    page.locator('#ar-export-toggle').click()
+    expect(page.locator('#ar-case-preview')).to_be_visible()
     check(page.locator('#ar-case-preview').is_enabled(), 'a stopped session unlocks the case file')
     page.locator('#ar-case-summary').fill('Reviewed a demo build')
     page.locator('#ar-case-include').check()
@@ -1022,6 +1078,33 @@ def agent_radar_flow(browser):
     check('uploaded to' not in page.locator('#ar-case-status').inner_text().lower(),
           'agent case export reports a local path, not an upload')
 
+    # A page reload restores the stopped session as collapsed history.
+    # (The shell reopens on Overview, as a fresh launch does.)
+    page.reload()
+    page.wait_for_load_state('networkidle')
+    page.locator('#nav-agents').click()
+    page.wait_for_timeout(600)
+    expect(page.locator('#ar-history')).to_be_visible(timeout=10000)
+    check('previous recording' in page.locator('#ar-history').inner_text().lower(),
+          'a recovered recording appears as collapsed history')
+    check(page.locator('#ar-session-badge').inner_text().strip().lower() == 'stopped',
+          'the recovered session is marked stopped')
+    check(page.locator('#ar-flight-live').is_hidden(),
+          'the recovered recording stays collapsed until opened')
+    check(page.locator('#ar-radar-note').inner_text().startswith('Not scanned'),
+          'the radar stays honest across a reload')
+    page.locator('#ar-history-open').click()
+    expect(page.locator('#ar-flight-live')).to_be_visible()
+    check(page.locator('#ar-stat-total').inner_text() == '6',
+          'opening history shows the recorded evidence')
+
+    # Windows Change Radar: compact entry point under Investigate.
+    page.locator('#nav-results').click()
+    page.wait_for_timeout(400)
+    page.locator('[data-route="view-winchanges"]').first.click()
+    expect(page.locator('#view-winchanges')).to_be_visible(timeout=10000)
+    check(page.locator('#view-title').inner_text() == 'Investigate / Windows changes',
+          'Windows Change Radar is reachable under Investigate')
     page.locator('#ar-win-capture').click()
     expect(page.locator('#ar-winsnap-state')).to_contain_text('Trusted snapshot saved', timeout=10000)
     page.locator('#ar-win-compare').click()

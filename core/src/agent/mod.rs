@@ -27,7 +27,8 @@ pub use recorder::{
     FlightSession, ObservationSource, WorkspaceSnapshot,
 };
 pub use session::{
-    end_agent_process_tree, inspect_agent_sessions, request_graceful_shutdown, AgentSessionDetail,
+    end_agent_process_single, end_agent_process_tree, inspect_agent_sessions,
+    process_exit_confirmed, process_has_windows, request_graceful_shutdown, AgentSessionDetail,
     SessionProcessState,
 };
 pub use windows::{

@@ -456,6 +456,11 @@ pub struct ProcessContainmentReceipt {
     pub pids_failed: Vec<u32>,
     pub outcome: String,
     pub verified_stopped: bool,
+    /// How the process was ended: "graceful" (WM_CLOSE), "forced"
+    /// (TerminateProcess), or "already_exited". The tree variant reports
+    /// "forced" for its TerminateProcess pass.
+    #[serde(default)]
+    pub method: String,
 }
 
 /// Safely terminates a process tree after verifying PID identity and checking critical process guards.
@@ -496,6 +501,7 @@ pub fn terminate_process_guarded(
                 pids_failed: vec![],
                 outcome: "Process already exited before signal".into(),
                 verified_stopped: true,
+                method: "already_exited".into(),
             });
         }
         super::defense::PidVerificationResult::PidReusedMismatch { actual_exe } => {
@@ -588,6 +594,7 @@ pub fn terminate_process_guarded(
         pids_failed: failed,
         outcome,
         verified_stopped: stopped,
+        method: "forced".into(),
     })
 }
 
