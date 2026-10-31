@@ -73,17 +73,6 @@
     receipt: null,
   };
 
-  let luma = null;
-
-  function companion() {
-    if (!luma && window.CureCompanion) {
-      /* Claimed eagerly: a screen with its own persona must never be
-         overwritten by a global event that arrives first. */
-      luma = window.CureCompanion.onHost("detective");
-    }
-    return luma;
-  }
-
   /* ---------------------------------------------------------------------
      helpers
      --------------------------------------------------------------------- */
@@ -553,19 +542,11 @@
     const lead = leads.find(function (l) {
       return l.id === id;
     });
-    if (lead && companion()) {
-      if (lead.action_kind === "not_offered") {
-        companion().thinking("This one is off-limits. Here is why.");
-      } else {
-        companion().curious("Looking at " + lead.title);
-      }
-    }
     render();
   }
 
   function gotoWorkstation(lead) {
     setStep("review");
-    if (companion()) companion().review(1, "Ready for a decision");
     const ws = window.CureStorageWorkstation;
     /* Hand over the measurement the board is reading. The workstation must
        not rescan behind the operator's back, and the two screens must not
@@ -659,7 +640,6 @@
     }
     if (rescan) rescan.classList.add("hidden");
     setStep("scan");
-    if (companion()) companion().scan("Measuring storage");
     if (window.CureTopbar && window.CureTopbar.storageScanStarted) {
       window.CureTopbar.storageScanStarted();
     }
@@ -682,7 +662,6 @@
         button.textContent = "Start investigation";
       }
       setStep("scan");
-      if (companion()) companion().failed("The measurement could not finish");
       const subline = $("dt-subline");
       if (subline) {
         subline.textContent =
@@ -713,7 +692,6 @@
 
     if (!state.investigation) {
       setStep("scan");
-      if (companion()) companion().idle("No investigation data");
       render();
       return;
     }
@@ -731,23 +709,11 @@
     setStep("discover");
     const inv = state.investigation;
     if (inv.major_lead) {
-      if (companion()) {
-        companion().major("That is the biggest concentration here");
-      }
       revealMajor(inv.major_lead);
     } else if (inv.notable_leads && inv.notable_leads.length) {
-      if (companion()) {
-        companion().notice("New clue discovered");
-      }
       revealMajor(inv.notable_leads[0]);
     } else if (inv.leads && inv.leads.length) {
-      if (companion()) {
-        companion().investigating("Looking over the measurement");
-      }
     } else {
-      if (companion()) {
-        companion().idle("Nothing to reclaim here");
-      }
     }
     render();
   }
@@ -873,7 +839,6 @@
       setCaseStatus(
         "Synthetic demo case file. Nothing was measured, written or uploaded."
       );
-      if (companion()) companion().curious("A synthetic case file, ready to read");
       return;
     }
 
@@ -902,9 +867,7 @@
          same claim. */
       if (caseFile.status === "recovery_verified") {
         setStep("closed");
-        if (companion()) companion().cleanup("success", "Recovery verified");
       } else {
-        if (companion()) companion().curious("Case file ready");
       }
     } catch (err) {
       setCaseStatus(clean(err, "The case file could not be written."), true);
@@ -927,13 +890,6 @@
         if (!p) return;
         if (p.phase === lastPhase) return;
         lastPhase = p.phase;
-        if (companion()) {
-          if (p.phase === "hashing") {
-            companion().thinking("Verifying duplicate copies byte for byte");
-          } else if (p.phase === "walking") {
-            companion().scan("scan", "Measuring storage");
-          }
-        }
       });
     }
 
@@ -974,12 +930,8 @@
         }, 0);
         if (gain > 0) {
           setStep("closed");
-          if (companion()) companion().cleanup("success", "Space recovery verified");
         } else {
           setStep("verify");
-          if (companion()) {
-            companion().thinking("Files removed; free space not observed");
-          }
         }
       });
     }

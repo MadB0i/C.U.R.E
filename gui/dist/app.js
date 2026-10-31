@@ -636,10 +636,6 @@
         false,
       );
       logEvent("action", "Quarantined: " + scored.entry.name);
-      // Supporting state after a completed, confirmed action — never before.
-      if (window.CureCompanion) {
-        window.CureCompanion.seal("Sealed: " + scored.entry.name + " - undo available");
-      }
       await refreshQuarantineCount();
       if (evidenceSelected === scored)
         renderEvidence(scored, evidenceCache.get(scored.entry.id));
@@ -967,21 +963,6 @@
         : "No findings in collected evidence";
       subline.textContent = scope;
     }
-    document
-      .getElementById("companion-result")
-      .classList.toggle("hidden", trouble > 0);
-    // LUMA reflects the real outcome: an incomplete collection is a review
-    // state even when nothing was flagged, and a clean collection with full
-    // coverage is the only thing that reads as success.
-    if (window.CureCompanion) {
-      if (coverageIncomplete(summary)) {
-        window.CureCompanion.review(trouble, "Review the collection limitations below.");
-      } else if (trouble > 0) {
-        window.CureCompanion.discovering(trouble, "Findings in collected evidence.");
-      } else {
-        window.CureCompanion.cleanup("success", "Nothing flagged", "No findings in collected evidence.");
-      }
-    }
     renderResultsCoverage(summary);
 
     countUp(document.getElementById("stat-cleaned"), sessionQuarantined);
@@ -1288,9 +1269,6 @@
     if (viewId === "view-quarantine") refreshQuarantine();
     if (viewId === "view-eventlog") renderEventLog();
     if (viewId === "cleanup-view" && window.CureStorageWorkstation) {
-      /* Opening the workstation performs no measurement, so its companion
-         returns to a settled pose rather than continuing a pose left behind
-         by a rescue scan. */
       /* A measurement adopted from Detective Mode must survive the trip
          here. Only reset when there is no measurement to keep. */
       if (
@@ -1573,22 +1551,6 @@
       cancelBtn.focus();
     });
   }
-
-  const companionPref = document.getElementById("pref-companion");
-  if (companionPref) {
-    companionPref.addEventListener("change", (ev) => {
-      if (window.CureCompanion) window.CureCompanion.setVisible(ev.target.checked);
-    });
-  }
-  const motionPref = document.getElementById("pref-companion-motion");
-  if (motionPref) {
-    motionPref.addEventListener("change", (ev) => {
-      /* The box reads "Pause companion motion", so a ticked box means the
-         motion is paused. */
-      if (window.CureCompanion) window.CureCompanion.setMotionPaused(ev.target.checked);
-    });
-  }
-  syncCompanionVisibility();
 
   document
     .getElementById("btn-quarantine-folder")
@@ -2132,30 +2094,8 @@
     el.textContent = "No login observation recorded this session.";
   }
 
-  /* The companion's place in the hero is the application's decision: when
-     she is hidden the hero closes the gap she leaves rather than keeping an
-     empty column open. */
-  function syncCompanionVisibility() {
-    const api = window.CureCompanion;
-    const visible = api ? api.isVisible() : true;
-    const hero = document.querySelector(".ov-hero");
-    if (hero) hero.setAttribute("data-companion-hidden", String(!visible));
-    const pref = document.getElementById("pref-companion");
-    if (pref) pref.checked = visible;
-    const motion = document.getElementById("pref-companion-motion");
-    if (motion) motion.checked = api ? api.isMotionPaused() : false;
-  }
-
-  window.addEventListener("cure-companion-visibility", syncCompanionVisibility);
-
   function renderOverview(summary) {
     const t = troubleCounts(summary);
-    if (window.CureCompanion) {
-      if (t.critical > 0) window.CureCompanion.discovering(t.critical, "High risk - review evidence");
-      else if (t.findings > 0) window.CureCompanion.discovering(t.findings, "Review required");
-      else if (coverageIncomplete(summary)) window.CureCompanion.review(0, "Coverage incomplete");
-      else window.CureCompanion.idle("Nothing flagged");
-    }
     const posture = document.getElementById("ov-posture");
     const subline = document.getElementById("ov-subline");
     const beacon = document.getElementById("ov-beacon");

@@ -404,8 +404,14 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
             "the real Tauri bridge is present (this is not the mock shell)",
         )
         runner.check(
-            page.evaluate("() => typeof window.CureCompanion === 'object'"),
-            "the companion is mounted in the native window",
+            page.evaluate("() => typeof window.CureCompanion === 'undefined'"),
+            "no mascot companion is mounted in the native window",
+        )
+        runner.check(
+            page.evaluate(
+                "() => document.querySelectorAll('.operator-node').length > 0"
+            ),
+            "the operator console is present in the native window",
         )
         runner.shot(page, "overview")
 
@@ -517,15 +523,15 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
                 total: (document.getElementById('dt-map-total') || {}).innerText || '',
                 leads: document.querySelectorAll('#dt-leads .dt-lead').length,
                 arcs: document.querySelectorAll('#dt-map .dt-arc').length,
-                state: (document.querySelector('[data-companion="detective"]') || {}).dataset.state || '',
+                operator: document.querySelectorAll('[data-companion="detective"] .operator-node').length,
             })"""
         )
         runner.check(board["total"] not in ("", "—"),
                      f"the board leads with the measured total ({board['total']!r})")
         runner.check(board["leads"] > 0, f"the board lists real leads ({board['leads']})")
         runner.check(board["arcs"] > 0, "the map draws real category arcs")
-        runner.check(board["state"] in ("major", "discovering", "curious", "thinking"),
-                     f"the companion reacts to the investigation ({board['state']!r})")
+        runner.check(board["operator"] > 0,
+                     "the detective view mounts the operator console")
         runner.shot(page, "detective-board")
 
         page.evaluate("""() => document.getElementById('dt-case-preview').click()""")
@@ -699,35 +705,22 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
         else:
             print("  (the scan finished before it could be cancelled)", flush=True)
 
-        runner.step("companion states")
-        states = page.evaluate(
-            """() => {
-                const names = ['idle','scan','discovering','review','curious','thinking',
-                               'quarantine','success','failure','cancelled','sleeping','major'];
-                const out = [];
-                for (const n of names) {
-                    const api = window.CureCompanion;
-                    if (n === 'idle') api.idle('probe');
-                    else if (n === 'scan') api.scan('scan', 'probe');
-                    else if (n === 'discovering') api.discovering(3, 'probe');
-                    else if (n === 'review') api.review(2, 'probe');
-                    else if (n === 'curious') api.curious('probe');
-                    else if (n === 'thinking') api.thinking('probe');
-                    else if (n === 'quarantine') api.seal('probe');
-                    else if (n === 'success') api.cleanup('success', 'probe', 'probe');
-                    else if (n === 'failure') api.failed('probe');
-                    else if (n === 'cancelled') api.cancelled('probe');
-                    else if (n === 'sleeping') api.sleep();
-                    else if (n === 'major') api.major('probe');
-                    out.push(document.querySelector('[data-companion="overview"]')
-                               .getAttribute('data-state'));
-                }
-                return out;
-            }"""
+        runner.step("mascot removal")
+        mascot = page.evaluate(
+            """() => ({
+                companion: typeof window.CureCompanion,
+                lumaGlobal: typeof window.luma,
+                svgs: document.querySelectorAll('.luma-svg, .luma-stage, .luma-host').length,
+                scripts: [...document.querySelectorAll('script[src]')]
+                    .map((s) => s.getAttribute('src')).filter((s) => s.includes('luma')).length,
+            })"""
         )
         runner.check(
-            len(set(states)) >= 12,
-            f"the companion reaches every state the interface can ask for ({states})",
+            mascot["companion"] == "undefined"
+                and mascot["lumaGlobal"] == "undefined"
+                and mascot["svgs"] == 0
+                and mascot["scripts"] == 0,
+            f"the mascot is fully removed from the running application ({mascot})",
         )
 
         runner.step("reduced motion")
@@ -735,15 +728,19 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
         time.sleep(1.0)
         reduced = page.evaluate(
             """() => ({
-                paused: document.documentElement.getAttribute('data-paused'),
+                mediaSeen: matchMedia('(prefers-reduced-motion: reduce)').matches,
                 running: document.getAnimations()
                     .filter((a) => a.animationName && a.animationName.indexOf('lm-') === 0)
                     .length,
+                mascot: document.querySelectorAll('.luma-svg').length,
             })"""
         )
+        page.emulate_media(reduced_motion="no-preference")
         runner.check(
-            reduced["paused"] == "true" and reduced["running"] == 0,
-            f"reduced motion stops every companion animation ({reduced})",
+            reduced["mediaSeen"] is True
+                and reduced["running"] == 0
+                and reduced["mascot"] == 0,
+            f"reduced-motion preference reaches the app; no mascot animations exist ({reduced})",
         )
         page.emulate_media(reduced_motion="no-preference")
         time.sleep(0.5)

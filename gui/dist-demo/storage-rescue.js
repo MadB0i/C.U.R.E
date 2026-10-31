@@ -279,10 +279,6 @@
         textEl.textContent = `Operator, ${selected.length} folders (${formatBytes(totalBytes)}) are staged for relocation to ${state.targetDrive}. C.U.R.E will copy and bit-verify the transfer while keeping your source files intact.`;
       }
     }
-
-    if (window.luma && window.luma.uplink) {
-      window.luma.uplink("storage-rescue", "C: Drive Pressure Relief Active", `${selected.length} folders staged for safe migration`);
-    }
   }
 
   /* ---------- Plan & Preflight Flow ---------- */
@@ -414,10 +410,6 @@
 
       if (execModal) execModal.classList.add("hidden");
       openReceiptModal(receipt);
-
-      if (window.luma && window.luma.uplink) {
-        window.luma.uplink("verified", "100% Bit-Exact Integrity Verified", "Relocation completed without error");
-      }
     } catch (err) {
       if (unlisten) unlisten();
       if (execModal) execModal.classList.add("hidden");

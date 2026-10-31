@@ -42,7 +42,7 @@
               stroke-width="1.5"
             ></path>
           </svg>
-          <div class="wordmark">C.U.R.E<span>Evidence Console</span></div>
+          <div class="wordmark">C.U.R.E<span>Evidence Console · sample data</span></div>
         </div>
         <nav aria-label="Sections" class="nav">
           <button
@@ -211,7 +211,7 @@
                       <span class="operator-pulse-dot"></span>
                       <span>SESSION INTELLIGENCE</span>
                     </div>
-                    <span class="operator-level-badge level-0-observe" id="ar-session-badge">MONITORING</span>
+                    <span class="operator-level-badge level-0-observe" id="ar-session-operator-badge">MONITORING</span>
                   </div>
                   <div class="operator-rec-desc" id="ar-session-desc">
                     Scanning local process table for supported coding agents, local model servers, and orphaned worker processes.
@@ -812,11 +812,7 @@
                     <span id="stat-safe">0</span><label>SAFE SCORE</label>
                   </div>
                 </div>
-                <div
-                  class="companion result-companion hidden"
-                  id="companion-result"
-                  data-companion="result"
-                ></div>
+                <div class="operator-mount" id="operator-result" data-companion="result"></div>
                 <div class="panel" id="review-block">
                   <h2 class="section-title">Persistence findings</h2>
                   <ul class="entry-cards" id="review-cards"></ul>
@@ -901,7 +897,7 @@
                 </div>
               </div>
               <div class="dt-head-actions">
-                <div class="companion dt-companion" data-companion="detective"></div>
+                <div class="operator-mount dt-operator-slot" data-companion="detective"></div>
                 <button class="btn btn-primary" id="dt-investigate" type="button">
                   Start investigation
                 </button>
@@ -1492,10 +1488,7 @@
               >
                 <div class="sw-headline-card" id="sw-headline-card">
                   <div class="sw-headline-figure">
-                    <div
-                      class="companion sw-companion"
-                      data-companion="storage"
-                    ></div>
+                    <div class="operator-mount" data-companion="storage"></div>
                   </div>
                   <div class="sw-headline-main">
                     <div class="sw-headline-amount" id="sw-amount">
@@ -2353,24 +2346,6 @@
                   No events yet this session.
                 </div>
               </div>
-              <div class="panel">
-                <h2 class="section-title">Display</h2>
-                <div class="display-settings">
-                  <label class="redact-check">
-                    <input checked="" id="pref-companion" type="checkbox" /> Show
-                    the companion
-                  </label>
-                  <label class="redact-check">
-                    <input id="pref-companion-motion" type="checkbox" /> Pause
-                    companion motion
-                  </label>
-                </div>
-                <p class="coverage-note dim">
-                  The companion follows the operating system's reduced-motion
-                  preference on its own. Pausing it here overrides that until
-                  the box is cleared.
-                </p>
-              </div>
             </div>
           </section>
           <section
@@ -2833,6 +2808,8 @@
         <dl class="detail-drawer inc-drawer-body" id="inc-drawer-body"></dl>
       </div>
     </div>
+    <!-- Dev harness only: deterministic labelled mock backend. Never shipped. -->
+    <script src="mock-tauri.js"></script>
     <script src="operator.js"></script>
     <script src="xray.js"></script>
     <script src="storage-workstation.js"></script>

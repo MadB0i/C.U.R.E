@@ -610,20 +610,14 @@
   async function refreshRadar(quiet) {
     if (!invoke) return;
     if (!quiet && els.refresh) setBusy(els.refresh, true, "Sampling…");
-    if (!quiet && window.Luma) window.Luma.scanning("Scanning running processes for AI agents…");
     try {
       const payload = await invoke("agent_radar");
       renderRadar(payload);
       showError("");
       const det = (payload.detected_count || 0) + (payload.model_server_count || 0);
-      if (!quiet && window.Luma) {
-        if (det > 0) window.Luma.excited(det + " agent(s) discovered");
-        else window.Luma.idle("No active AI agents detected");
-      }
     } catch (err) {
       if (!quiet) {
         showError(cleanError(err, "The agent sample could not be read."));
-        if (window.Luma) window.Luma.warning("Process query access limited");
       }
     } finally {
       if (!quiet && els.refresh) setBusy(els.refresh, false);
@@ -1057,7 +1051,6 @@
         summary.entry_count +
         " supported entries · " +
         (summary.note || "");
-      if (window.Luma) window.Luma.curious("Windows baseline snapshot captured");
       refreshRadar(true);
     } catch (err) {
       els.winState.textContent = cleanError(err, "The snapshot could not be captured.");
@@ -1072,11 +1065,6 @@
     try {
       const changes = await invoke("windows_change_compare");
       renderWindows(changes);
-      if (window.Luma) {
-        const diffs = (changes.added || []).length + (changes.removed || []).length + (changes.changed || []).length;
-        if (diffs > 0) window.Luma.warning(diffs + " persistence difference(s) detected");
-        else window.Luma.success("No unexpected persistence changes");
-      }
     } catch (err) {
       els.winState.textContent = cleanError(err, "The comparison could not be completed.");
     } finally {
@@ -1167,7 +1155,6 @@
       });
       els.caseStatus.textContent =
         "Case file written to " + path + " · Nothing was uploaded.";
-      if (window.Luma) window.Luma.success("Evidence card exported");
     } catch (err) {
       els.caseStatus.textContent = cleanError(err, "The case file could not be written.");
     } finally {
@@ -1197,7 +1184,6 @@
       state.selectedSeq = null;
       resetCasePreview("");
       renderSession();
-      if (window.Luma) window.Luma.curious("Flight recorder monitoring workspace metadata");
       els.caseStatus.textContent =
         "Recording. Stop the session to review final reconciliation and unlock the case file.";
       refreshRadar(true);
@@ -1220,7 +1206,6 @@
       state.scrub = null;
       state.selectedSeq = null;
       renderSession();
-      if (window.Luma) window.Luma.success("Recorded session complete and reconciled");
       els.caseStatus.textContent = session.coverage && session.coverage.complete
         ? "Recording stopped. Final reconciliation finished within recorder limits. Preview the case file."
         : "Recording stopped. Coverage is incomplete; read the coverage note before interpreting the result.";
@@ -1273,7 +1258,6 @@
     if (!invoke || !state.caseModel) return;
     invoke("export_agent_case_file", { case: state.caseModel, format: format }).then(function (path) {
       els.caseStatus.textContent = "Exported " + format.toUpperCase() + " to: " + path;
-      if (window.Luma) window.Luma.success("Case exported as " + format.toUpperCase());
     }).catch(function (e) {
       showError(cleanError(e, "Export failed."));
     });

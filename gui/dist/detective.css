@@ -54,13 +54,10 @@
   flex-wrap: wrap;
 }
 
-.dt-companion {
-  width: 148px;
-  /* The stage and its caption are one block. A fixed height clipped the
-     caption into the timeline below, so let the content size it. */
-  height: auto;
-  min-height: 150px;
-  flex: 0 0 auto;
+.dt-operator-slot {
+  flex: 0 1 auto;
+  min-width: 230px;
+  max-width: 340px;
 }
 
 /* --- timeline --------------------------------------------------------- */

@@ -106,7 +106,7 @@ def goto_view(page, nav, view):
 
 def settled(page):
     # Wait for entrance animations to finish before measuring or clicking.
-    # Infinite loops (the LUMA node, the scan field, the storage core) must not
+    # Infinite loops (the operator node, the scan field, the storage core) must not
     # block: they have no finite end time and are ignored here.
     page.wait_for_function("""() => document.getAnimations().every(a =>
       !Number.isFinite(a.effect.getComputedTiming().endTime) ||
@@ -172,8 +172,8 @@ def core_flow(browser, size=(900, 600), reduced=False, capture=False, video=Fals
           ["Overview", "Agents", "Rescue", "Investigate", "Quarantine", "Detective", "Storage", "Monitor"],
           "primary destinations are icon and title only")
     check(page.locator("#xray-canvas").count() == 1, "system x-ray canvas present")
-    check(page.locator("[data-companion='overview'] .luma-svg").count() == 1,
-          "LUMA is present in the overview")
+    check(page.locator("[data-companion='overview'] .luma-svg").count() == 0,
+          "no mascot is rendered in the overview")
     keyboard(page)
     start_scan(page)
     page.wait_for_function("document.querySelectorAll('#log .item-line').length >= 2")
@@ -296,16 +296,6 @@ def states(browser, capture=False):
                 page.locator("#nav-overview").click()
                 expect(page.locator("#ov-posture")).to_have_text("Coverage incomplete")
                 check("ACCESS DENIED" in page.locator("#ov-coverage").inner_text(), "access denied communicated in text")
-            if name in ("partial", "partial-findings"):
-                # The invariant is that an incomplete collection never reads
-                # as satisfied. Which concerned pose she takes depends on
-                # whether real findings exist alongside the missing coverage.
-                companion = page.locator('[data-companion="overview"]').get_attribute('data-state')
-                check(companion in ("review", "discovering"),
-                      "incomplete collection never gives satisfied companion: " + str(companion))
-            if name == "partial":
-                check(page.locator('[data-companion="overview"]').get_attribute('data-state') == 'review',
-                      "an empty but incomplete collection puts LUMA into review, not discovery")
             if name == "partial-findings":
                 expect(page.locator("#status-text")).to_have_text("Review required · Coverage incomplete")
                 check("complete" not in page.locator("#status-text").inner_text().lower().replace("incomplete", ""), "partial coverage with findings never claims scan complete")
@@ -374,15 +364,6 @@ def secondary(browser):
     check("measured" in page.locator("#sw-amount-label").inner_text().lower(),
           "the running summary is labelled as a measurement in progress: "
           + page.locator("#sw-amount-label").inner_text())
-    # The companion must not repeat the state it is already showing.
-    companion_copy = page.locator('[data-companion="storage"]')
-    title = companion_copy.locator(".luma-title").inner_text().strip().lower()
-    detail = companion_copy.locator(".luma-detail").inner_text().strip().lower()
-    check(title != detail,
-          "the companion does not repeat the same label twice: "
-          + title + " / " + detail)
-    check("scan" not in detail,
-          "the companion does not print the bare word 'scan': " + detail)
     # The topbar names the kind of scan that is running.
     check("STORAGE" in page.locator("#session-meta").inner_text(),
           "the topbar says a storage measurement is in flight: "
@@ -650,11 +631,8 @@ def demo_flow(browser):
     page.wait_for_timeout(1600)
     page.locator('#sw-confirm-input').fill('REMOVE')
     page.locator('#sw-preview-confirm').click()
-    # The engine call is real from the UI's point of view; wait for the pose
-    # rather than assuming it is already there.
-    expect(page.locator('[data-companion="storage"]')).to_have_attribute('data-state','cleanup')
-    page.wait_for_timeout(1000)
-    expect(page.locator('[data-companion="storage"]')).to_have_attribute('data-state','success')
+    page.wait_for_timeout(2000)
+    expect(page.locator('#sw-receipt-overlay')).to_be_visible()
     page.wait_for_timeout(1600)
     expect(page.locator('#sw-receipt-overlay')).to_be_visible()
     page.wait_for_timeout(1200)
@@ -740,7 +718,6 @@ def detective_flow(browser):
     check(page.locator('#dt-bands .dt-band').count() >= 2, 'the bands separate removable and off-limits')
     check(page.locator('#dt-timeline li.is-done').count() >= 2,
           'the timeline only advances on steps that happened')
-    expect(page.locator('[data-companion="detective"]')).to_have_attribute('data-state','major')
 
     page.locator('#dt-leads .dt-lead').filter(
         has=page.locator('.dt-significance-major')).first.click()
@@ -890,145 +867,39 @@ def public_demo_flow(browser):
     check(not errors,'public demo runtime: '+str(errors));ctx.close()
 
 
-def companion_flow(browser, capture=False):
-    # The character is presentation only: pause/reduced motion and backend truth matter.
-    for failed in [False, True]:
-        ctx,page,errors=open_page(browser,(1440,900) if capture else (900,600),storage_locked=failed)
-        stage=page.locator('[data-companion="overview"]')
-        check(stage.get_attribute('data-state')=='idle','welcome pose before any scan')
-        check(page.locator('.luma-svg').evaluate_all('(es)=>es.every(e=>e.getAttribute("aria-hidden")==="true" && e.getAttribute("focusable")==="false")'),'art does not enter accessibility or focus trees')
-        # The character area carries one control and one label.
-        companion_buttons=stage.locator('.luma-controls button')
-        check(companion_buttons.count()==1,'the companion has exactly one control')
-        check(companion_buttons.first.inner_text().strip().lower()=='hide','the only companion control is Hide')
-        check(stage.locator('.luma-kind').is_hidden(),'the duplicated state eyebrow is gone')
-        check(stage.locator('.luma-title').is_visible(),'one readable state label remains')
-        # Hide removes her from the visible area and the hero closes the gap
-        # she left; the preference brings her back.
-        companion_buttons.first.click()
-        check(page.evaluate("""() => {
-            const h = document.querySelector('[data-companion="overview"]');
-            const hero = document.querySelector('.ov-hero');
-            return h && h.hidden === true &&
-                   hero.getAttribute('data-companion-hidden') === 'true' &&
-                   getComputedStyle(hero).gridTemplateColumns.split(' ').length === 2;
-        }"""),'hiding the companion closes the hero column')
-        check(page.evaluate("""() => {
-            const stages = [...document.querySelectorAll('.luma-stage')];
-            return document.getAnimations().filter(a=>a.playState==='running')
-                .filter(a=>a.effect&&a.effect.target&&stages.some(s=>s.contains(a.effect.target))).length;
-        }""")==0,'a hidden companion stops animating')
-        page.locator('#nav-eventlog').click()
-        # Hiding her cleared the preference box, so bringing her back is a
-        # tick rather than a clear.
-        page.locator('#pref-companion').check()
-        check(page.evaluate("""() => {
-            const h = document.querySelector('[data-companion="overview"]');
-            return h && h.hidden === false;
-        }"""),'the preference brings the companion back')
-        page.locator('#nav-overview').click()
-        # The motion preference lives in the display preferences, and still
-        # governs every companion.
-        page.locator('#nav-eventlog').click()
-        expect(page.locator('#view-eventlog')).to_be_visible()
-        page.locator('#pref-companion-motion').check()
-        check(page.locator('.luma-stage').evaluate_all('(es)=>es.every(e=>e.dataset.paused==="true")'),'pause applies to every companion stage')
-        check(page.evaluate('window.CureSweep.motionPaused()'),'one pause gesture governs the whole presentation')
-        check(companion_running(page)==0,'pausing stops every running companion loop')
-        page.reload();expect(page.locator('#view-overview')).to_be_visible()
-        page.locator('#nav-eventlog').click()
-        check(stage.locator('.luma-stage').get_attribute('data-paused')=='true','motion preference survives reload')
-        page.locator('#pref-companion-motion').uncheck()
-        page.emulate_media(reduced_motion='reduce')
-        # The note lives in the Overview, so look at it where it is visible.
-        page.locator('#nav-overview').click()
-        expect(stage.locator('.luma-reduced')).to_be_visible()
-        check(page.locator('.luma-stage').evaluate_all('(es)=>es.every(e=>e.dataset.paused==="true")'),'live reduced-motion preference stops companion')
-        check(companion_running(page)==0,'reduced motion has no ongoing companion loops')
-        page.emulate_media(reduced_motion='no-preference')
-        page.locator('#nav-scan').click();page.get_by_role('button',name='Start Rescue Scan',exact=True).click()
-        page.wait_for_function("document.querySelectorAll('#log .item-line').length >= 1")
-        check(page.locator('[data-companion="scan"]').get_attribute('data-state')=='scan',
-              'LUMA reflects the real running collection')
-        # Let collection finish before leaving the view; a scan that is still
-        # running legitimately returns the operator to the findings screen.
-        finish_scan(page)
-        page.locator('#nav-cleanup').click()
-        clean=page.locator('[data-companion="storage"]')
-        # Opening the workstation performs no work, so LUMA must not be in a
-        # working pose. Which calm pose she holds depends on the last real
-        # result; what matters is that nothing is pretending to run.
-        opening_state=clean.get_attribute('data-state')
-        check(opening_state not in ('scan','cleanup','quarantine','discovering'),
-              'storage idle never starts sweeping activity: '+str(opening_state))
-        check(opening_state in ('idle','review','success','failure','cancelled'),
-              'storage idle holds a settled pose: '+str(opening_state))
-        page.locator('#sw-scan').click()
-        expect(page.locator('#sw-progress')).to_be_visible(timeout=15000)
-        check(clean.get_attribute('data-state')=='scan','LUMA reflects a storage measurement in progress')
-        expect(page.locator('#sw-progress')).to_be_hidden(timeout=20000)
-        check(clean.get_attribute('data-state')=='discovering',
-              'LUMA reacts to the real measured count once results land: '
-              + str(clean.get_attribute('data-state')))
-        page.locator('#sw-tab-large').click()
-        page.locator('#sw-large-body .sw-queue-btn').first.click()
-        check(clean.get_attribute('data-state')=='review',
-              'queuing an item puts LUMA into a calm review pose')
-        page.locator('#sw-tab-queue').click()
-        expect(page.locator('#sw-queue-groups')).to_be_visible()
-        expect(page.locator('#sw-queue-badge')).to_have_text('1')
-        page.locator('#sw-preview-btn').click();expect(page.locator('#sw-preview-overlay')).to_be_visible()
-        check(page.locator('#sw-preview-overlay .luma-stage').count()==0,
-              'serious confirmation contains no assistant artwork')
-        check(page.evaluate('window.__CURE_LAST_STORAGE_CALL===undefined'),'confirmation does not execute removal')
-        page.keyboard.press('Escape')
-        check(page.evaluate('window.__CURE_LAST_STORAGE_CALL===undefined'),'cancel leaves removal uninvoked')
-        page.locator('#sw-preview-btn').click();page.locator('#sw-confirm-input').fill('REMOVE')
-        page.locator('#sw-preview-confirm').click()
-        expect(clean).to_have_attribute('data-state','cleanup')
-        expect(page.locator('#sw-receipt-overlay')).to_be_visible(timeout=15000)
-        expect(clean).to_have_attribute('data-state','success')
-        check(clean.locator('.luma-detail').inner_text()==
-              page.locator('#sw-receipt-label').inner_text(),
-              'companion result uses the exact engine receipt')
-        # Close the receipt before capturing anything else: it is modal, so
-        # leaving it open would put the next screenshots behind a dialog.
-        page.locator('#sw-receipt-close').click()
-        expect(page.locator('#sw-receipt-overlay')).to_be_hidden()
-        if capture:
-            # Public storage screenshots. All figures are labelled mock data.
-            page.locator('#nav-cleanup').click()
-            page.locator('#sw-scan').click()
-            expect(page.locator('#sw-progress')).to_be_hidden(timeout=20000)
-            page.wait_for_timeout(700)
-            # The map is the point of this capture: make sure the tab strip is
-            # on it, whatever the earlier flow left selected.
-            page.locator('#sw-tab-map').click()
-            page.wait_for_timeout(500)
-            page.locator('#stage-main').evaluate('e=>e.scrollTop=0')
-            shot(page, DOCS/'08-storage-map.png')
-            page.locator('#sw-tab-large').click()
-            page.locator('#sw-large-body .sw-queue-btn').first.click()
-            page.locator('#sw-tab-queue').click()
-            page.wait_for_timeout(400)
-            page.locator('#sw-preview-btn').click()
-            expect(page.locator('#sw-preview-overlay')).to_be_visible()
-            page.wait_for_timeout(500)
-            shot(page, DOCS/'09-storage-preview.png')
-            page.keyboard.press('Escape')
-            expect(page.locator('#sw-preview-overlay')).to_be_hidden()
-        page.locator('#nav-quarantine').click()
-        check(page.locator('#view-quarantine .luma-stage,#evidence-body .luma-stage').count()==0,
-              'evidence and archive remain free of assistant artwork')
-        check(not errors,'companion flow has no runtime or remote errors: '+str(errors));ctx.close()
+def mascot_absence_flow(browser):
+    """The mascot was removed deliberately; it must stay removed.
+
+    Walks every navigation destination and checks the live DOM: no companion
+    API, no mascot nodes, no mascot assets, no companion preferences, and a
+    present operator console.
+    """
+    ctx,page,errors=open_page(browser,(900,600))
+    for nav in ["nav-overview","nav-scan","nav-cleanup","nav-quarantine",
+                "nav-detective","nav-agents","nav-eventlog"]:
+        page.locator("#"+nav).click()
+        page.wait_for_timeout(300)
+    probe = page.evaluate("""() => ({
+        companion: typeof window.CureCompanion,
+        lumaGlobal: typeof window.luma,
+        nodes: document.querySelectorAll('.luma-svg,.luma-stage,.luma-host,.luma-figure').length,
+        scripts: [...document.querySelectorAll('script[src]')]
+            .map((s)=>s.getAttribute('src')).filter((x)=>x && x.includes('luma')).length,
+        styles: [...document.querySelectorAll('link[rel="stylesheet"]')]
+            .map((l)=>l.getAttribute('href')).filter((x)=>x && x.includes('luma')).length,
+        prefs: document.querySelectorAll('#pref-companion,#pref-companion-motion').length,
+        operator: document.querySelectorAll('.operator-node').length,
+    })""")
+    check(probe["companion"]=="undefined" and probe["lumaGlobal"]=="undefined"
+          and probe["nodes"]==0 and probe["scripts"]==0 and probe["styles"]==0
+          and probe["prefs"]==0,
+          "the mascot is fully removed from the live interface: "+str(probe))
+    check(probe["operator"]>0,"the operator console is present in the interface")
+    check(not errors,'mascot absence flow has no runtime errors: '+str(errors));ctx.close()
 
 
 def storage_failure(browser):
     """A scan that breaks must leave the screen saying so, not stuck.
-
-    The failure path once threw a missing-method error inside the
-    companion's own adapter, which swallowed the engine's message and
-    left the headline claiming the machine was still being measured.
     """
     ctx, page, errors = open_page(browser, (1440, 900), storage_error=True)
     page.locator("#nav-cleanup").click()
@@ -1050,8 +921,6 @@ def storage_failure(browser):
           "a failed scan leaves no categories from the attempt that broke")
     check(page.evaluate("() => (window.CureStorageWorkstation.state.treemapCells||[]).length") == 0,
           "a failed scan leaves no map from the attempt that broke")
-    check(page.locator('[data-companion="storage"]').get_attribute("data-state") == "failure",
-          "the companion takes the failure pose, not the scanning one")
     check(page.locator("#sw-progress").is_hidden(),
           "the progress panel is dismissed when the scan breaks")
     layout(page, "storage failed");axe(page, "storage failed")
@@ -1059,243 +928,12 @@ def storage_failure(browser):
     ctx.close()
 
 
-def luma_states(browser):
-    """Every authored state must be reachable, distinct and restrained."""
-    ctx,page,errors=open_page(browser,(1440,900))
-    overview=page.locator('[data-companion="overview"]')
-    overview_w=page.evaluate(
-        "() => Math.round(document.querySelector('[data-companion=\"overview\"] .luma-stage')"
-        ".getBoundingClientRect().width)")
-    check(0<overview_w<=160,'LUMA stays secondary on the overview: '+str(overview_w))
-
-    # The rig is actually built: head, ears, both eyes, tail joints and paws.
-    rig=page.evaluate("""() => {
-        const svg=document.querySelector('[data-companion="overview"] .luma-svg');
-        return {head:svg.querySelectorAll('.lm-head').length,
-                ears:svg.querySelectorAll('.lm-ear').length,
-                eyes:svg.querySelectorAll('.lm-eye').length,
-                irises:svg.querySelectorAll('.lm-iris').length,
-                glints:svg.querySelectorAll('.lm-glint').length,
-                lids:svg.querySelectorAll('.lm-lid').length,
-                tailJoints:svg.querySelectorAll('.lm-tail-base,.lm-tail-1,.lm-tail-2,.lm-tail-tip').length,
-                paws:svg.querySelectorAll('.lm-paw').length,
-                brows:svg.querySelectorAll('.lm-brow').length,
-                whiskers:svg.querySelectorAll('.lm-whisker').length};
-      }""")
-    check(all(v>=1 for v in rig.values()),
-          'the character is a rigged figure, not a single shape: '+str(rig))
-    check(rig['eyes']==2 and rig['lids']==2,
-          'both eyes exist and both can blink: '+str(rig))
-    check(rig['tailJoints']==4,'the tail is articulated across four joints')
-    check(rig['paws']==2,'both front paws are rigged')
-
-    # The character must be a ginger tabby, with the cream belly, the white
-    # socks and the tabby markings the art direction calls for.
-    coat=page.evaluate("""() => {
-        const host=document.querySelector('[data-companion="overview"]');
-        const cs=getComputedStyle(host);
-        const svg=host.querySelector('.luma-svg');
-        return {
-          fur: cs.getPropertyValue('--luma-fur').trim(),
-          cream: cs.getPropertyValue('--luma-cream').trim(),
-          sock: cs.getPropertyValue('--luma-sock').trim(),
-          stripe: cs.getPropertyValue('--luma-stripe').trim(),
-          stripes: svg.querySelectorAll('.lm-stripe').length,
-          rings: svg.querySelectorAll('.lm-tail-ring').length,
-          socks: svg.querySelectorAll('.lm-sock').length,
-          asleep: svg.querySelectorAll('.lm-asleep').length,
-          awake: svg.querySelectorAll('.lm-awake').length,
-        }; }""")
-    check(coat['stripes']>=10,'the tabby markings are drawn: '+str(coat['stripes']))
-    check(coat['rings']>=3,'the tail is ringed: '+str(coat['rings']))
-    check(coat['socks']>=2,'the paws have white socks: '+str(coat['socks']))
-    check(coat['asleep']==1 and coat['awake']==1,
-          'there is a real curled sleeping pose, not a sitting cat with closed eyes')
-
-    # The rim light must actually paint something. The earlier version
-    # traced a path out and back along the same curve, which has zero area.
-    rim=page.evaluate("""() => {
-        const svg=document.querySelector('[data-companion="overview"] .luma-svg');
-        const rim=svg.querySelector('.lm-body-rim');
-        if(!rim) return {present:false};
-        const b=rim.getBBox();
-        return {present:true, w:Math.round(b.width), h:Math.round(b.height),
-                filled: rim.getAttribute('fill') !== 'none'}; }""")
-    check(rim['present'] and rim['w']>2 and rim['h']>2,
-          'the rim light covers a real area: '+str(rim))
-
-    # The lid must be a curved eyelid, not a rectangle wider than the eye.
-    lid=page.evaluate("""() => {
-        const svg=document.querySelector('[data-companion="overview"] .luma-svg');
-        const eye=svg.querySelector('.lm-eye');
-        const lid=svg.querySelector('.lm-lid-fill');
-        const eb=eye.getBoundingClientRect(), lb=lid.getBoundingClientRect();
-        return {tag: lid.tagName, eyeW: Math.round(eb.width),
-                lidW: Math.round(lb.width)}; }""")
-    check(lid['tag']!='rect' and lid['lidW']<=lid['eyeW']+2,
-          'the eyelid is shaped like an eye, not a visor: '+str(lid))
-
-    # Petting: only the cat you touched reacts, and the artwork is the hit
-    # region rather than an empty square.
-    pet=page.evaluate("""() => {
-        const stages=[...document.querySelectorAll('[data-companion] .luma-stage')];
-        const before=stages.map(s=>s.querySelector('.luma-svg').classList.contains('lm-pulse'));
-        const svg=stages[0].querySelector('.luma-svg');
-        const shape=svg.querySelector('.lm-body-shape');
-        const r=shape.getBoundingClientRect();
-        shape.dispatchEvent(new MouseEvent('click', {
-          bubbles:true, clientX:r.left+r.width/2, clientY:r.top+r.height/2}));
-        const after=stages.map(s=>s.querySelector('.luma-svg').classList.contains('lm-pulse'));
-        // A click on the empty corner of the canvas is not a pet.
-        stages.forEach(s=>s.querySelector('.luma-svg').classList.remove('lm-pulse'));
-        const empty=svg.getBoundingClientRect();
-        svg.dispatchEvent(new MouseEvent('click', {
-          bubbles:true, clientX:empty.left+2, clientY:empty.top+2}));
-        const corner=stages.map(s=>s.querySelector('.luma-svg').classList.contains('lm-pulse'));
-        return {before, after, corner}; }""")
-    check(sum(pet['after'])==1,
-          'petting one cat purrs one cat: '+str(pet['after']))
-    check(sum(pet['corner'])==0,
-          'clicking empty space is not a pet: '+str(pet['corner']))
-
-    # Keyboard: the companion is a real control.
-    kbd=page.evaluate("""() => {
-        const stage=document.querySelector('[data-companion="overview"] .luma-stage');
-        return {role: stage.getAttribute('role'),
-                tabindex: stage.getAttribute('tabindex'),
-                label: stage.getAttribute('aria-label')}; }""")
-    check(kbd['role']=='button' and kbd['tabindex']=='0' and bool(kbd['label']),
-          'the companion can be reached and operated from the keyboard: '+str(kbd))
-
-    # The storage companion keeps its own persona: a global event must not
-    # overwrite it.
-    scoped=page.evaluate("""() => {
-        const storage=document.querySelector('[data-companion="storage"]');
-        const before=storage.getAttribute('data-state');
-        window.CureCompanion.seal('global probe');
-        const after=storage.getAttribute('data-state');
-        return {before, after}; }""")
-    check(scoped['before']==scoped['after'],
-          'a global event does not overwrite a screen-specific companion: '+str(scoped))
-
-    # Each state must be visually distinct: prop geometry plus brow angle.
-    probe=page.evaluate("""() => {
-        const stage=document.querySelector('[data-companion="overview"]');
-        const states=['idle','scan','discovering','review','cleanup','quarantine',
-                      'success','failure','cancelled','sleeping'];
-        return states.map(s => {
-          window.CureCompanion.idle(null);
-          const fn={idle:()=>window.CureCompanion.idle('probe'),
-                    discovering:()=>window.CureCompanion.discovering(3,'probe'),
-                    review:()=>window.CureCompanion.review(2,'probe'),
-                    quarantine:()=>window.CureCompanion.seal('probe'),
-                    failure:()=>window.CureCompanion.failed('probe'),
-                    cancelled:()=>window.CureCompanion.cancelled('probe'),
-                    sleeping:()=>window.CureCompanion.sleep(),
-                    cleanup:()=>window.CureCompanion.cleanup('cleanup','probe','probe'),
-                    success:()=>window.CureCompanion.cleanup('success','probe','probe'),
-                    scan:()=>window.CureCompanion.scan('scan','probe')}[s];
-          fn();
-          const svg=stage.querySelector('.luma-svg');
-          const prop=svg.querySelector('.lm-prop');
-          const brow=svg.querySelector('.lm-brow-l');
-          return {state:svg.getAttribute('data-state'),
-                  props:prop.children.length,
-                  shape:prop.firstElementChild?prop.firstElementChild.tagName:'none',
-                  brow:getComputedStyle(brow).transform};
-        });
-      }""")
-    check(len(set(p["state"] for p in probe))==10,
-          'all ten authored states are reachable: '+str([p["state"] for p in probe]))
-    signatures=[p["state"]+'|'+str(p["props"])+'|'+p["shape"]+'|'+p["brow"] for p in probe]
-    check(len(set(signatures))==10,
-          'every companion state has its own visual treatment: '+str(len(set(signatures))))
-    props={p["state"]:p["props"] for p in probe}
-    check(props['idle']==0,'idle carries no prop')
-    check(all(props[s]>0 for s in
-              ['scan','discovering','review','cleanup','quarantine','success',
-               'failure','cancelled','sleeping']),
-          'every active state has its own prop: '+str(props))
-
-    # LUMA must never invent a reaction to a finding that does not exist.
-    page.evaluate("window.CureCompanion.discovering(0,'nothing found')")
-    expect(overview).to_have_attribute('data-state','idle')
-    check('nothing found' in overview.locator('.luma-detail').inner_text(),
-          'a zero finding count returns LUMA to idle with the real detail')
-
-    # Restraint: vector only, no text, no raster, no glow filter.
-    restraint=page.evaluate("""() => {
-        const svg=document.querySelector('[data-companion="overview"] .luma-svg');
-        const cs=getComputedStyle(svg);
-        return {texts: svg.querySelectorAll('text').length,
-                filters: svg.querySelectorAll('filter').length,
-                images: svg.querySelectorAll('image').length,
-                filter: cs.filter,
-                aria: svg.getAttribute('aria-hidden'),
-                focusable: svg.getAttribute('focusable'),
-                tspan: svg.querySelectorAll('tspan').length};
-      }""")
-    check(restraint['texts']==0 and restraint['images']==0 and restraint['tspan']==0,
-          'the figure carries no text or raster data of its own: '+str(restraint))
-    check(restraint['filters']==0 and restraint['filter']=='none',
-          'the figure renders without any glow filter: '+str(restraint['filter']))
-    check(restraint['aria']=='true' and restraint['focusable']=='false',
-          'the figure stays out of the accessibility and focus trees: '+str(restraint))
-
-    # She is interactive: clicking her produces a reaction, and it is not a
-    # state change (so a pet can never be mistaken for a finding).
-    page.evaluate("window.CureCompanion.idle(null)")
-    overview.locator('.luma-stage').first.click()
-    check(page.evaluate("document.querySelector('[data-companion=\"overview\"] .luma-svg')"
-                        ".classList.contains('lm-pulse')"),
-          'clicking LUMA produces a reaction')
-    check(overview.get_attribute('data-state')=='idle',
-          'a pet does not change her state into a finding')
-
-    # Sleeping is a real state and returns cleanly. The character area
-    # carries one control now (Hide), so the state is driven through the
-    # companion's own interface.
-    page.evaluate("window.CureCompanion.sleep()")
-    expect(overview).to_have_attribute('data-state','sleeping')
-    page.evaluate("window.CureCompanion.wake()")
-    expect(overview).to_have_attribute('data-state','idle')
-
-    # Seal appears only after a completed, confirmed quarantine.
-    check(page.locator('[data-companion="result"]').get_attribute('data-state')!='quarantine',
-          'no quarantine pose before any quarantine')
-    start_scan(page);finish_scan(page)
-    goto_view(page, '#nav-results', 'results-view')
-    settled(page)
-    # Deliberate: LUMA is withheld from a findings-dense screen so she never
-    # competes with evidence. She still receives state changes.
-    check(page.locator('#companion-result').is_hidden(),
-          'LUMA stays out of the way on a findings-dense screen')
-    btn = page.locator('#review-cards .quarantine-btn').first
-    expect(btn).to_be_visible()
-    btn.click()
-    page.locator('#confirm-ok').click()
-    expect(page.locator('[data-companion="result"]')).to_have_attribute('data-state','quarantine')
-
-    # Blinking and breathing actually run when motion is allowed. Measured on
-    # the overview, because a hidden view reports no running animations.
-    goto_view(page, '#nav-overview', 'view-overview')
-    page.evaluate("window.CureCompanion.idle(null)")
-    page.wait_for_timeout(400)
-    running=page.evaluate("""() => document.getAnimations()
-        .filter(a => a.playState === 'running'
-                     && a.effect && a.effect.target
-                     && String(a.effect.target.getAttribute('class')||'').includes('lm-'))
-        .length""")
-    check(running>0,'LUMA is genuinely animating when motion is allowed: '+str(running))
-
-    check(not errors,'luma state runtime: '+str(errors));ctx.close()
-
-
 def palette_and_assets():
     """Offline asset guard plus a measured, restrained palette check."""
-    shipped=["index.html","style.css","xray.css","luma.css","storage-workstation.css",
-             "detective.css","agent.css","app.js","luma.js","xray.js","storage-workstation.js",
-             "casefile.js","detective.js","agent-radar.js"]
+    shipped=["index.html","style.css","xray.css","storage-workstation.css",
+             "detective.css","agent.css","app.js","xray.js","storage-workstation.js",
+             "casefile.js","detective.js","agent-radar.js","operator.css","operator.js",
+             "storage-rescue.css","storage-rescue.js"]
     for name in shipped:
         body=(ROOT/"gui/dist"/name).read_text(encoding="utf-8")
         hits=[l for l in body.splitlines()
@@ -1337,7 +975,7 @@ def pixel():
     violet=sum(1 for r,g,b in pixels if b>r and r>g and b-g>25)
     # The upper bound is the design guard: the accent must stay restrained. The
     # floor only has to prove the accent is still present, and it is calibrated
-    # against what the interface itself paints now that LUMA is a small node
+    # against what the interface itself paints
     # rather than a large illustrated character.
     check(0.010*total<violet<0.11*total, "violet identity accent stays restrained")
     # Palette discipline: cluster saturated pixels into hue families so
@@ -1407,9 +1045,9 @@ def main():
         if mode in ("all","verify"):
             core_flow(browser,reduced=True);states(browser);secondary(browser);responsive(browser)
         if mode=="capture":states(browser,capture=True)
-        if mode in ("all","verify","capture"):companion_flow(browser,capture=mode=="capture")
+        if mode in ("all","verify","capture"):mascot_absence_flow(browser)
         if mode in ("all","verify"):
-            luma_states(browser);storage_failure(browser);detective_flow(browser);agent_radar_flow(browser);public_demo_flow(browser)
+            mascot_absence_flow(browser);storage_failure(browser);detective_flow(browser);agent_radar_flow(browser);public_demo_flow(browser)
         if mode=="layout":responsive(browser)
         if mode=="pixel":core_flow(browser);pixel()
         if mode=="all":pixel()

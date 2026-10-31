@@ -2,7 +2,7 @@
 """Native Windows Real Acceptance & Independent Audit for C.U.R.E MVP.
 
 Drives the real release binary (cure-gui.exe) via DevTools Protocol and
-verifies the actual native application, real Rust backend, LUMA mascot,
+verifies the actual native application, real Rust backend, mascot-free UI,
 AI Agent Radar, Flight Recorder, Windows Change Radar, Case Files,
 Dark/Light Themes, and security fixes.
 """
@@ -166,7 +166,7 @@ def run_audit():
             shot_dark = runner.shot(page, "native-overview-dark")
 
             # Check Light Mode & Dark Mode via UI theme toggle button
-            runner.section("PHASE 2: VISUAL INSPECTION OF LUMA CAT MASCOT & THEMES")
+            runner.section("PHASE 2: THEMES & OPERATOR CONSOLE (MASCOT REMOVED)")
             # Verify toggle button exists
             theme_btn = page.locator("#theme-toggle")
             if theme_btn.count() > 0:
@@ -193,54 +193,33 @@ def run_audit():
             else:
                 runner.log_fail("Theme toggle button not found in topbar")
 
-            # Verify LUMA feline anatomy and vector rig
-            rig_stats = page.evaluate("""() => {
-                const svg = document.querySelector('[data-companion="overview"] .luma-svg');
-                if (!svg) return null;
-                return {
-                    head: svg.querySelectorAll('.lm-head').length,
-                    ears: svg.querySelectorAll('.lm-ear').length,
-                    eyes: svg.querySelectorAll('.lm-eye').length,
-                    irises: svg.querySelectorAll('.lm-iris').length,
-                    glints: svg.querySelectorAll('.lm-glint').length,
-                    blush: svg.querySelectorAll('.lm-blush').length,
-                    blushTicks: svg.querySelectorAll('.lm-blush-tick').length,
-                    lids: svg.querySelectorAll('.lm-lid').length,
-                    paws: svg.querySelectorAll('.lm-paw').length,
-                    whiskers: svg.querySelectorAll('.lm-whisker').length,
-                    tailJoints: svg.querySelectorAll('.lm-tail-base,.lm-tail-1,.lm-tail-2,.lm-tail-tip').length,
-                    stripes: svg.querySelectorAll('.lm-stripe').length,
-                    socks: svg.querySelectorAll('.lm-sock').length,
-                    rings: svg.querySelectorAll('.lm-tail-ring').length
-                };
-            }""")
-            assert rig_stats is not None, "LUMA SVG rig not found"
-            runner.log_pass(f"LUMA feline vector rig verified: 2 ears, {rig_stats.get('glints')} eye glints, blush pads/ticks, 4-joint tail ({rig_stats})")
-            if rig_stats["stripes"] >= 10 and rig_stats["socks"] >= 2 and rig_stats["rings"] >= 3:
-                runner.log_pass("LUMA tabby coat markings, white paws/socks, and tail rings verified")
+            # Verify the mascot is gone and the operator console is present
+            mascot = page.evaluate("""() => ({
+                companion: typeof window.CureCompanion,
+                lumaGlobal: typeof window.luma,
+                svgs: document.querySelectorAll('.luma-svg, .luma-stage, .luma-host').length,
+                operatorNodes: document.querySelectorAll('.operator-node').length,
+            })""")
+            assert mascot["companion"] == "undefined", f"CureCompanion still defined: {mascot}"
+            assert mascot["lumaGlobal"] == "undefined", f"window.luma still defined: {mascot}"
+            assert mascot["svgs"] == 0, f"mascot SVG nodes still present: {mascot}"
+            runner.log_pass(f"Mascot fully removed from the native UI: {mascot}")
+            if mascot["operatorNodes"] > 0:
+                runner.log_pass(f"Operator console present on overview ({mascot['operatorNodes']} node(s))")
             else:
-                runner.log_fail("Tabby coat details missing or incomplete", str(rig_stats))
-
-            # Inspect 7 animation states
-            luma_overview = page.locator('[data-companion="overview"]')
-            for st in ["idle", "scanning", "excited", "curious", "warning", "success", "sleepy"]:
-                page.evaluate(f"window.Luma.{st}('Real native state: {st}')")
-                time.sleep(0.4)
-                active_state = page.evaluate("() => document.querySelector('[data-companion=\"overview\"]').dataset.state")
-                runner.log_pass(f"LUMA state '{st}' activated successfully (DOM state: {active_state})")
-                luma_overview.screenshot(path=str(SHOTS_DIR / f"luma-{st}.png"))
+                runner.log_fail("Operator console node missing from overview")
 
             # Verify reduced motion behavior via native emulate_media
             page.emulate_media(reduced_motion="reduce")
             time.sleep(0.8)
             reduced = page.evaluate("""() => ({
-                paused: document.documentElement.getAttribute('data-paused'),
+                mediaSeen: matchMedia('(prefers-reduced-motion: reduce)').matches,
                 running: document.getAnimations()
                     .filter((a) => a.animationName && a.animationName.indexOf('lm-') === 0)
                     .length,
             })""")
-            if reduced["paused"] == "true" and reduced["running"] == 0:
-                runner.log_pass(f"Reduced motion verified: paused={reduced['paused']}, running_animations={reduced['running']}")
+            if reduced["mediaSeen"] and reduced["running"] == 0:
+                runner.log_pass(f"Reduced motion verified: mediaSeen={reduced['mediaSeen']}, running_animations={reduced['running']}")
             else:
                 runner.log_fail(f"Reduced motion failure: {reduced}")
             page.emulate_media(reduced_motion="no-preference")

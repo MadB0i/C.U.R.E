@@ -144,26 +144,6 @@
     state,
   };
 
-  // Graceful no-op and telemetry bridge for any residual luma calls
-  window.luma = {
-    applyState: function (stateName) {
-      // Reflect state transition in operator status bar if applicable
-      const dots = document.querySelectorAll(".operator-pulse-dot");
-      for (const d of dots) {
-        if (stateName === "scanning") d.style.background = "#a855f7";
-        else if (stateName === "warning") d.style.background = "#f43f5e";
-        else d.style.background = "#00f5ff";
-      }
-    },
-    uplink: function (mode, title, detail) {
-      // Bridge uplink notifications to console logs
-      const badges = document.querySelectorAll(".operator-level-badge");
-      for (const b of badges) {
-        if (title) b.title = `${title}: ${detail || ''}`;
-      }
-    },
-  };
-
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => window.operator.init());
   } else {

@@ -336,35 +336,13 @@
   color: var(--text);
 }
 
-.xray-side .scan-companion {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  flex: 1 1 auto;
-  --luma-size: clamp(138px, 22vh, 168px);
-  min-height: 138px;
-}
-
-.xray-side .luma-controls {
-  display: none !important;
-}
-
-.xray-side .luma-copy {
-  margin-top: 2px;
-}
-
-@media (max-height: 720px) {
-  .xray-hero {
-    margin-bottom: var(--s3);
-    padding: var(--s3);
+@media (max-height: 720px) {
+  .xray-hero {
+    margin-bottom: var(--s2);
+    padding: var(--s2) var(--s3);
   }
   .xray-field {
     min-height: 235px;
-  }
-  .xray-side .scan-companion {
-    --luma-size: 88px;
-    min-height: 85px;
   }
   .xray-telemetry-hud {
     padding: 7px 10px;

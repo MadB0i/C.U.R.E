@@ -384,10 +384,9 @@
 
 .sw-headline-figure { flex: 0 0 auto; }
 
-/* LUMA's caption is the only prose in this card; keeping it to two lines
-   stops her from dictating the height of the primary number. */
-.sw-headline-figure .luma-figure { max-width: 15rem; }
-.sw-headline-figure .luma-detail { max-width: 28ch; }
+/* The operator node in the headline card is size-capped so it never
+   dictates the height of the primary number. */
+.sw-headline-figure .operator-node { min-width: 240px; max-width: 300px; }
 
 .sw-headline-amount {
   color: var(--text);
@@ -1371,28 +1370,4 @@
 
 .sw-map-badge.is-complete .sw-map-badge-label {
   color: var(--ok);
-}
-
-/* The public demo banner. It is the first thing on the screen and it is
-   never hidden. */
-.demo-banner {
-  background: linear-gradient(
-    90deg,
-    rgba(224, 164, 88, 0.16),
-    rgba(224, 164, 88, 0.05) 62%,
-    transparent
-  );
-  border-left: 3px solid var(--warning);
-  color: var(--text-2);
-  font-size: var(--t-sm);
-  line-height: 1.55;
-  margin-bottom: var(--s5);
-  padding: var(--s3) var(--s5);
-}
-
-.demo-banner strong {
-  color: var(--warning);
-  font-weight: 650;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }

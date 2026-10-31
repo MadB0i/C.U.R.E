@@ -22,7 +22,7 @@ def build(html: str) -> str:
     html = html.replace(PROD_WORDMARK, DEV_WORDMARK)
     if MOCK in html:
         raise SystemExit("index.html must never load the mock backend")
-    marker = '<script src="luma.js"></script>'
+    marker = '<script src="operator.js"></script>'
     if marker not in html:
         raise SystemExit("index.html script marker not found")
     html = html.replace(

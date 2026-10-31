@@ -384,10 +384,9 @@
 
 .sw-headline-figure { flex: 0 0 auto; }
 
-/* LUMA's caption is the only prose in this card; keeping it to two lines
-   stops her from dictating the height of the primary number. */
-.sw-headline-figure .luma-figure { max-width: 15rem; }
-.sw-headline-figure .luma-detail { max-width: 28ch; }
+/* The operator node in the headline card is size-capped so it never
+   dictates the height of the primary number. */
+.sw-headline-figure .operator-node { min-width: 240px; max-width: 300px; }
 
 .sw-headline-amount {
   color: var(--text);

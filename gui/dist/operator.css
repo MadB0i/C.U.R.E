@@ -5,7 +5,23 @@
    Strictly functional: zero decorative cartoon animations, zero fake chatbots.
    ========================================================================== */
 
-/* ---------- Operator Console Node (Replaces Mascot Region) ---------- */
+/* ---------- Operator Console Node ---------- */
+.operator-mount {
+  min-width: 0;
+}
+
+.operator-mount[data-companion="result"] {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 18px;
+}
+
+.operator-node.ov-operator-node {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .operator-node {
   display: flex;
   flex-direction: column;

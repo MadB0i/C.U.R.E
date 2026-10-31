@@ -936,13 +936,6 @@
       if (hudName) hudName.textContent = "All 9 Vectors Primed";
       if (hudDetail) hudDetail.textContent = "Collecting persistence layers…";
 
-      // Notify LUMA companion with honest active status
-      if (window.Luma && typeof window.Luma.scan === "function") {
-        window.Luma.scan("Scanning persistence layers…", "Collecting persistence entries");
-      } else if (window.CureCompanion) {
-        window.CureCompanion.scan("scan", "Collecting persistence entries");
-      }
-
       paintLedger();
       layout();
       startLoop();
@@ -979,10 +972,6 @@
         known.tone = "active";
         known.text = "Collecting";
 
-        // Update LUMA with the exact real backend collector!
-        if (window.Luma && typeof window.Luma.scan === "function") {
-          window.Luma.scan("Scanning " + known.full.toLowerCase() + "…", p.message || known.full);
-        }
       }
 
       if (p.stage === "scoring") {
@@ -994,9 +983,6 @@
           state.discovered = Math.max(state.discovered, parseInt(scoreMatch[1], 10));
         }
 
-        if (window.Luma && typeof window.Luma.scan === "function") {
-          window.Luma.scan("Risk-scoring persistence entries…", p.message || "Evaluating risk profiles");
-        }
       }
 
       if (["item-scan", "done"].indexOf(p.stage) !== -1) {
@@ -1023,11 +1009,6 @@
         }
         state.items += 1;
 
-        // Update LUMA with the inspected entry details
-        if (window.Luma && typeof window.Luma.scan === "function") {
-          const lLabel = layer ? layer.full.toLowerCase() : "entries";
-          window.Luma.scan("Inspecting " + lLabel + "…", p.name ? "Scoring: " + p.name : (p.message || ""));
-        }
       }
 
       if (p.stage === "process-scan") {
@@ -1036,9 +1017,6 @@
         if (layer) {
           layer.tone = "active";
           layer.text = "Inspecting processes";
-        }
-        if (window.Luma && typeof window.Luma.scan === "function") {
-          window.Luma.scan("Inspecting running processes…", "Process tree analysis");
         }
       }
 
@@ -1059,9 +1037,6 @@
         if (layer) {
           layer.tone = "active";
           layer.text = "Checking indicators";
-        }
-        if (window.Luma && typeof window.Luma.scan === "function") {
-          window.Luma.scan("Inspecting ransom indicators…", "Canary and decoy validation");
         }
       }
 
@@ -1217,18 +1192,6 @@
         hudDetail.textContent = anyFailed ? "Collection failed · review required" : (coverageComplete ? "100% verified offline coverage" : "Unreadable areas remaining");
       }
 
-      // Honest LUMA reaction — never claim "inspected cleanly" with incomplete coverage
-      if (window.Luma) {
-        if (anyFailed) {
-          window.Luma.warning("Collection failed — review required");
-        } else if (state.findings > 0) {
-          window.Luma.curious(state.findings + " finding(s) ready for review");
-        } else if (coverageComplete) {
-          window.Luma.success("All persistence vectors inspected cleanly");
-        } else {
-          window.Luma.warning("Coverage incomplete — uninspected areas remain");
-        }
-      }
 
       paintLedger();
       draw();
@@ -1254,7 +1217,6 @@
       if (hudName) hudName.textContent = "Collection Halt";
       if (hudDetail) hudDetail.textContent = "Check failed or interrupted";
 
-      if (window.Luma) window.Luma.warning("Scan could not complete");
       paintLedger();
       draw();
       stopLoop();
