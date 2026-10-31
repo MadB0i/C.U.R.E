@@ -36,6 +36,15 @@ OUT = REPO / "testing" / "native" / "screenshots-ui01a" / "native"
 OUT.mkdir(parents=True, exist_ok=True)
 PORT = 9405
 
+# Process ownership: cleanup only touches processes a previous run of this
+# harness recorded (identity re-verified before any signal) and webview
+# children of that run's own user-data folder. Name-based killing is
+# forbidden by core/tests/qa_process_safety.rs.
+sys.path.insert(0, str(REPO / "testing" / "native"))
+from process_ownership import OwnershipLease, pre_launch_cleanup  # noqa: E402
+
+LEASE_PATH = REPO / "testing" / "native" / ".process-lease-ui01a.json"
+
 results = []
 
 
@@ -55,25 +64,21 @@ def wait_cdp(timeout=60):
     raise SystemExit("CDP endpoint never appeared")
 
 
-def kill_lingering():
-    """Kill leftover app + WebView2 processes from prior runs.
-
-    Same housekeeping native-e2e.py does: an orphaned WebView2 host keeps
-    the CDP port alive, and the next launch would silently connect to the
-    stale instance instead of the fresh one.
-    """
-    subprocess.run(["taskkill", "/F", "/IM", "cure-gui.exe"], capture_output=True)
-    subprocess.run(["taskkill", "/F", "/IM", "msedgewebview2.exe"], capture_output=True)
-    time.sleep(1.0)
-
-
 def launch(pw, port):
-    kill_lingering()
+    # Identity-verified cleanup of a previous run's leftovers; foreign or
+    # stale PIDs are skipped, and a foreign port holder fails the run.
+    lease = OwnershipLease(LEASE_PATH)
+    pre_launch_cleanup(lease, port)
     tmp = tempfile.TemporaryDirectory(prefix="cure-ui01a-", ignore_cleanup_errors=True)
     env = dict(os.environ)
     env["CURE_E2E_CDP_PORT"] = str(port)
-    env["WEBVIEW2_USER_DATA_FOLDER"] = str(Path(tmp.name) / "wvdata")
+    user_data_dir = str(Path(tmp.name) / "wvdata")
+    env["WEBVIEW2_USER_DATA_FOLDER"] = user_data_dir
     proc = subprocess.Popen([str(EXE)], env=env)
+    lease.record(proc.pid, EXE.name)
+    lease.user_data_dir = user_data_dir
+    lease.port = port
+    lease.save()
     end = time.time() + 60
     while time.time() < end:
         try:
@@ -116,6 +121,9 @@ def shutdown(tmp, proc, browser):
         proc.kill()
         proc.wait(timeout=10)
     tmp.cleanup()
+    # Our own recorded instance is gone; drop the lease so no later run can
+    # mistake a live entry for ours.
+    OwnershipLease(LEASE_PATH).clear()
 
 
 def shot(page, name):

@@ -25,6 +25,14 @@ OUT = REPO / "testing" / "native" / "screenshots-ui02" / "native"
 OUT.mkdir(parents=True, exist_ok=True)
 WS = Path("D:/CURE_UI02_WS")
 
+# Process ownership: cleanup only touches processes a previous run of this
+# harness recorded (identity re-verified before any signal). Name-based
+# killing is forbidden by core/tests/qa_process_safety.rs.
+sys.path.insert(0, str(REPO / "testing" / "native"))
+from process_ownership import OwnershipLease, pre_launch_cleanup  # noqa: E402
+
+LEASE_PATH = REPO / "testing" / "native" / ".process-lease-ui02.json"
+
 results = []
 
 
@@ -75,19 +83,19 @@ def shot(page, name):
     print("  shot", name)
 
 
-def kill_lingering():
-    subprocess.run(["taskkill", "/F", "/IM", "cure-gui.exe"], capture_output=True)
-    subprocess.run(["taskkill", "/F", "/IM", "msedgewebview2.exe"], capture_output=True)
-    time.sleep(1.0)
-
-
 def launch(pw, port):
-    kill_lingering()
+    lease = OwnershipLease(LEASE_PATH)
+    pre_launch_cleanup(lease, port)
     tmp = tempfile.TemporaryDirectory(prefix="cure-ui02-", ignore_cleanup_errors=True)
     env = dict(os.environ)
     env["CURE_E2E_CDP_PORT"] = str(port)
-    env["WEBVIEW2_USER_DATA_FOLDER"] = str(Path(tmp.name) / "wvdata")
+    user_data_dir = str(Path(tmp.name) / "wvdata")
+    env["WEBVIEW2_USER_DATA_FOLDER"] = user_data_dir
     proc = subprocess.Popen([str(EXE)], env=env)
+    lease.record(proc.pid, EXE.name)
+    lease.user_data_dir = user_data_dir
+    lease.port = port
+    lease.save()
     end = time.time() + 60
     while time.time() < end:
         try:
@@ -125,6 +133,7 @@ def shutdown(tmp, proc, browser):
         proc.kill()
         proc.wait(timeout=10)
     tmp.cleanup()
+    OwnershipLease(LEASE_PATH).clear()
 
 
 def main():

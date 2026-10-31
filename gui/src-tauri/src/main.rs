@@ -1861,6 +1861,43 @@ fn operator_agent_terminate(
 /// stays behind the separate, explicitly authorised command). Success is
 /// reported only after Windows confirms the exit; every attempt is
 /// journalled by the core without secrets.
+/// Target-validation for `operator_agent_end_process`, extracted as a pure
+/// function so the ownership rules carry their own unit tests (UI-02B QA
+/// safety gate). The rules, in order:
+///   1. the live process must exist (the caller looks it up in a FRESH
+///      backend enumeration — a renderer-provided name alone never counts);
+///   2. the renderer's recorded image name must equal the live name;
+///   3. the renderer's recorded start time must agree with the live start
+///      time (2 s tolerance), so a stale UI snapshot cannot act on a
+///      process it last saw earlier;
+///   4. an unreadable live start time refuses the action rather than
+///      guessing.
+fn validate_end_process_target(
+    live: &cure_core::agent::DetectedAgentProcess,
+    expected_name: &str,
+    expected_started_unix: Option<u64>,
+) -> Result<(), String> {
+    if !live.name.eq_ignore_ascii_case(expected_name.trim()) {
+        return Err(format!(
+            "The selected snapshot does not match the live process ('{}' vs '{}'). Refresh the radar and retry.",
+            expected_name.trim(),
+            live.name
+        ));
+    }
+
+    match (live.started_unix, expected_started_unix) {
+        (Some(actual), Some(expected)) if actual.abs_diff(expected) > 2 => Err(
+            "The selected snapshot is stale: the process start time no longer matches. Refresh the radar and retry."
+                .into(),
+        ),
+        (None, Some(_)) => Err(
+            "The live process start time could not be read, so the snapshot cannot be verified. Refresh the radar and retry."
+                .into(),
+        ),
+        _ => Ok(()),
+    }
+}
+
 #[tauri::command]
 fn operator_agent_end_process(
     pid: u32,
@@ -1879,29 +1916,7 @@ fn operator_agent_end_process(
         })?
         .clone();
 
-    if !live.name.eq_ignore_ascii_case(expected_name.trim()) {
-        return Err(format!(
-            "The selected snapshot does not match the live process ('{}' vs '{}'). Refresh the radar and retry.",
-            expected_name.trim(),
-            live.name
-        ));
-    }
-
-    match (live.started_unix, expected_started_unix) {
-        (Some(actual), Some(expected)) if actual.abs_diff(expected) > 2 => {
-            return Err(
-                "The selected snapshot is stale: the process start time no longer matches. Refresh the radar and retry."
-                    .into(),
-            );
-        }
-        (None, Some(_)) => {
-            return Err(
-                "The live process start time could not be read, so the snapshot cannot be verified. Refresh the radar and retry."
-                    .into(),
-            );
-        }
-        _ => {}
-    }
+    validate_end_process_target(&live, &expected_name, expected_started_unix)?;
 
     cure_core::agent::end_agent_process_single(
         pid,
@@ -4465,6 +4480,71 @@ fn export_agent_case_file(case: agent::AgentCaseFile, format: String) -> Result<
     };
     std::fs::write(&target, content).map_err(|e| format!("cannot write export file: {e}"))?;
     Ok(target.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod end_process_target_tests {
+    use super::validate_end_process_target;
+    use cure_core::agent::{
+        detection::AgentCategory, detection::AgentKind, detection::ExecutableIdentity,
+        DetectedAgentProcess,
+    };
+
+    fn live_process(name: &str, started_unix: Option<u64>) -> DetectedAgentProcess {
+        DetectedAgentProcess {
+            kind: AgentKind::Codex,
+            category: AgentCategory::Agent,
+            pid: 4242,
+            parent_pid: None,
+            name: name.to_string(),
+            exe_path: r"C:\Tools\codex.exe".to_string(),
+            command_line: None,
+            started_unix,
+            memory_usage_bytes: Some(1_048_576),
+            has_windows: false,
+            identity: ExecutableIdentity::Verified,
+            evidence: "test fixture".to_string(),
+            confidence: "test".to_string(),
+            limitations: "test".to_string(),
+            is_model_server: false,
+        }
+    }
+
+    #[test]
+    fn matching_snapshot_is_accepted() {
+        let live = live_process("codex.exe", Some(1_700_000_000));
+        assert!(validate_end_process_target(&live, "codex.exe", Some(1_700_000_000)).is_ok());
+        assert!(validate_end_process_target(&live, "CODEX.EXE", Some(1_700_000_001)).is_ok(),
+            "name is case-insensitive and start time has a 2 s tolerance");
+        assert!(validate_end_process_target(&live, "  codex.exe  ", None).is_ok(),
+            "a snapshot without a start time is still name-checked");
+    }
+
+    #[test]
+    fn name_mismatch_is_rejected() {
+        let live = live_process("codex.exe", Some(1_700_000_000));
+        let err = validate_end_process_target(&live, "explorer.exe", Some(1_700_000_000))
+            .expect_err("a different image name must never pass");
+        assert!(err.contains("does not match the live process"), "{err}");
+    }
+
+    #[test]
+    fn stale_start_time_is_rejected() {
+        let live = live_process("codex.exe", Some(1_700_000_000));
+        // The live start time is the anchor: a renderer snapshot recorded
+        // under a previous process generation must not act on this PID.
+        let err = validate_end_process_target(&live, "codex.exe", Some(999_999_999))
+            .expect_err("stale snapshot must be rejected");
+        assert!(err.contains("stale"), "{err}");
+    }
+
+    #[test]
+    fn unreadable_live_start_time_is_rejected() {
+        let live = live_process("codex.exe", None);
+        let err = validate_end_process_target(&live, "codex.exe", Some(1_700_000_000))
+            .expect_err("an unreadable live start time must refuse the action");
+        assert!(err.contains("could not be read"), "{err}");
+    }
 }
 
 #[cfg(test)]

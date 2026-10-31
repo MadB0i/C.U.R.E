@@ -39,3 +39,7 @@ ci-artifacts/
 # A development-only preview page for the companion's states. The release
 # audit refuses it in a candidate for the same reason.
 docs/LUMA-PREVIEW.html
+
+# Runtime process-lease state from native test harnesses (their own spawned
+# PIDs + user-data dirs, identity-verified before cleanup). Never committed.
+/.process-lease-*.json

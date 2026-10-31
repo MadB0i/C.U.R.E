@@ -200,7 +200,20 @@ def record_journey():
             proc.wait(timeout=3)
         except Exception:
             proc.kill()
-        subprocess.run(["taskkill", "/F", "/IM", "cure-gui.exe", "/T"], capture_output=True)
+        # Webview2 children are owned by THIS run's user-data folder; they
+        # are located by that command-line evidence, never by image name.
+        # (The old blanket image-name kill of the whole app could have hit
+        # an owner-launched C.U.R.E instance — forbidden by
+        # core/tests/qa_process_safety.rs.)
+        sys.path.insert(0, str(REPO / "testing" / "native"))
+        from process_ownership import query_processes
+        for row in query_processes(
+            name="msedgewebview2.exe", cmdline_contains=str(webview_data)
+        ):
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(row["pid"])],
+                capture_output=True, timeout=15,
+            )
         try:
             temp_dir.cleanup()
         except Exception:

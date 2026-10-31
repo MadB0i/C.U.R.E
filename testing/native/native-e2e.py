@@ -49,40 +49,18 @@ DEFAULT_EXE = REPO / "gui" / "src-tauri" / "target" / "release" / "cure-gui.exe"
 
 FIXTURE_BYTES = 64 * 1024 * 1024  # 64 MiB: above the large-file threshold
 
+# Process ownership: cleanup is strictly scoped to processes this harness
+# launched (see testing/native/process_ownership.py). Name-based killing is
+# forbidden by core/tests/qa_process_safety.rs and is not done here.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from process_ownership import (  # noqa: E402
+    OwnershipLease,
+    ProcessSafetyError,
+    pre_launch_cleanup,
+    query_processes,
+)
 
-def _kill_lingering_webview2() -> None:
-    """Kill any lingering msedgewebview2.exe processes from prior runs.
-
-    The native smoke test (and previous e2e runs) often leaves child
-    WebView2 processes alive after the parent cure-gui.exe is killed.
-    Those zombies hold file locks on the default WebView2 profile and
-    can occupy the DevTools port, causing the next run to fail with a
-    timeout or port-collision error.
-    """
-    import platform
-
-    if platform.system() != "Windows":
-        return
-    try:
-        import psutil
-    except ImportError:
-        # Fallback to WMIC if psutil is unavailable (e.g. in a minimal env).
-        subprocess.run(
-            ["taskkill", "/F", "/IM", "msedgewebview2.exe"],
-            capture_output=True,
-            timeout=10,
-        )
-        return
-    gone = 0
-    for proc in psutil.process_iter(["pid", "name"]):
-        if proc.info["name"] and "msedgewebview2" in proc.info["name"].lower():
-            try:
-                proc.kill()
-                gone += 1
-            except psutil.NoSuchProcess:
-                pass
-    if gone:
-        print(f"  killed {gone} lingering msedgewebview2 process(es)", flush=True)
+LEASE_PATH = Path(__file__).resolve().parent / ".process-lease-native-e2e.json"
 
 
 class Failure(Exception):
@@ -175,15 +153,30 @@ class Runner:
             except Exception:
                 return False
 
-        # Kill any lingering WebView2 processes from prior runs (e.g. the
-        # smoke test) before we claim the port. This prevents port collisions
-        # and profile locks from previous invocations.
-        _kill_lingering_webview2()
+        # Release whatever a previous run recorded (identity-verified: a
+        # stale or recycled PID is skipped, never killed), then insist on a
+        # free port — a foreign holder FAILS the run with diagnostics
+        # instead of being terminated.
+        self.lease = OwnershipLease(LEASE_PATH)
+        cleanup = pre_launch_cleanup(self.lease, self.port)
+        if cleanup["skipped_stale"]:
+            print(
+                "  ownership cleanup skipped stale entries (identity mismatch, "
+                "not killed): "
+                + json.dumps([s["recorded"] for s in cleanup["skipped_stale"]]),
+                flush=True,
+            )
+        if cleanup["killed"]:
+            print(
+                f"  ownership cleanup terminated {len(cleanup['killed'])} "
+                "previously recorded own process(es)",
+                flush=True,
+            )
 
         if check_port(self.port):
             raise Failure(
                 f"port {self.port} is already in use before application launch "
-                "(possible port collision or zombie WebView2 process from prior run)"
+                "(possible port collision or zombie process from prior run)"
             )
 
         env = dict(os.environ)
@@ -221,6 +214,10 @@ class Runner:
             stdout=open(self._stdout_path, "wb", buffering=0),
             stderr=open(self._stderr_path, "wb", buffering=0),
         )
+        self.lease.record(self.process.pid, self.exe.name)
+        self.lease.user_data_dir = str(webview_data)
+        self.lease.port = self.port
+        self.lease.save()
         deadline = time.time() + 60
         last_error = None
         while time.time() < deadline:
@@ -340,28 +337,21 @@ class Runner:
                 self.process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self.process.kill()
-            # WebView2 spawns child processes that do NOT die with the parent.
-            # Kill them explicitly so their file locks are released and the
-            # fixture directory can be cleaned up on the next run.
-            try:
-                import psutil
-                parent = psutil.Process(self.process.pid)
-                for child in parent.children(recursive=True):
-                    try:
-                        child.kill()
-                    except psutil.NoSuchProcess:
-                        pass
-                _, alive = psutil.wait_procs(
-                    [psutil.Process(c.pid) for c in parent.children(recursive=True)],
-                    timeout=5,
+            # WebView2 spawns child processes that do NOT die with the
+            # parent. They are owned by this run's user-data folder, so
+            # they are located by that exact command-line evidence — never
+            # by image name.
+            for row in query_processes(
+                name="msedgewebview2.exe",
+                cmdline_contains=str(self.fixture / "webview-data"),
+            ):
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(row["pid"])],
+                    capture_output=True,
+                    timeout=15,
                 )
-                for p in alive:
-                    try:
-                        p.kill()
-                    except psutil.NoSuchProcess:
-                        pass
-            except Exception:
-                pass
+        if getattr(self, "lease", None) is not None:
+            self.lease.clear()
 
     def connect(self):
         from playwright.sync_api import sync_playwright

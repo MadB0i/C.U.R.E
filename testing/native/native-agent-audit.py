@@ -23,7 +23,6 @@ import urllib.error
 import winreg
 from pathlib import Path
 
-import psutil
 from playwright.sync_api import sync_playwright
 
 REPO = Path(__file__).resolve().parents[2]
@@ -31,16 +30,15 @@ DEFAULT_EXE = REPO / "gui" / "src-tauri" / "target" / "release" / "cure-gui.exe"
 SHOTS_DIR = REPO / "testing" / "native" / "screenshots-audit"
 SHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
+# Process ownership: this harness must never terminate a process it did
+# not launch itself. The previous implementation killed by image-name
+# match (psutil) — including "opencode", which is an owner-controlled AI
+# coding agent. That is now forbidden by core/tests/qa_process_safety.rs;
+# cleanup is identity-verified via the shared lease helper instead.
+sys.path.insert(0, str(REPO / "testing" / "native"))
+from process_ownership import OwnershipLease, pre_launch_cleanup  # noqa: E402
 
-def kill_lingering_processes():
-    for proc in psutil.process_iter(["pid", "name"]):
-        try:
-            name = (proc.info["name"] or "").lower()
-            if "msedgewebview2" in name or "cure-gui" in name or "opencode" in name:
-                proc.kill()
-        except Exception:
-            pass
-    time.sleep(1.0)
+LEASE_PATH = REPO / "testing" / "native" / ".process-lease-agent-audit.json"
 
 
 class AuditRunner:
@@ -52,6 +50,7 @@ class AuditRunner:
         self.fixture_dir: Path | None = None
         self.workspace_dir: Path | None = None
         self.dummy_agent_dir: Path | None = None
+        self.lease = OwnershipLease(LEASE_PATH)
         self.passed: list[str] = []
         self.failures: list[str] = []
         self.shot_idx = 0
@@ -77,7 +76,10 @@ class AuditRunner:
         return path
 
     def launch_cure(self):
-        kill_lingering_processes()
+        # Identity-verified cleanup of a previous run's leftovers; foreign
+        # or stale PIDs are skipped, never killed. The dummy opencode.exe
+        # this harness spawns later is ITS OWN child and is reaped by PID.
+        pre_launch_cleanup(self.lease, self.port)
         self.fixture_dir = Path(tempfile.mkdtemp(prefix="cure-audit-fixture-"))
         webview_data = self.fixture_dir / "webview"
         webview_data.mkdir(parents=True, exist_ok=True)
@@ -95,6 +97,10 @@ class AuditRunner:
             stdout=open(stdout_path, "wb", buffering=0),
             stderr=open(stderr_path, "wb", buffering=0),
         )
+        self.lease.record(self.process.pid, self.exe.name)
+        self.lease.user_data_dir = str(webview_data)
+        self.lease.port = self.port
+        self.lease.save()
 
         deadline = time.time() + 60
         while time.time() < deadline:
@@ -124,7 +130,18 @@ class AuditRunner:
                 self.process.wait(timeout=5)
             except Exception:
                 self.process.kill()
-        kill_lingering_processes()
+        # Webview2 children of THIS run's user-data folder only.
+        if self.lease.user_data_dir:
+            from process_ownership import query_processes
+            for row in query_processes(
+                name="msedgewebview2.exe",
+                cmdline_contains=self.lease.user_data_dir,
+            ):
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(row["pid"])],
+                    capture_output=True, timeout=15,
+                )
+        self.lease.clear()
         if self.fixture_dir and self.fixture_dir.exists():
             shutil.rmtree(self.fixture_dir, ignore_errors=True)
         if self.workspace_dir and self.workspace_dir.exists():
