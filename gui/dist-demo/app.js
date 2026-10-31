@@ -1213,6 +1213,7 @@
     if (viewId === "view-overview") {
       // Render from the live session state, never from a stale snapshot.
       if (["running", "preparing"].includes(scanPhase)) renderOverviewLive();
+      else if (scanPhase === "failed") renderOverview(null);
       else if (lastSummary) renderOverview(lastSummary);
       else renderOverviewIdle();
       loadOperatorPosture();
@@ -1258,8 +1259,26 @@
     });
   }
 
-  async function runScan(preLines = []) {
-    if (scanPhase === "running") return;
+  /* Scan lifecycle ownership. One state machine (scanPhase + scanToken),
+     one origin: "rescue" keeps the historical Rescue workflow (scan view,
+     then results); "overview" keeps the operator on the Overview and lets
+     the hero, dial and timeline carry the live state. Manual navigation
+     always wins: completion only moves the shell when the user has not
+     navigated since the scan flow last owned the view. */
+  let scanOrigin = "rescue";
+  let scanNavToken = 0;
+  // Latest collector activity, from real scan-progress events only.
+  let scanProgressLine = "";
+
+  // Public entry point: refuses to start while any scan operation is
+  // preparing or running, so repeated clicks can never stack scans.
+  function runScan(preLines = [], origin = "rescue") {
+    if (scanPhase === "running" || scanPhase === "preparing") return;
+    return _runScan(preLines, origin);
+  }
+
+  async function _runScan(preLines = [], origin = "rescue") {
+    scanOrigin = origin === "overview" ? "overview" : "rescue";
     const xrayStartBtn = document.getElementById("xray-start-btn");
     const xrayInvestigateBtn = document.getElementById("xray-investigate-btn");
     if (xrayStartBtn) {
@@ -1269,13 +1288,24 @@
     if (xrayInvestigateBtn) {
       xrayInvestigateBtn.classList.add("hidden");
     }
+    const overviewScanBtn = document.getElementById("overview-rescue-btn");
+    if (overviewScanBtn) {
+      overviewScanBtn.disabled = true;
+    }
     document.getElementById("scan-retry").classList.add("hidden");
     evidenceCache.clear();
     const token = ++scanToken;
     scanPhase = "running";
     scanStartedAt = performance.now();
-    showViewInstant(scanView);
-    setNav("scan-view");
+    scanReportedAreas.clear();
+    scanProgressLine = "";
+    if (scanOrigin === "rescue") {
+      showViewInstant(scanView);
+      setNav("scan-view");
+    }
+    // Navigation ownership baseline: anything the operator clicks from
+    // here on bumps viewToken, and completion will respect it.
+    scanNavToken = viewToken;
     logList.innerHTML = "";
     itemFeedCount = 0;
     hideReceipt();
@@ -1287,17 +1317,15 @@
         clearInterval(elapsedTimer);
         return;
       }
-      if (elapsedEl)
-        elapsedEl.textContent =
-          "elapsed " +
-          ((performance.now() - scanStartedAt) / 1000).toFixed(1) +
-          "s";
+      const secs = ((performance.now() - scanStartedAt) / 1000).toFixed(1);
+      if (elapsedEl) elapsedEl.textContent = "elapsed " + secs + "s";
+      updateOverviewScanLine();
     }, 500);
     for (const line of Array.isArray(preLines) ? preLines : []) {
       appendLog("overlay", line);
     }
     setPill("scanning", "Collecting evidence");
-    scanReportedAreas.clear();
+    if (scanOrigin === "overview") renderOverviewLive();
     window.CureSweep.start();
     try {
       const summary = await invoke("run_auto_scan");
@@ -1333,14 +1361,18 @@
         xrayInvestigateBtn.classList.remove("hidden");
       }
       renderResults(summary);
-      // If the operator navigates away mid-transition, their navigation
-      // wins: never drag the shell back to the results view.
-      const navToken = viewToken;
-      await switchView(currentView(), resultsView);
-      if (token !== scanToken) return;
-      if (viewToken === navToken) {
-        setNav("results-view");
-        focusViewHeading(resultsView);
+      if (overviewScanBtn) overviewScanBtn.disabled = false;
+      // Only the Rescue workflow moves the shell to the results view, and
+      // only when the operator has not navigated somewhere else meanwhile.
+      // (switchView bumps viewToken itself, so the post-transition check
+      // looks at which view is actually on screen, not at the token.)
+      if (scanOrigin === "rescue" && viewToken === scanNavToken) {
+        await switchView(currentView(), resultsView);
+        if (token !== scanToken) return;
+        if (currentView() === resultsView) {
+          setNav("results-view");
+          focusViewHeading(resultsView);
+        }
       }
     } catch (err) {
       clearInterval(elapsedTimer);
@@ -1350,6 +1382,10 @@
       setPill("error", "Operation failed");
       appendLog("error", String(err));
       logEvent("info", "scan failed: " + String(err));
+      if (overviewScanBtn) overviewScanBtn.disabled = false;
+      // The failure is the current session state: never dress the previous
+      // summary up as this operation's result.
+      if (scanOrigin === "overview") renderOverview(null);
     }
   }
 
@@ -1360,7 +1396,9 @@
       // Real progress only: a segment lights when its layer has actually
       // reported, never on a timer.
       scanReportedAreas.add(payload.area);
+      scanProgressLine = payload.area;
       paintScanningDial();
+      updateOverviewScanLine();
       const info = sourceStatusInfo(payload.state);
       appendLog(
         "coverage",
@@ -1399,6 +1437,11 @@
       );
       return;
     }
+    if (payload.message) {
+      // The backend's own stage message names the collector at work.
+      scanProgressLine = payload.message;
+      updateOverviewScanLine();
+    }
     setPill("scanning", payload.message);
     if (payload.stage === "done") {
       logEvent("info", payload.message);
@@ -1408,6 +1451,25 @@
     logEvent("info", "[" + payload.stage + "] " + payload.message);
     appendLog(payload.stage, payload.message);
   });
+
+  // Live scanning line on the Overview hero: elapsed time from the real
+  // scan start, and the collector the backend last reported work in.
+  // Called from the runScan ticker and progress events; renders nothing
+  // unless an Overview-origin scan is actually running.
+  function updateOverviewScanLine() {
+    if (!["running", "preparing"].includes(scanPhase)) return false;
+    const scope = document.getElementById("ov-scope");
+    if (!scope) return false;
+    const ov = document.getElementById("view-overview");
+    if (!ov || ov.classList.contains("hidden")) return false;
+    const secs = ((performance.now() - scanStartedAt) / 1000).toFixed(1);
+    scope.textContent =
+      (scanProgressLine ? "Collecting — " + scanProgressLine : "Preparing collection") +
+      " · elapsed " +
+      secs +
+      "s";
+    return true;
+  }
 
   document.getElementById("rescan-btn").addEventListener("click", runScan);
   document
@@ -2042,12 +2104,17 @@
     if (subline)
       subline.textContent =
         "Collection is running — the dial advances as each layer reports.";
-    const scope = document.getElementById("ov-scope");
-    if (scope) scope.textContent = "Rescue scan in progress.";
     setOvDial(scanReportedAreas.size, "Layers reporting", null);
     setMetric("ov-assessment", "Scanning", null);
     setMetric("ov-coverage-state", "In progress", null);
     setMetric("ov-findings", "In progress", null);
+    // Previous findings are not this operation's result; the panel waits.
+    const livePanel = document.getElementById("ov-findings-panel");
+    if (livePanel) livePanel.classList.add("hidden");
+    const liveBtn = document.getElementById("ov-review-btn");
+    if (liveBtn)
+      liveBtn.title = "Findings appear here when the scan completes";
+    updateOverviewScanLine();
     renderIdleCoverage();
     renderOverviewTimeline();
   }
@@ -2342,11 +2409,50 @@
       renderOverviewLive();
       return;
     }
-    const t = troubleCounts(summary);
-    const status = sessionStatus();
     const posture = document.getElementById("ov-posture");
     const subline = document.getElementById("ov-subline");
     const beacon = document.getElementById("ov-beacon");
+    if (scanPhase === "failed") {
+      // The latest operation failed. Its result is "nothing was collected":
+      // the previous summary stays available in Investigate but must not be
+      // presented here as this session's current finding set.
+      if (posture) {
+        posture.textContent = "Operation failed";
+        posture.classList.remove("is-ok", "is-warn", "is-scan");
+        posture.classList.add("is-bad");
+      }
+      if (beacon) beacon.className = "ov-beacon bad";
+      if (subline)
+        subline.textContent =
+          "The last scan did not finish — the error is recorded in the activity timeline. Retry from here or from Rescue.";
+      setOvDial(null, "Layers checked", null);
+      setMetric("ov-assessment", "Operation failed", "is-bad");
+      setMetric("ov-coverage-state", "—", null);
+      setMetric("ov-findings", "—", null);
+      refreshQuarantineCount();
+      loadOperatorPosture();
+      renderOperatorPosture();
+      const failedPanel = document.getElementById("ov-findings-panel");
+      if (failedPanel) failedPanel.classList.add("hidden");
+      const failedBtn = document.getElementById("ov-review-btn");
+      if (failedBtn) {
+        if (lastSummary) {
+          failedBtn.disabled = false;
+          failedBtn.title = "Open the findings from the last completed scan";
+        } else {
+          failedBtn.disabled = true;
+          failedBtn.title = "No completed scan this session";
+        }
+      }
+      const failedScope = document.getElementById("ov-scope");
+      if (failedScope)
+        failedScope.textContent = "No complete collection in the latest operation.";
+      renderIdleCoverage();
+      renderOverviewTimeline();
+      return;
+    }
+    const t = troubleCounts(summary);
+    const status = sessionStatus();
     if (posture) {
       posture.textContent = status.label;
       posture.classList.remove("is-ok", "is-warn", "is-bad", "is-scan");
@@ -2363,11 +2469,7 @@
             ? " warn"
             : " ok");
     }
-    if (scanPhase === "failed") {
-      if (subline)
-        subline.textContent =
-          "The last scan did not finish — retry it from Rescue.";
-    } else if (t.critical > 0) {
+    if (t.critical > 0) {
       if (subline)
         subline.textContent =
           t.critical + " high-risk finding(s) need review in Investigate.";
@@ -2400,47 +2502,25 @@
           : "is-ok",
     );
     let skipped = 0;
-    let covState = "REPORTED CHECKS OK";
-    let covTone = "is-ok";
+    /* Coverage describes how much of the machine reported — never the
+       operation's outcome. A collector that errored or was denied access
+       means the coverage is partial (the per-layer list below spells out
+       CHECK FAILED / ACCESS DENIED); "failed" is reserved for the scan
+       operation itself, which is the assessment metric's job to state. */
+    let covComplete = true;
     for (const row of ovStates) {
       const st = row.state;
-      if (st === "CheckFailed" || st === "AccessDenied") {
-        covState = "FAILED";
-        covTone = "is-bad";
-      } else if (st && typeof st === "object") {
-        if ("Partial" in st) {
-          skipped += (st.Partial && st.Partial.skipped) || 0;
-          if (covState !== "FAILED") {
-            covState = "PARTIAL";
-            covTone = "is-warn";
-          }
-        } else if ("CheckFailed" in st || "AccessDenied" in st) {
-          covState = "FAILED";
-          covTone = "is-bad";
-        } else if (
-          ("Unavailable" in st || "NotChecked" in st) &&
-          covState === "REPORTED CHECKS OK"
-        ) {
-          covState = "LIMITED";
-          covTone = null;
-        }
-      } else if (
-        (st === "Unavailable" || st === "NotChecked") &&
-        covState === "REPORTED CHECKS OK"
-      ) {
-        covState = "LIMITED";
-        covTone = null;
+      if (st === "Checked" || st === "Available") continue;
+      covComplete = false;
+      if (st && typeof st === "object" && "Partial" in st) {
+        skipped += (st.Partial && st.Partial.skipped) || 0;
       }
     }
-    setMetric(
-      "ov-assessment",
-      scanPhase === "failed" ? "Operation failed" : status.label,
-      status.tone === "scanning" ? null : status.tone === "idle" ? null : status.tone,
-    );
+    setMetric("ov-assessment", status.label, status.tone === "ok" ? "is-ok" : status.tone === "warn" ? "is-warn" : status.tone === "bad" ? "is-bad" : null);
     setMetric(
       "ov-coverage-state",
-      ovStates.length ? covState : "—",
-      ovStates.length ? covTone : null,
+      ovStates.length ? (covComplete ? "COMPLETE" : "PARTIAL") : "—",
+      ovStates.length ? (covComplete ? "is-ok" : "is-warn") : null,
     );
     setMetric("ov-findings", String(t.findings), t.findings ? "is-warn" : null);
     refreshQuarantineCount();
@@ -2479,27 +2559,23 @@
     }
     const ovScope = document.getElementById("ov-scope");
     if (ovScope) {
-      if (scanPhase === "failed") {
-        ovScope.textContent = "No complete collection this session.";
-      } else {
-        const areas = ovStates.length
-          ? ovStates.map((r) => r.area).join(" · ")
-          : "Startup entries · Services · Tasks · WMI";
-        ovScope.textContent =
-          "Scope: " +
-          areas +
-          " · " +
-          summary.total +
-          " checked · " +
-          skipped +
-          " skipped" +
-          (typeof summary.elevated === "boolean"
-            ? summary.elevated
-              ? " · elevated scan"
-              : " · standard-user scan"
-            : "") +
-          (lastScanAt ? " · " + lastScanAt.toLocaleString() : "");
-      }
+      const areas = ovStates.length
+        ? ovStates.map((r) => r.area).join(" · ")
+        : "Startup entries · Services · Tasks · WMI";
+      ovScope.textContent =
+        "Scope: " +
+        areas +
+        " · " +
+        summary.total +
+        " checked · " +
+        skipped +
+        " skipped" +
+        (typeof summary.elevated === "boolean"
+          ? summary.elevated
+            ? " · elevated scan"
+            : " · standard-user scan"
+          : "") +
+        (lastScanAt ? " · " + lastScanAt.toLocaleString() : "");
     }
     renderOverviewTimeline();
 
@@ -4131,7 +4207,7 @@
           (candidates.length - done.size) +
           " candidate(s) left open)",
       );
-      runScan(lines);
+      _runScan(lines, scanOrigin);
     });
     contLi.appendChild(contBtn);
     logList.appendChild(contLi);
@@ -4145,43 +4221,59 @@
     loadOperatorPosture();
     restorePill();
     refreshQuarantineCount();
-    document
-      .getElementById("start-rescue-btn")
-      .addEventListener("click", async () => {
-        if (["running", "preparing"].includes(scanPhase)) return;
-        scanPhase = "preparing";
+    // One scan-start flow for both entry points. The origin decides who
+    // owns navigation: "overview" keeps the operator on the Overview, while
+    // "rescue" keeps the historical Rescue workflow.
+    async function startScanFlow(origin) {
+      if (["running", "preparing"].includes(scanPhase)) return;
+      scanPhase = "preparing";
+      scanOrigin = origin;
+      setPill("scanning", "Reviewing overlay candidates");
+      if (origin === "rescue") {
         window.CureSweep.start();
-        setPill("scanning", "Reviewing overlay candidates");
         await switchView(currentView(), scanView);
         setNav("scan-view");
-        const lines = [];
-        let rep = null;
-        try {
-          rep = await invoke("list_overlay_candidates");
-        } catch (e) {
-          lines.push("Overlay check unavailable: " + e);
-          runScan(lines);
-          return;
-        }
-        const candidates = (rep && rep.candidates) || [];
-        appendLog(
-          "overlay",
-          "checked " +
-            (rep ? rep.checked : 0) +
-            " windows, " +
-            candidates.length +
-            " candidate(s) need review",
-        );
-        if (candidates.length === 0) {
-          lines.push("No suspicious overlay windows found");
-          runScan(lines);
-          return;
-        }
-        // Matches are SHOWN, never closed here: each card carries its own
-        // Close / Force close / Don't-ask-again buttons, plus one button to
-        // continue the scan. Nothing closes without a per-window click.
-        renderOverlayReview(candidates, lines);
-      });
+      }
+      const lines = [];
+      let rep = null;
+      try {
+        rep = await invoke("list_overlay_candidates");
+      } catch (e) {
+        lines.push("Overlay check unavailable: " + e);
+        _runScan(lines, origin);
+        return;
+      }
+      const candidates = (rep && rep.candidates) || [];
+      appendLog(
+        "overlay",
+        "checked " +
+          (rep ? rep.checked : 0) +
+          " windows, " +
+          candidates.length +
+          " candidate(s) need review",
+      );
+      if (candidates.length === 0) {
+        lines.push("No suspicious overlay windows found");
+        _runScan(lines, origin);
+        return;
+      }
+      // Matches are SHOWN, never closed here: each card carries its own
+      // Close / Force close / Don't-ask-again buttons, plus one button to
+      // continue the scan. Nothing closes without a per-window click.
+      // The review cards live in the scan log, so an overview-origin scan
+      // brings the scan view forward for this one required interaction.
+      if (origin === "overview") {
+        showViewInstant(scanView);
+        setNav("scan-view");
+      }
+      renderOverlayReview(candidates, lines);
+    }
+    document
+      .getElementById("start-rescue-btn")
+      .addEventListener("click", () => startScanFlow("rescue"));
+    document
+      .getElementById("overview-rescue-btn")
+      .addEventListener("click", () => startScanFlow("overview"));
     document.querySelectorAll("[data-route]")
       .forEach((btn) =>
         btn.addEventListener("click", () => navTo(btn.dataset.route)),
@@ -4412,12 +4504,6 @@ const canToggle2 = document.getElementById("can-toggle");
           ),
       );
     });
-    document
-      .getElementById("overview-rescue-btn")
-      .addEventListener("click", async () => {
-        await navTo("scan-center");
-        document.getElementById("start-rescue-btn").click();
-      });
     const qRefresh = document.getElementById("q-refresh");
     if (qRefresh) qRefresh.addEventListener("click", refreshQuarantine);
     async function exportReport(format) {

@@ -80,6 +80,125 @@ def finish_scan(page):
     expect(page.locator("#results-view")).to_be_visible(timeout=30000)
 
 
+def scan_origin_flow(browser):
+    """UI-01A regression: the scan's origin owns navigation.
+
+    An Overview-origin scan keeps the operator on the Overview with a live,
+    truthful hero; a Rescue-origin scan keeps the historical Rescue flow;
+    manual navigation during any scan is never overridden at completion;
+    repeated clicks never start a second collection; a failed overview scan
+    shows the failure, never the previous scan's results.
+    """
+    commands = "window.__CURE_MOCK_COMMANDS.filter(c => c === 'run_auto_scan').length"
+
+    # --- Overview origin: start, live state, completion, stay. ---
+    ctx, page, errors = open_page(browser, (1440, 900))
+    page.locator("#overview-rescue-btn").click()
+    expect(page.locator("#ov-posture")).to_have_text("Scanning", timeout=15000)
+    check(page.locator("#view-overview").is_visible(),
+          "an overview-origin scan keeps the Overview on screen")
+    check(page.evaluate("() => !document.getElementById('scan-view') || document.getElementById('scan-view').classList.contains('hidden')"),
+          "the scan view is not forced in front of the operator")
+    check(page.locator("#overview-rescue-btn").is_disabled(),
+          "the hero scan button is disabled while a scan runs")
+    page.wait_for_function(
+        "document.getElementById('ov-scope').textContent.includes('elapsed')",
+        timeout=10000)
+    check("elapsed" in page.locator("#ov-scope").inner_text(),
+          "the hero shows real elapsed time: " + page.locator("#ov-scope").inner_text())
+    check(page.locator("#ov-dial-label").inner_text().strip().lower() == "layers reporting",
+          "the dial labels itself as live reporting during a scan")
+    check(page.evaluate(commands) == 1,
+          "exactly one collection is running")
+    # Rapid re-clicks during the scan must not stack a second scan.
+    page.evaluate("for (let i = 0; i < 5; i++) document.getElementById('overview-rescue-btn').click()")
+    check(page.evaluate(commands) == 1,
+          "repeated clicks never start a second collection")
+    # Completion: no navigation, truthful final state.
+    expect(page.locator("#ov-posture")).not_to_have_text("Scanning", timeout=30000)
+    expect(page.locator("#view-overview")).to_be_visible()
+    check(page.locator("#view-title").inner_text() == "Overview",
+          "completion leaves the operator on the Overview")
+    check(page.locator("#results-view").is_hidden(),
+          "an overview-origin scan never force-opens Investigate")
+    check(not page.locator("#overview-rescue-btn").is_disabled(),
+          "the hero scan button re-arms after completion")
+    check(page.locator("#ov-review-btn").is_enabled(),
+          "review findings is offered after completion")
+    check(page.evaluate(commands) == 1,
+          "still exactly one collection after all re-clicks")
+    posture = page.locator("#ov-posture").inner_text()
+    check(posture in ("Assessment complete", "Attention required",
+                      "Attention required · Partial coverage", "Partial coverage"),
+          "the completed posture uses the honest vocabulary: " + posture)
+    check("elapsed" not in page.locator("#ov-scope").inner_text(),
+          "the scanning line is replaced by the scan's own scope summary")
+    check(not errors, "overview-origin runtime: " + str(errors))
+    ctx.close()
+
+    # --- Rescue origin: the historical flow still ends on results. ---
+    ctx, page, errors = open_page(browser, (900, 600))
+    start_scan(page)
+    finish_scan(page)
+    expect(page.locator("#view-title")).to_have_text("Investigate", timeout=10000)
+    check(True, "a rescue-origin scan still lands on the findings view")
+    check(not errors, "rescue-origin runtime: " + str(errors))
+    ctx.close()
+
+    # --- Manual navigation during a scan is never overridden. ---
+    ctx, page, errors = open_page(browser, (900, 600))
+    page.locator("#overview-rescue-btn").click()
+    expect(page.locator("#ov-posture")).to_have_text("Scanning", timeout=15000)
+    page.locator("#nav-agents").click()
+    expect(page.locator("#view-agents")).to_be_visible()
+    page.wait_for_function(
+        "!document.getElementById('ov-posture').textContent.includes('Scanning')",
+        timeout=30000)
+    expect(page.locator("#view-agents")).to_be_visible()
+    check(page.locator("#view-title").inner_text() == "AI Agent Radar",
+          "manual navigation wins at scan completion: " + page.locator("#view-title").inner_text())
+    check(page.locator("#results-view").is_hidden(),
+          "completion does not drag the operator to Investigate")
+    check(not errors, "mid-scan navigation runtime: " + str(errors))
+    ctx.close()
+
+    # --- Completion race (rescue origin): navigating as the scan finishes
+    #     must not let the shell snap back to the results view. ---
+    ctx, page, errors = open_page(browser, (900, 600))
+    start_scan(page)
+    page.wait_for_function(
+        """() => document.getElementById('status-text').textContent !== 'Collecting evidence'
+             && !document.getElementById('status-text').textContent.includes('…')""",
+        timeout=30000)
+    page.locator("#nav-agents").click()
+    expect(page.locator("#view-agents")).to_be_visible(timeout=10000)
+    page.wait_for_timeout(600)  # let any late completion continuation fire
+    check(page.locator("#view-title").inner_text() == "AI Agent Radar",
+          "the completion race respects the operator's destination: "
+          + page.locator("#view-title").inner_text())
+    check(not errors, "completion-race runtime: " + str(errors))
+    ctx.close()
+
+    # --- Failure from Overview: truthful failure, no stale results. ---
+    ctx, page, errors = open_page(browser, (900, 600), scan_error=True)
+    page.locator("#overview-rescue-btn").click()
+    expect(page.locator("#ov-posture")).to_have_text("Operation failed", timeout=20000)
+    check(page.locator("#view-overview").is_visible(),
+          "a failed overview scan stays on the Overview")
+    check(page.locator("#ov-coverage-state").inner_text() == "—",
+          "a failed scan does not present coverage numbers")
+    check(page.locator("#ov-findings").inner_text() == "—",
+          "a failed scan does not present finding counts")
+    check(page.locator("#ov-findings-panel").is_hidden(),
+          "a failed scan does not show the previous scan's findings")
+    check("Operation failed" in page.locator("#ov-assessment").inner_text(),
+          "the assessment metric states the failure")
+    check(page.locator("#results-view").is_hidden(),
+          "a failed scan does not open Investigate")
+    check(not errors, "failure runtime: " + str(errors))
+    ctx.close()
+
+
 def goto_view(page, nav, view):
     """Click a nav item and wait until that view is the settled destination.
 
@@ -1047,7 +1166,7 @@ def main():
         if mode=="demo":demo_flow(browser)
         if mode=="agent-video":agent_demo(browser)
         if mode in ("all","verify"):
-            core_flow(browser,reduced=True);states(browser);secondary(browser);responsive(browser)
+            core_flow(browser,reduced=True);states(browser);secondary(browser);responsive(browser);scan_origin_flow(browser)
         if mode=="capture":states(browser,capture=True)
         if mode in ("all","verify","capture"):mascot_absence_flow(browser)
         if mode in ("all","verify"):
