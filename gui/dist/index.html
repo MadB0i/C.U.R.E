@@ -150,11 +150,10 @@
             ><span aria-hidden="true" class="crumb-sep">›</span>
             <div class="view-title" id="view-title">Overview</div>
           </nav>
-          <div class="session-meta" id="session-meta">NO SCAN THIS SESSION</div>
           <span
             class="topbar-clock"
             id="topbar-clock"
-            title="Local system time"
+            title="Local PC date and time"
           ></span>
           <button
             class="btn-theme-toggle"
@@ -1929,7 +1928,7 @@
                   </div>
                 </div>
                 <div class="ov-hero-copy">
-                  <div class="eyebrow">System posture</div>
+                  <div class="eyebrow">System command center</div>
                   <div class="ov-posture-wrap">
                     <span
                       aria-hidden="true"
@@ -1939,8 +1938,8 @@
                     <h1 class="headline" id="ov-posture">Not assessed</h1>
                   </div>
                   <p class="subline" id="ov-subline">
-                    Run a Rescue Scan to establish the evidence available on this
-                    system.
+                    Run a System Scan to establish the evidence available on
+                    this system.
                   </p>
                   <div class="subline dim" id="ov-scope">
                     No scan has run this session.
@@ -1951,89 +1950,77 @@
                       id="overview-rescue-btn"
                       type="button"
                     >
-                      Start Rescue Scan
+                      Start System Scan
+                    </button>
+                    <button
+                      class="btn"
+                      data-route="results-view"
+                      disabled
+                      id="ov-review-btn"
+                      title="Run a scan first — findings appear after collection"
+                      type="button"
+                    >
+                      Review findings
                     </button>
                     <button class="btn" data-route="cleanup-view" type="button">
-                      Measure storage
+                      Storage Analysis
                     </button>
                     <button class="btn" data-route="view-agents" type="button">
-                      Monitor agents
+                      Agent Radar
                     </button>
                   </div>
                 </div>
-                <div class="ov-hero-figure">
-                  <div class="operator-node ov-operator-node">
-                    <div class="operator-node-head">
-                      <div class="operator-id">
-                        <span class="operator-pulse-dot"></span>
-                        <span>SYSTEM POSTURE</span>
-                      </div>
-                      <span class="operator-level-badge level-0-observe" id="ov-posture-badge">HEALTHY</span>
-                    </div>
-                    <div class="operator-rec-desc" id="ov-posture-desc">
-                      Offline security and storage telemetry active. No unconfirmed autonomous modifications permitted.
-                    </div>
-                  </div>
-                </div>
+                <!-- Verified indicators only: every chip here is rendered
+                     from a real measurement (drive pressure, live agent
+                     enumeration, durable quarantine records). An empty aside
+                     says so instead of showing placeholder zeros. -->
+                <div class="ov-hero-aside" id="ov-hero-aside"></div>
               </div>
               <dl class="ov-readouts">
                 <div class="ov-readout">
-                  <dt>Coverage</dt>
+                  <dt>Security assessment</dt>
+                  <dd id="ov-assessment">Not assessed</dd>
+                </div>
+                <div class="ov-readout">
+                  <dt>Scan coverage</dt>
                   <dd id="ov-coverage-state">—</dd>
                 </div>
                 <div class="ov-readout">
-                  <dt>Last rescue scan</dt>
-                  <dd id="ov-last-scan">—</dd>
-                </div>
-                <div class="ov-readout">
-                  <dt>Review required</dt>
+                  <dt>Findings to review</dt>
                   <dd id="ov-findings">—</dd>
                 </div>
                 <div class="ov-readout">
-                  <dt>Quarantine state</dt>
+                  <dt>Storage · C: drive</dt>
+                  <dd id="ov-storage">Not measured</dd>
+                </div>
+                <div class="ov-readout">
+                  <dt>Agent processes</dt>
+                  <dd id="ov-agents">—</dd>
+                </div>
+                <div class="ov-readout">
+                  <dt>Quarantine vault</dt>
                   <dd id="ov-quarantined">—</dd>
-                </div>
-                <div class="ov-readout">
-                  <dt>Checks completed</dt>
-                  <dd id="ov-checks">—</dd>
-                </div>
-                <div class="ov-readout">
-                  <dt>Disk reclaimable</dt>
-                  <dd id="ov-reclaimable">Not measured</dd>
                 </div>
               </dl>
               <div class="overview-columns">
                 <div id="overview-evidence">
-                  <section class="panel">
-                    <h2 class="section-title">Recent findings</h2>
-                    <div id="ov-recent">
-                      <div class="empty-state">
-                        <strong>No evidence collected yet</strong>
-                        <span
-                          >A Rescue Scan reads the nine persistence layers and
-                          reports what each one found.</span
-                        >
-                      </div>
-                    </div>
-                  </section>
                   <div class="panel" id="ov-actions-panel">
                     <h2 class="section-title">
-                      Evidence timeline · this session
+                      Recent activity · this session
                     </h2>
                     <ul class="log" id="ov-actions"></ul>
                     <div class="empty-state" id="ov-actions-empty">
+                      <strong>Nothing recorded yet</strong>
                       <span
-                        >Scan progress and confirmed actions appear here as they
+                        >Scans and confirmed actions appear here as they
                         happen.</span
                       >
                     </div>
                   </div>
-                  <div class="panel" id="ov-incident-panel">
-                    <h2 class="section-title">Login observation</h2>
-                    <div class="coverage-note dim" id="ov-incident">
-                      <span>No login observation recorded this session.</span>
-                    </div>
-                  </div>
+                  <section class="panel hidden" id="ov-findings-panel">
+                    <h2 class="section-title">Recent findings</h2>
+                    <div id="ov-recent"></div>
+                  </section>
                 </div>
                 <div id="overview-coverage">
                   <div class="panel" id="ov-coverage-panel">
@@ -2049,22 +2036,16 @@
                     </ul>
                     <div class="coverage-note dim">
                       <span
-                        >Completed collection is shown separately from verified
-                        coverage.</span
+                        >Watcher pairing and USB installs are managed with
+                        cure-watch.exe; this console cannot verify their
+                        connection. Completed collection is shown separately
+                        from verified coverage.</span
                       >
                     </div>
                   </div>
-                  <section class="panel">
-                    <h2 class="section-title">Watcher / USB</h2>
-                    <div class="empty-state">
-                      <strong>Status unavailable in this console</strong>
-                      <span
-                        >Pairing and watcher installation are managed with
-                        cure-watch.exe; the console cannot verify their
-                        connection.</span
-                      >
-                    </div>
-                  </section>
+                  <!-- Compact contextual recommendation. Rendered only when
+                       the backend reports a real, measured condition. -->
+                  <div class="panel ov-rec hidden" id="ov-rec-panel"></div>
                 </div>
               </div>
               <div class="panel" id="ov-report-panel">

@@ -74,7 +74,7 @@ def main() -> None:
     )
 
     # A chip in the top bar, on every screen of the recording.
-    chip_anchor = '<div class="session-meta" id="session-meta">'
+    chip_anchor = '<span\n            class="topbar-clock"'
     if chip_anchor not in html:
         raise SystemExit("index.html topbar anchor not found")
     html = html.replace(chip_anchor, CHIP + chip_anchor, 1)

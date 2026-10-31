@@ -285,7 +285,8 @@ def states(browser, capture=False):
             start_scan(page)
             if name == "error":
                 expect(page.locator("#scan-retry")).to_be_visible()
-                check("Collection failed" in page.locator("#status-text").inner_text(), "scan error exposes retry")
+                check("Operation failed" in page.locator("#status-text").inner_text(), "scan error states the failure in the pill")
+                check("Collection failed" in page.locator("#log").inner_text(), "the scan log keeps the actual error text")
                 page.evaluate("window.__CURE_MOCK_SCAN_ERROR=false")
                 page.locator("#scan-retry").click()
                 finish_scan(page)
@@ -294,10 +295,10 @@ def states(browser, capture=False):
             if name == "partial":
                 check("Coverage incomplete" in page.locator("#headline").inner_text(), "incomplete scan never called clean")
                 page.locator("#nav-overview").click()
-                expect(page.locator("#ov-posture")).to_have_text("Coverage incomplete")
+                expect(page.locator("#ov-posture")).to_have_text("Partial coverage")
                 check("ACCESS DENIED" in page.locator("#ov-coverage").inner_text(), "access denied communicated in text")
             if name == "partial-findings":
-                expect(page.locator("#status-text")).to_have_text("Review required · Coverage incomplete")
+                expect(page.locator("#status-text")).to_have_text("Attention required · Partial coverage")
                 check("complete" not in page.locator("#status-text").inner_text().lower().replace("incomplete", ""), "partial coverage with findings never claims scan complete")
             if name == "all-clear":
                 expect(page.locator("#review-clear")).to_be_visible()
@@ -364,10 +365,13 @@ def secondary(browser):
     check("measured" in page.locator("#sw-amount-label").inner_text().lower(),
           "the running summary is labelled as a measurement in progress: "
           + page.locator("#sw-amount-label").inner_text())
-    # The topbar names the kind of scan that is running.
-    check("STORAGE" in page.locator("#session-meta").inner_text(),
-          "the topbar says a storage measurement is in flight: "
-          + page.locator("#session-meta").inner_text())
+    # The shell no longer carries scan summaries; a running measurement is
+    # named by the session pill, and the detail lives on the storage page.
+    check("storage" in page.locator("#status-text").inner_text().lower(),
+          "the session pill says a storage measurement is in flight: "
+          + page.locator("#status-text").inner_text())
+    check(page.locator("#session-meta").count() == 0,
+          "the global header carries no scan summary line")
     # The panel is already on screen, so wait for the real completion signal:
     # the progress strip is only hidden once the engine has returned.
     expect(page.locator("#sw-progress")).to_be_hidden(timeout=20000)

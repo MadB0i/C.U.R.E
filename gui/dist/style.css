@@ -222,6 +222,19 @@
   background: rgba(15, 23, 42, 0.04);
 }
 
+:root[data-theme="light"] .ov-chip.tone-ok {
+  border-color: rgba(6, 95, 70, 0.3);
+}
+
+:root[data-theme="light"] .ov-chip.tone-warn {
+  border-color: rgba(146, 64, 14, 0.34);
+  background: linear-gradient(180deg, var(--warning-tint), transparent);
+}
+
+:root[data-theme="light"] .ov-rec {
+  border-left-color: var(--warning);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -605,25 +618,16 @@ code,
   white-space: nowrap;
 }
 
-/* The session context names the kind of scan it is reporting, so it can
-   carry two clauses when the operator has run both kinds. It is the one
-   part of the bar that may be clipped: the page title and the clock must
-   never wrap because a second scan was added to the line. */
-.session-meta {
+/* The shell header is deliberately sparse: page context on the left, the
+   PC's live clock, the theme control and the session pill on the right.
+   Scan detail lives on the pages that produce it, never in the shell. */
+.topbar-clock {
   margin-left: auto;
   font: var(--t-2xs) var(--font-mono);
   letter-spacing: 0.04em;
   color: var(--text-3);
   white-space: nowrap;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.topbar-clock {
-  font: var(--t-2xs) var(--font-mono);
-  color: var(--text-3);
-  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .btn-theme-toggle {
@@ -1906,6 +1910,27 @@ code,
   box-shadow: 0 0 12px rgba(228, 112, 106, 0.55);
 }
 
+/* A scan in flight pulses only while it is actually running. */
+.ov-beacon.scan {
+  background: var(--cure-400);
+  box-shadow: 0 0 12px rgba(139, 111, 240, 0.6);
+  animation: ov-beacon-pulse 1.6s var(--ease) infinite;
+}
+
+@keyframes ov-beacon-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 4px rgba(139, 111, 240, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 14px rgba(139, 111, 240, 0.7);
+  }
+}
+
+.ov-hero .headline.is-scan {
+  color: var(--accent-ink);
+}
+
 .ov-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1913,18 +1938,141 @@ code,
   margin-top: var(--s4);
 }
 
-/* The posture figure is its own column, separated by a hairline, so the
-   operator console reads as part of the workstation rather than a widget
-   floating in the corner. */
-.ov-hero-figure {
+.ov-actions .btn-primary {
+  min-height: 40px;
+  padding: 0 var(--s6);
+  font-weight: 620;
+}
+
+/* The hero aside carries verified context chips: real measurements only.
+   A chip that has no measurement behind it is not rendered. */
+.ov-hero-aside {
   align-self: stretch;
   border-left: 1px solid var(--hair-soft);
   display: flex;
   flex-direction: column;
-  align-items: center;
   justify-content: center;
+  gap: var(--s3);
   min-width: 0;
   padding-left: var(--s6);
+}
+
+.ov-chip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  grid-template-areas:
+    "label value"
+    "detail detail";
+  column-gap: var(--s3);
+  align-items: baseline;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  background: var(--surface-sunken);
+}
+
+.ov-chip-label {
+  grid-area: label;
+  font-size: var(--t-2xs);
+  font-weight: 620;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ov-chip-value {
+  grid-area: value;
+  font: 600 var(--sm) var(--font-mono);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ov-chip-detail {
+  grid-area: detail;
+  margin-top: 2px;
+  font-size: var(--t-2xs);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ov-chip.tone-ok {
+  border-color: rgba(99, 199, 154, 0.25);
+}
+
+.ov-chip.tone-ok .ov-chip-value {
+  color: var(--ok);
+}
+
+.ov-chip.tone-warn {
+  border-color: rgba(224, 164, 88, 0.3);
+  background: linear-gradient(180deg, var(--warning-tint), transparent);
+}
+
+.ov-chip.tone-warn .ov-chip-value {
+  color: var(--warning);
+}
+
+/* Compact contextual recommendation. One measured condition, one action —
+   never a full-width banner. */
+.ov-rec {
+  border-left: 3px solid var(--warning);
+  background:
+    linear-gradient(90deg, var(--warning-tint), transparent 72%),
+    var(--surface);
+}
+
+.ov-rec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+
+.ov-rec-kicker {
+  font-size: var(--t-2xs);
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--warning);
+}
+
+.ov-rec-level {
+  font-size: var(--t-2xs);
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.ov-rec-title {
+  margin-top: var(--s2);
+  font-size: var(--base);
+  font-weight: 640;
+  color: var(--text);
+}
+
+.ov-rec-desc {
+  margin-top: var(--s1);
+  font-size: var(--t-sm);
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.ov-rec-meta {
+  margin-top: var(--s2);
+  font: var(--t-2xs) var(--font-mono);
+  letter-spacing: 0.02em;
+  color: var(--text-3);
+}
+
+.ov-rec .ov-rec-btn {
+  margin-top: var(--s3);
 }
 
 .ov-readouts {
@@ -2030,6 +2178,9 @@ code,
   .stage {
     padding: var(--s8);
   }
+  .ov-readouts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
   .overview-columns,
   .rescue-preflight,
   .cleanup-cols {
@@ -2041,21 +2192,24 @@ code,
   .app {
     grid-template-columns: 204px minmax(0, 1fr);
   }
-  .session-meta {
-    display: none;
-  }
   .pill {
     margin-left: auto;
     max-width: 46%;
   }
   .ov-hero {
-    grid-template-columns: 118px minmax(0, 1fr) 136px;
+    grid-template-columns: 118px minmax(0, 1fr) 150px;
     gap: var(--s5);
     padding: var(--s5) var(--s6);
   }
   .ov-dial-wrap {
     width: 118px;
     height: 118px;
+  }
+  .ov-hero-aside {
+    padding-left: var(--s5);
+  }
+  .ov-chip-detail {
+    display: none;
   }
   .ov-readouts {
     grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -29,6 +29,9 @@
   let scanDurationMs = null;
   let scanStartedAt = 0;
   let scanPhase = "idle"; // idle | running | done
+  // Areas that have reported during the current scan — drives the Overview
+  // dial's live layer count. Cleared when a scan starts.
+  const scanReportedAreas = new Set();
   const eventLog = [];
   const canarySessionAlerts = [];
   let canaryTriggered = false;
@@ -37,6 +40,7 @@
     eventLog.push({ at: new Date(), kind: kind || "info", text: String(text) });
     if (eventLog.length > 300) eventLog.splice(0, eventLog.length - 300);
     appendEventLogRow(eventLog[eventLog.length - 1]);
+    renderOverviewTimeline();
   }
 
   let scanToken = 0;
@@ -78,121 +82,78 @@
     if (fieldEl) fieldEl.dataset.running = String(state === "scanning");
   }
 
-  // Topbar session context — real scan metadata only, never invented.
-  //
-  // The console measures two different things, so the topbar says which one
-  // it is reporting. "LAST SCAN" on its own is ambiguous: a Rescue scan
-  // counts inspected layers, a storage scan counts measured bytes.
+  /* Topbar session context. Scan detail lives on the pages that produce it;
+     the global shell carries only the live clock, the theme control and the
+     session pill. The Storage Workstation and Detective Mode publish their
+     measurement state through CureTopbar so the pill can name a running
+     measurement without printing a scan summary into the header. */
   let lastStorageScan = null;
   let storageScanRunning = false;
 
-  function renderSessionMeta(summary) {
-    const el = document.getElementById("session-meta");
-    if (!el) return;
-
-    /* A storage scan that is running says so. The topbar is the one place
-       that is true for the whole application, so it is where the operator
-       finds out that a measurement is in flight. */
-    if (storageScanRunning) {
-      el.textContent = "STORAGE SCAN · MEASURING…";
-      el.setAttribute("data-scan", "storage");
-      return;
-    }
-
-    /* Active rescue scan status in the header */
-    if (["running", "preparing"].includes(scanPhase)) {
-      el.textContent = "RESCUE SCAN · SCANNING…";
-      el.setAttribute("data-scan", "rescue");
-      return;
-    }
-
-    if (scanPhase === "failed") {
-      el.textContent = "RESCUE SCAN · FAILED";
-      el.setAttribute("data-scan", "rescue");
-      return;
-    }
-
-    const rescueWhen = lastScanAt ? lastScanAt.getTime() : 0;
-    const storageWhen = lastStorageScan ? lastStorageScan.at : 0;
-
-    if (!summary && !lastStorageScan) {
-      el.textContent = "NO SCAN THIS SESSION";
-      el.removeAttribute("data-scan");
-      return;
-    }
-
-    const parts = [];
-    if (lastStorageScan && storageWhen >= rescueWhen) {
-      parts.push(storageClause(lastStorageScan, true));
-      if (summary) parts.push(rescueClause(summary, false));
-    } else {
-      parts.push(rescueClause(summary, true));
-      if (lastStorageScan) parts.push(storageClause(lastStorageScan, false));
-    }
-    el.textContent = parts.join("  ·  ");
-    el.setAttribute(
-      "data-scan",
-      lastStorageScan && storageWhen >= rescueWhen ? "storage" : "rescue",
-    );
-  }
-
-  /* The newest scan is spelled out; an older one of the other kind is
-     named but not detailed, so the line still fits on one row. */
-  function storageClause(record, full) {
-    const when = new Date(record.at).toLocaleTimeString();
-    if (!full) {
-      const gb = (record.bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
-      return "STORAGE " + when + " · " + gb;
-    }
-    const gb = (record.bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
-    return (
-      "STORAGE SCAN " +
-      when +
-      " · " +
-      gb +
-      " MEASURED" +
-      (record.incomplete ? " · PARTIAL" : "") +
-      " · " +
-      (record.files || 0).toLocaleString() +
-      " FILES"
-    );
-  }
-
-  function rescueClause(summary, full) {
-    const review = (summary.suspicious_for_review || []).length;
-    const when = lastScanAt ? lastScanAt.toLocaleTimeString() : "—";
-    if (!full) return "RESCUE " + when + (coverageIncomplete(summary) ? " (INCOMPLETE)" : "");
-    var suffix = "";
-    if (coverageIncomplete(summary)) suffix = " · INCOMPLETE";
-    return (
-      "RESCUE SCAN " +
-      when +
-      " · " +
-      summary.total +
-      " CHECKED · " +
-      review +
-      " TO REVIEW" +
-      suffix
-    );
-  }
-
-  // The storage workstation publishes its own measurement here, so the
-  // topbar can name the kind of scan it is reporting.
   window.CureTopbar = {
     storageScan: function (record) {
       lastStorageScan = record;
       storageScanRunning = false;
-      renderSessionMeta(lastSummary);
+      restorePill();
     },
     storageScanStarted: function () {
       storageScanRunning = true;
-      renderSessionMeta(lastSummary);
+      setPill("scanning", "Measuring storage");
     },
     storageScanFinished: function () {
       storageScanRunning = false;
-      renderSessionMeta(lastSummary);
+      restorePill();
     },
   };
+
+  /* Semantic status model — the single source of session-state truth.
+     The pill, the Overview hero and the Overview metrics all render from
+     this, so no two controls can ever disagree about the session. A
+     functioning subsystem is availability, never a health claim: "Not
+     assessed" is stated until a scan has actually reported. */
+  function sessionStatus() {
+    if (storageScanRunning)
+      return { pill: "scanning", label: "Measuring storage", tone: "scanning" };
+    if (scanPhase === "running" || scanPhase === "preparing")
+      return {
+        pill: "scanning",
+        label: "Collecting evidence",
+        tone: "scanning",
+      };
+    if (scanPhase === "failed")
+      return { pill: "error", label: "Operation failed", tone: "bad" };
+    if (!lastSummary)
+      return { pill: "idle", label: "Not assessed", tone: "idle" };
+    const t = troubleCounts(lastSummary);
+    const partial = coverageIncomplete(lastSummary);
+    if (t.critical > 0)
+      return {
+        pill: "danger",
+        label: partial ? "Attention required · Partial coverage" : "Attention required",
+        tone: "bad",
+      };
+    if (t.findings > 0)
+      return {
+        pill: "warn",
+        label: partial
+          ? "Attention required · Partial coverage"
+          : "Attention required",
+        tone: "warn",
+      };
+    if (partial)
+      return { pill: "warn", label: "Partial coverage", tone: "warn" };
+    return {
+      pill: "idle",
+      label: "No findings in collected evidence",
+      tone: "ok",
+    };
+  }
+
+  function restorePill() {
+    if (["running", "preparing"].includes(scanPhase)) return;
+    const st = sessionStatus();
+    setPill(st.pill, st.label);
+  }
 
   // Theme toggle: switches between dark and light themes, persists to localStorage
   function applyTheme(theme) {
@@ -233,19 +194,26 @@
   }
   initTheme();
 
-  // Topbar clock — real local system time, refreshed every 15 s.
+  // Topbar clock — the PC's own local date and time, recomputed from the
+  // system clock on every tick. Suspend/resume and timezone changes can
+  // never leave a stale value on screen; the visibility listener re-anchors
+  // immediately when the window comes back.
   function tickClock() {
     const el = document.getElementById("topbar-clock");
     if (!el) return;
     el.textContent = new Date().toLocaleString([], {
-      month: "short",
+      weekday: "short",
       day: "numeric",
+      month: "short",
+      year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
+      second: "2-digit",
     });
   }
   tickClock();
-  setInterval(tickClock, 15000);
+  setInterval(tickClock, 1000);
+  document.addEventListener("visibilitychange", tickClock);
 
   // Placed action receipt: quarantine/undo outcomes get a stable, inline
   // home in the results view (instead of only a floating toast).
@@ -1114,24 +1082,9 @@
       ransomBlock.classList.toggle("hidden", ransomFindings.length === 0);
     }
 
-    if (trouble === 0) {
-      setPill(
-        coverageIncomplete(summary) ? "warn" : "idle",
-        coverageIncomplete(summary)
-          ? "Coverage incomplete"
-          : "No findings in collected evidence",
-      );
-    } else {
-      const hasHighRiskInReview = summary.suspicious_for_review.some(
-        (s) => s.risk === "HighRisk",
-      );
-      setPill(
-        hasHighRiskInReview ? "danger" : "warn",
-        coverageIncomplete(summary)
-          ? "Review required · Coverage incomplete"
-          : "Review required",
-      );
-    }
+    // The pill renders from the one status model, so it can never disagree
+    // with the Overview or the hero.
+    restorePill();
 
     syncCanaryStatus();
     enablePostScanNav();
@@ -1257,7 +1210,13 @@
     const el = document.getElementById(viewId);
     if (!el) return;
     showViewInstant(el);
-    if (viewId === "view-overview" && lastSummary) renderOverview(lastSummary);
+    if (viewId === "view-overview") {
+      // Render from the live session state, never from a stale snapshot.
+      if (["running", "preparing"].includes(scanPhase)) renderOverviewLive();
+      else if (lastSummary) renderOverview(lastSummary);
+      else renderOverviewIdle();
+      loadOperatorPosture();
+    }
     if (viewId === "view-agents" && window.CureAgentRadar) {
       window.CureAgentRadar.refresh();
     }
@@ -1338,14 +1297,7 @@
       appendLog("overlay", line);
     }
     setPill("scanning", "Collecting evidence");
-    // BUG 2 fix: update topbar to reflect active scan state
-    {
-      const metaEl = document.getElementById("session-meta");
-      if (metaEl) {
-        metaEl.textContent = "RESCUE SCAN · SCANNING…";
-        metaEl.setAttribute("data-scan", "rescue");
-      }
-    }
+    scanReportedAreas.clear();
     window.CureSweep.start();
     try {
       const summary = await invoke("run_auto_scan");
@@ -1362,7 +1314,6 @@
       lastSummary = summary;
       lastScanAt = new Date();
       scanPhase = "done";
-      renderSessionMeta(summary);
       logEvent(
         "info",
         "scan finished: " +
@@ -1382,17 +1333,21 @@
         xrayInvestigateBtn.classList.remove("hidden");
       }
       renderResults(summary);
+      // If the operator navigates away mid-transition, their navigation
+      // wins: never drag the shell back to the results view.
+      const navToken = viewToken;
       await switchView(currentView(), resultsView);
-      setNav("results-view");
       if (token !== scanToken) return;
-      focusViewHeading(resultsView);
+      if (viewToken === navToken) {
+        setNav("results-view");
+        focusViewHeading(resultsView);
+      }
     } catch (err) {
       clearInterval(elapsedTimer);
       window.CureSweep.fail();
       document.getElementById("scan-retry").classList.remove("hidden");
       scanPhase = "failed";
-      renderSessionMeta(lastSummary);
-      setPill("error", String(err));
+      setPill("error", "Operation failed");
       appendLog("error", String(err));
       logEvent("info", "scan failed: " + String(err));
     }
@@ -1402,6 +1357,10 @@
     const payload = event.payload;
     window.CureSweep.progress(payload);
     if (payload.stage === "source-state") {
+      // Real progress only: a segment lights when its layer has actually
+      // reported, never on a timer.
+      scanReportedAreas.add(payload.area);
+      paintScanningDial();
       const info = sourceStatusInfo(payload.state);
       appendLog(
         "coverage",
@@ -1966,24 +1925,352 @@
     if (tone) el.classList.add(tone);
   }
 
-  /* Reclaimable space on Overview reflects only what the Storage Workstation
-     really measured in this session. The overview never walks a disk itself. */
-  function updateOverviewReclaimable() {
-    const el = document.getElementById("ov-reclaimable");
-    if (!el) return;
-    const ws = window.CureStorageWorkstation;
-    const scan = ws && ws.state ? ws.state.scan : null;
-    if (!scan || !scan.headline) {
-      el.textContent = "Not measured";
-      el.classList.remove("is-ok");
+  /* ---- Overview support ----
+     Every number on the Overview comes from one of three real sources:
+     the scan summary (this session's collection), the operator_status
+     command (live drive-pressure and agent-process enumeration), or the
+     durable quarantine records. Nothing is simulated and nothing is
+     carried over from a previous process as "current". */
+
+  const OV_LAYER_TOTAL = 9;
+
+  function setOvDial(checked, label, tone) {
+    const t = tone && tone.indexOf("is-") === 0 ? tone.slice(3) : tone;
+    const value = document.getElementById("ov-dial-value");
+    const group = ensureDialSegments();
+    if (value)
+      value.textContent = checked == null ? "\u2014" : checked + "/" + OV_LAYER_TOTAL;
+    if (group) {
+      const segments = group.children;
+      for (let i = 0; i < segments.length; i++) {
+        const lit = checked != null && i < checked;
+        segments[i].setAttribute(
+          "class",
+          "ov-dial-segment" +
+            (lit ? " is-lit" : "") +
+            (lit && t ? " is-" + t : ""),
+        );
+      }
+    }
+    const labelEl = document.getElementById("ov-dial-label");
+    if (labelEl) labelEl.textContent = label;
+  }
+
+  // While a scan runs, the dial advances only as layers actually report.
+  function paintScanningDial() {
+    if (!["running", "preparing"].includes(scanPhase)) return;
+    setOvDial(scanReportedAreas.size, "Layers reporting", null);
+  }
+
+  // The Overview timeline: verified session events only.
+  function renderOverviewTimeline() {
+    const ovActions = document.getElementById("ov-actions");
+    const ovActionsEmpty = document.getElementById("ov-actions-empty");
+    if (!ovActions) return;
+    ovActions.replaceChildren();
+    const recent = eventLog.slice(-6).reverse();
+    for (const ev of recent) {
+      const li = document.createElement("li");
+      const time = document.createElement("span");
+      time.className = "ev-time";
+      try {
+        time.textContent = ev.at.toLocaleTimeString();
+      } catch (_) {
+        time.textContent = "";
+      }
+      const tag = document.createElement("b");
+      tag.textContent = "[" + (ev.kind || "info") + "]";
+      const body = document.createElement("span");
+      body.className = "selectable";
+      body.textContent = ev.text || "";
+      li.append(time, tag, body);
+      ovActions.appendChild(li);
+    }
+    if (ovActionsEmpty)
+      ovActionsEmpty.classList.toggle("hidden", recent.length > 0);
+  }
+
+  // Fresh process launch: a clean, neutral session. Nothing from a previous
+  // process is presented as this session's result, and "not assessed" is
+  // never silently promoted to "healthy".
+  function renderOverviewIdle() {
+    const posture = document.getElementById("ov-posture");
+    if (posture) {
+      posture.textContent = "Not assessed";
+      posture.classList.remove("is-ok", "is-warn", "is-bad", "is-scan");
+    }
+    const beacon = document.getElementById("ov-beacon");
+    if (beacon) beacon.className = "ov-beacon";
+    const subline = document.getElementById("ov-subline");
+    if (subline)
+      subline.textContent =
+        "Run a System Scan to establish the evidence available on this system.";
+    const scope = document.getElementById("ov-scope");
+    if (scope) scope.textContent = "No scan has run this session.";
+    setOvDial(null, "Layers checked", null);
+    setMetric("ov-assessment", "Not assessed", null);
+    setMetric("ov-coverage-state", "—", null);
+    setMetric("ov-findings", "—", null);
+    setMetric("ov-storage", "Not measured", null);
+    setMetric("ov-agents", "—", null);
+    refreshQuarantineCount();
+    const review = document.getElementById("ov-findings-panel");
+    if (review) review.classList.add("hidden");
+    const reviewBtn = document.getElementById("ov-review-btn");
+    if (reviewBtn) {
+      reviewBtn.disabled = true;
+      reviewBtn.title = "Run a scan first — findings appear after collection";
+    }
+    renderIdleCoverage();
+    renderOverviewTimeline();
+    updateOvAside();
+    renderOvRecommendation();
+  }
+
+  // A scan in flight: the Overview reports the live operation and never
+  // dresses the previous scan up as this session's result.
+  function renderOverviewLive() {
+    const posture = document.getElementById("ov-posture");
+    if (posture) {
+      posture.textContent = "Scanning";
+      posture.classList.remove("is-ok", "is-bad", "is-warn");
+      posture.classList.add("is-scan");
+    }
+    const beacon = document.getElementById("ov-beacon");
+    if (beacon) beacon.className = "ov-beacon scan";
+    const subline = document.getElementById("ov-subline");
+    if (subline)
+      subline.textContent =
+        "Collection is running — the dial advances as each layer reports.";
+    const scope = document.getElementById("ov-scope");
+    if (scope) scope.textContent = "Rescue scan in progress.";
+    setOvDial(scanReportedAreas.size, "Layers reporting", null);
+    setMetric("ov-assessment", "Scanning", null);
+    setMetric("ov-coverage-state", "In progress", null);
+    setMetric("ov-findings", "In progress", null);
+    renderIdleCoverage();
+    renderOverviewTimeline();
+  }
+
+  // Idle and in-flight coverage: every layer is named and none is claimed
+  // to have reported before it has.
+  function renderIdleCoverage() {
+    const cov = document.getElementById("ov-coverage");
+    if (!cov) return;
+    cov.replaceChildren();
+    const layers = [
+      "Registry autoruns",
+      "Startup folder",
+      "Scheduled tasks",
+      "Services (auto-start)",
+      "WMI subscriptions",
+      "IFEO debuggers",
+      "AppInit DLLs",
+      "COM hijacks (HKCU)",
+      "Running processes",
+      "Ransom indicators",
+      "Canary guard",
+    ];
+    for (const name of layers) {
+      const detail =
+        name === "Canary guard"
+          ? canaryTriggered
+            ? "TRIGGERED — see Canary Guard"
+            : canaryActive
+              ? "active — watching decoys"
+              : "off"
+          : "not assessed yet";
+      cov.append(covRow(name, detail, name === "Canary guard" && canaryActive ? "ok" : "idle"));
+    }
+  }
+
+  /* Live operator telemetry: real drive-pressure measurement and a real
+     process enumeration, refreshed when the Overview is shown. These are
+     availability facts about the machine right now — never a health
+     verdict about the session's security assessment. */
+  let operatorPosture = null;
+  let quarantineVaultCount = null;
+  let operatorPostureInFlight = false;
+  let operatorPostureEverLoaded = false;
+
+  async function loadOperatorPosture() {
+    if (operatorPostureInFlight) return;
+    operatorPostureInFlight = true;
+    try {
+      operatorPosture = await invoke("operator_status");
+      operatorPostureEverLoaded = true;
+    } catch (_) {
+      operatorPosture = null;
+    }
+    operatorPostureInFlight = false;
+    renderOperatorPosture();
+  }
+
+  /* The real backend serialises ResponseLevel as "level2_action_recommended"
+     (serde snake_case of Level2ActionRecommended); the labelled mock uses
+     "level_2_action_recommended". Accept both spellings. */
+  const OV_LEVEL_LABELS = {
+    level_0_observe: "Informational",
+    level0_observe: "Informational",
+    level_1_review: "Review",
+    level1_review: "Review",
+    level_2_action_recommended: "Action recommended",
+    level2_action_recommended: "Action recommended",
+    level_3_emergency_containment: "Containment",
+    level3_emergency_containment: "Containment",
+  };
+
+  function renderOperatorPosture() {
+    const p = operatorPosture;
+    if (p) {
+      const storage = document.getElementById("ov-storage");
+      if (storage) {
+        storage.textContent = p.c_drive_pressure_pct.toFixed(1) + "% used";
+        storage.classList.remove("is-ok", "is-warn", "is-bad");
+        storage.classList.add(p.c_drive_congested ? "is-warn" : "is-ok");
+        storage.title =
+          "Measured now: " + fmtBytes(p.c_drive_free_bytes) + " free on C:";
+      }
+      const agents = document.getElementById("ov-agents");
+      if (agents) {
+        agents.textContent =
+          p.active_agent_count +
+          " active" +
+          (p.unverified_agent_count > 0
+            ? " · " + p.unverified_agent_count + " unverified"
+            : "");
+        agents.classList.remove("is-ok", "is-warn", "is-bad");
+        if (p.unverified_agent_count > 0) agents.classList.add("is-warn");
+      }
+    }
+    updateOvAside();
+    renderOvRecommendation();
+  }
+
+  // Hero aside: verified context chips. Rendered only when a real
+  // measurement exists; a missing measurement is stated, not faked.
+  function updateOvAside() {
+    const aside = document.getElementById("ov-hero-aside");
+    if (!aside) return;
+    aside.replaceChildren();
+    const chips = [];
+    if (operatorPosture) {
+      chips.push({
+        tone: operatorPosture.c_drive_congested ? "warn" : "ok",
+        label: "C: drive",
+        value: operatorPosture.c_drive_pressure_pct.toFixed(1) + "% used",
+        detail: fmtBytes(operatorPosture.c_drive_free_bytes) + " free · measured now",
+      });
+      chips.push({
+        tone: operatorPosture.unverified_agent_count > 0 ? "warn" : "ok",
+        label: "Agent processes",
+        value: String(operatorPosture.active_agent_count),
+        detail:
+          operatorPosture.unverified_agent_count > 0
+            ? operatorPosture.unverified_agent_count + " unverified"
+            : "enumerated live",
+      });
+    } else if (!operatorPostureEverLoaded) {
+      chips.push({
+        tone: "idle",
+        label: "Live telemetry",
+        value: "Reading…",
+        detail: "measuring drives and agent processes",
+      });
+    } else {
+      chips.push({
+        tone: "idle",
+        label: "Live telemetry",
+        value: "Unavailable",
+        detail: "operator posture could not be read",
+      });
+    }
+    if (quarantineVaultCount != null) {
+      chips.push({
+        tone: "idle",
+        label: "Quarantine vault",
+        value: String(quarantineVaultCount),
+        detail: "durable records · not this session",
+      });
+    }
+    for (const c of chips) {
+      const chip = makeText("div", "", "ov-chip tone-" + c.tone);
+      chip.append(
+        makeText("span", c.label, "ov-chip-label"),
+        makeText("span", c.value, "ov-chip-value"),
+        makeText("span", c.detail, "ov-chip-detail"),
+      );
+      aside.append(chip);
+    }
+  }
+
+  /* Compact contextual recommendation. Appears only when the backend
+     reports a real, measured condition, and never promises a specific
+     amount of recoverable space — it states what was measured. */
+  function renderOvRecommendation() {
+    const panel = document.getElementById("ov-rec-panel");
+    if (!panel) return;
+    const recs = (operatorPosture && operatorPosture.recommendations) || [];
+    if (!recs.length) {
+      panel.classList.add("hidden");
+      panel.replaceChildren();
       return;
     }
-    el.textContent =
-      scan.headline.safe_bytes_label +
-      (scan.duplicate_reclaimable_bytes
-        ? " incl. " + fmtBytes(scan.duplicate_reclaimable_bytes) + " duplicates"
-        : "");
-    el.classList.toggle("is-ok", scan.headline.safe_bytes > 0);
+    const rank = {
+      level_3_emergency_containment: 0,
+      level_2_action_recommended: 1,
+      level_1_review: 2,
+      level_0_observe: 3,
+    };
+    const rec = recs
+      .slice()
+      .sort((a, b) => (rank[a.level] ?? 9) - (rank[b.level] ?? 9))[0];
+    panel.replaceChildren();
+    const head = makeText("div", "", "ov-rec-head");
+    head.append(
+      makeText("span", "Recommended action", "ov-rec-kicker"),
+      makeText(
+        "span",
+        OV_LEVEL_LABELS[rec.level] || "Informational",
+        "ov-rec-level",
+      ),
+    );
+    panel.append(head);
+    panel.append(makeText("div", rec.title, "ov-rec-title"));
+    panel.append(makeText("div", rec.description, "ov-rec-desc"));
+    if (rec.id === "rec_drive_pressure" && operatorPosture) {
+      panel.append(
+        makeText(
+          "div",
+          "Measured: C: " +
+            operatorPosture.c_drive_pressure_pct.toFixed(1) +
+            "% used · " +
+            fmtBytes(operatorPosture.c_drive_free_bytes) +
+            " free · " +
+            fmtBytes(operatorPosture.recommended_storage_relief_bytes) +
+            " in safe-to-relocate libraries",
+          "ov-rec-meta",
+        ),
+      );
+    }
+    const btn = makeText("button", rec.action_label || "View action", "btn ov-rec-btn");
+    btn.addEventListener("click", () => runOperatorAction(rec));
+    panel.append(btn);
+    panel.classList.remove("hidden");
+  }
+
+  function runOperatorAction(rec) {
+    if (rec.action_type === "storage_rescue") {
+      navTo("cleanup-view");
+      setTimeout(() => {
+        const tab = document.getElementById("sw-tab-rescue");
+        if (tab) tab.click();
+      }, 150);
+    } else if (rec.action_type === "agent_session") {
+      navTo("view-agents");
+    } else {
+      navTo("scan-center");
+    }
   }
 
   /* Overview dial: the nine inspection layers, one segment each.
@@ -2023,33 +2310,13 @@
     return group;
   }
   function paintOverviewDial(ovStates, tone) {
-    const value = document.getElementById("ov-dial-value");
-    const group = ensureDialSegments();
-    if (!value) return;
-    const total = DIAL_LAYERS;
     const rows = ovStates || [];
     const checked = rows.filter(function (row) {
       const st = row.state;
       const key = typeof st === "string" ? st : Object.keys(st || {})[0];
       return key === "Checked" || key === "Available";
     }).length;
-    if (group) {
-      const segments = group.children;
-      for (let i = 0; i < segments.length; i++) {
-        const lit = i < checked;
-        segments[i].setAttribute(
-          "class",
-          "ov-dial-segment" +
-            (lit ? " is-lit" : "") +
-            (tone && lit ? " is-" + tone.replace("is-", "") : ""),
-        );
-      }
-    }
-    value.textContent = rows.length ? checked + "/" + total : "\u2014";
-    const label = document.getElementById("ov-dial-label");
-    if (label) {
-      label.textContent = "Layers";
-    }
+    setOvDial(rows.length ? checked : null, "Layers checked", tone);
   }
 
   function covRow(name, detail, level) {
@@ -2066,80 +2333,71 @@
     return li;
   }
 
-  function updateOvIncident() {
-    const el = document.getElementById("ov-incident");
-    if (!el) return;
-    try {
-      if (typeof lastIncident !== "undefined" && lastIncident) {
-        el.textContent =
-          "Last observation " +
-          (lastIncident.investigation_id || "") +
-          ": " +
-          ((typeof VERDICT_TEXT !== "undefined" &&
-            VERDICT_TEXT[lastIncident.verdict]) ||
-            lastIncident.verdict ||
-            "") +
-          " — " +
-          (lastIncident.processes || []).length +
-          " processes, " +
-          (lastIncident.windows || []).length +
-          " windows, " +
-          (lastIncident.correlations || []).length +
-          " correlations. See the Incident view for the full timeline.";
-        return;
-      }
-    } catch (_) {
-      /* TDZ-safe: fall through to default */
-    }
-    el.textContent = "No login observation recorded this session.";
-  }
-
+  /* The Overview renderer. One function, fed by the one status model, so
+     the hero, the metrics and the pill can never contradict one another.
+     While a scan is in flight it renders the live operation instead of the
+     previous scan's results. */
   function renderOverview(summary) {
+    if (["running", "preparing"].includes(scanPhase)) {
+      renderOverviewLive();
+      return;
+    }
     const t = troubleCounts(summary);
+    const status = sessionStatus();
     const posture = document.getElementById("ov-posture");
     const subline = document.getElementById("ov-subline");
     const beacon = document.getElementById("ov-beacon");
+    if (posture) {
+      posture.textContent = status.label;
+      posture.classList.remove("is-ok", "is-warn", "is-bad", "is-scan");
+      if (status.tone === "bad") posture.classList.add("is-bad");
+      else if (status.tone === "warn") posture.classList.add("is-warn");
+      else if (status.tone === "ok") posture.classList.add("is-ok");
+    }
     if (beacon) {
       beacon.className =
         "ov-beacon" +
-        (t.critical > 0 ? " bad" : t.findings > 0 || coverageIncomplete(summary) ? " warn" : summary ? " ok" : "");
+        (t.critical > 0
+          ? " bad"
+          : t.findings > 0 || coverageIncomplete(summary)
+            ? " warn"
+            : " ok");
     }
-    if (t.critical > 0) {
-      posture.textContent = "High risk";
-      posture.classList.add("is-bad");
-      posture.classList.remove("is-warn", "is-ok");
-      subline.textContent =
-        t.critical + " high-risk finding(s) need review in Investigate.";
+    if (scanPhase === "failed") {
+      if (subline)
+        subline.textContent =
+          "The last scan did not finish — retry it from Rescue.";
+    } else if (t.critical > 0) {
+      if (subline)
+        subline.textContent =
+          t.critical + " high-risk finding(s) need review in Investigate.";
     } else if (t.findings > 0) {
-      posture.textContent = "Review required";
-      posture.classList.add("is-warn");
-      posture.classList.remove("is-bad", "is-ok");
-      subline.textContent =
-        t.findings +
-        " finding(s) recorded" +
-        (t.cleaned ? ", " + t.cleaned + " quarantined" : "") +
-        " — nothing was deleted.";
+      if (subline)
+        subline.textContent =
+          t.findings +
+          " finding(s) recorded" +
+          (t.cleaned ? ", " + t.cleaned + " quarantined" : "") +
+          " — nothing was deleted.";
+    } else if (coverageIncomplete(summary)) {
+      if (subline)
+        subline.textContent =
+          "Collection stopped short — review the coverage summary before drawing conclusions.";
     } else {
-      posture.textContent = coverageIncomplete(summary)
-        ? "Coverage incomplete"
-        : "No findings in collected evidence";
-      posture.classList.remove("is-ok", "is-bad", "is-warn");
-      if (coverageIncomplete(summary)) posture.classList.add("is-warn");
-      subline.textContent =
-        summary.total +
-        " checks completed — no persistence, process, or ransom findings" +
-        (lastScanAt ? " · last scan " + lastScanAt.toLocaleString() : "");
+      if (subline)
+        subline.textContent =
+          summary.total +
+          " checks completed — no persistence, process, or ransom findings" +
+          (lastScanAt ? " · last scan " + lastScanAt.toLocaleString() : "");
     }
-    setMetric(
-      "ov-last-scan",
-      lastScanAt ? lastScanAt.toLocaleString() : "—",
-      null,
-    );
-    setMetric("ov-checks", String(summary.total), null);
+
     const ovStates = (summary && summary.source_states) || [];
     paintOverviewDial(
       ovStates,
-      t.critical > 0 ? "is-bad" : t.findings > 0 || coverageIncomplete(summary) ? "is-warn" : "is-ok",
+      t.critical > 0
+        ? "is-bad"
+        : t.findings > 0 || coverageIncomplete(summary)
+          ? "is-warn"
+          : "is-ok",
     );
     let skipped = 0;
     let covState = "REPORTED CHECKS OK";
@@ -2174,7 +2432,11 @@
         covTone = null;
       }
     }
-    setMetric("ov-skipped", String(skipped), skipped ? "is-warn" : null);
+    setMetric(
+      "ov-assessment",
+      scanPhase === "failed" ? "Operation failed" : status.label,
+      status.tone === "scanning" ? null : status.tone === "idle" ? null : status.tone,
+    );
     setMetric(
       "ov-coverage-state",
       ovStates.length ? covState : "—",
@@ -2182,88 +2444,64 @@
     );
     setMetric("ov-findings", String(t.findings), t.findings ? "is-warn" : null);
     refreshQuarantineCount();
-    updateOverviewReclaimable();
+    loadOperatorPosture();
+    renderOperatorPosture();
+
+    // Recent findings: only rendered when the collection actually found
+    // something; an empty panel would read as a result.
+    const recentPanel = document.getElementById("ov-findings-panel");
     const recent = document.getElementById("ov-recent");
-    recent.replaceChildren();
-    (summary.suspicious_for_review || []).slice(0, 4).forEach((scored) => {
-      const button = makeText(
-        "button",
-        scored.entry.name,
-        "finding-select recent-finding",
-      );
-      button.append(
-        makeText(
-          "small",
-          riskLabel(scored.risk) +
-            " · " +
-            (SOURCE_LABELS[scored.entry.source] || scored.entry.source),
-        ),
-      );
-      button.addEventListener("click", () => openEvidence(scored, button));
-      recent.append(button);
-    });
-    if (!recent.children.length)
-      recent.append(
-        makeText(
-          "div",
-          coverageIncomplete(summary)
-            ? "No findings recorded. Review collection limits before drawing conclusions."
-            : "No findings in the collected evidence. A scan is not a guarantee of detection.",
-          "empty-state",
-        ),
-      );
-    setMetric(
-      "ov-critical",
-      String(t.critical),
-      t.critical ? "is-bad" : "is-ok",
-    );
-    setMetric(
-      "ov-suspicious",
-      String(t.suspicious),
-      t.suspicious ? "is-warn" : "is-ok",
-    );
-    setMetric("ov-duration", fmtDuration(scanDurationMs), null);
+    if (recentPanel && recent) {
+      recent.replaceChildren();
+      (summary.suspicious_for_review || []).slice(0, 4).forEach((scored) => {
+        const button = makeText(
+          "button",
+          scored.entry.name,
+          "finding-select recent-finding",
+        );
+        button.append(
+          makeText(
+            "small",
+            riskLabel(scored.risk) +
+              " · " +
+              (SOURCE_LABELS[scored.entry.source] || scored.entry.source),
+          ),
+        );
+        button.addEventListener("click", () => openEvidence(scored, button));
+        recent.append(button);
+      });
+      recentPanel.classList.toggle("hidden", recent.children.length === 0);
+    }
+    const reviewBtn = document.getElementById("ov-review-btn");
+    if (reviewBtn) {
+      reviewBtn.disabled = false;
+      reviewBtn.title = "Open the findings collected this session";
+    }
     const ovScope = document.getElementById("ov-scope");
     if (ovScope) {
-      const areas = ovStates.length
-        ? ovStates.map((r) => r.area).join(" · ")
-        : "Startup entries · Services · Tasks · WMI";
-      ovScope.textContent =
-        "Scope: " +
-        areas +
-        " · " +
-        summary.total +
-        " checked · " +
-        skipped +
-        " skipped" +
-        (lastScanAt ? " · " + lastScanAt.toLocaleString() : "");
-    }
-    const ovActions = document.getElementById("ov-actions");
-    const ovActionsEmpty = document.getElementById("ov-actions-empty");
-    if (ovActions) {
-      ovActions.innerHTML = "";
-      const recent = eventLog.slice(-5).reverse();
-      for (const ev of recent) {
-        const li = document.createElement("li");
-        const time = document.createElement("span");
-        time.className = "ev-time";
-        try {
-          time.textContent = ev.at.toLocaleTimeString();
-        } catch (_) {
-          time.textContent = "";
-        }
-        const tag = document.createElement("b");
-        tag.textContent = "[" + (ev.kind || "info") + "]";
-        const body = document.createElement("span");
-        body.className = "selectable";
-        body.textContent = ev.text || "";
-        li.append(time, tag, body);
-        ovActions.appendChild(li);
+      if (scanPhase === "failed") {
+        ovScope.textContent = "No complete collection this session.";
+      } else {
+        const areas = ovStates.length
+          ? ovStates.map((r) => r.area).join(" · ")
+          : "Startup entries · Services · Tasks · WMI";
+        ovScope.textContent =
+          "Scope: " +
+          areas +
+          " · " +
+          summary.total +
+          " checked · " +
+          skipped +
+          " skipped" +
+          (typeof summary.elevated === "boolean"
+            ? summary.elevated
+              ? " · elevated scan"
+              : " · standard-user scan"
+            : "") +
+          (lastScanAt ? " · " + lastScanAt.toLocaleString() : "");
       }
-      if (ovActionsEmpty)
-        ovActionsEmpty.classList.toggle("hidden", recent.length > 0);
     }
-    updateOvIncident();
+    renderOverviewTimeline();
 
     const bySource = {};
     summary.high_risk_cleaned
@@ -2282,7 +2520,7 @@
       return covRow(label, detail, level);
     };
     const cov = document.getElementById("ov-coverage");
-    cov.innerHTML = "";
+    cov.replaceChildren();
     // Prefer backend access states when present: a failed/skipped check
     // renders its state — never a bare "checked — nothing flagged" zero.
     const states = summary.source_states || [];
@@ -2351,41 +2589,7 @@
         ),
       );
     } else {
-      cov.append(
-        srcRow("RegistryRun", "Registry autoruns (Run / RunOnce)"),
-        srcRow("StartupFolder", "Startup folder"),
-        srcRow("ScheduledTask", "Scheduled tasks"),
-        srcRow("WindowsService", "Auto-start services"),
-        srcRow("WmiSubscription", "WMI event subscriptions"),
-        srcRow("IfeoDebugger", "IFEO debuggers"),
-        srcRow("AppInitDlls", "AppInit DLLs"),
-        srcRow("ComHijack", "COM hijacks (HKCU)"),
-        covRow(
-          "Running processes",
-          (t.proc ? t.proc + " flagged · " : "") + "Coverage not reported",
-          t.proc ? "warn" : "idle",
-        ),
-        covRow(
-          "Ransom indicators",
-          (t.ransom ? t.ransom + " found · " : "") + "Coverage not reported",
-          t.ransom ? "bad" : "idle",
-        ),
-        covRow(
-          "Canary guard",
-          canaryTriggered
-            ? "TRIGGERED — see Canary Guard"
-            : canaryActive
-              ? "active — watching decoys"
-              : "off",
-          canaryTriggered ? "bad" : canaryActive ? "ok" : "idle",
-        ),
-      );
-    }
-    const ovSub = document.getElementById("ov-subline");
-    if (ovSub && typeof summary.elevated === "boolean") {
-      ovSub.textContent += summary.elevated
-        ? " · elevated scan"
-        : " · standard-user scan";
+      renderIdleCoverage();
     }
   }
 
@@ -2615,13 +2819,21 @@
 
   // ---- quarantine view (real backend data) ----
 
+  // Quarantine vault count: durable evidence across sessions, deliberately
+  // labelled as such so it is never read as this session's activity.
   async function refreshQuarantineCount() {
     try {
       const records = await invoke("list_quarantine");
-      setMetric("ov-quarantined", String(records.length), null);
+      quarantineVaultCount = records.length;
+      setMetric(
+        "ov-quarantined",
+        records.length + (records.length === 1 ? " item" : " items"),
+        null,
+      );
     } catch (_) {
       setMetric("ov-quarantined", "Unavailable", null);
     }
+    updateOvAside();
   }
   async function refreshQuarantine() {
     const list = document.getElementById("q-list"),
@@ -3707,11 +3919,15 @@
           : "No windows observed in this window.";
       }
     }
-    try {
-      updateOvIncident();
-    } catch (_) {
-      /* overview not ready */
-    }
+    // An observation that actually ran is a verified session event.
+    logEvent(
+      "action",
+      "login observation finished: " +
+        ((lastIncident.processes || []).length || 0) +
+        " processes, " +
+        ((lastIncident.windows || []).length || 0) +
+        " windows observed",
+    );
     const incView = document.getElementById("view-incident");
     if (incView && !incView.classList.contains("hidden"))
       focusViewHeading(incView);
@@ -3925,16 +4141,15 @@
   (async () => {
     scanView.classList.add("hidden");
     showViewInstant(document.getElementById("view-overview"));
-    paintOverviewDial(null, null);
-    updateOverviewReclaimable();
-    setPill("idle", "Ready");
+    renderOverviewIdle();
+    loadOperatorPosture();
+    restorePill();
     refreshQuarantineCount();
     document
       .getElementById("start-rescue-btn")
       .addEventListener("click", async () => {
         if (["running", "preparing"].includes(scanPhase)) return;
         scanPhase = "preparing";
-        renderSessionMeta(lastSummary);
         window.CureSweep.start();
         setPill("scanning", "Reviewing overlay candidates");
         await switchView(currentView(), scanView);
