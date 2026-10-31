@@ -195,109 +195,195 @@
 
             <div class="ar-head">
               <div class="ar-head-copy">
-                <div class="eyebrow">AI agent visibility / flight recorder</div>
-                <h1 class="headline">See what changed while agents were running.</h1>
-                <p class="subline">
-                  Detect supported coding agents, record observable workspace
-                  changes during an explicit session, and separate what was
-                  observed from what can only be correlated.
-                </p>
+                <div class="eyebrow">AI agent intelligence</div>
+                <h1 class="headline">Agent Radar</h1>
               </div>
               <div class="ar-head-actions">
-                <div class="operator-node ar-operator-node">
-                  <div class="operator-node-head">
-                    <div class="operator-id">
-                      <span class="operator-pulse-dot"></span>
-                      <span>SESSION INTELLIGENCE</span>
-                    </div>
-                    <span class="operator-level-badge level-0-observe" id="ar-session-operator-badge">MONITORING</span>
-                  </div>
-                  <div class="operator-rec-desc" id="ar-session-desc">
-                    Scanning local process table for supported coding agents, local model servers, and orphaned worker processes.
-                  </div>
-                </div>
-                <button class="btn btn-primary" id="ar-jump-monitor" type="button">
-                  Set up recording
+                <span
+                  class="ar-scan-at"
+                  id="ar-scan-at"
+                  title="When the current process snapshot was taken"
+                  >Not scanned this session</span
+                >
+                <button class="btn" id="ar-refresh" type="button">
+                  Refresh
+                </button>
+                <button class="btn btn-primary" id="ar-scan-now" type="button">
+                  Scan Agents
                 </button>
               </div>
             </div>
-
-            <ol aria-label="How this investigation works" class="ar-steps">
-              <li><span>01</span>Choose workspace</li>
-              <li><span>02</span>Detect supported agents</li>
-              <li><span>03</span>Record observable changes</li>
-              <li><span>04</span>Investigate evidence</li>
-              <li><span>05</span>Export privacy-safe case file</li>
-            </ol>
 
             <div class="ar-layout">
               <section class="ar-panel ar-radar-panel">
                 <div class="ar-panel-head">
                   <div>
-                    <h2 class="section-title">Agent radar</h2>
+                    <h2 class="section-title">Detection radar</h2>
                     <p class="ar-panel-sub">
-                      Local process presence sample. Presence is not activity.
+                      One manual sweep of the local process table.
                     </p>
-                  </div>
-                  <div class="ar-head-actions-group">
-                    <button class="btn btn-primary" id="ar-scan-now" type="button">
-                      Scan Now
-                    </button>
-                    <button class="ghost-btn" id="ar-refresh" type="button">
-                      Refresh
-                    </button>
-                    <button class="ghost-btn hidden" id="ar-scan-cancel" type="button">
-                      Cancel
-                    </button>
                   </div>
                 </div>
 
-                <div class="ar-radar" id="ar-radar" data-signal="none">
-                  <div aria-hidden="true" class="ar-radar-sweep"></div>
-                  <div aria-hidden="true" class="ar-radar-ring r1"></div>
-                  <div aria-hidden="true" class="ar-radar-ring r2"></div>
-                  <div aria-hidden="true" class="ar-radar-ring r3"></div>
-                  <div aria-hidden="true" class="ar-radar-axis x"></div>
-                  <div aria-hidden="true" class="ar-radar-axis y"></div>
-                  <div class="ar-radar-core">
-                    <span class="ar-radar-count" id="ar-detected-count">0</span>
-                    <span class="ar-radar-label" id="ar-radar-label">supported detected</span>
-                  </div>
+                <div
+                  class="ar-radar"
+                  data-phase="idle"
+                  data-signal="none"
+                  id="ar-radar"
+                >
+                  <svg
+                    aria-hidden="true"
+                    class="ar-radar-svg"
+                    viewBox="0 0 200 200"
+                  >
+                    <defs>
+                      <radialGradient
+                        cx="50%"
+                        cy="50%"
+                        id="ar-sweep-grad"
+                        r="50%"
+                      >
+                        <stop
+                          offset="0%"
+                          stop-color="rgba(34, 211, 238, 0.5)"
+                        ></stop>
+                        <stop
+                          offset="70%"
+                          stop-color="rgba(34, 211, 238, 0.14)"
+                        ></stop>
+                        <stop
+                          offset="100%"
+                          stop-color="rgba(34, 211, 238, 0)"
+                        ></stop>
+                      </radialGradient>
+                    </defs>
+                    <circle
+                      cx="100"
+                      cy="100"
+                      r="88"
+                      fill="none"
+                      stroke="var(--hair)"
+                      stroke-width="1"
+                    ></circle>
+                    <circle
+                      class="ar-ring"
+                      cx="100"
+                      cy="100"
+                      r="66"
+                      fill="none"
+                      stroke="rgba(34, 211, 238, 0.16)"
+                      stroke-width="1"
+                    ></circle>
+                    <circle
+                      class="ar-ring"
+                      cx="100"
+                      cy="100"
+                      r="44"
+                      fill="none"
+                      stroke="rgba(34, 211, 238, 0.12)"
+                      stroke-width="1"
+                    ></circle>
+                    <circle
+                      class="ar-ring"
+                      cx="100"
+                      cy="100"
+                      r="22"
+                      fill="none"
+                      stroke="rgba(139, 111, 240, 0.2)"
+                      stroke-width="1"
+                    ></circle>
+                    <line
+                      stroke="var(--hair)"
+                      stroke-width="1"
+                      x1="12"
+                      x2="188"
+                      y1="100"
+                      y2="100"
+                    ></line>
+                    <line
+                      stroke="var(--hair)"
+                      stroke-width="1"
+                      x1="100"
+                      x2="100"
+                      y1="12"
+                      y2="188"
+                    ></line>
+                    <g class="ar-sweep" fill="url(#ar-sweep-grad)">
+                      <path
+                        d="M100 100 L100 12 A88 88 0 0 1 176.2 56 Z"
+                      ></path>
+                    </g>
+                  </svg>
                   <div class="ar-blips" id="ar-blips"></div>
+                  <div class="ar-radar-core">
+                    <span class="ar-radar-count" id="ar-detected-count">—</span>
+                    <span class="ar-radar-label" id="ar-radar-label"
+                      >not scanned</span
+                    >
+                  </div>
+                </div>
+
+                <div
+                  aria-label="Indicator legend"
+                  class="ar-legend"
+                >
+                  <span><i class="ar-legend-dot tone-ok"></i>Verified</span>
+                  <span><i class="ar-legend-dot tone-warn"></i>Unverified</span>
+                  <span><i class="ar-legend-dot tone-bad"></i>Suspect</span>
+                  <span><i class="ar-legend-dot tone-info"></i>Model server</span>
                 </div>
 
                 <div class="ar-radar-readout">
                   <span class="ar-live-dot" id="ar-live-dot"></span>
                   <span id="ar-radar-note"
-                    >No supported agent process detected in this sample.</span
+                    >Not scanned this session. Run a scan to enumerate
+                    supported agent processes.</span
                   >
                 </div>
 
-                <ul aria-label="Supported agents" class="ar-agent-list" id="ar-agent-list"></ul>
+                <ul
+                  aria-label="Detected agents"
+                  class="ar-agent-list"
+                  id="ar-agent-list"
+                ></ul>
                 <div class="empty-state ar-rich-empty" id="ar-agents-empty">
                   <div class="ar-empty-title">
-                    <svg class="ar-empty-radar-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                      <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
-                      <circle cx="12" cy="12" r="6" stroke-opacity="0.5"/>
-                      <circle cx="12" cy="12" r="2"/>
-                      <path d="M12 2 L12 12 L18 18" stroke-linecap="round"/>
+                    <svg
+                      aria-hidden="true"
+                      class="ar-empty-radar-icon"
+                      fill="none"
+                      height="20"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                      width="20"
+                    >
+                      <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+                      <circle cx="12" cy="12" r="6" stroke-opacity="0.5"></circle>
+                      <circle cx="12" cy="12" r="2"></circle>
+                      <path
+                        d="M12 2 L12 12 L18 18"
+                        stroke-linecap="round"></path>
                     </svg>
-                    <strong>No Supported AI Agents Detected in Sample</strong>
+                    <strong id="ar-empty-title">Not scanned this session</strong>
                   </div>
-                  <p class="ar-empty-lead">
-                    C.U.R.E queries local Windows process tables on-demand. A terminal, Node.js or Python runtime is never guessed to be an agent. Only recognized tool binaries and Authenticode digital signatures are validated.
+                  <p class="ar-empty-lead" id="ar-empty-lead">
+                    Scan Agents reads the local process table once and reports
+                    what it saw. Nothing is watched, started or stopped.
                   </p>
-                  <div class="ar-supported-grid">
-                    <span class="ar-tool-chip"><code>OpenCode</code> CLI / Server</span>
-                    <span class="ar-tool-chip"><code>Codex CLI</code> Authenticode</span>
-                    <span class="ar-tool-chip"><code>Claude Code</code> Terminal</span>
-                    <span class="ar-tool-chip"><code>Aider</code> Git-paired</span>
-                    <span class="ar-tool-chip"><code>Ollama</code> Model Server</span>
-                    <span class="ar-tool-chip"><code>Cursor</code> Editor Agent</span>
-                    <span class="ar-tool-chip"><code>Cline / Continue</code> Extension</span>
-                  </div>
-                  <div class="ar-empty-foot">
-                    <span>Start the agent or model server normally, then click <b>Scan Now</b> or <b>Refresh</b>.</span>
+                  <div class="ar-supported-grid" id="ar-supported-grid">
+                    <span class="ar-tool-chip"><code>OpenCode</code></span>
+                    <span class="ar-tool-chip"><code>Codex</code></span>
+                    <span class="ar-tool-chip"><code>Claude Code</code></span>
+                    <span class="ar-tool-chip"><code>Antigravity</code></span>
+                    <span class="ar-tool-chip"><code>Cursor</code></span>
+                    <span class="ar-tool-chip"><code>Windsurf</code></span>
+                    <span class="ar-tool-chip"><code>Gemini CLI</code></span>
+                    <span class="ar-tool-chip"><code>Aider</code></span>
+                    <span class="ar-tool-chip"><code>Ollama</code></span>
+                    <span class="ar-tool-chip"><code>Cline</code></span>
+                    <span class="ar-tool-chip"><code>Continue</code></span>
+                    <span class="ar-tool-chip"><code>Copilot</code></span>
                   </div>
                 </div>
               </section>
@@ -305,7 +391,7 @@
               <section class="ar-panel ar-flight-panel">
                 <div class="ar-panel-head">
                   <div>
-                    <h2 class="section-title">Agent Flight Recorder</h2>
+                    <h2 class="section-title">Flight Recorder</h2>
                     <p class="ar-panel-sub" id="ar-session-sub">
                       Nothing is watched until you start a session.
                     </p>
@@ -319,7 +405,7 @@
                     <input
                       autocomplete="off"
                       id="ar-workspace"
-                      placeholder="C:\Projects\my-app"
+                      placeholder="D:\Projects\my-app"
                       spellcheck="false"
                       type="text"
                     />
@@ -336,31 +422,27 @@
                 <div class="empty-state ar-flight-empty" id="ar-flight-empty">
                   <strong>No recording in progress</strong>
                   <span
-                    >Choose a local folder, start monitoring, then make changes
-                    with your agent. C.U.R.E records metadata only: no file
-                    contents, prompts, credentials or chat transcripts.</span
+                    >Start monitoring to record workspace metadata changes.
+                    File contents, prompts and credentials are never
+                    read.</span
                   >
-                  <ul class="ar-empty-facts">
-                    <li><b>Recorded</b> workspace-relative paths, change kind, size metadata, observation source and coverage limits.</li>
-                    <li><b>Never read</b> file contents, prompts, credentials, chat transcripts or clipboard data.</li>
-                    <li><b>Never attributed</b> a running agent is not named as the author of a change.</li>
-                  </ul>
                 </div>
 
                 <div class="ar-flight hidden" id="ar-flight-live">
                   <dl class="ar-stats">
-                    <div><dt>Observed changes</dt><dd id="ar-stat-total">0</dd></div>
+                    <div><dt>Observed</dt><dd id="ar-stat-total">0</dd></div>
                     <div><dt>Created</dt><dd id="ar-stat-created">0</dd></div>
                     <div><dt>Modified</dt><dd id="ar-stat-modified">0</dd></div>
                     <div><dt>Removed</dt><dd id="ar-stat-removed">0</dd></div>
-                    <div><dt>Net metadata size</dt><dd id="ar-stat-bytes">0 B</dd></div>
-                    <div><dt>Evidence state</dt><dd id="ar-stat-confidence">—</dd></div>
+                    <div><dt>Net size</dt><dd id="ar-stat-bytes">0 B</dd></div>
+                    <div><dt>Evidence</dt><dd id="ar-stat-confidence">—</dd></div>
+                    <div><dt>Duration</dt><dd id="ar-session-duration">—</dd></div>
                   </dl>
 
                   <div class="ar-coverage" id="ar-coverage" role="status"></div>
 
                   <div class="ar-scrub-row">
-                    <label for="ar-scrub">Replay recorded observations</label>
+                    <label for="ar-scrub">Replay</label>
                     <input id="ar-scrub" max="0" min="0" step="1" type="range" value="0" />
                     <span class="ar-scrub-label" id="ar-scrub-label">Live</span>
                   </div>
@@ -388,9 +470,8 @@
                       <div class="empty-state" id="ar-event-empty">
                         <strong>No changes observed yet</strong>
                         <span
-                          >Save a file, run a build, or let the agent edit the
-                          workspace. New metadata changes appear here as they
-                          are observed.</span
+                          >New metadata changes appear here as they are
+                          observed.</span
                         >
                       </div>
                     </div>
@@ -398,9 +479,8 @@
                       <div class="empty-state" id="ar-evidence-empty">
                         <strong>Select an observation</strong>
                         <span
-                          >The evidence panel shows the observed metadata, the
-                          source of the observation and what remains
-                          unknown.</span
+                          >Observed metadata, source and evidence limits appear
+                          here.</span
                         >
                       </div>
                       <div class="hidden" id="ar-evidence-card"></div>
@@ -408,12 +488,8 @@
                   </div>
 
                   <p class="ar-caveat">
-                    Watcher events do not identify the process that wrote a
-                    file. <b>Correlated</b> means a supported agent process was
-                    present while the change was observed. It is not
-                    attribution. Reconciliation at stop can recover changes the
-                    watcher missed but cannot recover files created and removed
-                    between snapshots.
+                    <b>Correlated</b> means a supported agent process was present
+                    while the change was observed — it is not attribution.
                   </p>
                 </div>
               </section>
@@ -424,8 +500,7 @@
                 <div>
                   <h2 class="section-title">Windows Change Radar</h2>
                   <p class="ar-panel-sub">
-                    Reuses the same read-only persistence evidence as Rescue.
-                    No registry or service is modified.
+                    Read-only persistence snapshot and comparison.
                   </p>
                 </div>
                 <div class="ar-win-actions">
@@ -443,8 +518,7 @@
               <div class="ar-win-summary hidden" id="ar-win-summary"></div>
               <div class="ar-win-lists" id="ar-win-lists"></div>
               <p class="ar-caveat" id="ar-win-note">
-                Differences are review leads, not malware verdicts. An agent is
-                never named as the cause without direct evidence.
+                Differences are review leads, not malware verdicts.
               </p>
             </section>
 
@@ -453,16 +527,14 @@
                 <div>
                   <h2 class="section-title">Agent Case File</h2>
                   <p class="ar-panel-sub">
-                    An allowlisted dossier: counts and labels only, plus an
-                    optional free-text note you choose to include. The engine
-                    captures no paths, folder names, file names, prompts,
-                    credentials or machine identifiers.
+                    An allowlisted dossier: counts and labels only. No paths,
+                    file names, prompts or credentials.
                   </p>
                 </div>
               </div>
               <div class="ar-case-controls">
                 <label class="ar-field" for="ar-case-summary">
-                  <span>Optional operator note (free text; screened for paths and addresses)</span>
+                  <span>Optional operator note (screened for paths and addresses)</span>
                   <input
                     autocomplete="off"
                     id="ar-case-summary"
@@ -482,13 +554,13 @@
                   Export Evidence Card
                 </button>
                 <button class="btn" id="ar-case-export-md" type="button">
-                  Export Markdown
+                  Markdown
                 </button>
                 <button class="btn" id="ar-case-export-json" type="button">
-                  Export JSON
+                  JSON
                 </button>
                 <button class="btn" id="ar-case-export-html" type="button">
-                  Export HTML
+                  HTML
                 </button>
               </div>
               <p class="ar-caveat" id="ar-case-status" role="status">

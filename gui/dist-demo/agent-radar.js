@@ -5,6 +5,10 @@
    while an agent was running is correlated, never attributed. This module
    only renders what the backend returns; it does not invent sessions,
    changes, timestamps or verdicts.
+
+   Session lifecycle: a fresh launch starts idle ("not scanned this
+   session"). The process table is read only when the operator clicks
+   Scan Agents / Refresh — never on a timer and never on page open.
    ========================================================================== */
 (function () {
   "use strict";
@@ -38,14 +42,19 @@
     demo: $("ar-demo-banner"),
     radar: $("ar-radar"),
     detected: $("ar-detected-count"),
+    radarLabel: $("ar-radar-label"),
     blips: $("ar-blips"),
     radarNote: $("ar-radar-note"),
+    scanAt: $("ar-scan-at"),
+    scanNow: $("ar-scan-now"),
+    refresh: $("ar-refresh"),
     agentList: $("ar-agent-list"),
     agentsEmpty: $("ar-agents-empty"),
-    refresh: $("ar-refresh"),
-    jump: $("ar-jump-monitor"),
+    emptyTitle: $("ar-empty-title"),
+    emptyLead: $("ar-empty-lead"),
     sessionSub: $("ar-session-sub"),
     sessionBadge: $("ar-session-badge"),
+    sessionDuration: $("ar-session-duration"),
     workspace: $("ar-workspace"),
     start: $("ar-start"),
     stop: $("ar-stop"),
@@ -92,7 +101,20 @@
     caseDataUrl: null,
     caseSignature: "",
     busy: false,
+    scanning: false,
+    scanQueued: false,
+    stopQueued: false,
+    // Unix seconds of the current process snapshot, or null when this
+    // session has not scanned yet. Drives the honest idle state.
+    scannedAt: null,
+    selectedAgent: null,
+    // pid -> AgentSessionDetail (real session-artifact intelligence).
+    sessionsByPid: {},
   };
+
+  // Monotonic token: a radar snapshot that arrives after a newer scan or
+  // lifecycle change must never be rendered.
+  let scanSeq = 0;
 
   const AGENT_LABELS = {
     opencode: "OpenCode",
@@ -106,6 +128,8 @@
     continue: "Continue",
     gemini_cli: "Gemini CLI",
     copilot: "GitHub Copilot",
+    antigravity: "Antigravity",
+    windsurf: "Windsurf",
   };
 
   const SOURCE_LABELS = {
@@ -127,6 +151,7 @@
 
   function humanBytes(n) {
     const value = Math.abs(Number(n) || 0);
+    if (!value) return null;
     if (value < 1024) return value + " B";
     const units = ["KB", "MB", "GB", "TB"];
     let v = value;
@@ -154,6 +179,15 @@
     });
   }
 
+  function relativeAge(unix) {
+    const secs = Math.floor(Date.now() / 1000) - Number(unix || 0);
+    if (!Number.isFinite(secs) || secs < 0) return null;
+    if (secs < 60) return "just now";
+    if (secs < 3600) return Math.floor(secs / 60) + "m ago";
+    if (secs < 86400) return Math.floor(secs / 3600) + "h ago";
+    return Math.floor(secs / 86400) + "d ago";
+  }
+
   function durationLabel(seconds) {
     const s = Math.max(0, Math.floor(Number(seconds) || 0));
     if (s >= 3600) return Math.floor(s / 3600) + "h " + String(Math.floor((s % 3600) / 60)).padStart(2, "0") + "m";
@@ -170,6 +204,25 @@
     if (v === "correlated") return "Correlated";
     if (v === "unknown") return "Unknown";
     return "Observed";
+  }
+
+  /* Short, honest classification of one process identity string. */
+  function identityTone(identity) {
+    const v = String(identity || "").toLowerCase();
+    if (v.indexOf("suspect") !== -1) return "bad";
+    if (v.indexOf("accessdenied") !== -1 || v.indexOf("denied") !== -1) return "bad";
+    if (v.indexOf("verified") !== -1 && v.indexOf("unverified") === -1) return "ok";
+    return "warn";
+  }
+
+  function identityShort(identity, fallbackLabel) {
+    const v = String(identity || "").toLowerCase();
+    if (v.indexOf("suspect") !== -1) return "Suspect identity";
+    if (v.indexOf("accessdenied") !== -1 || v.indexOf("denied") !== -1) return "Access denied";
+    if (v.indexOf("pathmissing") !== -1) return "Path missing";
+    if (v.indexOf("imagenameonly") !== -1) return "Image name only";
+    if (v.indexOf("verified") !== -1 && v.indexOf("unverified") === -1) return "Verified";
+    return fallbackLabel || "Unverified";
   }
 
   function showError(message) {
@@ -197,9 +250,100 @@
   }
 
   /* ---------------------------------------------------------------------
-     Radar
+     Radar lifecycle
      --------------------------------------------------------------------- */
 
+  function setPhase(phase) {
+    if (els.radar) els.radar.dataset.phase = phase;
+  }
+
+  function radarPhase() {
+    if (state.scanning) return "scanning";
+    if (state.session && state.session.active) return "monitoring";
+    return "idle";
+  }
+
+  function syncPhase() {
+    setPhase(radarPhase());
+    if (els.liveDot) {
+      els.liveDot.dataset.state =
+        state.scanning ? "scanning" : state.session && state.session.active ? "recording" : "idle";
+    }
+  }
+
+  /* Fresh launch: an honest idle state. Nothing has been read, so nothing
+     is reported — not even zeros that would read as "checked, clean". */
+  function renderIdleRadar() {
+    state.radar = null;
+    state.scannedAt = null;
+    clear(els.blips);
+    if (els.detected) els.detected.textContent = "—";
+    if (els.radarLabel) els.radarLabel.textContent = "not scanned";
+    if (els.radarNote)
+      els.radarNote.textContent =
+        "Not scanned this session. Run a scan to enumerate supported agent processes.";
+    if (els.scanAt) els.scanAt.textContent = "Not scanned this session";
+    clear(els.agentList);
+    els.agentList.classList.add("hidden");
+    els.agentsEmpty.classList.remove("hidden");
+    if (els.emptyTitle) els.emptyTitle.textContent = "Not scanned this session";
+    if (els.emptyLead)
+      els.emptyLead.textContent =
+        "Scan Agents reads the local process table once and reports what it saw. Nothing is watched, started or stopped.";
+    syncPhase();
+  }
+
+  async function scanAgents() {
+    if (!invoke) return;
+    if (state.scanning) {
+      // One enumeration at a time; a request that lands mid-scan (e.g. the
+      // refresh that follows a recording start/stop) re-runs afterwards so
+      // the final snapshot reflects the newest lifecycle state.
+      state.scanQueued = true;
+      return;
+    }
+    state.scanning = true;
+    const seq = ++scanSeq;
+    syncPhase();
+    showError("");
+    setBusy(els.scanNow, true, "Scanning…");
+    setBusy(els.refresh, true, "Scanning…");
+    if (els.radarNote)
+      els.radarNote.textContent = "Enumerating the local process table…";
+    try {
+      const payload = await invoke("agent_radar");
+      if (seq !== scanSeq) return;
+      // Session-artifact intelligence is a second, read-only command; the
+      // radar still renders when it fails.
+      try {
+        const sessions = await invoke("operator_agent_sessions");
+        if (seq !== scanSeq) return;
+        state.sessionsByPid = {};
+        (Array.isArray(sessions) ? sessions : []).forEach(function (detail) {
+          state.sessionsByPid[detail.pid] = detail;
+        });
+      } catch (_) {
+        state.sessionsByPid = {};
+      }
+      renderRadar(payload);
+      showError("");
+    } catch (err) {
+      if (seq !== scanSeq) return;
+      if (els.radarNote)
+        els.radarNote.textContent =
+          "The scan could not be read: " + cleanError(err, "backend unavailable");
+      showError(cleanError(err, "The agent sample could not be read."));
+    } finally {
+      state.scanning = false;
+      setBusy(els.scanNow, false);
+      setBusy(els.refresh, false);
+      syncPhase();
+      if (state.scanQueued && !state.busy) {
+        state.scanQueued = false;
+        scanAgents();
+      }
+    }
+  }
 
   function openAgentInspector(agent, proc) {
     const dlg = document.getElementById("ar-agent-inspector");
@@ -268,6 +412,8 @@
     if (p.started_unix) {
       addProp("Start Time", new Date(p.started_unix * 1000).toLocaleString());
     }
+    const mem = humanBytes(p.memory_usage_bytes);
+    if (mem) addProp("Working Set (measured)", mem);
     if (p.cmdline_masked) {
       addProp("Command Line (Masked)", sanitizeDisplayPath(p.cmdline_masked), true);
     }
@@ -295,7 +441,7 @@
       try {
         const closed = await invoke("operator_agent_graceful_shutdown", { pid: p.pid });
         softBtn.textContent = closed ? "✔ Window Closed" : "Signal Sent";
-        setTimeout(() => refreshRadar(false), 800);
+        setTimeout(() => scanAgents(), 800);
       } catch (e) {
         alert("Graceful shutdown: " + e);
         softBtn.disabled = false;
@@ -330,7 +476,7 @@
         });
         alert(res.outcome || "Process tree terminated.");
         close();
-        refreshRadar(false);
+        scanAgents();
       } catch (e) {
         alert("Termination refused: " + e);
         termBtn.disabled = false;
@@ -364,14 +510,50 @@
     };
   }
 
+  /* Session-artifact intelligence: short, honest, from the real
+     operator_agent_sessions survey — never invented per agent. */
+  function sessionIntel(processes) {
+    for (const proc of processes || []) {
+      const detail = state.sessionsByPid[proc.pid];
+      if (detail && detail.recovery) return detail.recovery;
+    }
+    return null;
+  }
+
+  function sessionIntelLine(recovery) {
+    if (!recovery) return null;
+    const kind = String(recovery.state_kind || "").toLowerCase();
+    const count = Number(recovery.session_count) || 0;
+    const age = recovery.latest_activity_unix ? relativeAge(recovery.latest_activity_unix) : null;
+    let text;
+    if (kind.indexOf("unsupported") !== -1) {
+      text = "Session format unsupported for recovery";
+      if (count) text += " · " + count + " artifact group(s)";
+    } else if (kind.indexOf("active") !== -1) {
+      text = "Active session artifacts" + (count ? " · " + count + " session(s)" : "");
+      if (age) text += " · last activity " + age;
+    } else if (kind.indexOf("recoverable") !== -1) {
+      text = "Recoverable session artifacts" + (count ? " · " + count + " session(s)" : "");
+      if (age) text += " · last activity " + age;
+    } else if (kind.indexOf("existing") !== -1 || kind.indexOf("files") !== -1) {
+      text = count ? "Session artifacts found (inactive)" : "No session artifacts found";
+      if (age) text += " · last activity " + age;
+    } else if (kind.indexOf("running") !== -1) {
+      text = "Running · no session artifacts on disk";
+    } else {
+      text = recovery.status || "Session state unknown";
+    }
+    return text;
+  }
+
   function renderRadar(payload) {
     state.radar = payload || null;
     if (!payload) return;
+    state.scannedAt = Number(payload.generated_unix) || Math.floor(Date.now() / 1000);
 
     const agents = Array.isArray(payload.supported_agents)
       ? payload.supported_agents
       : [];
-    const detected = Number(payload.detected_count) || 0;
     const processCount = Array.isArray(payload.processes)
       ? payload.processes.length
       : 0;
@@ -379,7 +561,7 @@
     // Truthful classification: separate verified tools from unverified candidates & model servers
     let verifiedCount = 0;
     let candidateCount = 0;
-    let modelServerCount = Number(payload.model_server_count) || 0;
+    const modelServerCount = Number(payload.model_server_count) || 0;
 
     agents.forEach(function (a) {
       if (!a.detected) return;
@@ -395,28 +577,41 @@
       }
     });
 
-    const radarLabelEl = $("ar-radar-label");
+    const detectedList = agents.filter(function (a) {
+      return a.detected;
+    });
+
+    if (state.scannedAt && els.scanAt) {
+      els.scanAt.textContent = "Snapshot " + clock(state.scannedAt);
+    }
+
     if (verifiedCount > 0) {
       els.detected.textContent = String(verifiedCount);
-      if (radarLabelEl) radarLabelEl.textContent = verifiedCount === 1 ? "verified agent" : "verified agents";
+      if (els.radarLabel) els.radarLabel.textContent = verifiedCount === 1 ? "verified agent" : "verified agents";
       els.radar.dataset.signal = "detected";
     } else if (candidateCount > 0) {
       els.detected.textContent = String(candidateCount);
-      if (radarLabelEl) radarLabelEl.textContent = candidateCount === 1 ? "unverified candidate" : "unverified candidates";
+      if (els.radarLabel) els.radarLabel.textContent = candidateCount === 1 ? "unverified candidate" : "unverified candidates";
       els.radar.dataset.signal = "detected";
     } else if (modelServerCount > 0) {
       els.detected.textContent = String(modelServerCount);
-      if (radarLabelEl) radarLabelEl.textContent = modelServerCount === 1 ? "model server" : "model servers";
+      if (els.radarLabel) els.radarLabel.textContent = modelServerCount === 1 ? "model server" : "model servers";
       els.radar.dataset.signal = "detected";
     } else {
       els.detected.textContent = "0";
-      if (radarLabelEl) radarLabelEl.textContent = "agents detected";
+      if (els.radarLabel) els.radarLabel.textContent = "agents detected";
       els.radar.dataset.signal = "none";
     }
 
-    if (detected === 0 && modelServerCount === 0) {
+    if (detectedCount(payload) === 0 && modelServerCount === 0) {
       els.radarNote.textContent =
-        "No supported agent process detected in this sample. A process may start and stop between samples.";
+        "No supported agent process in this snapshot. A process may start and stop between snapshots.";
+      if (els.emptyTitle) els.emptyTitle.textContent = "No supported agents in this snapshot";
+      if (els.emptyLead)
+        els.emptyLead.textContent =
+          "The process table was read at " +
+          clock(state.scannedAt) +
+          ". Start the tool normally, then scan again.";
     } else if (candidateCount > 0 && verifiedCount === 0) {
       els.radarNote.textContent =
         candidateCount +
@@ -442,186 +637,224 @@
       els.radarNote.textContent = modelServerCount + " local model server(s) running (Ollama).";
     }
 
-    clear(els.blips);
-    const positions = [
-      { angle: 212, radius: 32 },
-      { angle: 330, radius: 38 },
-      { angle: 140, radius: 34 },
-      { angle: 35,  radius: 36 },
-    ];
-    let agentIdx = 0;
-    let modelServerIdx = 0;
+    renderBlips(detectedList);
+    renderAgentList(detectedList);
 
-    agents.forEach(function (agent) {
-      if (!agent.detected) return;
-      let left, top;
-      const isModelServer = !!agent.is_model_server;
-
-      if (isModelServer) {
-        // Dedicated Inner Orbit for Model Servers (radius 18%)
-        const mAngle = (modelServerIdx * 120 + 45) * (Math.PI / 180);
-        left = 50 + Math.cos(mAngle) * 18;
-        top = 50 + Math.sin(mAngle) * 18;
-        modelServerIdx++;
-      } else {
-        const pos = positions[agentIdx % positions.length];
-        const rad = (pos.angle * Math.PI) / 180;
-        left = 50 + Math.cos(rad) * pos.radius;
-        top = 50 + Math.sin(rad) * pos.radius;
-        agentIdx++;
-      }
-
-      const blip = node("div", "ar-blip" + (isModelServer ? " ar-blip-model-server" : ""));
-      blip.dataset.state = agent.state || "idle";
-      blip.style.left = left + "%";
-      blip.style.top = top + "%";
-      blip.style.cursor = "pointer";
-      if (left > 58) blip.dataset.side = "left";
-
-      const isUnverified = !isModelServer && !(agent.processes || []).some(function (p) {
-        return (p.identity || "").indexOf("Verified") !== -1 && (p.identity || "").indexOf("Unverified") === -1;
-      });
-      const labelText = agent.label + (isModelServer ? " [Model Server]" : (isUnverified ? " [Unverified]" : " [Verified]"));
-      const label = node("span", "ar-blip-label", labelText);
-      blip.appendChild(label);
-
-      blip.title =
-        agent.label +
-        " · " +
-        (agent.process_count || (agent.processes && agent.processes.length) || 1) +
-        " process(es) · " +
-        (agent.state_label || "present") +
-        " — Click to inspect process intelligence";
-
-      blip.addEventListener("click", function () {
-        openAgentInspector(agent, (agent.processes && agent.processes[0]) || null);
-      });
-
-      els.blips.appendChild(blip);
-    });
-
-    clear(els.agentList);
-    let anyCard = false;
-    agents.forEach(function (agent) {
-      if (!agent.detected) return;
-      anyCard = true;
-      const li = node("li", "ar-agent-card");
-      const top = node("div", "ar-agent-top");
-      top.appendChild(node("strong", "ar-agent-name", agent.label));
-      if (agent.is_model_server) {
-        const catBadge = node("span", "chip chip-blue", "Model Server");
-        catBadge.title = "Local inference server, not an autonomous agent.";
-        top.appendChild(catBadge);
-      } else if (agent.state === "unverified_process") {
-        const catBadge = node("span", "chip chip-amber", "Unverified Process");
-        catBadge.title = "Executable matches image name but tool identity is unconfirmed (unsigned or unverified binary).";
-        top.appendChild(catBadge);
-      } else if (agent.state === "suspect_mismatch") {
-        const catBadge = node("span", "chip chip-red", "Suspect Binary");
-        catBadge.title = "Process image name matches but metadata/signer contradicts the genuine tool.";
-        top.appendChild(catBadge);
-      } else if (agent.state === "access_denied") {
-        const catBadge = node("span", "chip chip-red", "Access Denied");
-        catBadge.title = "Process query access denied. Cannot verify identity.";
-        top.appendChild(catBadge);
-      } else {
-        const catBadge = node("span", "chip chip-purple", "AI Agent");
-        top.appendChild(catBadge);
-      }
-      const badge = node("span", "ar-agent-state", agent.state_label || "Present");
-      badge.dataset.state = agent.state || "idle";
-      top.appendChild(badge);
-      li.appendChild(top);
-
-      const detail = node(
-        "div",
-        "ar-agent-detail",
-        (agent.process_count || 0) +
-          " process" +
-          ((agent.process_count || 0) === 1 ? "" : "es") +
-          " · " +
-          (agent.state_note || ""),
-      );
-      li.appendChild(detail);
-
-      (agent.processes || []).forEach(function (proc) {
-        const line = node(
-          "span",
-          "ar-agent-proc",
-          "PID " +
-            proc.pid +
-            " · " +
-            (proc.name || "process") +
-            (proc.started_unix ? " · started " + clock(proc.started_unix) : ""),
-        );
-        // sanitizeDisplayPath hoisted to module level for consistent redaction
-        const path = node(
-          "span",
-          "ar-agent-path",
-          sanitizeDisplayPath(proc.exe_path),
-        );
-        path.title = sanitizeDisplayPath(proc.exe_path);
-        li.appendChild(line);
-        li.appendChild(path);
-        li.appendChild(
-          (function () {
-            const identSpan = node("span", "ar-agent-note", proc.identity_label || "");
-            const identLower = String(proc.identity || "").toLowerCase();
-            if (identLower.indexOf("suspect") !== -1) {
-              identSpan.className = "ar-agent-note ar-agent-note-danger";
-            } else if (identLower.indexOf("unverified") !== -1) {
-              identSpan.className = "ar-agent-note ar-agent-note-warn";
-            }
-            return identSpan;
-          })(),
-        );
-      });
-
-      li.appendChild(
-        node("span", "ar-agent-note", agent.integration_note || ""),
-      );
-
-      const inspBtn = node("button", "btn btn-ghost ar-agent-btn-inspect", "Inspect Details");
-      inspBtn.type = "button";
-      inspBtn.addEventListener("click", function (ev) {
-        ev.stopPropagation();
-        openAgentInspector(agent, (agent.processes && agent.processes[0]) || null);
-      });
-      li.appendChild(inspBtn);
-      li.addEventListener("click", function () {
-        openAgentInspector(agent, (agent.processes && agent.processes[0]) || null);
-      });
-      els.agentList.appendChild(li);
-    });
-
-    els.agentList.classList.toggle("hidden", !anyCard);
-    els.agentsEmpty.classList.toggle("hidden", anyCard);
+    els.agentList.classList.toggle("hidden", detectedList.length === 0);
+    els.agentsEmpty.classList.toggle("hidden", detectedList.length > 0);
 
     if (payload.windows) {
       state.windows = payload.windows;
       renderWindows(payload.windows);
     }
 
-    if (payload.monitoring && (!state.session || payload.monitoring.active)) {
+    // A radar snapshot may only introduce a session the backend still
+    // reports as active; it never resurrects a stopped recording over a
+    // newer local state.
+    if (payload.monitoring && payload.monitoring.active) {
       applySession(payload.monitoring);
     }
+    syncPhase();
   }
 
-  async function refreshRadar(quiet) {
-    if (!invoke) return;
-    if (!quiet && els.refresh) setBusy(els.refresh, true, "Sampling…");
-    try {
-      const payload = await invoke("agent_radar");
-      renderRadar(payload);
-      showError("");
-      const det = (payload.detected_count || 0) + (payload.model_server_count || 0);
-    } catch (err) {
-      if (!quiet) {
-        showError(cleanError(err, "The agent sample could not be read."));
-      }
-    } finally {
-      if (!quiet && els.refresh) setBusy(els.refresh, false);
+  function detectedCount(payload) {
+    return Number(payload.detected_count) || 0;
+  }
+
+  /* Deterministic, non-decorative placement: coding agents spread evenly
+     on the outer band, model servers on the inner ring. No dots exist for
+     agents the backend did not detect. */
+  function renderBlips(detectedList) {
+    clear(els.blips);
+    const modelServers = detectedList.filter(function (a) {
+      return a.is_model_server;
+    });
+    const coding = detectedList.filter(function (a) {
+      return !a.is_model_server;
+    });
+    const showLabels = detectedList.length <= 5;
+
+    coding.forEach(function (agent, i) {
+      const angle = ((360 / Math.max(1, coding.length)) * i + 200) * (Math.PI / 180);
+      const radius = 31 - (i % 2) * 6; // outer band, two lanes (percent of container)
+      placeBlip(agent, angle, radius, false, showLabels, i);
+    });
+    modelServers.forEach(function (agent, i) {
+      const angle = ((360 / Math.max(1, modelServers.length)) * i + 45) * (Math.PI / 180);
+      placeBlip(agent, angle, 11, true, showLabels, i);
+    });
+  }
+
+  function placeBlip(agent, angle, radius, isModel, showLabels, index) {
+    const left = 50 + Math.cos(angle) * radius;
+    const top = 50 + Math.sin(angle) * radius;
+    const blip = node("button", "ar-blip" + (isModel ? " ar-blip-model-server" : ""));
+    blip.type = "button";
+    blip.dataset.agent = agent.id;
+    blip.dataset.state = agent.state || "idle";
+    const procs = agent.processes || [];
+    const tone = isModel
+      ? "info"
+      : identityTone((procs[0] && procs[0].identity) || "");
+    blip.dataset.tone = tone;
+    blip.style.left = left + "%";
+    blip.style.top = top + "%";
+    if (left > 58) blip.dataset.side = "left";
+    const isUnverified = tone === "warn";
+    const labelText = agent.label + (isModel ? "" : isUnverified ? " ·unverified" : "");
+    const label = node("span", "ar-blip-label", labelText);
+    if (!showLabels) label.classList.add("is-compact");
+    blip.appendChild(label);
+    if ((agent.process_count || procs.length) > 1) {
+      blip.appendChild(node("span", "ar-blip-count", String(agent.process_count || procs.length)));
     }
+    blip.setAttribute(
+      "aria-label",
+      agent.label +
+        " — " +
+        (agent.process_count || procs.length) +
+        " process(es), " +
+        (agent.state_label || "present") +
+        ". Activate to highlight details.",
+    );
+    blip.title =
+      agent.label +
+      " · " +
+      (agent.process_count || procs.length || 1) +
+      " process(es) · " +
+      (agent.state_label || "present");
+    blip.setAttribute("aria-pressed", String(state.selectedAgent === agent.id));
+    if (state.selectedAgent === agent.id) blip.classList.add("is-selected");
+    blip.addEventListener("click", function () {
+      selectAgent(agent.id);
+    });
+    els.blips.appendChild(blip);
+  }
+
+  function selectAgent(id) {
+    state.selectedAgent = state.selectedAgent === id ? null : id;
+    const cards = els.agentList.querySelectorAll(".ar-agent-card");
+    cards.forEach(function (card) {
+      const match = state.selectedAgent && card.dataset.agent === state.selectedAgent;
+      card.classList.toggle("is-selected", !!match);
+      if (match) {
+        expandCard(card, true);
+        card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
+    });
+    els.blips.querySelectorAll(".ar-blip").forEach(function (blip) {
+      const on = state.selectedAgent && blip.dataset.agent === state.selectedAgent;
+      blip.classList.toggle("is-selected", !!on);
+      blip.setAttribute("aria-pressed", String(!!on));
+    });
+  }
+
+  function expandCard(card, expand) {
+    const body = card.querySelector(".ar-agent-body");
+    const row = card.querySelector(".ar-agent-row");
+    if (!body) return;
+    const open = expand !== undefined ? expand : body.classList.contains("hidden");
+    body.classList.toggle("hidden", !open);
+    if (row) row.setAttribute("aria-expanded", String(open));
+  }
+
+  function renderAgentList(detectedList) {
+    clear(els.agentList);
+    detectedList.forEach(function (agent) {
+      const li = node("li", "ar-agent-card");
+      li.dataset.agent = agent.id;
+      const procs = agent.processes || [];
+      const tone = agent.is_model_server ? "info" : identityTone((procs[0] && procs[0].identity) || "");
+      li.dataset.tone = tone;
+
+      const row = node("button", "ar-agent-row");
+      row.type = "button";
+      row.setAttribute("aria-expanded", "false");
+      row.appendChild(node("span", "ar-agent-dot"));
+      row.appendChild(node("strong", "ar-agent-name", agent.label));
+
+      const catChip = node("span", "chip", agent.is_model_server ? "Model server" : "Agent");
+      catChip.classList.add(agent.is_model_server ? "chip-blue" : "chip-purple");
+      row.appendChild(catChip);
+
+      const badge = node("span", "ar-agent-state", agent.state_label || "Present");
+      badge.dataset.state = agent.state || "idle";
+      row.appendChild(badge);
+
+      const memTotal = procs.reduce(function (sum, pr) {
+        return sum + (Number(pr.memory_usage_bytes) || 0);
+      }, 0);
+      const memLabel = memTotal ? humanBytes(memTotal) : null;
+      row.appendChild(
+        node(
+          "span",
+          "ar-agent-meta",
+          (agent.process_count || procs.length) +
+            " proc" +
+            ((agent.process_count || procs.length) === 1 ? "" : "s") +
+            (memLabel ? " · " + memLabel : ""),
+        ),
+      );
+      row.appendChild(node("span", "ar-agent-chevron", "▾", undefined));
+      li.appendChild(row);
+
+      const body = node("div", "ar-agent-body hidden");
+
+      procs.forEach(function (proc) {
+        const line = node("div", "ar-proc");
+        line.appendChild(node("span", "ar-proc-pid", "PID " + proc.pid));
+        line.appendChild(node("span", "ar-proc-name", proc.name || "process"));
+        if (proc.started_unix) {
+          line.appendChild(node("span", "ar-proc-started", "started " + clock(proc.started_unix)));
+        }
+        const mem = humanBytes(proc.memory_usage_bytes);
+        if (mem) line.appendChild(node("span", "ar-proc-mem", mem + " working set"));
+        const ident = node(
+          "span",
+          "ar-agent-note ar-proc-identity tone-" + identityTone(proc.identity),
+          proc.identity_label || identityShort(proc.identity),
+        );
+        ident.title = proc.identity || "";
+        line.appendChild(ident);
+        const path = node("code", "ar-proc-path", sanitizeDisplayPath(proc.exe_path));
+        path.title = sanitizeDisplayPath(proc.exe_path);
+        line.appendChild(path);
+        body.appendChild(line);
+      });
+
+      const recovery = sessionIntel(procs);
+      const intelLine = sessionIntelLine(recovery);
+      if (intelLine) {
+        const intel = node(
+          "p",
+          "ar-agent-session",
+          "Session artifacts: " + intelLine,
+        );
+        if (recovery && recovery.details) intel.title = recovery.details;
+        body.appendChild(intel);
+      }
+
+      if (agent.state_note) body.appendChild(node("p", "ar-agent-note", agent.state_note));
+      if (agent.integration_note) body.appendChild(node("p", "ar-agent-note", agent.integration_note));
+
+      const actions = node("div", "ar-agent-actions");
+      const inspBtn = node("button", "btn btn-ghost ar-agent-btn-inspect", "Process intelligence");
+      inspBtn.type = "button";
+      inspBtn.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        openAgentInspector(agent, (agent.processes && agent.processes[0]) || null);
+      });
+      actions.appendChild(inspBtn);
+      body.appendChild(actions);
+
+      li.appendChild(body);
+      row.addEventListener("click", function () {
+        expandCard(li);
+      });
+      els.agentList.appendChild(li);
+    });
+
+    if (state.selectedAgent) selectAgent(state.selectedAgent);
   }
 
   /* ---------------------------------------------------------------------
@@ -678,6 +911,7 @@
       }
     }
     renderSession();
+    syncPhase();
   }
 
   function renderSession() {
@@ -707,6 +941,7 @@
       state.caseSignature !== session.id + ":" + session.events.length;
 
     if (!hasSession) {
+      if (els.sessionDuration) els.sessionDuration.textContent = "—";
       els.caseStatus.textContent = "Stop a monitoring session to unlock the case file.";
       return;
     }
@@ -728,6 +963,9 @@
     els.statModified.textContent = String(counts.modified);
     els.statRemoved.textContent = String(counts.removed);
     els.statBytes.textContent = signedBytes(counts.net);
+    if (els.sessionDuration) {
+      els.sessionDuration.textContent = durationLabel(elapsed(session));
+    }
 
     const failures = [];
     if (counts.unknown) failures.push(counts.unknown + " unknown-context");
@@ -866,12 +1104,15 @@
       btn.dataset.seq = String(event.seq);
       if (event.seq === state.selectedSeq) btn.setAttribute("aria-current", "true");
       btn.appendChild(node("span", "ar-event-time", clock(event.at_unix)));
-      const path = node("span", "ar-event-path", event.path || "(renamed)");
-      path.title = event.path || "";
-      btn.appendChild(path);
       const kind = node("span", "ar-event-kind", event.kind);
       kind.dataset.kind = event.kind;
       btn.appendChild(kind);
+      const path = node("span", "ar-event-path", event.path || "(renamed)");
+      path.title = event.path || "";
+      btn.appendChild(path);
+      btn.appendChild(
+        node("span", "ar-event-conf", confidenceLabel(event.confidence)),
+      );
       btn.addEventListener("click", function () {
         state.selectedSeq = event.seq;
         renderSession();
@@ -888,7 +1129,7 @@
       if (visibleEvents.length === 0) {
         title.textContent = "No changes observed yet";
         body.textContent = session_active()
-          ? "Save a file, run a build, or let the agent edit the workspace. New metadata changes appear here as they are observed."
+          ? "Save a file, run a build, or let the agent edit the workspace."
           : "This session recorded no supported filesystem changes within the recorder's limits.";
       } else {
         title.textContent = "No observations match this filter";
@@ -930,6 +1171,7 @@
       ["Change", String(event.kind)],
       ["Evidence", confidenceLabel(event.confidence)],
       ["Source", SOURCE_LABELS[event.source] || String(event.source || "unknown")],
+      ["Workspace", session.workspace ? sanitizeDisplayPath(session.workspace) : "Not recorded"],
       ["Size before", event.size_before === null || event.size_before === undefined ? "Not captured" : humanBytes(event.size_before)],
       ["Size after", event.size_after === null || event.size_after === undefined ? "Not captured" : humanBytes(event.size_after)],
     ];
@@ -1051,7 +1293,7 @@
         summary.entry_count +
         " supported entries · " +
         (summary.note || "");
-      refreshRadar(true);
+      scanAgents();
     } catch (err) {
       els.winState.textContent = cleanError(err, "The snapshot could not be captured.");
     } finally {
@@ -1184,20 +1426,34 @@
       state.selectedSeq = null;
       resetCasePreview("");
       renderSession();
+      syncPhase();
       els.caseStatus.textContent =
         "Recording. Stop the session to review final reconciliation and unlock the case file.";
-      refreshRadar(true);
+      scanAgents();
     } catch (err) {
       showError(cleanError(err, "The monitoring session could not start."));
     } finally {
       state.busy = false;
       setBusy(els.start, false);
       renderSession();
+      syncPhase();
+      // A stop requested while the start was still running is honoured as
+      // soon as the session exists — a click is never silently dropped.
+      if (state.stopQueued) {
+        state.stopQueued = false;
+        stopSession();
+      }
     }
   }
 
   async function stopSession() {
-    if (state.busy) return;
+    if (state.busy) {
+      state.stopQueued = true;
+      return;
+    }
+    // This invocation covers any queued request; a double click must not
+    // fire a second stop that would only produce a spurious error.
+    state.stopQueued = false;
     state.busy = true;
     setBusy(els.stop, true, "Reconciling…");
     try {
@@ -1206,16 +1462,18 @@
       state.scrub = null;
       state.selectedSeq = null;
       renderSession();
+      syncPhase();
       els.caseStatus.textContent = session.coverage && session.coverage.complete
         ? "Recording stopped. Final reconciliation finished within recorder limits. Preview the case file."
         : "Recording stopped. Coverage is incomplete; read the coverage note before interpreting the result.";
-      refreshRadar(true);
+      scanAgents();
     } catch (err) {
       showError(cleanError(err, "The monitoring session could not be stopped cleanly."));
     } finally {
       state.busy = false;
       setBusy(els.stop, false);
       renderSession();
+      syncPhase();
     }
   }
 
@@ -1234,15 +1492,18 @@
      Wiring
      --------------------------------------------------------------------- */
 
-  els.refresh.addEventListener("click", function () {
-    refreshRadar(false);
-  });
+  if (els.refresh) {
+    els.refresh.addEventListener("click", function () {
+      scanAgents();
+    });
+  }
+  if (els.scanNow) {
+    els.scanNow.addEventListener("click", function () {
+      scanAgents();
+    });
+  }
   els.start.addEventListener("click", startSession);
   els.stop.addEventListener("click", stopSession);
-  els.jump.addEventListener("click", function () {
-    els.workspace.focus();
-    els.workspace.scrollIntoView({ block: "center", behavior: "smooth" });
-  });
   els.workspace.addEventListener("keydown", function (event) {
     if (event.key === "Enter" && !els.start.classList.contains("hidden")) {
       event.preventDefault();
@@ -1262,13 +1523,6 @@
       showError(cleanError(e, "Export failed."));
     });
   };
-
-  const btnScanNow = $("ar-scan-now");
-  if (btnScanNow) {
-    btnScanNow.addEventListener("click", function () {
-      refreshRadar(false);
-    });
-  }
 
   const btnMd = $("ar-case-export-md");
   if (btnMd) btnMd.addEventListener("click", () => exportDocFormat("markdown"));
@@ -1316,6 +1570,7 @@
     els.radarNote.textContent = "The Agent Radar is available in the desktop build.";
     els.sessionSub.textContent = "This build has no local engine.";
     els.start.disabled = true;
+    if (els.scanNow) els.scanNow.disabled = true;
     return;
   }
 
@@ -1323,8 +1578,16 @@
   function tick() {
     if (!tickTimer) return;
     if (view.classList.contains("hidden")) return;
-    refreshRadar(true);
+    // In-process session state is cheap and safe to poll; the process
+    // table is NEVER re-enumerated on a timer — detection happens only
+    // when the operator clicks Scan Agents / Refresh.
     refreshStatus(true);
+    if (state.session && state.session.active && els.sessionDuration) {
+      els.sessionDuration.textContent = durationLabel(elapsed(state.session));
+    }
+    if (state.session && state.session.active) {
+      syncPhase();
+    }
   }
 
   if (listen) {
@@ -1342,14 +1605,19 @@
 
   window.CureAgentRadar = {
     refresh: function () {
-      refreshRadar(false);
-      refreshStatus(false);
+      // Navigation must not auto-enumerate the process table. Session
+      // state is refreshed; the radar keeps its honest last-snapshot.
+      refreshStatus(true);
+      syncPhase();
+    },
+    scan: function () {
+      return scanAgents();
     },
     state: state,
   };
 
+  renderIdleRadar();
   renderSession();
-  refreshRadar(true);
   refreshStatus(true);
   tickTimer = window.setInterval(tick, 3000);
 })();

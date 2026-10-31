@@ -1274,10 +1274,10 @@
   // preparing or running, so repeated clicks can never stack scans.
   function runScan(preLines = [], origin = "rescue") {
     if (scanPhase === "running" || scanPhase === "preparing") return;
-    return _runScan(preLines, origin);
+    return _runScan(preLines, origin, viewToken);
   }
 
-  async function _runScan(preLines = [], origin = "rescue") {
+  async function _runScan(preLines = [], origin = "rescue", navBaseline = viewToken) {
     scanOrigin = origin === "overview" ? "overview" : "rescue";
     const xrayStartBtn = document.getElementById("xray-start-btn");
     const xrayInvestigateBtn = document.getElementById("xray-investigate-btn");
@@ -1299,7 +1299,10 @@
     scanStartedAt = performance.now();
     scanReportedAreas.clear();
     scanProgressLine = "";
-    if (scanOrigin === "rescue") {
+    if (scanOrigin === "rescue" && viewToken === navBaseline) {
+      // The scan flow may only take the operator to the scan view when
+      // they have not navigated somewhere else while the overlay check
+      // was preparing. A navigation during "preparing" wins.
       showViewInstant(scanView);
       setNav("scan-view");
     }
@@ -4207,7 +4210,7 @@
           (candidates.length - done.size) +
           " candidate(s) left open)",
       );
-      _runScan(lines, scanOrigin);
+      _runScan(lines, scanOrigin, viewToken);
     });
     contLi.appendChild(contBtn);
     logList.appendChild(contLi);
@@ -4228,6 +4231,9 @@
       if (["running", "preparing"].includes(scanPhase)) return;
       scanPhase = "preparing";
       scanOrigin = origin;
+      // Navigation baseline for the whole flow: if the operator navigates
+      // while the overlay check runs, the scan must not drag them back.
+      const flowNavToken = viewToken;
       setPill("scanning", "Reviewing overlay candidates");
       if (origin === "rescue") {
         window.CureSweep.start();
@@ -4240,7 +4246,7 @@
         rep = await invoke("list_overlay_candidates");
       } catch (e) {
         lines.push("Overlay check unavailable: " + e);
-        _runScan(lines, origin);
+        _runScan(lines, origin, flowNavToken);
         return;
       }
       const candidates = (rep && rep.candidates) || [];
@@ -4254,18 +4260,17 @@
       );
       if (candidates.length === 0) {
         lines.push("No suspicious overlay windows found");
-        _runScan(lines, origin);
+        _runScan(lines, origin, flowNavToken);
         return;
       }
       // Matches are SHOWN, never closed here: each card carries its own
       // Close / Force close / Don't-ask-again buttons, plus one button to
       // continue the scan. Nothing closes without a per-window click.
-      // The review cards live in the scan log, so an overview-origin scan
-      // brings the scan view forward for this one required interaction.
-      if (origin === "overview") {
-        showViewInstant(scanView);
-        setNav("scan-view");
-      }
+      // The review cards live in the scan log, so a scan that needs this
+      // operator interaction brings the scan view forward — the operator
+      // must act, so this is not an uninvited navigation.
+      showViewInstant(scanView);
+      setNav("scan-view");
       renderOverlayReview(candidates, lines);
     }
     document

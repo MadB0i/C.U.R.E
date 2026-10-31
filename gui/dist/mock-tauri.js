@@ -1796,6 +1796,7 @@
       name: "opencode.exe",
       exe_path: "C:\\Users\\demo\\AppData\\Local\\Programs\\opencode\\opencode.exe",
       started_unix: Math.floor(Date.now() / 1000) - 420,
+      memory_usage_bytes: 431229312,
       identity: "Verified",
       identity_label: "verified tool identity (canonical path / verified signer)",
     };
@@ -1803,32 +1804,37 @@
     return {
       generated_unix: Math.floor(Date.now() / 1000),
       detected_count: 1,
+      model_server_count: 0,
       supported_agents: [
         {
           id: "opencode",
           label: "OpenCode",
           detected: true,
           process_count: 1,
+          category: "Agent",
           state: active ? "session_connected" : "idle",
           state_label: active ? "Present during session" : "Present / idle",
           state_note: active
             ? "The process was present in the latest sample. Presence does not prove code generation."
             : "The process is present but has not been correlated with a recorded change in this session.",
           integration_note:
-            "Supported local integration: process image name only. No session API is consumed.",
+            "Supported local integration: process image name and metadata. No cloud or session API consumed.",
           processes: [opencodeProcess],
+          is_model_server: false,
         },
         {
           id: "codex_cli",
           label: "Codex CLI",
           detected: false,
           process_count: 0,
+          category: "Agent",
           state: "not_detected",
           state_label: "Not detected",
           state_note: "No process with a documented Codex CLI image name appeared in this sample.",
           integration_note:
-            "Supported local integration: process image name only. No session API is consumed.",
+            "Supported local integration: process image name and metadata. No cloud or session API consumed.",
           processes: [],
+          is_model_server: false,
         },
       ],
       processes: [opencodeProcess],
@@ -2564,19 +2570,29 @@
           case "operator_agent_sessions": {
             return Promise.resolve([
               {
-                pid: 1600,
+                pid: 6214,
                 parent_pid: 840,
                 kind: "opencode",
                 category: "agent",
-                name: "opencode-cli.exe",
-                exe_path: "C:\\Users\\Operator\\AppData\\Local\\Programs\\OpenCode\\opencode-cli.exe",
-                started_unix: Math.floor(Date.now() / 1000) - 3600,
-                uptime_seconds: 3600,
-                state: "unverified",
-                is_orphan: true,
+                name: "opencode.exe",
+                exe_path: "C:\\Users\\demo\\AppData\\Local\\Programs\\opencode\\opencode.exe",
+                started_unix: Math.floor(Date.now() / 1000) - 420,
+                uptime_seconds: 420,
+                state: "verified",
+                is_orphan: false,
                 child_pids: [1604, 1608],
-                evidence_summary: "Process PID 1600 is running as an ORPHANED process (parent PID 840 exited). 2 child worker processes active.",
+                evidence_summary: "Process PID 6214 matches the OpenCode image name and a verified signer. 2 child worker processes active.",
                 limitations: "Process query metadata only. Private prompts and conversation transcripts are never inspected.",
+                recovery: {
+                  supported: true,
+                  status: "ACTIVE SESSION ARTIFACTS",
+                  state_kind: "active_session",
+                  session_count: 3,
+                  storage_path: "C:\\Users\\demo\\AppData\\Roaming\\ai.opencode.desktop\\sessions",
+                  latest_session_utc: new Date(Date.now() - 240000).toISOString(),
+                  latest_activity_unix: Math.floor(Date.now() / 1000) - 240,
+                  details: "OpenCode desktop session history database found with 3 recorded sessions; the newest store was modified 4 minutes ago. Artifacts are never modified by C.U.R.E.",
+                },
               },
               {
                 pid: 4120,
@@ -2592,6 +2608,16 @@
                 child_pids: [],
                 evidence_summary: "Local Model Server PID 4120 running normally with verified Authenticode signature.",
                 limitations: "Model server process. Not an autonomous agent.",
+                recovery: {
+                  supported: false,
+                  status: "RECOVERY UNSUPPORTED",
+                  state_kind: "unsupported_session_format",
+                  session_count: 0,
+                  storage_path: null,
+                  latest_session_utc: null,
+                  latest_activity_unix: null,
+                  details: "Model servers expose no parseable conversation store; recovery is not offered.",
+                },
               }
             ]);
           }

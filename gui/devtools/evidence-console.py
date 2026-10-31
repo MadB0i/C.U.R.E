@@ -162,8 +162,8 @@ def scan_origin_flow(browser):
     check(not errors, "mid-scan navigation runtime: " + str(errors))
     ctx.close()
 
-    # --- Completion race (rescue origin): navigating as the scan finishes
-    #     must not let the shell snap back to the results view. ---
+    # --- Race 1 (preparing phase): navigating while the overlay check is
+    #     in flight must not let the scan drag the operator back. ---
     ctx, page, errors = open_page(browser, (900, 600))
     start_scan(page)
     page.wait_for_function(
@@ -174,9 +174,25 @@ def scan_origin_flow(browser):
     expect(page.locator("#view-agents")).to_be_visible(timeout=10000)
     page.wait_for_timeout(600)  # let any late completion continuation fire
     check(page.locator("#view-title").inner_text() == "AI Agent Radar",
-          "the completion race respects the operator's destination: "
+          "the preparing-phase race respects the operator's destination: "
           + page.locator("#view-title").inner_text())
     check(not errors, "completion-race runtime: " + str(errors))
+    ctx.close()
+
+    # --- Race 2 (completion instant): navigating exactly as the scan
+    #     finishes must not let the shell snap back to the results view. ---
+    ctx, page, errors = open_page(browser, (900, 600))
+    start_scan(page)
+    page.wait_for_function("window.__CURE_SCAN_DONE === true", timeout=30000)
+    page.locator("#nav-agents").click()
+    expect(page.locator("#view-agents")).to_be_visible(timeout=10000)
+    page.wait_for_timeout(600)
+    check(page.locator("#view-title").inner_text() == "AI Agent Radar",
+          "the completion-instant race respects the operator's destination: "
+          + page.locator("#view-title").inner_text())
+    check(page.locator("#results-view").is_hidden(),
+          "the completion-instant race does not open Investigate")
+    check(not errors, "completion-instant runtime: " + str(errors))
     ctx.close()
 
     # --- Failure from Overview: truthful failure, no stale results. ---
@@ -884,15 +900,71 @@ def detective_flow(browser):
 
 
 def agent_radar_flow(browser):
-    """Agent Radar: presence, recording, scoped evidence and safe case file."""
+    """Agent Radar: honest session lifecycle, presence, recording, scoped
+    evidence and a safe case file.
+
+    UI-02: a fresh launch shows an idle 'not scanned' radar; detections
+    appear only after an explicit operator scan; session-artifact intel
+    comes from the real operator_agent_sessions survey.
+    """
     ctx, page, errors = open_page(browser, (1440, 900))
     goto_view(page, '#nav-agents', 'view-agents')
-    expect(page.locator('#ar-detected-count')).to_have_text('1')
+
+    # Fresh launch: honest idle. No snapshot may pose as a current scan.
+    check(page.locator('#ar-radar').get_attribute('data-phase') == 'idle',
+          'the radar starts idle on a fresh launch')
+    check('Not scanned' in page.locator('#ar-radar-note').inner_text(),
+          'fresh launch states that nothing has been scanned')
+    check(page.locator('#ar-blips .ar-blip').count() == 0,
+          'no agent indicators exist before a scan')
+    check(page.locator('#ar-agent-list').is_hidden(),
+          'no agent inventory is presented before a scan')
+    check(page.locator('#ar-agent-list .ar-agent-card').count() == 0,
+          'no previous snapshot is shown as current results')
+    check(page.locator('#ar-scan-at').inner_text().strip() == 'Not scanned this session',
+          'the snapshot timestamp states that nothing has been scanned')
+    check(page.locator('#ar-flight-live').is_hidden(), 'no synthetic session exists before start')
+    check(not page.locator('#ar-scan-now').is_disabled(), 'the primary scan action is offered')
+
+    # Manual scan: real enumeration, in this case the labelled mock.
+    page.locator('#ar-scan-now').click()
+    expect(page.locator('#ar-detected-count')).to_have_text('1', timeout=15000)
     check(page.locator('#ar-blips .ar-blip').count() == 1,
           'the radar shows one observed supported process')
     expect(page.locator('#ar-agent-list .ar-agent-card').first).to_be_visible()
     check('Presence is not proof of activity' in page.locator('#ar-radar-note').inner_text(),
           'process presence is not presented as activity')
+    check(page.locator('#ar-scan-at').inner_text().startswith('Snapshot '),
+          'the last-scanned timestamp is real: ' + page.locator('#ar-scan-at').inner_text())
+    check(page.locator('#ar-radar').get_attribute('data-phase') == 'idle',
+          'the sweep stops once the scan finishes')
+
+    # Agent row: expandable, honest identity, real session-artifact intel.
+    page.locator('#ar-agent-list .ar-agent-card .ar-agent-row').first.click()
+    expect(page.locator('#ar-agent-list .ar-agent-body').first).to_be_visible()
+    check('verified tool identity' in page.locator('#ar-agent-list .ar-agent-card').first.inner_text(),
+          'identity confidence is stated in the inventory row')
+    check('Session artifacts' in page.locator('#ar-agent-list .ar-agent-card').first.inner_text(),
+          'session-artifact intelligence is surfaced from the real survey')
+    check('PID' in page.locator('#ar-agent-list .ar-agent-card').first.inner_text(),
+          'process identifiers are shown')
+
+    # Radar interaction: selecting the indicator highlights the inventory row.
+    page.locator('#ar-blips .ar-blip').first.click()
+    check(page.locator('#ar-agent-list .ar-agent-card').first.get_attribute('class').find('is-selected') != -1,
+          'selecting a radar indicator highlights the agent row')
+    check(page.locator('#ar-blips .ar-blip').first.get_attribute('aria-pressed') == 'true',
+          'the radar indicator reports its selected state to assistive tech')
+    page.locator('#ar-blips .ar-blip').first.click()
+    check(page.locator('#ar-agent-list .ar-agent-card').first.get_attribute('class').find('is-selected') == -1,
+          'selecting again clears the highlight')
+
+    # Refresh is a fresh enumeration, not a repaint.
+    page.locator('#ar-refresh').click()
+    expect(page.locator('#ar-agent-list .ar-agent-card').first).to_be_visible(timeout=15000)
+    check(page.locator('#ar-scan-at').inner_text().startswith('Snapshot '),
+          'refresh produces a fresh snapshot timestamp')
+
     check(page.locator('#ar-start').is_visible(), 'recording starts only from the explicit control')
     check(page.locator('#ar-flight-live').is_hidden(), 'no synthetic session exists before start')
 
@@ -904,6 +976,8 @@ def agent_radar_flow(browser):
           'all recorded observations are listed')
     check('not attribution' in page.locator('.ar-caveat').first.inner_text(),
           'the recorder states that correlation is not attribution')
+    check(page.locator('#ar-radar').get_attribute('data-phase') == 'monitoring',
+          'the sweep runs only while a recording is actually active')
 
     page.locator('#ar-event-list .ar-event').first.click()
     expect(page.locator('#ar-evidence-card')).to_be_visible()
@@ -912,6 +986,8 @@ def agent_radar_flow(browser):
     selected_seq = page.evaluate("window.CureAgentRadar.state.selectedSeq")
     check(('observation ' + str(selected_seq)) in page.locator('#ar-evidence-card').inner_text().lower(),
           'event detail uses the recorder sequence number')
+    check('Workspace' in page.locator('#ar-evidence-card').inner_text(),
+          'the evidence detail names the recording boundary')
 
     page.locator('#ar-filters [data-filter="removed"]').click()
     check(page.locator('#ar-event-list .ar-event').count() == 1,
@@ -922,6 +998,8 @@ def agent_radar_flow(browser):
 
     page.locator('#ar-stop').click()
     expect(page.locator('#ar-session-badge')).to_have_text('Stopped', timeout=10000)
+    check(page.locator('#ar-radar').get_attribute('data-phase') == 'idle',
+          'the sweep stops when the recording stops')
     check(page.locator('#ar-case-preview').is_enabled(), 'a stopped session unlocks the case file')
     page.locator('#ar-case-summary').fill('Reviewed a demo build')
     page.locator('#ar-case-include').check()
