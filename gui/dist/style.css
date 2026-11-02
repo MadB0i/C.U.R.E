@@ -331,7 +331,6 @@ h4 {
 h3,
 .section-title,
 .eyebrow,
-.feed-title,
 .modal-kicker {
   font-size: var(--t-2xs);
   font-weight: 650;
@@ -1368,17 +1367,6 @@ code,
 /* ==========================================================================
    Live collection log
    ========================================================================== */
-
-.feed-card {
-  min-width: 0;
-}
-
-.feed-head {
-  display: flex;
-  align-items: center;
-  gap: var(--s3);
-  margin-bottom: var(--s3);
-}
 
 .feed-count {
   margin-left: auto;

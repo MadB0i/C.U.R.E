@@ -225,13 +225,28 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         "Windows-only source",
     ));
     emit_stage(&app, "startup", "Walking the per-user Startup folder");
-    entries.extend(scanners::startup::scan(&startup_root()));
+    let startup_user = scanners::startup::scan(&startup_root());
     emit_stage(
         &app,
         "startup-common",
         "Walking the machine-wide Startup folder",
     );
-    entries.extend(scanners::startup::scan_common());
+    let startup_common = scanners::startup::scan_common();
+    let startup_total = startup_user.len() + startup_common.len();
+    record_source_state(
+        &app,
+        &mut source_states,
+        cure_core::report::CoverageRow::checked(
+            "Startup folders",
+            format!(
+                "{} entr{}",
+                startup_total,
+                if startup_total == 1 { "y" } else { "ies" }
+            ),
+        ),
+    );
+    entries.extend(startup_user);
+    entries.extend(startup_common);
     emit_stage(&app, "tasks", "Parsing scheduled task definitions");
     let task_report = scanners::scheduled_tasks::scan_report(&tasks_root());
     record_source_state(&app, &mut source_states, tasks_state_row(&task_report));
@@ -252,16 +267,54 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         record_source_state(&app, &mut source_states, wmi_state_row(&wmi_report));
         entries.extend(wmi_report.entries);
         emit_stage(&app, "ifeo", "Checking IFEO debuggers and AppInit DLLs");
-        entries.extend(scanners::ifeo::scan());
-        entries.extend(scanners::appinit::scan());
+        let ifeo_entries = scanners::ifeo::scan();
+        let appinit_entries = scanners::appinit::scan();
+        let ifeo_total = ifeo_entries.len() + appinit_entries.len();
+        record_source_state(
+            &app,
+            &mut source_states,
+            cure_core::report::CoverageRow::checked(
+                "IFEO and AppInit",
+                format!(
+                    "{} entr{}",
+                    ifeo_total,
+                    if ifeo_total == 1 { "y" } else { "ies" }
+                ),
+            ),
+        );
+        entries.extend(ifeo_entries);
+        entries.extend(appinit_entries);
         emit_stage(&app, "com", "Walking per-user COM registrations");
-        entries.extend(scanners::com::scan());
+        let com_entries = scanners::com::scan();
+        record_source_state(
+            &app,
+            &mut source_states,
+            cure_core::report::CoverageRow::checked(
+                "COM registrations",
+                format!(
+                    "{} entr{}",
+                    com_entries.len(),
+                    if com_entries.len() == 1 { "y" } else { "ies" }
+                ),
+            ),
+        );
+        entries.extend(com_entries);
     }
     #[cfg(not(windows))]
-    source_states.push(cure_core::report::CoverageRow::unavailable(
-        "WMI subscriptions",
-        "Windows-only source",
-    ));
+    {
+        source_states.push(cure_core::report::CoverageRow::unavailable(
+            "WMI subscriptions",
+            "Windows-only source",
+        ));
+        source_states.push(cure_core::report::CoverageRow::unavailable(
+            "IFEO and AppInit",
+            "Windows-only source",
+        ));
+        source_states.push(cure_core::report::CoverageRow::unavailable(
+            "COM registrations",
+            "Windows-only source",
+        ));
+    }
     let count = entries.len();
     emit_stage(
         &app,
@@ -440,6 +493,20 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
             process_findings.push(finding);
         }
     }
+    #[cfg(windows)]
+    record_source_state(
+        &app,
+        &mut source_states,
+        cure_core::report::CoverageRow::checked(
+            "Running processes",
+            format!("{} enumerated", processes.len()),
+        ),
+    );
+    #[cfg(not(windows))]
+    source_states.push(cure_core::report::CoverageRow::unavailable(
+        "Running processes",
+        "Windows-only source",
+    ));
     // ── ransom detection ───────────────────────────────────────────────
     emit_stage(
         &app,
@@ -493,6 +560,22 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         );
         ransom_findings.push(rf);
     }
+    let ransom_row = if folders.is_empty() {
+        cure_core::report::CoverageRow::not_checked(
+            "Ransom indicators",
+            "no user profile folders found",
+        )
+    } else {
+        cure_core::report::CoverageRow::checked(
+            "Ransom indicators",
+            format!(
+                "{} folders, {} findings",
+                folders.len(),
+                ransom_findings.len()
+            ),
+        )
+    };
+    record_source_state(&app, &mut source_states, ransom_row);
     emit_stage(&app, "done", "Saving baseline");
     baseline::save_baseline(&data_dir.join("baseline.json"), &entries)
         .map_err(|e| format!("cannot write baseline: {e}"))?;
@@ -4514,10 +4597,14 @@ mod end_process_target_tests {
     fn matching_snapshot_is_accepted() {
         let live = live_process("codex.exe", Some(1_700_000_000));
         assert!(validate_end_process_target(&live, "codex.exe", Some(1_700_000_000)).is_ok());
-        assert!(validate_end_process_target(&live, "CODEX.EXE", Some(1_700_000_001)).is_ok(),
-            "name is case-insensitive and start time has a 2 s tolerance");
-        assert!(validate_end_process_target(&live, "  codex.exe  ", None).is_ok(),
-            "a snapshot without a start time is still name-checked");
+        assert!(
+            validate_end_process_target(&live, "CODEX.EXE", Some(1_700_000_001)).is_ok(),
+            "name is case-insensitive and start time has a 2 s tolerance"
+        );
+        assert!(
+            validate_end_process_target(&live, "  codex.exe  ", None).is_ok(),
+            "a snapshot without a start time is still name-checked"
+        );
     }
 
     #[test]

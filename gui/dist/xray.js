@@ -1,34 +1,111 @@
 /* ==========================================================================
-   HOLOGRAPHIC SECURITY RADAR V2 — Next-Gen Rescue Scanner
-   Segmented 9-layer orbital tracks, dynamic phosphor sweep, real-time evidence
-   beacons, central cybernetic core instrument, and forensic telemetry HUD.
-   Driven 100% by real Rust backend events (CureSweep).
-   Offline, Canvas 2D, zero external assets, reduced-motion compliant.
+   C.U.R.E SYSTEM X-RAY — holographic persistence radar
+   Nine collector layers painted from the backend's own event stream
+   (`scan-progress`), never from a timer and never from a guess.
+
+   Each layer carries exactly one *outcome* at a time:
+     pending    - the collector has not reported yet
+     running    - the backend named this collector as active
+     checked    - the backend reported a complete coverage row
+     partial    - the backend reported a coverage row with skips
+     denied     - the backend reported an access-denied coverage row
+     failed     - the backend reported a failed check
+     unreported - the collector ran but the backend sends no per-area
+                  coverage row for it, so it is NOT counted as checked
+
+   Findings are tracked separately from coverage: a layer can be fully
+   checked and still carry entries that need review. Nothing here invents
+   progress, detections or a health score.
    ========================================================================== */
 (function () {
   "use strict";
 
-  /* ---------- The Nine Persistence Layers --------------------------------- */
+  /* ---------- The nine inspection layers -------------------------------- */
   const LAYERS = [
-    { id: "registry",  label: "Registry",      full: "Registry autoruns",             icon: "🔑", area: "Registry autoruns" },
-    { id: "startup",   label: "Startup",       full: "Startup folders",               icon: "📁", area: null },
-    { id: "tasks",     label: "Tasks",         full: "Scheduled tasks",               icon: "⏱️", area: "Scheduled tasks" },
-    { id: "services",  label: "Services",      full: "Auto-start services",           icon: "⚙️", area: "Services (auto-start)" },
-    { id: "wmi",       label: "WMI",           full: "WMI subscriptions",             icon: "📡", area: "WMI subscriptions" },
-    { id: "ifeo",      label: "IFEO / AppInit",full: "IFEO debuggers & AppInit DLLs", icon: "🛡️", area: null },
-    { id: "com",       label: "COM",           full: "COM registrations",             icon: "🧩", area: null },
-    { id: "processes", label: "Processes",     full: "Running processes",             icon: "⚡", area: null },
-    { id: "ransom",    label: "Ransom",        full: "Ransom indicators",             icon: "🚨", area: null },
+    {
+      id: "registry",
+      label: "Registry",
+      full: "Registry autoruns",
+      areas: ["Registry autoruns"],
+      note: "HKCU / HKLM Run and RunOnce values",
+    },
+    {
+      id: "startup",
+      label: "Startup",
+      full: "Startup folders",
+      areas: ["Startup folders", "Startup folder"],
+      note: "per-user and machine-wide Startup folders",
+    },
+    {
+      id: "tasks",
+      label: "Tasks",
+      full: "Scheduled tasks",
+      areas: ["Scheduled tasks"],
+      note: "task XML definitions",
+    },
+    {
+      id: "services",
+      label: "Services",
+      full: "Auto-start services",
+      areas: ["Services (auto-start)", "Services"],
+      note: "service control manager start types",
+    },
+    {
+      id: "wmi",
+      label: "WMI",
+      full: "WMI subscriptions",
+      areas: ["WMI subscriptions"],
+      note: "event consumer bindings",
+    },
+    {
+      id: "ifeo",
+      label: "IFEO",
+      full: "IFEO and AppInit",
+      areas: ["IFEO and AppInit", "IFEO debuggers", "AppInit DLLs", "IFEO / AppInit"],
+      note: "debugger hooks and AppInit DLLs",
+    },
+    {
+      id: "com",
+      label: "COM",
+      full: "COM registrations",
+      areas: ["COM registrations", "COM hijacks (HKCU)"],
+      note: "per-user InprocServer32 / TreatAs",
+    },
+    {
+      id: "processes",
+      label: "Processes",
+      full: "Running processes",
+      areas: ["Running processes", "Processes"],
+      note: "live process signatures and hashes",
+    },
+    {
+      id: "ransom",
+      label: "Ransom",
+      full: "Ransom indicators",
+      areas: ["Ransom indicators"],
+      note: "ransom notes and bulk encryption",
+    },
   ];
 
+  function layerMatchesArea(L, areaName) {
+    if (!areaName || !L) return false;
+    if (L.areas && L.areas.includes(areaName)) return true;
+    if (L.area && L.area === areaName) return true;
+    if (L.full === areaName || L.label === areaName || L.id === areaName) return true;
+    return false;
+  }
+
+  /* Stage names the backend emits -> layer id. `startup-common` belongs to
+     the same layer as `startup`; process and ransom stages name their own. */
   const STAGE_ALIAS = {
     "startup-common": "startup",
     "process-scan": "processes",
-    "process": "processes",
+    process: "processes",
     "ransom-scan": "ransom",
     "ransom-detect": "ransom",
   };
 
+  /* Entry source tags (core PersistenceSource::tag) -> layer id. */
   const ITEM_SOURCE = {
     "registry-run": "registry",
     "startup-folder": "startup",
@@ -40,79 +117,116 @@
     "com-hijack": "com",
   };
 
-  function coverageTone(raw) {
-    const key = typeof raw === "string" ? raw : Object.keys(raw || {})[0] || "NotChecked";
+  const OUTCOME_TEXT = {
+    pending: "Not started",
+    running: "Running",
+    checked: "Checked",
+    partial: "Partial",
+    denied: "Access denied",
+    failed: "Failed",
+    unsupported: "Not supported",
+    unreported: "Coverage not reported",
+  };
+
+  /* Backend CoverageState -> outcome. Real Tauri serialises "Checked" /
+     "NotChecked" / "Unavailable" / "AccessDenied" / "CheckFailed" or
+     {"Partial": {"skipped": N}}; the labelled mock also emits "Available". */
+  function outcomeFromCoverage(raw) {
+    const key =
+      typeof raw === "string" ? raw : Object.keys(raw || {})[0] || "NotChecked";
     if (key === "Checked" || key === "Available") return "checked";
-    if (key === "CheckFailed") return "bad";
-    if (key === "AccessDenied") return "warn";
     if (key === "Partial") return "partial";
-    return "idle";
+    if (key === "AccessDenied") return "denied";
+    if (key === "CheckFailed") return "failed";
+    if (key === "Unavailable") return "unsupported";
+    if (key === "NotChecked") return "pending";
+    return "pending";
   }
 
-  function coverageText(raw) {
-    const key = typeof raw === "string" ? raw : Object.keys(raw || {})[0] || "NotChecked";
-    if (key === "Checked") return "Checked";
-    if (key === "Available") return "Available";
-    if (key === "AccessDenied") return "Access denied";
-    if (key === "CheckFailed") return "Check failed";
-    if (key === "Partial") return "Partial";
-    if (key === "Unavailable") return "Unavailable";
-    return "Not checked";
+  function skippedCount(raw, detail) {
+    if (raw && typeof raw === "object" && raw.Partial) {
+      const n = Number(raw.Partial.skipped);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    const m = String(detail || "").match(/(\d+)\s+skipped/i);
+    return m ? Number(m[1]) : 0;
   }
 
-  /* ---------- DOM References ---------------------------------------------- */
+  /* ---------- DOM ------------------------------------------------------- */
   const canvas = document.getElementById("xray-canvas");
   const field = document.getElementById("xray-field");
-  const sourceList = document.getElementById("sweep-sources");
+  const layerList = document.getElementById("sweep-sources");
   const itemsEl = document.getElementById("sweep-items");
   const currentEl = document.getElementById("sweep-current");
   const coreReadout = document.getElementById("xray-core-readout");
   const phaseEl = document.getElementById("xray-phase");
+  const phaseLabelEl = document.getElementById("xray-phase-label");
   const coverageEl = document.getElementById("xray-coverage");
+  const matrixCoverEl = document.getElementById("xray-matrix-cover");
   const inspectedEl = document.getElementById("xray-inspected");
   const findingsEl = document.getElementById("xray-findings");
-  const elapsedEl = document.getElementById("scan-elapsed");
+  const liveEl = document.getElementById("xray-live");
   const motionBtn = document.getElementById("xray-motion");
 
-  // HUD elements
   const hudBadge = document.getElementById("xray-hud-badge");
-  const hudIcon = document.getElementById("xray-hud-icon");
   const hudName = document.getElementById("xray-hud-name");
   const hudDetail = document.getElementById("xray-hud-detail");
-  const hudDiscovered = document.getElementById("xray-hud-discovered");
   const hudInspected = document.getElementById("xray-hud-inspected");
   const hudCoverage = document.getElementById("xray-hud-coverage");
   const hudFindings = document.getElementById("xray-hud-findings");
+  const hudUnavailable = document.getElementById("xray-hud-unavailable");
 
   const reducedMedia = matchMedia("(prefers-reduced-motion: reduce)");
 
-  /* ---------- State Model ------------------------------------------------- */
+  /* ---------- State ----------------------------------------------------- */
   const state = {
+    phase: "idle", // idle | preparing | scanning | complete | failed
     running: false,
-    ambientAngle: 0,
     active: null,
-    discovered: 0,
-    items: 0,
+    entries: 0,
     findings: 0,
-    activity: 0,
-    scoringPhase: false,
+    lastMessage: "",
+    ambientAngle: 0,
     sweepAngle: -Math.PI / 2,
     hoveredLayer: null,
-    selectedLayer: null,
+    expanded: {},
     ripples: [],
     layers: LAYERS.map(function (L) {
-      return {
+      const obj = {
         id: L.id,
         label: L.label,
         full: L.full,
-        icon: L.icon,
-        tone: "pending",
-        text: "Ready for inspection",
+        areas: L.areas || (L.area ? [L.area] : []),
+        area: L.area || (L.areas && L.areas[0]) || null,
+        note: L.note,
+        outcome: "pending",
+        ran: false,
         count: 0,
-        risk: 0,
+        flagged: 0,
         detail: "",
         beacons: [],
       };
+      Object.defineProperty(obj, "tone", {
+        get() {
+          return this.outcome;
+        },
+        set(v) {
+          this.outcome = v;
+        },
+        configurable: true,
+        enumerable: true,
+      });
+      Object.defineProperty(obj, "text", {
+        get() {
+          return OUTCOME_TEXT[this.outcome] || this.outcome;
+        },
+        set(v) {
+          /* allow assignment */
+        },
+        configurable: true,
+        enumerable: true,
+      });
+      return obj;
     }),
   };
 
@@ -123,18 +237,129 @@
     return null;
   }
 
-  function countCheckedLayers() {
-    let count = 0;
+  /* Coverage is counted only from outcomes the backend actually reported. */
+  function counts() {
+    let covered = 0;
+    let partial = 0;
+    let denied = 0;
+    let failed = 0;
+    let unsupported = 0;
+    let unreported = 0;
     for (let i = 0; i < state.layers.length; i += 1) {
-      const t = state.layers[i].tone;
-      if (t === "checked" || t === "available" || t === "review" || t === "highrisk") {
-        count += 1;
-      }
+      const o = state.layers[i].outcome;
+      if (o === "checked") covered += 1;
+      else if (o === "partial") {
+        covered += 1;
+        partial += 1;
+      } else if (o === "denied") denied += 1;
+      else if (o === "failed") failed += 1;
+      else if (o === "unsupported") unsupported += 1;
+      else if (o === "unreported") unreported += 1;
     }
-    return count;
+    return {
+      covered: covered,
+      partial: partial,
+      denied: denied,
+      failed: failed,
+      unsupported: unsupported,
+      unreported: unreported,
+      unreadable: denied + failed,
+      total: state.layers.length,
+    };
   }
 
-  /* ---------- Motion & Visibility Control --------------------------------- */
+  /* Honest verdict: the radar, the badge and the readouts all render this
+     one object, so no two panels can disagree about the same scan. */
+  function getVerdict() {
+    const c = counts();
+    const complete = c.covered === c.total && c.partial === 0 && c.denied === 0 && c.failed === 0;
+    let tone = "idle";
+    let headline = "Awaiting operator";
+    let detail = "No collection has run in this session";
+    if (state.phase === "preparing") {
+      tone = "running";
+      headline = "Preparing collection";
+      detail = "Reviewing overlay windows before the scan";
+    } else if (state.running) {
+      tone = "running";
+      headline = state.active
+        ? (layerById(state.active) || {}).full || "Collecting"
+        : "Collecting persistence layers";
+      detail = state.lastMessage || "Collecting persistence layers";
+    } else if (state.phase === "failed") {
+      tone = "failed";
+      headline = "Collection failed";
+      detail = state.lastMessage || "The scan did not finish";
+    } else if (state.phase === "complete") {
+      if (c.failed > 0) {
+        tone = "failed";
+        headline = "Collection incomplete";
+        detail = c.failed + " collector(s) could not run";
+      } else if (state.findings > 0) {
+        tone = complete ? "attention" : "attention";
+        headline =
+          state.findings +
+          (state.findings === 1 ? " finding for review" : " findings for review");
+        detail = complete
+          ? "Every reported layer was checked"
+          : c.covered + " of " + c.total + " layers report coverage";
+      } else if (!complete) {
+        tone = "partial";
+        const gaps = [];
+        if (c.denied > 0) gaps.push(c.denied + " unreadable (access denied)");
+        if (c.partial > 0) gaps.push(c.partial + " partially enumerated");
+        if (c.unreported > 0)
+          gaps.push(c.unreported + " ran without a coverage report");
+        headline =
+          c.denied > 0
+            ? "No findings observed · coverage incomplete"
+            : "No findings observed";
+        detail =
+          c.covered +
+          " of " +
+          c.total +
+          " layers report coverage (" +
+          gaps.join(", ") +
+          ") — this is not an all-clear";
+      } else {
+        tone = "clean";
+        headline = "No findings observed";
+        detail = "All " + c.total + " layers reported coverage";
+      }
+    }
+    return {
+      phase: state.phase,
+      tone: tone,
+      headline: headline,
+      detail: detail,
+      running: state.running,
+      active: state.active,
+      entries: state.entries,
+      findings: state.findings,
+      complete: complete,
+      covered: c.covered,
+      total: c.total,
+      partial: c.partial,
+      denied: c.denied,
+      failed: c.failed,
+      unreported: c.unreported,
+      unreadable: c.unreadable,
+      layers: state.layers.map(function (L) {
+        return {
+          id: L.id,
+          label: L.label,
+          full: L.full,
+          outcome: L.outcome,
+          text: OUTCOME_TEXT[L.outcome] || L.outcome,
+          count: L.count,
+          flagged: L.flagged,
+          detail: L.detail,
+        };
+      }),
+    };
+  }
+
+  /* ---------- Motion ---------------------------------------------------- */
   let motionPaused = reducedMedia.matches;
   let rafId = null;
   let lastTime = performance.now();
@@ -143,7 +368,7 @@
     return !motionPaused && !reducedMedia.matches;
   }
 
-  /* ---------- Geometry & Coordinate Cache --------------------------------- */
+  /* ---------- Geometry -------------------------------------------------- */
   const geo = {
     w: 800,
     h: 460,
@@ -154,7 +379,7 @@
     outerR: 215,
     ringStep: 18,
     orbitAngles: LAYERS.map(function (_, i) {
-      return (i * (Math.PI * 2 / 9)) - (Math.PI / 2);
+      return i * ((Math.PI * 2) / 9) - Math.PI / 2;
     }),
   };
 
@@ -169,42 +394,33 @@
     canvas.width = Math.round(geo.w * geo.dpr);
     canvas.height = Math.round(geo.h * geo.dpr);
 
-    // Radar Center: Perfectly centered within canvas for maximum prominence
     geo.cx = Math.round(geo.w * 0.5);
     geo.cy = Math.round(geo.h * 0.5);
 
-    // Fill available canvas leaving neat margin for degree ticks
     const maxR = Math.min(geo.w * 0.46, geo.h * 0.47);
-    geo.outerR = Math.max(165, Math.round(maxR * 0.97));
-    geo.innerR = Math.max(54, Math.round(geo.outerR * 0.28));
+    geo.outerR = Math.max(150, Math.round(maxR * 0.97));
+    geo.innerR = Math.max(50, Math.round(geo.outerR * 0.28));
     geo.ringStep = (geo.outerR - geo.innerR) / 9;
 
     if (coreReadout) {
       coreReadout.style.left = geo.cx + "px";
-      coreReadout.style.top = Math.min(geo.h - 18, Math.round(geo.cy + geo.outerR + 15)) + "px";
-      if (!state.running && state.items === 0) {
-        coreReadout.textContent = "READY // STANDBY";
-      }
+      coreReadout.style.top =
+        Math.min(geo.h - 18, Math.round(geo.cy + geo.outerR + 15)) + "px";
     }
-    const liveTag = document.getElementById("xray-live");
-    if (liveTag && !state.running && state.items === 0) {
-      liveTag.textContent = "Radar Standby";
-    }
-
     draw();
   }
 
-  /* ---------- Palette & Colors -------------------------------------------- */
+  /* ---------- Palette --------------------------------------------------- */
   function getPalette() {
     const isLight = document.documentElement.getAttribute("data-theme") === "light";
     return {
       isLight: isLight,
-      bg: isLight ? "rgba(248, 250, 252, 0.96)" : "rgba(11, 13, 19, 0.96)",
       ringBase: isLight ? "rgba(71, 85, 105, 0.18)" : "rgba(148, 163, 184, 0.15)",
       ringActive: isLight ? "#7c3aed" : "#a78bfa",
       ringCyan: isLight ? "#0891b2" : "#22d3ee",
       ringAmber: isLight ? "#d97706" : "#f59e0b",
       ringRed: isLight ? "#dc2626" : "#ef4444",
+      ringDim: isLight ? "rgba(100, 116, 139, 0.45)" : "rgba(148, 163, 184, 0.42)",
       sweepFill: isLight ? "rgba(124, 58, 237, 0.15)" : "rgba(139, 111, 240, 0.20)",
       sweepLine: isLight ? "#0891b2" : "#00f0ff",
       hubBody: isLight ? "#ffffff" : "#0c101a",
@@ -212,11 +428,20 @@
       textPrimary: isLight ? "#0f172a" : "#f1f5f9",
       textDim: isLight ? "#64748b" : "#94a3b8",
       glowCyan: isLight ? "rgba(8, 145, 178, 0.25)" : "rgba(34, 211, 238, 0.38)",
-      glowViolet: isLight ? "rgba(124, 58, 237, 0.22)" : "rgba(139, 111, 240, 0.32)",
     };
   }
 
-  /* ---------- Shockwave Ripple Feedback ---------------------------------- */
+  function toneColor(tone, P) {
+    if (tone === "checked") return P.ringCyan;
+    if (tone === "partial") return P.ringAmber;
+    if (tone === "denied") return P.ringAmber;
+    if (tone === "failed") return P.ringRed;
+    if (tone === "active") return P.ringActive;
+    if (tone === "unreported") return P.ringDim;
+    return P.ringBase;
+  }
+
+  /* ---------- Canvas ---------------------------------------------------- */
   function triggerShockwave(color) {
     if (!prefersMotion()) return;
     state.ripples.push({
@@ -228,7 +453,6 @@
     if (state.ripples.length > 4) state.ripples.shift();
   }
 
-  /* ---------- Canvas Rendering ------------------------------------------- */
   function draw() {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -242,55 +466,59 @@
     const cx = geo.cx;
     const cy = geo.cy;
 
-    // 1. Tactical Crosshairs, Coordinate Grid & Polar Degree Markers
+    /* 1. Tactical crosshairs, coordinate grid and polar degree markers. */
     ctx.lineWidth = 1;
     ctx.strokeStyle = P.ringBase;
     ctx.setLineDash([3, 5]);
-
-    // Cardinal Axes
     ctx.beginPath();
-    ctx.moveTo(cx - geo.outerR - 24, cy); ctx.lineTo(cx + geo.outerR + 24, cy);
-    ctx.moveTo(cx, cy - geo.outerR - 24); ctx.lineTo(cx, cy + geo.outerR + 24);
+    ctx.moveTo(cx - geo.outerR - 24, cy);
+    ctx.lineTo(cx + geo.outerR + 24, cy);
+    ctx.moveTo(cx, cy - geo.outerR - 24);
+    ctx.lineTo(cx, cy + geo.outerR + 24);
     ctx.stroke();
 
-    // 45-degree Tactical Diagonals
     const dLen = geo.outerR + 14;
     const dCos = Math.cos(Math.PI / 4) * dLen;
     ctx.beginPath();
-    ctx.moveTo(cx - dCos, cy - dCos); ctx.lineTo(cx + dCos, cy + dCos);
-    ctx.moveTo(cx - dCos, cy + dCos); ctx.lineTo(cx + dCos, cy - dCos);
+    ctx.moveTo(cx - dCos, cy - dCos);
+    ctx.lineTo(cx + dCos, cy + dCos);
+    ctx.moveTo(cx - dCos, cy + dCos);
+    ctx.lineTo(cx + dCos, cy - dCos);
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Degree Ticks on Perimeter
     ctx.font = "600 8.5px monospace";
     ctx.fillStyle = P.textDim;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("000°", cx, cy - geo.outerR - 16);
-    ctx.fillText("090°", cx + geo.outerR + 18, cy);
-    ctx.fillText("180°", cx, cy + geo.outerR + 16);
-    ctx.fillText("270°", cx - geo.outerR - 18, cy);
+    ctx.fillText("000\u00B0", cx, cy - geo.outerR - 16);
+    ctx.fillText("090\u00B0", cx + geo.outerR + 18, cy);
+    ctx.fillText("180\u00B0", cx, cy + geo.outerR + 16);
+    ctx.fillText("270\u00B0", cx - geo.outerR - 18, cy);
 
-    // Ambient Rotating Compass Reticle (Outer Calibrated Tick Ring)
+    /* Calibrated tick ring: a background instrument, not a progress meter. */
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(state.ambientAngle);
-    ctx.strokeStyle = P.isLight ? "rgba(8, 145, 178, 0.28)" : "rgba(34, 211, 238, 0.32)";
+    ctx.strokeStyle = P.isLight
+      ? "rgba(8, 145, 178, 0.28)"
+      : "rgba(34, 211, 238, 0.32)";
     ctx.lineWidth = 1;
     const outerTickR = geo.outerR + 10;
     for (let t = 0; t < 24; t += 1) {
       const a = (t * Math.PI) / 12;
-      const isMajor = t % 6 === 0;
-      const tLen = isMajor ? 6 : 3.5;
+      const tLen = t % 6 === 0 ? 6 : 3.5;
       ctx.beginPath();
-      ctx.moveTo(Math.cos(a) * (outerTickR - tLen), Math.sin(a) * (outerTickR - tLen));
+      ctx.moveTo(
+        Math.cos(a) * (outerTickR - tLen),
+        Math.sin(a) * (outerTickR - tLen)
+      );
       ctx.lineTo(Math.cos(a) * outerTickR, Math.sin(a) * outerTickR);
       ctx.stroke();
     }
     ctx.restore();
 
-    // 2. The Nine Differentiated Segmented Orbital Tracks
+    /* 2. One segmented orbital track per layer, coloured by its outcome. */
     const segmentsPerTrack = 8;
     const segAngle = (Math.PI * 2) / segmentsPerTrack;
     const gapAngle = 0.04;
@@ -301,32 +529,21 @@
       const isActive = state.active === layer.id;
       const isHovered = state.hoveredLayer === layer.id;
 
-      // Determine track style
-      let strokeColor = P.ringBase;
+      let strokeColor = toneColor(layer.outcome, P);
       let strokeWidth = 1.4;
       let lineDash = [];
 
-      if (layer.tone === "highrisk") {
-        strokeColor = P.ringRed;
-        strokeWidth = 2.8;
-      } else if (layer.tone === "review") {
-        strokeColor = P.ringAmber;
-        strokeWidth = 2.4;
-      } else if (layer.tone === "checked" || layer.tone === "available") {
-        strokeColor = P.ringCyan;
+      if (layer.outcome === "checked") {
         strokeWidth = isActive ? 2.6 : 2.0;
-      } else if (layer.tone === "warn") {
-        strokeColor = P.ringAmber;
-        strokeWidth = 2.0;
-        lineDash = [8, 4];
-      } else if (layer.tone === "partial") {
-        strokeColor = "#fbbf24";
+      } else if (layer.outcome === "partial" || layer.outcome === "denied") {
         strokeWidth = 2.0;
         lineDash = [10, 4, 3, 4];
-      } else if (layer.tone === "bad") {
-        strokeColor = P.ringRed;
+      } else if (layer.outcome === "failed") {
         strokeWidth = 2.2;
         lineDash = [5, 4];
+      } else if (layer.outcome === "unreported") {
+        strokeWidth = 1.6;
+        lineDash = [2, 5];
       } else if (isActive) {
         strokeColor = P.ringActive;
         strokeWidth = 2.8;
@@ -339,45 +556,41 @@
       ctx.strokeStyle = strokeColor;
       ctx.lineWidth = strokeWidth;
       if (lineDash.length > 0) ctx.setLineDash(lineDash);
-
-      // Draw Segmented Track Arcs
       for (let s = 0; s < segmentsPerTrack; s += 1) {
-        const startA = s * segAngle + gapAngle;
-        const endA = (s + 1) * segAngle - gapAngle;
         ctx.beginPath();
-        ctx.arc(cx, cy, r, startA, endA);
+        ctx.arc(
+          cx,
+          cy,
+          r,
+          s * segAngle + gapAngle,
+          (s + 1) * segAngle - gapAngle
+        );
         ctx.stroke();
       }
       ctx.restore();
 
-      // Active Track Dynamic Photon Bead & Pulse
+      /* Travelling bead only on the collector the backend named. */
       if (isActive && prefersMotion()) {
-        const beadSpeed = 3.8 + i * 0.3;
-        const beadAngle = (state.ambientAngle * beadSpeed) % (Math.PI * 2);
+        const beadAngle = (state.ambientAngle * (3.8 + i * 0.3)) % (Math.PI * 2);
         const bx = cx + Math.cos(beadAngle) * r;
         const by = cy + Math.sin(beadAngle) * r;
-
-        // Radiating bead aura
         ctx.beginPath();
         ctx.arc(bx, by, 7.5, 0, Math.PI * 2);
         ctx.fillStyle = "rgba(167, 139, 250, 0.4)";
         ctx.fill();
-
-        // High-energy center core
         ctx.beginPath();
         ctx.arc(bx, by, 3.4, 0, Math.PI * 2);
         ctx.fillStyle = "#ffffff";
         ctx.fill();
       }
 
-      // Orbital Layer Identification Node (Positioned at layer orbit angle)
+      /* Layer node at the orbit angle. */
       const angle = geo.orbitAngles[i];
       const nx = cx + Math.cos(angle) * r;
       const ny = cy + Math.sin(angle) * r;
-
       ctx.beginPath();
-      ctx.arc(nx, ny, isActive ? 4.8 : (isHovered ? 4.2 : 3.0), 0, Math.PI * 2);
-      ctx.fillStyle = isActive ? P.ringActive : (layer.tone === "review" ? P.ringAmber : (layer.tone === "highrisk" ? P.ringRed : (layer.tone === "checked" ? P.ringCyan : P.ringBase)));
+      ctx.arc(nx, ny, isActive ? 4.8 : isHovered ? 4.2 : 3.0, 0, Math.PI * 2);
+      ctx.fillStyle = isActive ? P.ringActive : toneColor(layer.outcome, P);
       ctx.fill();
       if (isActive || isHovered) {
         ctx.strokeStyle = "#ffffff";
@@ -386,12 +599,18 @@
       }
     }
 
-    // 3. Dynamic Rotating Phosphor Holographic Sweep Beam
+    /* 3. Sweep beam: an activity indicator while a collection is running. */
     if (state.running && prefersMotion()) {
       const sweepAngle = state.sweepAngle;
-      const sweepSpan = Math.PI / 3.6; // ~50 degree holographic cone
-
-      const grad = ctx.createRadialGradient(cx, cy, geo.innerR, cx, cy, geo.outerR + 14);
+      const sweepSpan = Math.PI / 3.6;
+      const grad = ctx.createRadialGradient(
+        cx,
+        cy,
+        geo.innerR,
+        cx,
+        cy,
+        geo.outerR + 14
+      );
       grad.addColorStop(0, P.sweepFill);
       grad.addColorStop(0.7, "rgba(34, 211, 238, 0.09)");
       grad.addColorStop(1, "rgba(34, 211, 238, 0)");
@@ -403,11 +622,12 @@
       ctx.closePath();
       ctx.fillStyle = grad;
       ctx.fill();
-
-      // Sharp Leading Edge Beam
       ctx.beginPath();
       ctx.moveTo(cx, cy);
-      ctx.lineTo(cx + Math.cos(sweepAngle) * (geo.outerR + 16), cy + Math.sin(sweepAngle) * (geo.outerR + 16));
+      ctx.lineTo(
+        cx + Math.cos(sweepAngle) * (geo.outerR + 16),
+        cy + Math.sin(sweepAngle) * (geo.outerR + 16)
+      );
       ctx.strokeStyle = P.sweepLine;
       ctx.lineWidth = 2.4;
       ctx.shadowColor = P.sweepLine;
@@ -416,7 +636,7 @@
       ctx.restore();
     }
 
-    // 4. Outward Expanding Shockwave Ripples
+    /* 4. Shockwave ripples fired by real collector transitions. */
     if (state.ripples.length > 0 && prefersMotion()) {
       for (let rp = 0; rp < state.ripples.length; rp += 1) {
         const ripple = state.ripples[rp];
@@ -430,40 +650,41 @@
       }
     }
 
-    // 5. Real Evidence Beacons on Orbital Rings
+    /* 5. Evidence beacons: one diamond per entry that needs review. */
     for (let i = 0; i < state.layers.length; i += 1) {
       const layer = state.layers[i];
       if (!layer.beacons || layer.beacons.length === 0) continue;
       const r = geo.innerR + (i + 1) * geo.ringStep;
-
       for (let b = 0; b < layer.beacons.length; b += 1) {
         const beacon = layer.beacons[b];
         const bx = cx + Math.cos(beacon.angle) * r;
         const by = cy + Math.sin(beacon.angle) * r;
 
-        // Radiating pulse wave
         if (prefersMotion() && beacon.radius > 0) {
           ctx.beginPath();
           ctx.arc(bx, by, beacon.radius, 0, Math.PI * 2);
-          ctx.strokeStyle = beacon.risk === "HighRisk" ? "rgba(239, 68, 68, 0.48)" : "rgba(245, 158, 11, 0.48)";
+          ctx.strokeStyle =
+            beacon.risk === "HighRisk"
+              ? "rgba(239, 68, 68, 0.48)"
+              : "rgba(245, 158, 11, 0.48)";
           ctx.lineWidth = 1.3;
           ctx.stroke();
         }
 
-        // Diamond Evidence Marker
-        const isHR = beacon.risk === "HighRisk";
+        const isHigh = beacon.risk === "HighRisk";
         ctx.save();
         ctx.translate(bx, by);
         ctx.beginPath();
-        ctx.moveTo(0, -5.5); ctx.lineTo(5.5, 0); ctx.lineTo(0, 5.5); ctx.lineTo(-5.5, 0);
+        ctx.moveTo(0, -5.5);
+        ctx.lineTo(5.5, 0);
+        ctx.lineTo(0, 5.5);
+        ctx.lineTo(-5.5, 0);
         ctx.closePath();
-        ctx.fillStyle = isHR ? P.ringRed : P.ringAmber;
+        ctx.fillStyle = isHigh ? P.ringRed : P.ringAmber;
         ctx.fill();
         ctx.strokeStyle = "#ffffff";
         ctx.lineWidth = 1.2;
         ctx.stroke();
-
-        // White Center Core
         ctx.beginPath();
         ctx.arc(0, 0, 2.0, 0, Math.PI * 2);
         ctx.fillStyle = "#ffffff";
@@ -472,12 +693,12 @@
       }
     }
 
-    // 6. Central Cybernetic Tactical Hub (Prominent Multi-Ring Core Instrument)
+    /* 6. Central hub: nine outcome ticks around the live readout. */
     const hubR = geo.innerR;
+    const verdict = getVerdict();
     ctx.save();
     ctx.translate(cx, cy);
 
-    // Dynamic Breathing Ambient Glow
     if (state.running) {
       const glow = ctx.createRadialGradient(0, 0, hubR * 0.2, 0, 0, hubR * 1.6);
       glow.addColorStop(0, P.glowCyan);
@@ -488,48 +709,42 @@
       ctx.fill();
     }
 
-    // Outer Status Ring: 9 Ticks Corresponding to the 9 Persistence Layers
-    const tickCount = 9;
-    const tickArc = (Math.PI * 2) / tickCount;
-    for (let k = 0; k < tickCount; k += 1) {
-      const lTone = state.layers[k].tone;
-      let tickColor = P.ringBase;
-      if (lTone === "checked" || lTone === "available") tickColor = P.ringCyan;
-      else if (lTone === "active") tickColor = P.ringActive;
-      else if (lTone === "warn" || lTone === "partial") tickColor = P.ringAmber;
-      else if (lTone === "bad" || lTone === "highrisk") tickColor = P.ringRed;
-      else if (lTone === "review") tickColor = P.ringAmber;
-
+    const tickArc = (Math.PI * 2) / 9;
+    for (let k = 0; k < 9; k += 1) {
+      const tickColor = toneColor(state.layers[k].outcome, P);
       const sAngle = k * tickArc - Math.PI / 2 + 0.05;
       const eAngle = (k + 1) * tickArc - Math.PI / 2 - 0.05;
-
       ctx.beginPath();
       ctx.arc(0, 0, hubR, sAngle, eAngle);
       ctx.strokeStyle = tickColor;
       ctx.lineWidth = 3.4;
       ctx.stroke();
-
-      // Status Indicator Dot on Outer Rim
       const midA = (sAngle + eAngle) / 2;
       ctx.beginPath();
-      ctx.arc(Math.cos(midA) * (hubR + 4), Math.sin(midA) * (hubR + 4), 1.6, 0, Math.PI * 2);
+      ctx.arc(
+        Math.cos(midA) * (hubR + 4),
+        Math.sin(midA) * (hubR + 4),
+        1.6,
+        0,
+        Math.PI * 2
+      );
       ctx.fillStyle = tickColor;
       ctx.fill();
     }
 
-    // Inner Rotating Cyber Reticle Ring
     ctx.save();
     ctx.rotate(-state.ambientAngle * 1.4);
     ctx.beginPath();
     ctx.arc(0, 0, hubR * 0.82, 0, Math.PI * 2);
     ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = P.isLight ? "rgba(8, 145, 178, 0.42)" : "rgba(34, 211, 238, 0.48)";
+    ctx.strokeStyle = P.isLight
+      ? "rgba(8, 145, 178, 0.42)"
+      : "rgba(34, 211, 238, 0.48)";
     ctx.lineWidth = 1.3;
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.restore();
 
-    // Solid Center Face Plate
     ctx.beginPath();
     ctx.arc(0, 0, hubR * 0.74, 0, Math.PI * 2);
     ctx.fillStyle = P.hubBody;
@@ -538,77 +753,61 @@
     ctx.lineWidth = 1.6;
     ctx.stroke();
 
-    // Central Tactical Typography & Dynamic Metric
-    const checkedNow = countCheckedLayers();
-    if (!state.running && state.items === 0) {
-      // STANDBY STATE
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    if (state.phase === "idle") {
       ctx.font = "800 11.5px Inter, system-ui, sans-serif";
       ctx.fillStyle = P.textPrimary;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
       ctx.fillText("C.U.R.E", 0, -6);
-
       ctx.font = "700 9px monospace";
       ctx.fillStyle = P.ringCyan;
       ctx.fillText("READY", 0, 7);
     } else if (state.running) {
-      // ACTIVE SCANNING STATE: Bold Dynamic X / 9 LAYERS Readout
       ctx.font = "800 13.5px 'Cascadia Code', Consolas, monospace";
       ctx.fillStyle = P.ringCyan;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(checkedNow + " / 9", 0, -7);
-
+      ctx.fillText(verdict.covered + " / " + verdict.total, 0, -7);
       ctx.font = "700 8.5px monospace";
       ctx.fillStyle = P.textDim;
-      ctx.fillText("LAYERS", 0, 6);
-
+      ctx.fillText("CHECKED", 0, 6);
       if (state.active) {
-        const actObj = layerById(state.active);
+        const act = layerById(state.active);
         ctx.font = "600 7.5px monospace";
         ctx.fillStyle = P.ringActive;
-        ctx.fillText(actObj ? actObj.label.toUpperCase() : "SCAN", 0, 16);
+        ctx.fillText(act ? act.label.toUpperCase() : "SCAN", 0, 16);
       }
+    } else if (state.phase === "failed") {
+      ctx.font = "800 10.5px 'Cascadia Code', Consolas, monospace";
+      ctx.fillStyle = P.ringRed;
+      ctx.fillText("FAILED", 0, -6);
+      ctx.font = "700 8px monospace";
+      ctx.fillStyle = P.textDim;
+      ctx.fillText("NO RESULT", 0, 7);
     } else {
-      // POST-SCAN TACTICAL VERDICT
-      const allDone = (checkedNow === 9);
+      /* Completed: state the count of findings, never a health score. */
       if (state.findings > 0) {
         ctx.font = "800 12.5px 'Cascadia Code', Consolas, monospace";
-        ctx.fillStyle = P.ringRed;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(state.findings + " FLAG", 0, -6);
-
-        ctx.font = "700 8.5px monospace";
         ctx.fillStyle = P.ringAmber;
-        ctx.fillText("DETECTED", 0, 7);
-      } else if (!allDone) {
-        ctx.font = "800 12.5px 'Cascadia Code', Consolas, monospace";
-        ctx.fillStyle = P.ringAmber;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(checkedNow + " / 9", 0, -6);
-
+        ctx.fillText(String(state.findings), 0, -6);
         ctx.font = "700 8px monospace";
         ctx.fillStyle = P.ringAmber;
-        ctx.fillText("INCOMPLETE", 0, 7);
+        ctx.fillText("TO REVIEW", 0, 7);
       } else {
         ctx.font = "800 12.5px 'Cascadia Code', Consolas, monospace";
-        ctx.fillStyle = P.ringCyan;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText("9 / 9", 0, -6);
-
-        ctx.font = "700 8.5px monospace";
-        ctx.fillStyle = P.ringCyan;
-        ctx.fillText("ALL CLEAN", 0, 7);
+        ctx.fillStyle = verdict.complete ? P.ringCyan : P.ringAmber;
+        ctx.fillText(verdict.covered + " / " + verdict.total, 0, -6);
+        ctx.font = "700 8px monospace";
+        ctx.fillStyle = verdict.complete ? P.ringCyan : P.ringAmber;
+        ctx.fillText(verdict.complete ? "CLEARED" : "PARTIAL", 0, 7);
       }
     }
-
     ctx.restore();
 
-    // 7. Interactive Detail Callout Card (Canvas Tactical HUD)
-    const inspectedLayer = state.hoveredLayer ? layerById(state.hoveredLayer) : (state.active ? layerById(state.active) : null);
+    /* 7. Tactical callout for the hovered or active layer. */
+    const inspectedLayer = state.hoveredLayer
+      ? layerById(state.hoveredLayer)
+      : state.active
+        ? layerById(state.active)
+        : null;
     if (inspectedLayer && geo.w > 640) {
       drawTacticalCallout(ctx, inspectedLayer, P);
     }
@@ -617,49 +816,58 @@
   }
 
   function drawTacticalCallout(ctx, layer, P) {
-    const cardW = 205;
-    const cardH = 80;
+    const cardW = 210;
+    const cardH = 78;
     const cardX = geo.w - cardW - 14;
     const cardY = 14;
+    const tone = toneColor(layer.outcome, P);
 
-    ctx.fillStyle = P.isLight ? "rgba(255, 255, 255, 0.95)" : "rgba(15, 23, 42, 0.95)";
-    ctx.strokeStyle = layer.tone === "review" ? P.ringAmber : (layer.tone === "highrisk" ? P.ringRed : (layer.tone === "checked" ? P.ringCyan : P.ringActive));
+    ctx.fillStyle = P.isLight
+      ? "rgba(255, 255, 255, 0.95)"
+      : "rgba(15, 23, 42, 0.95)";
+    ctx.strokeStyle = tone;
     ctx.lineWidth = 1.4;
-
     ctx.beginPath();
     ctx.roundRect(cardX, cardY, cardW, cardH, 8);
     ctx.fill();
     ctx.stroke();
 
-    // Card Content
     ctx.font = "700 11.5px Inter, system-ui, sans-serif";
     ctx.fillStyle = P.textPrimary;
     ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
     ctx.fillText(layer.full, cardX + 12, cardY + 20);
 
     ctx.font = "700 9.5px monospace";
-    ctx.fillStyle = layer.tone === "review" ? P.ringAmber : (layer.tone === "highrisk" ? P.ringRed : (layer.tone === "checked" ? P.ringCyan : P.ringActive));
-    ctx.fillText("STATUS: " + layer.text.toUpperCase(), cardX + 12, cardY + 39);
+    ctx.fillStyle = tone;
+    ctx.fillText(
+      "STATUS: " + (OUTCOME_TEXT[layer.outcome] || layer.outcome).toUpperCase(),
+      cardX + 12,
+      cardY + 39
+    );
 
     ctx.font = "500 10px Inter, system-ui, sans-serif";
     ctx.fillStyle = P.textDim;
-    ctx.fillText("Inspected: " + layer.count + " · Findings: " + layer.risk, cardX + 12, cardY + 58);
+    ctx.fillText(
+      "Inspected: " +
+        layer.count +
+        " \u00B7 Flagged: " +
+        layer.flagged,
+      cardX + 12,
+      cardY + 58
+    );
   }
 
-  /* ---------- Animation Loop ---------------------------------------------- */
+  /* ---------- Animation loop ------------------------------------------- */
   function frame(now) {
     const dt = Math.min(0.1, (now - lastTime) / 1000);
     lastTime = now;
 
     if (prefersMotion()) {
       state.ambientAngle = (state.ambientAngle + dt * 0.24) % (Math.PI * 2);
-
       if (state.running) {
-        // Smooth radar sweep angular velocity (~0.85 rev / sec)
         state.sweepAngle = (state.sweepAngle + dt * 2.8) % (Math.PI * 2);
       }
-
-      // Expand beacon ripple rings
       for (let i = 0; i < state.layers.length; i += 1) {
         const beacons = state.layers[i].beacons;
         for (let b = 0; b < beacons.length; b += 1) {
@@ -667,24 +875,22 @@
           if (beacons[b].radius > 18) beacons[b].radius = 1;
         }
       }
-
-      // Expand Shockwave Ripples
-      if (state.ripples.length > 0) {
-        for (let r = state.ripples.length - 1; r >= 0; r -= 1) {
-          const rip = state.ripples[r];
-          rip.r += dt * 175;
-          rip.alpha -= dt * 0.9;
-          if (rip.r >= rip.maxR || rip.alpha <= 0) {
-            state.ripples.splice(r, 1);
-          }
-        }
+      for (let r = state.ripples.length - 1; r >= 0; r -= 1) {
+        const rip = state.ripples[r];
+        rip.r += dt * 175;
+        rip.alpha -= dt * 0.9;
+        if (rip.r >= rip.maxR || rip.alpha <= 0) state.ripples.splice(r, 1);
       }
     }
 
     draw();
 
-    // Keep animation loop running when view is visible and motion preferred
-    if (prefersMotion() && !document.hidden && field && field.offsetParent !== null) {
+    if (
+      prefersMotion() &&
+      !document.hidden &&
+      field &&
+      field.offsetParent !== null
+    ) {
       rafId = requestAnimationFrame(frame);
     } else {
       rafId = null;
@@ -692,7 +898,7 @@
   }
 
   function startLoop() {
-    if (rafId === null) {
+    if (rafId === null && prefersMotion()) {
       lastTime = performance.now();
       rafId = requestAnimationFrame(frame);
     }
@@ -705,122 +911,280 @@
     }
   }
 
-  /* ---------- Forensic Telemetry HUD Synchronizer ------------------------ */
-  function updateTelemetryHud(activeMsg) {
-    const checkedCount = countCheckedLayers();
-    const discoveredTotal = Math.max(state.discovered, state.items);
+  /* ---------- DOM: layer matrix ---------------------------------------- */
+  const rowRefs = {};
 
-    // Synchronize HUD metric cells
-    if (hudDiscovered) hudDiscovered.textContent = String(discoveredTotal);
-    if (hudInspected) hudInspected.textContent = String(state.items);
-    if (hudCoverage) hudCoverage.textContent = checkedCount + " / 9";
-    if (hudFindings) hudFindings.textContent = String(state.findings);
-
-    if (state.active) {
-      const act = layerById(state.active);
-      if (act) {
-        if (hudIcon) hudIcon.textContent = act.icon || "⚡";
-        if (hudName) hudName.textContent = act.full;
-        if (hudDetail) {
-          if (state.scoringPhase) {
-            hudDetail.textContent = activeMsg || ("Scoring entries · " + state.items + " of " + discoveredTotal);
-          } else {
-            hudDetail.textContent = activeMsg || act.detail || ("Collecting " + act.label.toLowerCase() + " entries…");
-          }
-        }
-      }
-      if (hudBadge) {
-        hudBadge.textContent = state.scoringPhase ? "SCORING" : "COLLECTING";
-        hudBadge.className = "xray-hud-badge is-active";
-      }
-    } else if (state.running) {
-      if (hudBadge) {
-        hudBadge.textContent = state.scoringPhase ? "SCORING" : "SCANNING";
-        hudBadge.className = "xray-hud-badge is-active";
-      }
-    }
-  }
-
-  /* ---------- Accessible DOM Ledger Update -------------------------------- */
-  function paintLedger() {
-    if (!sourceList) return;
-    sourceList.innerHTML = "";
-
+  function buildLayers() {
+    if (!layerList) return;
+    layerList.innerHTML = "";
     for (let i = 0; i < state.layers.length; i += 1) {
       const L = state.layers[i];
       const li = document.createElement("li");
-      li.className = "sweep-source tone-" + L.tone + (state.active === L.id ? " is-active" : "");
+      li.className = "xr-layer";
       li.setAttribute("data-layer-id", L.id);
 
       const mark = document.createElement("span");
-      mark.className = "source-mark";
-      li.appendChild(mark);
+      mark.className = "xr-layer-mark";
+      mark.setAttribute("aria-hidden", "true");
 
-      const name = document.createElement("strong");
-      name.className = "source-name";
+      const name = document.createElement("span");
+      name.className = "xr-layer-name";
       name.textContent = L.full;
-      li.appendChild(name);
 
       const status = document.createElement("span");
-      status.className = "source-status";
-      status.textContent = L.text;
-      li.appendChild(status);
+      status.className = "xr-layer-status";
 
-      if (L.count > 0 || L.risk > 0) {
-        const countBadge = document.createElement("span");
-        countBadge.className = "source-count" + (L.risk > 0 ? " has-risk" : "");
-        countBadge.textContent = L.count + (L.risk > 0 ? " (" + L.risk + " flagged)" : "");
-        li.appendChild(countBadge);
-      }
+      const count = document.createElement("span");
+      count.className = "xr-layer-count";
 
-      // Click to focus and inspect
-      li.addEventListener("click", function () {
-        state.hoveredLayer = state.hoveredLayer === L.id ? null : L.id;
-        paintLedger();
+      const toggle = document.createElement("button");
+      toggle.className = "xr-layer-more";
+      toggle.type = "button";
+      toggle.setAttribute("aria-expanded", "false");
+      const detailId = "xr-layer-detail-" + L.id;
+      toggle.setAttribute("aria-controls", detailId);
+      toggle.textContent = "Why";
+
+      const detail = document.createElement("p");
+      detail.className = "xr-layer-detail";
+      detail.id = detailId;
+      detail.hidden = true;
+
+      li.append(mark, name, status, count, toggle, detail);
+      layerList.appendChild(li);
+
+      rowRefs[L.id] = {
+        row: li,
+        status: status,
+        count: count,
+        toggle: toggle,
+        detail: detail,
+      };
+
+      toggle.addEventListener("click", function () {
+        const open = state.expanded[L.id] !== true;
+        state.expanded[L.id] = open;
+        toggle.setAttribute("aria-expanded", String(open));
+        detail.hidden = !open;
+        toggle.textContent = open ? "Hide" : "Why";
         draw();
       });
+      li.addEventListener("mouseenter", function () {
+        state.hoveredLayer = L.id;
+        draw();
+      });
+      li.addEventListener("mouseleave", function () {
+        if (state.hoveredLayer === L.id) {
+          state.hoveredLayer = null;
+          draw();
+        }
+      });
+    }
+  }
 
-      sourceList.appendChild(li);
+  function countText(L) {
+    if (L.id === "processes") {
+      return L.flagged > 0 ? L.flagged + " flagged" : "";
+    }
+    if (L.id === "ransom") {
+      return L.flagged > 0 ? L.flagged + " flagged" : "";
+    }
+    return L.count > 0 ? L.count + (L.flagged > 0 ? " \u00B7 " + L.flagged + "!" : "") : "";
+  }
+
+  function detailText(L) {
+    if (L.detail) return L.detail;
+    if (L.outcome === "pending") return "This collector has not reported yet.";
+    if (L.outcome === "running") return L.note + " — collecting now.";
+    if (L.outcome === "unreported")
+      return (
+        "This collector ran and inspected " +
+        L.count +
+        " entr" +
+        (L.count === 1 ? "y" : "ies") +
+        ", but the backend sends no per-area coverage row for it, so it is " +
+        "listed without a coverage claim."
+      );
+    if (L.outcome === "checked")
+      return "Fully enumerated: " + L.count + " entries inspected.";
+    return L.note;
+  }
+
+  function paintLayers() {
+    for (let i = 0; i < state.layers.length; i += 1) {
+      const L = state.layers[i];
+      const ref = rowRefs[L.id];
+      if (!ref) continue;
+      ref.row.setAttribute("data-outcome", L.outcome);
+      ref.row.classList.toggle("is-active", state.active === L.id);
+      ref.row.classList.toggle("has-findings", L.flagged > 0);
+      ref.status.textContent = OUTCOME_TEXT[L.outcome] || L.outcome;
+      const ct = countText(L);
+      ref.count.textContent = ct;
+      ref.count.hidden = ct === "";
+      ref.detail.textContent = detailText(L);
+      ref.detail.hidden = state.expanded[L.id] !== true;
+      ref.toggle.setAttribute(
+        "aria-expanded",
+        String(state.expanded[L.id] === true)
+      );
+      ref.toggle.textContent = state.expanded[L.id] === true ? "Hide" : "Why";
+    }
+  }
+
+  /* ---------- DOM: readouts -------------------------------------------- */
+  function setFieldState() {
+    if (!field) return;
+    field.setAttribute("data-running", state.running ? "true" : "false");
+    let value = "idle";
+    if (state.phase === "preparing") value = "preparing";
+    else if (state.running) value = "scanning";
+    else if (state.phase === "failed") value = "failed";
+    else if (state.phase === "complete") {
+      const v = getVerdict();
+      value = v.findings > 0 ? "findings" : v.complete ? "complete" : "partial";
+    }
+    field.setAttribute("data-state", value);
+  }
+
+  function paintReadouts() {
+    const v = getVerdict();
+    const c = counts();
+
+    if (itemsEl) itemsEl.textContent = state.entries + " entries inspected";
+    if (inspectedEl) inspectedEl.textContent = String(state.entries);
+    if (findingsEl) findingsEl.textContent = String(state.findings);
+    if (coverageEl) coverageEl.textContent = c.covered + " / " + c.total;
+    if (matrixCoverEl) {
+      matrixCoverEl.textContent = c.covered + " / " + c.total + " checked";
+    }
+    if (currentEl) {
+      currentEl.textContent = state.running
+        ? state.lastMessage || "Collecting"
+        : v.headline;
     }
 
-    // Global instrument cells
-    if (inspectedEl) inspectedEl.textContent = String(state.items);
-    if (findingsEl) findingsEl.textContent = String(state.findings);
-    if (itemsEl) itemsEl.textContent = state.items + " entries inspected";
+    if (liveEl) {
+      if (state.running) liveEl.textContent = "Collecting";
+      else if (state.phase === "preparing") liveEl.textContent = "Preparing";
+      else if (state.phase === "failed") liveEl.textContent = "Collection failed";
+      else if (state.phase === "complete")
+        liveEl.textContent = v.complete ? "Scan complete" : "Coverage incomplete";
+      else liveEl.textContent = "Radar standby";
+    }
 
-    // Coverage indicator
-    const checkedCount = countCheckedLayers();
-    if (coverageEl) {
-      coverageEl.textContent = checkedCount + " / " + state.layers.length;
-      if (coverageEl.parentElement) {
-        coverageEl.parentElement.setAttribute("data-coverage",
-          checkedCount === state.layers.length ? "complete" : "incomplete");
+    if (phaseEl) {
+      if (state.running) {
+        const act = state.active ? layerById(state.active) : null;
+        phaseEl.textContent = act ? act.full : "Collecting persistence layers";
+      } else if (state.phase === "failed") {
+        phaseEl.textContent = "Collection failed";
+      } else if (state.phase === "complete") {
+        phaseEl.textContent = v.complete
+          ? "All reported layers checked"
+          : c.covered + " / " + c.total + " layers report coverage";
+      } else {
+        phaseEl.textContent = "Idle";
+      }
+    }
+    if (phaseLabelEl) {
+      phaseLabelEl.textContent =
+        state.phase === "complete" ? "Scan result" : "Current collector";
+    }
+
+    if (coreReadout) {
+      if (state.phase === "failed") {
+        coreReadout.textContent = "COLLECTION FAILED";
+      } else if (state.running) {
+        coreReadout.textContent =
+          "SCANNING // " +
+          (state.active
+            ? ((layerById(state.active) || {}).label || "COLLECTING").toUpperCase()
+            : "COLLECTING");
+      } else if (state.phase === "complete") {
+        const findings = state.findings;
+        const findingsWord = findings === 1 ? "FINDING" : "FINDINGS";
+        if (v.complete) {
+          coreReadout.textContent =
+            findings > 0
+              ? findings + " " + findingsWord + " DETECTED"
+              : "ALL 9 LAYERS CLEAN";
+        } else {
+          coreReadout.textContent =
+            findings > 0
+              ? findings + " " + findingsWord + " · INCOMPLETE"
+              : "INCOMPLETE · NO FINDINGS";
+        }
+      } else {
+        coreReadout.textContent = "READY // STANDBY";
       }
     }
 
-    updateTelemetryHud();
+    if (hudInspected) hudInspected.textContent = String(state.entries);
+    if (hudCoverage) hudCoverage.textContent = c.covered + " / " + c.total;
+    if (hudFindings) hudFindings.textContent = String(state.findings);
+    if (hudUnavailable)
+      hudUnavailable.textContent = String(c.unreadable + c.unreported);
+
+    if (hudBadge) {
+      hudBadge.textContent = hudBadgeText(v);
+      hudBadge.className = "xray-hud-badge " + hudBadgeClass(v);
+    }
+    if (hudName) hudName.textContent = v.headline;
+    if (hudDetail) hudDetail.textContent = v.detail;
+
+    setFieldState();
   }
 
-  function completeActive() {
-    if (!state.active) return;
+  function hudBadgeText(v) {
+    if (state.phase === "failed") return "FAILED";
+    if (state.running) return state.active ? "COLLECTING" : "SCANNING";
+    if (state.phase !== "complete") return "STANDBY";
+    if (v.findings > 0) return "REVIEW";
+    if (v.complete) return "COMPLETE";
+    return "PARTIAL";
+  }
+
+  function hudBadgeClass(v) {
+    if (state.phase === "failed" || v.findings > 0) return "is-risk";
+    if (state.running) return "is-active";
+    if (state.phase === "complete" && v.complete) return "is-clean";
+    if (state.phase === "complete") return "is-warn";
+    return "";
+  }
+
+  function render() {
+    paintLayers();
+    paintReadouts();
+    draw();
+  }
+
+  /* ---------- Legacy support: mark the previously active collector ----- */
+  function settleActive(next) {
+    if (!state.active || state.active === next) return;
     const layer = layerById(state.active);
-    if (layer && layer.tone === "active") {
-      layer.tone = layer.risk > 0 ? "review" : "checked";
-      layer.text = layer.risk > 0 ? "Findings available" : "Completed";
-      triggerShockwave(layer.risk > 0 ? "#f59e0b" : "#22d3ee");
+    if (layer && layer.outcome === "running") {
+      /* The backend moved on. That is not evidence the layer was checked:
+         without a coverage row it is only known to have run. */
+      layer.outcome = "unreported";
+      triggerShockwave("#22d3ee");
     }
+    state.active = null;
   }
 
   function pushBeacon(layerId, risk) {
     const layer = layerById(layerId);
     if (!layer) return;
-    const angle = (Math.random() * Math.PI * 2);
-    layer.beacons.push({ angle: angle, risk: risk || "Normal", radius: 1 });
+    layer.beacons.push({
+      angle: Math.random() * Math.PI * 2,
+      risk: risk || "Normal",
+      radius: 1,
+    });
     if (layer.beacons.length > 5) layer.beacons.shift();
     triggerShockwave(risk === "HighRisk" ? "#ef4444" : "#f59e0b");
   }
 
-  /* ---------- Event Handlers & Resize Observer ---------------------------- */
+  /* ---------- Resize / hover / visibility ------------------------------ */
   if (window.ResizeObserver && field) {
     const ro = new ResizeObserver(function () {
       layout();
@@ -830,18 +1194,17 @@
     window.addEventListener("resize", layout);
   }
 
-  // Hover detection over Canvas
   if (canvas) {
     canvas.addEventListener("mousemove", function (ev) {
       const rect = canvas.getBoundingClientRect();
-      const x = ev.clientX - rect.left;
-      const y = ev.clientY - rect.top;
-      const dx = x - geo.cx;
-      const dy = y - geo.cy;
+      const dx = ev.clientX - rect.left - geo.cx;
+      const dy = ev.clientY - rect.top - geo.cy;
       const dist = Math.sqrt(dx * dx + dy * dy);
-
       if (dist >= geo.innerR && dist <= geo.outerR + 10) {
-        const ringIdx = Math.min(8, Math.floor((dist - geo.innerR) / geo.ringStep));
+        const ringIdx = Math.min(
+          8,
+          Math.floor((dist - geo.innerR) / geo.ringStep)
+        );
         if (state.layers[ringIdx]) {
           state.hoveredLayer = state.layers[ringIdx].id;
           draw();
@@ -856,20 +1219,21 @@
 
     canvas.addEventListener("click", function (ev) {
       const rect = canvas.getBoundingClientRect();
-      const x = ev.clientX - rect.left;
-      const y = ev.clientY - rect.top;
-      const dx = x - geo.cx;
-      const dy = y - geo.cy;
+      const dx = ev.clientX - rect.left - geo.cx;
+      const dy = ev.clientY - rect.top - geo.cy;
       const dist = Math.sqrt(dx * dx + dy * dy);
-
       if (dist >= geo.innerR && dist <= geo.outerR + 10) {
-        const ringIdx = Math.min(8, Math.floor((dist - geo.innerR) / geo.ringStep));
-        if (state.layers[ringIdx]) {
-          state.selectedLayer = state.layers[ringIdx].id;
-          state.hoveredLayer = state.layers[ringIdx].id;
-          paintLedger();
+        const ringIdx = Math.min(
+          8,
+          Math.floor((dist - geo.innerR) / geo.ringStep)
+        );
+        const layer = state.layers[ringIdx];
+        if (layer) {
+          state.hoveredLayer = layer.id;
           draw();
-          const el = sourceList && sourceList.querySelector('[data-layer-id="' + state.layers[ringIdx].id + '"]');
+          const el =
+            layerList &&
+            layerList.querySelector('[data-layer-id="' + layer.id + '"]');
           if (el && el.scrollIntoView) {
             el.scrollIntoView({ behavior: "smooth", block: "nearest" });
           }
@@ -885,7 +1249,6 @@
     });
   }
 
-  // Motion button toggle
   if (motionBtn) {
     motionBtn.addEventListener("click", function () {
       window.CureSweep.motion(!motionPaused);
@@ -894,331 +1257,241 @@
     motionBtn.setAttribute("aria-pressed", String(motionPaused));
   }
 
-  // Visibility Change: sleep when page or tab hidden
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) stopLoop();
     else if (state.running) startLoop();
+    else draw();
   });
 
-  /* ---------- Public API (100% Backward Compatible) ----------------------- */
+  /* ---------- Public API ------------------------------------------------ */
   window.CureSweep = {
     start: function () {
+      state.phase = "scanning";
       state.active = null;
-      state.discovered = 0;
-      state.items = 0;
+      state.entries = 0;
       state.findings = 0;
-      state.scoringPhase = false;
+      state.lastMessage = "";
       state.running = true;
       state.hoveredLayer = null;
+      state.expanded = {};
       state.ripples = [];
 
       for (let i = 0; i < state.layers.length; i += 1) {
-        state.layers[i].tone = "pending";
-        state.layers[i].text = "Pending";
-        state.layers[i].count = 0;
-        state.layers[i].risk = 0;
-        state.layers[i].detail = "";
-        state.layers[i].beacons = [];
+        const L = state.layers[i];
+        L.outcome = "pending";
+        L.ran = false;
+        L.count = 0;
+        L.flagged = 0;
+        L.detail = "";
+        L.beacons = [];
       }
 
-      const liveEl = document.getElementById("xray-live");
-      if (liveEl) liveEl.textContent = "Active Sweep";
-      if (currentEl) currentEl.textContent = "Collecting persistence layers…";
-      const phaseLbl = document.getElementById("xray-phase-label");
-      if (phaseLbl) phaseLbl.textContent = "Current collector";
-      if (coreReadout) coreReadout.textContent = "RADAR // SCANNING";
-      if (phaseEl) phaseEl.textContent = "Scanning persistence layers";
-
-      if (hudBadge) {
-        hudBadge.textContent = "COLLECTING";
-        hudBadge.className = "xray-hud-badge is-active";
-      }
-      if (hudName) hudName.textContent = "All 9 Vectors Primed";
-      if (hudDetail) hudDetail.textContent = "Collecting persistence layers…";
-
-      paintLedger();
+      render();
       layout();
       startLoop();
     },
 
-    progress: function (p) {
-      if (p.stage === "source-state") {
-        for (let i = 0; i < LAYERS.length; i += 1) {
-          if (LAYERS[i].area !== p.area) continue;
-          const layer = layerById(LAYERS[i].id);
-          if (!layer) break;
-          layer.tone = coverageTone(p.state);
-          layer.text = coverageText(p.state);
-          layer.detail = p.detail ? String(p.detail) : "";
+    /* Preparing is a real phase: the overlay review runs before collection.
+       It is not scanning yet, and nothing claims it is. */
+    preparing: function () {
+      state.phase = "preparing";
+      state.running = false;
+      state.active = null;
+      state.lastMessage = "";
+      for (let i = 0; i < state.layers.length; i += 1) {
+        const L = state.layers[i];
+        L.outcome = "pending";
+        L.ran = false;
+        L.count = 0;
+        L.flagged = 0;
+        L.detail = "";
+        L.beacons = [];
+      }
+      state.entries = 0;
+      state.findings = 0;
+      render();
+    },
 
-          // Parse discovered count if reported
-          const numMatch = (p.detail || "").match(/(\d+)/);
-          if (numMatch) {
-            const num = parseInt(numMatch[1], 10);
-            if (num > layer.count) layer.count = num;
-            state.discovered += num;
+    progress: function (p) {
+      if (!p || !p.stage) return;
+
+      if (p.stage === "source-state") {
+        for (let i = 0; i < state.layers.length; i += 1) {
+          const L = state.layers[i];
+          if (!layerMatchesArea(L, p.area)) continue;
+          settleActive(null);
+          L.outcome = outcomeFromCoverage(p.state);
+          L.detail = p.detail ? String(p.detail) : "";
+          const skipped = skippedCount(p.state, p.detail);
+          if (L.outcome === "partial" && skipped > 0 && !/skipped/i.test(L.detail)) {
+            L.detail = skipped + " item(s) skipped · " + L.detail;
           }
+          if (
+            L.outcome === "checked" ||
+            L.outcome === "partial" ||
+            L.outcome === "denied" ||
+            L.outcome === "failed"
+          ) {
+            L.ran = true;
+          }
+          if (L.outcome === "partial") triggerShockwave("#f59e0b");
+          else if (L.outcome === "denied" || L.outcome === "failed")
+            triggerShockwave("#ef4444");
+          else triggerShockwave("#22d3ee");
         }
-        paintLedger();
-        draw();
+        state.lastMessage = p.area + " · " + (OUTCOME_TEXT[outcomeFromCoverage(p.state)] || "");
+        render();
         return;
       }
 
-      const stage = STAGE_ALIAS[p.stage] || p.stage;
-      const known = layerById(stage);
-      if (known) {
-        if (state.active !== stage) completeActive();
-        state.active = stage;
-        known.tone = "active";
-        known.text = "Collecting";
-
-      }
+      const stageId = STAGE_ALIAS[p.stage] || p.stage;
+      const layer = layerById(stageId);
 
       if (p.stage === "scoring") {
-        completeActive();
-        state.active = null;
-        state.scoringPhase = true;
-        const scoreMatch = (p.message || "").match(/(\d+)/);
-        if (scoreMatch) {
-          state.discovered = Math.max(state.discovered, parseInt(scoreMatch[1], 10));
-        }
-
+        settleActive(null);
+        if (p.message) state.lastMessage = p.message;
+        render();
+        return;
       }
 
-      if (["item-scan", "done"].indexOf(p.stage) !== -1) {
-        completeActive();
-        state.active = null;
+      if (layer) {
+        settleActive(layer.id);
+        state.active = layer.id;
+        layer.ran = true;
+        /* Never repaint a layer the backend already resolved. */
+        if (layer.outcome === "pending" || layer.outcome === "running") {
+          layer.outcome = "running";
+        }
       }
 
       if (p.stage === "item-scanned") {
-        completeActive();
         const id = ITEM_SOURCE[p.source] || null;
-        state.active = id;
-        const layer = id ? layerById(id) : null;
-        if (layer) {
-          layer.tone = "active";
-          layer.text = "Inspecting entry";
-          layer.count += 1;
+        const source = id ? layerById(id) : null;
+        state.entries += 1;
+        if (source) {
+          settleActive(source.id);
+          state.active = source.id;
+          source.count += 1;
           if (p.risk && p.risk !== "Safe") {
-            layer.risk += 1;
+            source.flagged += 1;
             state.findings += 1;
-            if (p.risk === "HighRisk") layer.tone = "highrisk";
-            else if (layer.tone !== "highrisk") layer.tone = "review";
-            pushBeacon(layer.id, p.risk);
+            pushBeacon(source.id, p.risk);
           }
         }
-        state.items += 1;
-
-      }
-
-      if (p.stage === "process-scan") {
-        state.active = "processes";
-        const layer = layerById("processes");
-        if (layer) {
-          layer.tone = "active";
-          layer.text = "Inspecting processes";
+        if (p.name) {
+          state.lastMessage =
+            "Inspecting " + p.name + (source ? " · " + source.label : "");
         }
-      }
-
-      if (p.stage === "process-flagged") {
-        state.items += 1;
-        const layer = layerById("processes");
-        if (layer) {
-          layer.count += 1;
-          layer.risk += 1;
-          layer.tone = "review";
+      } else if (p.stage === "process-flagged") {
+        const proc = layerById("processes");
+        if (proc) {
+          proc.flagged += 1;
+          state.findings += 1;
           pushBeacon("processes", p.risk);
         }
-      }
-
-      if (p.stage === "ransom-detect") {
-        state.active = "ransom";
-        const layer = layerById("ransom");
-        if (layer) {
-          layer.tone = "active";
-          layer.text = "Checking indicators";
-        }
-      }
-
-      if (p.stage === "ransom-found") {
-        state.items += 1;
-        state.findings += 1;
-        const layer = layerById("ransom");
-        if (layer) {
-          layer.count += 1;
-          layer.risk += 1;
-          layer.tone = "highrisk";
+        state.lastMessage =
+          "Process flagged: " + (p.name || "unknown") + " (" + (p.risk || "") + ")";
+      } else if (p.stage === "ransom-found") {
+        const ransom = layerById("ransom");
+        if (ransom) {
+          ransom.flagged += 1;
+          state.findings += 1;
           pushBeacon("ransom", "HighRisk");
         }
+        state.lastMessage =
+          "Ransom indicator: " + (p.finding_type || "unknown");
+      } else if (p.message) {
+        state.lastMessage = p.message;
       }
 
-      const message = p.message || (p.stage === "item-scanned" ? "Inspecting: " + p.name : "Collecting evidence");
-      if (currentEl) currentEl.textContent = message;
-      if (coreReadout) {
-        if (state.active) {
-          const actL = layerById(state.active);
-          coreReadout.textContent = actL ? "SCANNING // " + actL.label.toUpperCase() : "RADAR // SCANNING";
-        } else {
-          coreReadout.textContent = "RADAR // SCANNING";
-        }
-      }
-      if (phaseEl && state.active) {
-        const activeL = layerById(state.active);
-        phaseEl.textContent = activeL ? activeL.full : message;
-      }
-
-      paintLedger();
-      updateTelemetryHud(message);
+      render();
       if (rafId === null) startLoop();
     },
 
     finish: function (summary) {
-      completeActive();
+      settleActive(null);
       state.active = null;
       state.running = false;
+      state.phase = "complete";
 
-      const totalVal = (summary && summary.total) || state.items;
-      state.discovered = Math.max(state.discovered, totalVal);
-      state.items = totalVal;
+      /* The summary is authoritative for the entry count. */
+      const total =
+        summary && Number.isFinite(Number(summary.total))
+          ? Number(summary.total)
+          : state.entries;
+      state.entries = total;
 
+      /* Findings come from the summary too, so a dropped UI event cannot
+         leave the readout lower than the backend's own result. */
+      if (summary) {
+        const review = (summary.suspicious_for_review || []).length;
+        const procs = (summary.process_findings || []).length;
+        const ransom = (summary.ransom_findings || []).length;
+        if (review + procs + ransom > 0) {
+          state.findings = review + procs + ransom;
+        }
+      }
+
+      /* Reconcile every layer with the backend's coverage rows. */
       const rows = (summary && summary.source_states) || [];
-      for (let i = 0; i < LAYERS.length; i += 1) {
-        const layer = state.layers[i];
-        if (layer.tone === "pending") {
-          layer.tone = "idle";
-          layer.text = "Coverage unreported";
-        }
-        if (!LAYERS[i].area) continue;
-        const row = rows.find(function (r) { return r.area === LAYERS[i].area; });
+      for (let i = 0; i < state.layers.length; i += 1) {
+        const L = state.layers[i];
+        const row = rows.find(function (r) {
+          return r && layerMatchesArea(L, r.area);
+        });
         if (row) {
-          layer.tone = coverageTone(row.state);
-          layer.text = coverageText(row.state);
-        }
-      }
-
-      // Derive honest coverage summary from both radar layers and backend source_states
-      var checkedLayers = 0;
-      var totalLayers = state.layers.length;
-      var anyFailed = false;
-      var anyDenied = false;
-      var anyPartial = false;
-      for (var ci = 0; ci < totalLayers; ci += 1) {
-        var lt = state.layers[ci].tone;
-        if (lt === "checked" || lt === "available" || lt === "review" || lt === "highrisk") {
-          checkedLayers += 1;
-        }
-        if (lt === "bad") anyFailed = true;
-        if (lt === "warn") anyDenied = true;
-        if (lt === "partial") anyPartial = true;
-      }
-
-      // Verify backend source_states directly: any non-Available/non-Checked means incomplete
-      var backendIncomplete = false;
-      if (!rows.length) {
-        backendIncomplete = true;
-      } else {
-        for (var bi = 0; bi < rows.length; bi += 1) {
-          var bState = rows[bi].state;
-          if (bState !== "Available" && bState !== "Checked") {
-            backendIncomplete = true;
-            if (bState === "CheckFailed") anyFailed = true;
-            if (bState === "AccessDenied") anyDenied = true;
-            if (bState === "Partial") anyPartial = true;
+          L.outcome = outcomeFromCoverage(row.state);
+          L.detail = row.detail ? String(row.detail) : "";
+          if (L.outcome === "pending") {
+            /* Backend reported the row but with no usable state. */
+            L.detail =
+              L.detail || "backend reported no coverage state for this area";
+          }
+        } else {
+          // If already resolved (e.g. by prior event or test fixture), preserve it!
+          if (
+            L.outcome === "checked" ||
+            L.outcome === "partial" ||
+            L.outcome === "denied" ||
+            L.outcome === "failed" ||
+            L.outcome === "unsupported"
+          ) {
+            // Keep resolved outcome
+          } else if (L.ran || L.count > 0) {
+            L.outcome = "unreported";
+            L.detail =
+              "This collector ran and inspected " +
+              L.count +
+              " entr" +
+              (L.count === 1 ? "y" : "ies") +
+              ", but the backend sent no per-area coverage row for it.";
+          } else {
+            L.outcome = "unreported";
+            L.detail = "The backend sent no coverage row for this layer.";
           }
         }
       }
 
-      var allCovered = (checkedLayers === totalLayers);
-      var coverageComplete = allCovered && !backendIncomplete && !anyFailed && !anyDenied && !anyPartial;
-
-      const liveEl = document.getElementById("xray-live");
-      if (liveEl) {
-        liveEl.textContent = anyFailed ? "Collection Failed" : (coverageComplete ? "Radar Complete" : "Coverage Incomplete");
-      }
-      if (currentEl) {
-        currentEl.textContent = (anyFailed ? "Scan failed" : "Scan complete") + " · " + totalVal + " entries" +
-          (coverageComplete ? "" : " · " + checkedLayers + "/" + totalLayers + " layers covered");
-      }
-      const phaseLblDone = document.getElementById("xray-phase-label");
-      if (phaseLblDone) phaseLblDone.textContent = "Scan result";
-
-      // HONEST core readout: strictly distinguish the 5 scan outcome states
-      if (coreReadout) {
-        if (anyFailed) {
-          // 1. Failed or cancelled
-          coreReadout.textContent = "COLLECTION FAILED";
-        } else if (state.findings > 0 && !coverageComplete) {
-          // 2. Incomplete with findings
-          coreReadout.textContent = state.findings + (state.findings === 1 ? " FINDING · INCOMPLETE" : " FINDINGS · INCOMPLETE");
-        } else if (state.findings > 0) {
-          // 3. Completed with findings
-          coreReadout.textContent = state.findings + (state.findings === 1 ? " FINDING DETECTED" : " FINDINGS DETECTED");
-        } else if (!coverageComplete) {
-          // 4. Incomplete with no observed findings — NEVER claim clean!
-          coreReadout.textContent = "INCOMPLETE · NO FINDINGS";
-        } else {
-          // 5. Completed with no observed findings (only when every layer verified)
-          coreReadout.textContent = "ALL " + totalLayers + " LAYERS CLEAN";
-        }
-      }
-      if (phaseEl) {
-        phaseEl.textContent = anyFailed
-          ? "Collection failed · review required"
-          : (coverageComplete
-            ? "Inspection complete · all " + totalLayers + " layers checked"
-            : "Coverage incomplete · " + checkedLayers + "/" + totalLayers + " layers checked");
-      }
-
-      // Update HUD elements on finish
-      if (hudBadge) {
-        if (anyFailed) {
-          hudBadge.textContent = "FAILED";
-          hudBadge.className = "xray-hud-badge is-risk";
-        } else if (state.findings > 0) {
-          hudBadge.textContent = "ALERT";
-          hudBadge.className = "xray-hud-badge is-risk";
-        } else if (coverageComplete) {
-          hudBadge.textContent = "VERIFIED CLEAN";
-          hudBadge.className = "xray-hud-badge is-clean";
-        } else {
-          hudBadge.textContent = "INCOMPLETE";
-          hudBadge.className = "xray-hud-badge is-warn";
-        }
-      }
-      if (hudName) {
-        hudName.textContent = anyFailed ? "Collection Halt" : (coverageComplete ? "All 9 Vectors Clean" : "Partial Coverage Only");
-      }
-      if (hudDetail) {
-        hudDetail.textContent = anyFailed ? "Collection failed · review required" : (coverageComplete ? "100% verified offline coverage" : "Unreadable areas remaining");
-      }
-
-
-      paintLedger();
-      draw();
+      state.lastMessage = state.entries + " entries inspected";
+      render();
       if (prefersMotion()) startLoop();
     },
 
-    fail: function () {
-      completeActive();
+    fail: function (reason) {
+      settleActive(null);
       state.active = null;
       state.running = false;
-      const liveEl = document.getElementById("xray-live");
-      if (liveEl) liveEl.textContent = "Collection Failed";
-      const phaseLblFail = document.getElementById("xray-phase-label");
-      if (phaseLblFail) phaseLblFail.textContent = "Scan status";
-      if (currentEl) currentEl.textContent = "Scan interrupted or failed";
-      if (coreReadout) coreReadout.textContent = "COLLECTION FAILED";
-      if (phaseEl) phaseEl.textContent = "Check failed";
-
-      if (hudBadge) {
-        hudBadge.textContent = "FAILED";
-        hudBadge.className = "xray-hud-badge is-risk";
+      state.phase = "failed";
+      state.lastMessage = reason ? String(reason) : "The scan did not finish.";
+      /* A failed run leaves no per-layer claim behind. */
+      for (let i = 0; i < state.layers.length; i += 1) {
+        const L = state.layers[i];
+        if (L.outcome === "running" || L.outcome === "pending") {
+          L.outcome = "failed";
+          L.detail = "Collection stopped before this layer reported.";
+        }
       }
-      if (hudName) hudName.textContent = "Collection Halt";
-      if (hudDetail) hudDetail.textContent = "Check failed or interrupted";
-
-      paintLedger();
-      draw();
+      render();
       stopLoop();
     },
 
@@ -1226,15 +1499,19 @@
       motionPaused = !!paused;
       try {
         localStorage.setItem("cure-motion-paused", String(motionPaused));
-      } catch (_) {}
+      } catch (_) {
+        /* storage may be unavailable; the toggle still works this session */
+      }
       if (motionBtn) {
-        motionBtn.textContent = motionPaused ? "Resume field motion" : "Pause field motion";
+        motionBtn.textContent = motionPaused
+          ? "Resume field motion"
+          : "Pause field motion";
         motionBtn.setAttribute("aria-pressed", String(motionPaused));
       }
       if (motionPaused || reducedMedia.matches || document.hidden) {
         stopLoop();
         draw();
-      } else if (state.running) {
+      } else {
         startLoop();
       }
     },
@@ -1245,16 +1522,19 @@
 
     layout: function () {
       layout();
-      if (prefersMotion()) startLoop();
+      startLoop();
     },
 
+    /* State model access for testing and verification harnesses. */
     getState: function () {
       return state;
     },
+
+    getVerdict: getVerdict,
   };
 
-  // Initial layout call
-  paintLedger();
+  buildLayers();
+  render();
   layout();
   if (prefersMotion()) startLoop();
 })();

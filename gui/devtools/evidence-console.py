@@ -73,10 +73,19 @@ def open_page(browser, size=(1440, 900), reduced=False, video=False, **knobs):
 
 def start_scan(page):
     page.locator("#nav-scan").click()
-    page.get_by_role("button", name="Start Rescue Scan", exact=True).click()
+    page.locator("#xray-start-btn").click()
 
 
 def finish_scan(page):
+    page.wait_for_function("window.__CURE_SCAN_DONE === true", timeout=30000)
+    if not page.locator("#results-view").is_visible():
+        btn = page.locator("#xray-investigate-btn")
+        if btn.is_visible():
+            btn.click()
+        else:
+            open_btn = page.locator("#xr-result-open")
+            if open_btn.is_visible():
+                open_btn.click()
     expect(page.locator("#results-view")).to_be_visible(timeout=30000)
 
 
@@ -715,7 +724,7 @@ def responsive(browser):
         # Desktop hero composition must not push critical information away.
         if size[0] >= 900:
             page.locator("#nav-scan").click()
-            page.get_by_role("button", name="Start Rescue Scan", exact=True).click()
+            page.locator("#xray-start-btn").click()
             page.wait_for_function("document.querySelectorAll('#log .item-line').length >= 1")
             # The readout empties once the collection finishes, so measure
             # the live composition before waiting out the scan.
@@ -1042,7 +1051,13 @@ def agent_radar_flow(browser):
           'the replay slider is hidden until review is requested')
     page.locator('#ar-review-toggle').click()
     expect(page.locator('#ar-timeline')).to_be_visible()
-    page.locator('#ar-scrub').fill('2')
+    # Setting a range input and dispatching its input event must be one task:
+    # Playwright's fill splits the two, and a recorder status render landing
+    # between them reads back the reset slider value — seen as a flaky
+    # 'Final' label instead of the scrubbed position. A user drag cannot
+    # interleave this way; the assertions below are unchanged.
+    page.locator('#ar-scrub').evaluate(
+        "el => { el.value = '2'; el.dispatchEvent(new Event('input', {bubbles: true})); }")
     expect(page.locator('#ar-scrub-label')).to_contain_text('2 / 6')
     check(page.locator('#ar-event-list .ar-event').count() == 2,
           'replay position narrows the visible observations')

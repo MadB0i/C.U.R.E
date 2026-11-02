@@ -47,6 +47,13 @@ STORAGE_ANCHOR = (
     '                  <h1 class="headline">Storage Workstation</h1>'
 )
 
+# The Rescue view now reports its assessment inline instead of jumping to
+# the findings view, so it needs the long banner too — otherwise a demo
+# recording would show sample scan results without the disclaimer on screen.
+RESCUE_ANCHOR = (
+    'id="scan-view"\n          >\n            <div class="rescue-head">'
+)
+
 
 def main() -> None:
     if OUT.exists():
@@ -122,6 +129,16 @@ def main() -> None:
         DETECTIVE_ANCHOR,
         'id="view-detective"\n          >\n            ' + BANNER + "\n"
         '            <div class="dt-head">',
+        1,
+    )
+
+    # And into Rescue, which now carries its own scan assessment inline.
+    if RESCUE_ANCHOR not in html:
+        raise SystemExit("index.html rescue anchor not found")
+    html = html.replace(
+        RESCUE_ANCHOR,
+        'id="scan-view"\n          >\n            ' + BANNER + "\n"
+        '            <div class="rescue-head">',
         1,
     )
 

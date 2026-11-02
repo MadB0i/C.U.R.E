@@ -1513,9 +1513,14 @@
       await delay(120);
     }
     for (const row of window.__CURE_MOCK_COVERAGE || [
+      { area: "Startup folders", state: "Checked", detail: "1 entry" },
       { area: "Scheduled tasks", state: "Checked", detail: "8 files" },
       { area: "Services (auto-start)", state: "Checked", detail: "0 services" },
       { area: "WMI subscriptions", state: "Checked", detail: "0 entries" },
+      { area: "IFEO and AppInit", state: "Checked", detail: "0 entries" },
+      { area: "COM registrations", state: "Checked", detail: "0 entries" },
+      { area: "Running processes", state: "Checked", detail: "15 enumerated" },
+      { area: "Ransom indicators", state: "Checked", detail: "4 folders, 0 findings" },
     ])
       emit("scan-progress", { stage: "source-state", ...row });
     const n = Math.max(1, Number(window.__CURE_MOCK_ITEM_COUNT) || 8);
@@ -1592,6 +1597,7 @@
       safe,
       source_states: [
         { area: "Registry autoruns", state: "Checked", detail: "3 values" },
+        { area: "Startup folders", state: "Checked", detail: "1 entry" },
         { area: "Scheduled tasks", state: "Checked", detail: "8 files" },
         {
           area: "Services (auto-start)",
@@ -1599,6 +1605,10 @@
           detail: "0 services",
         },
         { area: "WMI subscriptions", state: "Checked", detail: "0 entries" },
+        { area: "IFEO and AppInit", state: "Checked", detail: "0 entries" },
+        { area: "COM registrations", state: "Checked", detail: "0 entries" },
+        { area: "Running processes", state: "Checked", detail: "15 enumerated" },
+        { area: "Ransom indicators", state: "Checked", detail: "4 folders, 0 findings" },
       ],
       elevated: false,
     };

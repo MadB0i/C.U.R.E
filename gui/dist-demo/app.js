@@ -64,22 +64,11 @@
   function setPill(state, text) {
     statusPill.className = "pill " + state;
     statusText.textContent = text;
-    // The X-Ray corner tag mirrors the real session state, never a guess.
-    const live = document.getElementById("xray-live");
-    const fieldEl = document.getElementById("xray-field");
-    if (live) {
-      live.textContent =
-        state === "scanning"
-          ? "Collecting"
-          : state === "error"
-            ? "Interrupted"
-            : state === "clean"
-              ? "Complete"
-              : state === "warn"
-                ? "Review"
-                : "Idle";
-    }
-    if (fieldEl) fieldEl.dataset.running = String(state === "scanning");
+    /* UI-03: the X-Ray corner tag and field state are owned by CureSweep's
+       own lifecycle (xray.js). This pill used to write them too, so a
+       storage measurement or a process action could leave the radar
+       claiming "Collecting" with no collection running. One writer per
+       panel: the pill reports the session, the radar reports the scan. */
   }
 
   /* Topbar session context. Scan detail lives on the pages that produce it;
@@ -1105,6 +1094,268 @@
   // click must never reveal a view the operator has already left.
   let viewToken = 0;
 
+  /* ---------- Rescue inline results console -------------------------------
+     UI-03: a Rescue-origin scan reports where it was started. The console
+     below the workstation renders the same authoritative summary the
+     Investigate view receives, in compact form. It never turns a coverage
+     gap into an all-clear, and it never labels the checked-entry count as
+     a score. */
+  function clearRescueResult() {
+    const panel = document.getElementById("rescue-results");
+    if (!panel) return;
+    panel.classList.add("hidden");
+    const stats = document.getElementById("xr-result-stats");
+    const notes = document.getElementById("xr-result-notes");
+    const findings = document.getElementById("xr-result-findings");
+    const empty = document.getElementById("xr-result-empty");
+    if (stats) stats.replaceChildren();
+    if (notes) notes.replaceChildren();
+    if (findings) findings.replaceChildren();
+    if (empty) {
+      empty.classList.add("hidden");
+      empty.textContent = "";
+    }
+  }
+
+  function xrStat(label, value, tone) {
+    const li = document.createElement("li");
+    const l = makeText("span", label, "xr-stat-label");
+    const v = makeText("span", value, "xr-stat-value");
+    if (tone) v.classList.add(tone);
+    li.append(l, v);
+    return li;
+  }
+
+  function renderRescueResult(summary, errorText) {
+    const panel = document.getElementById("rescue-results");
+    if (!panel) return;
+    const title = document.getElementById("xr-results-title");
+    const sub = document.getElementById("xr-result-sub");
+    const stats = document.getElementById("xr-result-stats");
+    const notesEl = document.getElementById("xr-result-notes");
+    const findingsEl = document.getElementById("xr-result-findings");
+    const empty = document.getElementById("xr-result-empty");
+    if (!title || !stats || !notesEl || !findingsEl || !empty) return;
+
+    stats.replaceChildren();
+    notesEl.replaceChildren();
+    findingsEl.replaceChildren();
+    empty.classList.add("hidden");
+    empty.textContent = "";
+    panel.classList.remove("hidden");
+
+    if (!summary) {
+      title.textContent = "Collection failed";
+      sub.textContent =
+        "This run produced no result. Nothing from an earlier scan is " +
+        "presented here as this session's evidence.";
+      stats.append(
+        xrStat("Assessment", "No result", "is-bad"),
+        xrStat("Coverage", "not measured"),
+        xrStat("Entries checked", "0"),
+        xrStat("Duration", fmtDuration(scanDurationMs)),
+      );
+      const li = document.createElement("li");
+      li.className = "is-bad";
+      li.append(
+        makeText("span", "Error", "xr-note-area"),
+        makeText("span", errorText || "The scan did not finish.", ""),
+      );
+      notesEl.append(li);
+      return;
+    }
+
+    const counts = troubleCounts(summary);
+    const states = summary.source_states || [];
+    const verdict = window.CureSweep ? window.CureSweep.getVerdict() : null;
+    const unreported = verdict ? verdict.unreported : 0;
+    const denied = verdict ? verdict.denied : 0;
+    const failed = verdict ? verdict.failed : 0;
+    const partialLayers = verdict ? verdict.partial : 0;
+    /* A gap the backend actually reported (unreadable, failed or partially
+       enumerated). "Unreported" layers are a reporting limitation, not a
+       failure, and are worded separately below. */
+    const hardGap = denied + failed + partialLayers > 0;
+    const incomplete =
+      hardGap || unreported > 0 || coverageIncomplete(summary);
+    const trouble = states.filter((row) => {
+      const info = sourceStatusInfo(row.state);
+      return info.level !== "ok";
+    });
+
+    if (verdict) {
+      title.textContent =
+        counts.findings > 0 && hardGap
+          ? verdict.headline + " · coverage incomplete"
+          : verdict.headline;
+    } else {
+      title.textContent =
+        counts.findings > 0
+          ? "Findings for review"
+          : incomplete
+            ? "No findings observed · coverage incomplete"
+            : "No findings observed";
+    }
+
+    sub.textContent =
+      counts.total +
+      " entries checked in " +
+      fmtDuration(scanDurationMs) +
+      " · " +
+      (verdict ? verdict.covered : 0) +
+      " of " +
+      (verdict ? verdict.total : 9) +
+      " layers report coverage";
+
+    const coverageTone = incomplete ? "is-warn" : "is-ok";
+    stats.append(
+      xrStat(
+        "Layers checked",
+        (verdict ? verdict.covered : 0) + " / " + (verdict ? verdict.total : 9),
+        coverageTone,
+      ),
+      xrStat("Entries checked", String(counts.total)),
+      xrStat(
+        "Findings for review",
+        String(counts.findings),
+        counts.findings > 0
+          ? counts.critical > 0
+            ? "is-bad"
+            : "is-warn"
+          : null,
+      ),
+      xrStat("Duration", fmtDuration(scanDurationMs)),
+    );
+
+    // Every reason the coverage is not complete, with the backend's own text.
+    for (const row of trouble) {
+      const info = sourceStatusInfo(row.state);
+      const li = document.createElement("li");
+      li.className = info.level === "bad" ? "is-bad" : "";
+      li.append(
+        makeText("span", info.label, "xr-note-area"),
+        makeText(
+          "span",
+          row.area + " — " + (row.detail || info.detail),
+          "",
+        ),
+      );
+      notesEl.append(li);
+    }
+    if (unreported > 0) {
+      const li = document.createElement("li");
+      li.append(
+        makeText("span", "Not reported", "xr-note-area"),
+        makeText(
+          "span",
+          unreported +
+            " collectors ran but the backend sends no per-area coverage row " +
+            "for them, so they are not counted as checked.",
+          "",
+        ),
+      );
+      notesEl.append(li);
+    }
+
+    // Findings: the same entries Investigate will show, ranked by risk.
+    const review = (summary.suspicious_for_review || []).slice();
+    review.sort((a, b) => {
+      const rank = (e) => (e.risk === "HighRisk" ? 0 : 1);
+      return rank(a) - rank(b) || (b.score || 0) - (a.score || 0);
+    });
+    const procs = summary.process_findings || [];
+    const ransom = summary.ransom_findings || [];
+    const shown = review.slice(0, 4);
+    for (const entry of shown) {
+      const li = document.createElement("li");
+      li.className = "xr-finding";
+      li.append(
+        makeText("span", entry.name || "Unnamed entry", "xr-finding-name"),
+        makeText(
+          "span",
+          entry.location || entry.command || "",
+          "xr-finding-where",
+        ),
+        makeText(
+          "span",
+          entry.risk === "HighRisk" ? "High risk" : "Suspicious",
+          "xr-finding-risk" + (entry.risk === "HighRisk" ? " is-high" : ""),
+        ),
+      );
+      findingsEl.append(li);
+    }
+    for (const proc of procs.slice(0, 2)) {
+      const li = document.createElement("li");
+      li.className = "xr-finding";
+      li.append(
+        makeText("span", "Process · " + proc.name, "xr-finding-name"),
+        makeText(
+          "span",
+          "pid " + proc.pid + " · " + (proc.exe_path || ""),
+          "xr-finding-where",
+        ),
+        makeText(
+          "span",
+          proc.risk === "HighRisk" ? "High risk" : "Suspicious",
+          "xr-finding-risk" + (proc.risk === "HighRisk" ? " is-high" : ""),
+        ),
+      );
+      findingsEl.append(li);
+    }
+    for (const r of ransom.slice(0, 2)) {
+      const li = document.createElement("li");
+      li.className = "xr-finding";
+      li.append(
+        makeText(
+          "span",
+          r.finding_type === "ransom-note" ? "Ransom note" : "Bulk encryption",
+          "xr-finding-name",
+        ),
+        makeText("span", r.detail || r.path || "", "xr-finding-where"),
+        makeText("span", "Review", "xr-finding-risk is-high"),
+      );
+      findingsEl.append(li);
+    }
+    const hiddenCount =
+      counts.findings - (shown.length + Math.min(procs.length, 2) + Math.min(ransom.length, 2));
+    if (hiddenCount > 0) {
+      const li = document.createElement("li");
+      li.className = "xr-finding";
+      li.append(
+        makeText(
+          "span",
+          hiddenCount + " more finding(s) in Investigate",
+          "xr-finding-name",
+        ),
+        makeText("span", "", "xr-finding-where"),
+        makeText("span", "Open", "xr-finding-risk"),
+      );
+      findingsEl.append(li);
+    }
+
+    if (counts.findings === 0) {
+      empty.classList.remove("hidden");
+      if (hardGap) {
+        empty.textContent =
+          "No findings were observed within the inspected scope. " +
+          "At least one area could not be read, so this is not evidence " +
+          "that the machine is clean.";
+      } else if (unreported > 0) {
+        empty.textContent =
+          "No findings were observed in the areas that reported. " +
+          unreported +
+          " collector(s) ran without a per-area coverage report, so this " +
+          "is not evidence that the machine is clean.";
+      } else if (incomplete) {
+        empty.textContent =
+          "No findings were observed within the inspected scope. Coverage " +
+          "was incomplete, so this is not evidence that the machine is clean.";
+      } else {
+        empty.textContent = "No findings were observed in any inspected area.";
+      }
+    }
+  }
+
   function switchView(fromEl, toEl) {
     const token = ++viewToken;
     return new Promise((resolve) => {
@@ -1273,7 +1524,6 @@
      always wins: completion only moves the shell when the user has not
      navigated since the scan flow last owned the view. */
   let scanOrigin = "rescue";
-  let scanNavToken = 0;
   // Latest collector activity, from real scan-progress events only.
   let scanProgressLine = "";
 
@@ -1286,19 +1536,13 @@
 
   async function _runScan(preLines = [], origin = "rescue", navBaseline = viewToken) {
     scanOrigin = origin === "overview" ? "overview" : "rescue";
-    const xrayStartBtn = document.getElementById("xray-start-btn");
-    const xrayInvestigateBtn = document.getElementById("xray-investigate-btn");
-    if (xrayStartBtn) {
-      xrayStartBtn.disabled = true;
-      xrayStartBtn.textContent = "Scanning…";
-    }
-    if (xrayInvestigateBtn) {
-      xrayInvestigateBtn.classList.add("hidden");
-    }
     const overviewScanBtn = document.getElementById("overview-rescue-btn");
     if (overviewScanBtn) {
       overviewScanBtn.disabled = true;
     }
+    // A new run must never inherit the previous run's result surface.
+    clearRescueResult();
+    setScanControls("running");
     document.getElementById("scan-retry").classList.add("hidden");
     evidenceCache.clear();
     const token = ++scanToken;
@@ -1313,9 +1557,6 @@
       showViewInstant(scanView);
       setNav("scan-view");
     }
-    // Navigation ownership baseline: anything the operator clicks from
-    // here on bumps viewToken, and completion will respect it.
-    scanNavToken = viewToken;
     logList.innerHTML = "";
     itemFeedCount = 0;
     hideReceipt();
@@ -1342,13 +1583,9 @@
       if (token !== scanToken) return;
       scanDurationMs = Math.round(performance.now() - scanStartedAt);
       clearInterval(elapsedTimer);
-      if (elapsedEl)
-        elapsedEl.textContent =
-          "finished in " +
-          fmtDuration(scanDurationMs) +
-          " · " +
-          summary.total +
-          " entries checked";
+      // The readout cell is narrow: duration only. The entry count lives in
+      // the adjacent ENTRIES INSPECTED cell and in the results console.
+      if (elapsedEl) elapsedEl.textContent = "finished in " + fmtDuration(scanDurationMs);
       lastSummary = summary;
       lastScanAt = new Date();
       scanPhase = "done";
@@ -1361,41 +1598,75 @@
       );
       appendLog("done", summary.total + " entries processed — scan finished");
       window.CureSweep.finish(summary);
-      if (xrayStartBtn) {
-        xrayStartBtn.disabled = false;
-        xrayStartBtn.textContent = "Scan Again";
-      }
-      if (xrayInvestigateBtn) {
-        const fCount = (summary && summary.findings_count) || (summary && summary.findings && summary.findings.length) || 0;
-        xrayInvestigateBtn.textContent = "Investigate Findings (" + fCount + ") →";
-        xrayInvestigateBtn.classList.remove("hidden");
-      }
       renderResults(summary);
+      setScanControls("done", summary);
+      renderRescueResult(summary);
       if (overviewScanBtn) overviewScanBtn.disabled = false;
-      // Only the Rescue workflow moves the shell to the results view, and
-      // only when the operator has not navigated somewhere else meanwhile.
-      // (switchView bumps viewToken itself, so the post-transition check
-      // looks at which view is actually on screen, not at the token.)
-      if (scanOrigin === "rescue" && viewToken === scanNavToken) {
-        await switchView(currentView(), resultsView);
-        if (token !== scanToken) return;
-        if (currentView() === resultsView) {
-          setNav("results-view");
-          focusViewHeading(resultsView);
-        }
-      }
+      // UI-03: a Rescue-origin scan no longer drags the operator to the
+      // Investigate view. The Rescue workflow keeps the workstation and
+      // renders its assessment inline; "Review findings" is the explicit
+      // way out. (Stage UI-01A navigation ownership is preserved: an
+      // Overview-origin scan still never moves the operator, and manual
+      // navigation is never overridden.)
     } catch (err) {
       clearInterval(elapsedTimer);
-      window.CureSweep.fail();
+      window.CureSweep.fail(String(err));
       document.getElementById("scan-retry").classList.remove("hidden");
       scanPhase = "failed";
       setPill("error", "Operation failed");
       appendLog("error", String(err));
+      const xrLog = document.getElementById("xr-log");
+      if (xrLog) xrLog.open = true;
       logEvent("info", "scan failed: " + String(err));
       if (overviewScanBtn) overviewScanBtn.disabled = false;
+      // The failed attempt owns this duration; the previous run's number
+      // must never be presented as this run's elapsed time.
+      scanDurationMs = Math.round(performance.now() - scanStartedAt);
+      setScanControls("failed", null, String(err));
+      renderRescueResult(null, String(err));
       // The failure is the current session state: never dress the previous
       // summary up as this operation's result.
       if (scanOrigin === "overview") renderOverview(null);
+    }
+  }
+
+  /* Primary scan controls live inside the scanner workspace. The label is
+     always derived from the real lifecycle phase, never from a timer. */
+  function setScanControls(phase, summary, error) {
+    const start = document.getElementById("xray-start-btn");
+    const retry = document.getElementById("scan-retry");
+    const review = document.getElementById("xray-investigate-btn");
+    const note = document.getElementById("xr-actions-note");
+    if (start) {
+      start.disabled = phase === "running";
+      start.textContent =
+        phase === "running"
+          ? "Scanning…"
+          : phase === "done" || phase === "failed"
+            ? "Scan Again"
+            : "Start System Scan";
+    }
+    if (retry) retry.classList.toggle("hidden", phase !== "failed");
+    if (review) {
+      const found = summary ? troubleCounts(summary).findings : 0;
+      review.classList.toggle("hidden", !(phase === "done" && found > 0));
+      review.textContent =
+        found > 0 ? "Review findings (" + found + ")" : "Review findings";
+    }
+    if (note) {
+      if (phase === "running") {
+        note.textContent =
+          "Collecting. The radar and the layer matrix only move when the backend reports.";
+      } else if (phase === "done") {
+        note.textContent =
+          "Scan finished. Nothing was changed — review each finding before acting.";
+      } else if (phase === "failed") {
+        note.textContent =
+          "The last scan did not finish: " +
+          (error ? error : "no result is claimed for this run.");
+      } else {
+        note.textContent = "Idle — no scan has run in this session.";
+      }
     }
   }
 
@@ -2197,6 +2468,57 @@
     level3_emergency_containment: "Containment",
   };
 
+  /* The Rescue header shows the operator engine's own recommendation level.
+     It is read from the live posture, so it can never be a decorative
+     "LEVEL 0" badge painted next to a machine that needs attention. */
+  function renderResponseBadge() {
+    const badge = document.getElementById("xray-response-badge");
+    if (!badge) return;
+    const labels = {
+      0: "observe",
+      1: "review",
+      2: "action recommended",
+      3: "containment",
+    };
+    const classes = {
+      0: "level-0-observe",
+      1: "level-1-review",
+      2: "level-2-action",
+      3: "level-3-containment",
+    };
+    if (operatorPosture) {
+      const rank = {
+        level_0_observe: 0,
+        level0_observe: 0,
+        level_1_review: 1,
+        level1_review: 1,
+        level_2_action_recommended: 2,
+        level2_action_recommended: 2,
+        level_3_emergency_containment: 3,
+        level3_emergency_containment: 3,
+      };
+      let level = 0;
+      for (const rec of operatorPosture.recommendations || []) {
+        const r = rank[rec.level] != null ? rank[rec.level] : 0;
+        if (r > level) level = r;
+      }
+      badge.textContent = "Level " + level + " · " + labels[level];
+      badge.className = "operator-level-badge " + classes[level];
+      badge.title =
+        level === 0
+          ? "The operator engine reports nothing above observe"
+          : "Highest recommendation level reported by the operator engine";
+    } else if (!operatorPostureEverLoaded) {
+      badge.textContent = "Reading…";
+      badge.className = "operator-level-badge";
+      badge.title = "Reading the operator posture";
+    } else {
+      badge.textContent = "Unavailable";
+      badge.className = "operator-level-badge";
+      badge.title = "The operator posture could not be read";
+    }
+  }
+
   function renderOperatorPosture() {
     const p = operatorPosture;
     if (p) {
@@ -2222,6 +2544,7 @@
     }
     updateOvAside();
     renderOvRecommendation();
+    renderResponseBadge();
   }
 
   // Hero aside: verified context chips. Rendered only when a real
@@ -4243,7 +4566,10 @@
       const flowNavToken = viewToken;
       setPill("scanning", "Reviewing overlay candidates");
       if (origin === "rescue") {
-        window.CureSweep.start();
+        // Preparing is a real phase (overlay review) and the workspace says
+        // so; it must not look like an active collection.
+        window.CureSweep.preparing();
+        setScanControls("running");
         await switchView(currentView(), scanView);
         setNav("scan-view");
       }
@@ -4305,17 +4631,31 @@
     if (xInv) {
       xInv.addEventListener("click", () => navTo("results-view"));
     }
+    const xrOpen = document.getElementById("xr-result-open");
+    if (xrOpen) {
+      xrOpen.addEventListener("click", () => navTo("results-view"));
+    }
+    const xrTools = document.getElementById("xr-tools");
+    const closeTools = () => {
+      if (xrTools) xrTools.open = false;
+    };
     const rView = document.getElementById("radar-view-btn");
     if (rView) {
       rView.addEventListener("click", () => navTo("scan-center"));
     }
     const xDefScan = document.getElementById("xray-defender-scan-btn");
     if (xDefScan) {
-      xDefScan.addEventListener("click", () => openDefenderModal());
+      xDefScan.addEventListener("click", () => {
+        closeTools();
+        openDefenderModal();
+      });
     }
     const xExportCase = document.getElementById("xray-export-case-btn");
     if (xExportCase) {
-      xExportCase.addEventListener("click", () => exportCaseFile());
+      xExportCase.addEventListener("click", () => {
+        closeTools();
+        exportCaseFile();
+      });
     }
 
     async function exportCaseFile() {
@@ -4329,8 +4669,6 @@
     let defenderEventsBound = false;
     function openDefenderModal() {
       bindDefenderModalEvents();
-    window.addEventListener("DOMContentLoaded", bindDefenderModalEvents);
-    window.addEventListener("load", bindDefenderModalEvents);
       const modal = document.getElementById("xray-defender-modal");
       if (!modal) return;
 

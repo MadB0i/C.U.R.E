@@ -52,7 +52,7 @@ impl TaskScanReport {
         use crate::elevation::SourceStatus;
         if self.skipped == 0 {
             SourceStatus::Available
-        } else if self.files_seen > self.skipped {
+        } else if self.files_seen > 0 {
             SourceStatus::Partial {
                 skipped: self.skipped,
                 reason: "some task files unreadable (elevation may help)".to_string(),

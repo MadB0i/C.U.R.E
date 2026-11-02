@@ -229,11 +229,27 @@ def main():
         # Scenario 4: a Rescue-origin scan keeps the Rescue workflow. The
         # scan view's own start control (labelled "Scan Again" after the
         # previous scan) starts a rescue-origin scan.
+        # Stage UI-03 contract: completion stays on the scan view and renders
+        # the assessment inline; the Investigate view is reached through the
+        # explicit "Open in Investigate" action, never by auto-navigation.
         page.locator("#xray-start-btn").click()
         expect(page.locator("#scan-view")).to_be_visible(timeout=20000)
         check("4 rescue-origin scan stays in the Rescue workflow",
               visible_view(page) in ("scan-view", "landing-view"))
-        expect(page.locator("#results-view")).to_be_visible(timeout=180000)
+        # The inline console may already show the PREVIOUS scan's assessment,
+        # so "results visible" proves nothing about THIS run. This run is
+        # done when the primary control returns to "Scan Again" — the click
+        # synchronously flips it to "Scanning…" first, so this wait cannot
+        # pass against the pre-click state.
+        wait_until(page,
+                   "document.getElementById('xray-start-btn').textContent.trim() === 'Scan Again'",
+                   timeout=180000)
+        check("4 rescue completion renders the inline assessment",
+              visible_view(page) == "scan-view"
+              and "hidden" not in (page.locator("#rescue-results").get_attribute("class") or ""),
+              visible_view(page))
+        page.locator("#xr-result-open").click()
+        expect(page.locator("#results-view")).to_be_visible(timeout=30000)
         expect(page.locator("#view-title")).to_have_text("Investigate", timeout=10000)
         shot(page, "02-native-rescue-results.png")
         page.locator("#nav-overview").click()

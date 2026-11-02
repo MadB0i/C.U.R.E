@@ -577,159 +577,205 @@
           <!-- ============================================================
                RESCUE · live collection
                ============================================================ -->
-          <section class="view" id="scan-view">
+          <section
+            class="view"
+            id="scan-view"
+          >
+            <div class="demo-banner" role="note"><strong>Public demo</strong> — every file, path and finding on this screen is deterministic sample data. Nothing here was read from a real machine, and nothing here is a threat detection.</div>
             <div class="rescue-head">
-              <div>
-                <div class="eyebrow">Rescue / Live collection</div>
+              <div class="rescue-head-copy">
+                <div class="eyebrow">Rescue / System X-Ray</div>
                 <h1 class="headline">System X-Ray</h1>
                 <p class="subline">
-                  Read-only inspection of this machine. Remediation is a separate,
-                  explicitly confirmed action.
+                  Read-only inspection of this machine. A scan changes nothing;
+                  remediation is a separate, explicitly confirmed action.
                 </p>
               </div>
               <div class="rescue-head-actions">
-                <button class="btn btn-primary" id="xray-start-btn" type="button">
-                  Start Rescue Scan
-                </button>
-                <button class="btn btn-secondary hidden" id="xray-investigate-btn" type="button">
-                  Investigate Findings &rarr;
-                </button>
-                <button class="btn hidden" id="scan-retry" type="button">
-                  Retry scan
-                </button>
-              </div>
-            </div>
-            <div class="xray-hero">
-              <div class="xray-field" data-running="true" id="xray-field">
-                <canvas
-                  aria-hidden="true"
-                  class="xray-canvas"
-                  id="xray-canvas"
-                ></canvas>
-                <div class="xray-corner top">
-                  <span class="xray-tag">Holographic Security Radar · 9 Persistence Vectors</span>
-                </div>
-                <div class="xray-corner bottom">
-                  <span class="xray-live" id="xray-live">Radar Standby</span>
-                  <button
-                    class="ghost-btn xray-motion"
-                    id="xray-motion"
-                    type="button"
-                  >
-                    Pause field motion
-                  </button>
-                </div>
-                <div class="xray-core-readout" id="xray-core-readout">
-                  READY // STANDBY
-                </div>
-              </div>
-              <div class="xray-side">
-                <div class="xray-telemetry-hud" id="xray-telemetry-hud">
-                  <div class="xray-hud-header">
-                    <span class="xray-hud-eyebrow">FORENSIC TELEMETRY</span>
-                    <span class="xray-hud-badge" id="xray-hud-badge">STANDBY</span>
-                  </div>
-                  <div class="xray-hud-target">
-                    <span class="xray-hud-icon" id="xray-hud-icon">⚡</span>
-                    <div class="xray-hud-target-meta">
-                      <strong class="xray-hud-name" id="xray-hud-name">All 9 Vectors Primed</strong>
-                      <span class="xray-hud-detail" id="xray-hud-detail">Read-only offline persistence verification</span>
-                    </div>
-                  </div>
-                  <div class="xray-hud-metrics">
-                    <div class="xray-hud-metric">
-                      <span class="xray-metric-label">DISCOVERED</span>
-                      <span class="xray-metric-val" id="xray-hud-discovered">0</span>
-                    </div>
-                    <div class="xray-hud-metric">
-                      <span class="xray-metric-label">INSPECTED</span>
-                      <span class="xray-metric-val" id="xray-hud-inspected">0</span>
-                    </div>
-                    <div class="xray-hud-metric">
-                      <span class="xray-metric-label">COVERAGE</span>
-                      <span class="xray-metric-val" id="xray-hud-coverage">0 / 9</span>
-                    </div>
-                    <div class="xray-hud-metric">
-                      <span class="xray-metric-label">FINDINGS</span>
-                      <span class="xray-metric-val" id="xray-hud-findings">0</span>
-                    </div>
-                  </div>
-                </div>
-                <!-- Threat Response & Containment Console -->
-                <div class="xray-threat-panel" id="xray-threat-panel">
-                  <div class="xray-hud-header">
-                    <span class="xray-hud-eyebrow">RESPONSE ENGINE</span>
-                    <span class="operator-level-badge level-0-observe" id="xray-response-badge">LEVEL 0: OBSERVE</span>
-                  </div>
-                  <div class="xray-collector-matrix">
-                    <div class="matrix-row"><span>Registry Run</span><strong class="col-clean">Active</strong></div>
-                    <div class="matrix-row"><span>Startup Folders</span><strong class="col-clean">Active</strong></div>
-                    <div class="matrix-row"><span>Scheduled Tasks</span><strong class="col-clean">Active</strong></div>
-                    <div class="matrix-row"><span>Win32 Services</span><strong class="col-clean">Active</strong></div>
-                    <div class="matrix-row"><span>Kernel Drivers</span><strong class="col-clean">Active</strong></div>
-                    <div class="matrix-row"><span>IFEO / AppInit</span><strong class="col-clean">Active</strong></div>
-                  </div>
-                  <div class="xray-controls-row">
-                    <button class="operator-action-btn btn-secondary" id="xray-defender-scan-btn" type="button">
-                      Defender File Scan
-                    </button>
-                    <button class="operator-action-btn btn-secondary" id="xray-export-case-btn" type="button">
-                      Export Case File
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="instrument">
-              <div class="ins-cell lead">
-                <span class="ins-label" id="xray-phase-label">Current collector</span>
-                <span class="ins-value" id="xray-phase">Preparing
-                  collection</span>
-              </div>
-              <div class="ins-cell">
-                <span class="ins-label">Entries inspected</span>
-                <span class="ins-value" id="xray-inspected">0</span>
-              </div>
-              <div class="ins-cell">
-                <span class="ins-label">Elapsed</span>
-                <span class="ins-value" id="scan-elapsed" aria-live="off"
-                  >elapsed 0.0s</span
+                <span
+                  class="xr-response"
+                  id="xray-response-wrap"
+                  title="Response level reported by the operator engine"
                 >
-              </div>
-              <div class="ins-cell">
-                <span class="ins-label">Coverage</span>
-                <span class="ins-value" id="xray-coverage">—</span>
-              </div>
-              <div class="ins-cell">
-                <span class="ins-label">Findings</span>
-                <span class="ins-value" id="xray-findings">0</span>
+                  <span class="xr-response-label">Response</span>
+                  <span class="operator-level-badge level-0-observe" id="xray-response-badge">Level 0 · observe</span>
+                </span>
+                <details class="xr-tools" id="xr-tools">
+                  <summary class="btn xr-tools-summary">Tools</summary>
+                  <div class="xr-tools-menu">
+                    <button
+                      class="xr-tools-item"
+                      id="xray-export-case-btn"
+                      type="button"
+                    >
+                      Export case file
+                    </button>
+                    <button
+                      class="xr-tools-item"
+                      id="xray-defender-scan-btn"
+                      type="button"
+                    >
+                      Defender file scan
+                      <span class="xr-tools-note">audit only · never removes</span>
+                    </button>
+                  </div>
+                </details>
               </div>
             </div>
-            <div class="xray-lower">
-              <section class="panel">
-                <h2 class="section-title">Inspection layers</h2>
-                <ul
-                  aria-label="Collection source states"
-                  class="sweep-sources"
-                  id="sweep-sources"
-                ></ul>
-                <div class="sweep-foot">
-                  <span>State <b id="sweep-current">Awaiting collection</b></span>
-                  <span>Inspected <b id="sweep-items">0 entries inspected</b></span>
-                  <span
-                    >Layer states come from reported collection coverage.
-                    <b>Incomplete coverage cannot establish an all-clear.</b></span
+
+            <div class="xr-shell">
+              <div class="xr-workstation">
+                <div class="xr-radar-col">
+                  <div class="xray-field" data-running="false" data-state="idle" id="xray-field">
+                    <canvas
+                      aria-hidden="true"
+                      class="xray-canvas"
+                      id="xray-canvas"
+                    ></canvas>
+                    <div class="xray-corner top">
+                      <span class="xray-tag">Holographic radar · 9 persistence vectors</span>
+                    </div>
+                    <div class="xray-corner bottom">
+                      <span class="xray-live" id="xray-live">Radar standby</span>
+                      <button
+                        class="ghost-btn xray-motion"
+                        id="xray-motion"
+                        type="button"
+                      >
+                        Pause field motion
+                      </button>
+                    </div>
+                    <div class="xray-core-readout" id="xray-core-readout">
+                      READY // STANDBY
+                    </div>
+                  </div>
+                  <div class="xr-actions">
+                    <button class="btn btn-primary xr-primary" id="xray-start-btn" type="button">
+                      Start System Scan
+                    </button>
+                    <button class="btn xr-secondary hidden" id="xray-investigate-btn" type="button">
+                      Review findings
+                    </button>
+                    <button class="btn xr-secondary hidden" id="scan-retry" type="button">
+                      Retry scan
+                    </button>
+                    <p class="xr-actions-note" id="xr-actions-note">
+                      Idle — no scan has run in this session.
+                    </p>
+                  </div>
+                </div>
+
+                <aside class="xr-side" aria-label="Collector telemetry">
+                  <div class="xray-telemetry-hud" id="xray-telemetry-hud">
+                    <div class="xray-hud-header">
+                      <span class="xray-hud-eyebrow">Forensic telemetry</span>
+                      <span class="xray-hud-badge" id="xray-hud-badge">Standby</span>
+                    </div>
+                    <div class="xray-hud-target">
+                      <div class="xray-hud-target-meta">
+                        <strong class="xray-hud-name" id="xray-hud-name">Awaiting operator</strong>
+                        <span class="xray-hud-detail" id="xray-hud-detail">No collection has run in this session</span>
+                      </div>
+                    </div>
+                    <div class="xray-hud-metrics">
+                      <div class="xray-hud-metric">
+                        <span class="xray-metric-label">ENTRIES</span>
+                        <span class="xray-metric-val" id="xray-hud-inspected">0</span>
+                      </div>
+                      <div class="xray-hud-metric">
+                        <span class="xray-metric-label">LAYERS</span>
+                        <span class="xray-metric-val" id="xray-hud-coverage">0 / 9</span>
+                      </div>
+                      <div class="xray-hud-metric">
+                        <span class="xray-metric-label">FLAGGED</span>
+                        <span class="xray-metric-val" id="xray-hud-findings">0</span>
+                      </div>
+                      <div class="xray-hud-metric">
+                        <span class="xray-metric-label">UNREADABLE</span>
+                        <span class="xray-metric-val" id="xray-hud-unavailable">0</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <section class="xr-matrix" aria-labelledby="xr-matrix-title">
+                    <div class="xr-matrix-head">
+                      <h2 class="section-title" id="xr-matrix-title">Inspection layers</h2>
+                      <span class="xr-matrix-count" id="xray-matrix-cover">0 / 9</span>
+                    </div>
+                    <ul
+                      aria-label="Collector states"
+                      class="xr-layers"
+                      id="sweep-sources"
+                    ></ul>
+                    <p class="xr-matrix-foot">
+                      <span id="sweep-current">Awaiting collection</span>
+                      <span id="sweep-items">0 entries inspected</span>
+                    </p>
+                    <p class="xr-matrix-note">
+                      States come from the backend's own coverage report. A
+                      collector that ran without reporting coverage is never
+                      counted as checked.
+                    </p>
+                  </section>
+                </aside>
+              </div>
+
+              <div class="instrument xr-readouts">
+                <div class="ins-cell lead">
+                  <span class="ins-label" id="xray-phase-label">Current collector</span>
+                  <span class="ins-value" id="xray-phase">Idle</span>
+                </div>
+                <div class="ins-cell">
+                  <span class="ins-label">Entries inspected</span>
+                  <span class="ins-value" id="xray-inspected">0</span>
+                </div>
+                <div class="ins-cell">
+                  <span class="ins-label">Elapsed</span>
+                  <span class="ins-value" id="scan-elapsed" aria-live="off"
+                    >elapsed 0.0s</span
                   >
                 </div>
-              </section>
-              <section class="panel feed-card">
-                <h2 class="section-title">Collection log</h2>
-                <div class="feed-head">
-                  <span class="feed-title">Live backend events</span>
-                  <span class="feed-count" id="feed-count">0 ITEMS</span>
+                <div class="ins-cell">
+                  <span class="ins-label">Layers checked</span>
+                  <span class="ins-value" id="xray-coverage">0 / 9</span>
                 </div>
-                <ul class="log" id="log"></ul>
+                <div class="ins-cell">
+                  <span class="ins-label">Flagged for review</span>
+                  <span class="ins-value" id="xray-findings">0</span>
+                </div>
+              </div>
+
+              <section
+                aria-labelledby="xr-results-title"
+                aria-live="polite"
+                class="xr-results hidden"
+                id="rescue-results"
+              >
+                <div class="xr-result-head">
+                  <div>
+                    <div class="eyebrow">Assessment</div>
+                    <h2 class="xr-result-title" id="xr-results-title">No scan this session</h2>
+                    <p class="xr-result-sub" id="xr-result-sub"></p>
+                  </div>
+                  <div class="xr-result-actions">
+                    <button class="btn" id="xr-result-open" type="button">
+                      Open in Investigate &rarr;
+                    </button>
+                  </div>
+                </div>
+                <ul class="xr-result-stats" id="xr-result-stats"></ul>
+                <ul class="xr-result-notes" id="xr-result-notes"></ul>
+                <ul class="xr-result-findings" id="xr-result-findings"></ul>
+                <p class="xr-result-empty hidden" id="xr-result-empty"></p>
               </section>
+
+              <details class="xr-log" id="xr-log">
+                <summary class="xr-log-summary">
+                  <span class="xr-log-title">Collection log</span>
+                  <span class="feed-count" id="feed-count">0 ITEMS</span>
+                </summary>
+                <ul class="log" id="log"></ul>
+              </details>
             </div>
           </section>
 
@@ -879,10 +925,10 @@ Windows changes
                     ><label>FLAGGED FOR REVIEW</label>
                   </div>
                   <div class="stat">
-                    <span id="stat-safe">0</span><label>SAFE SCORE</label>
+                    <span id="stat-safe">0</span
+                    ><label>ENTRIES SCORED SAFE</label>
                   </div>
                 </div>
-                <div class="operator-mount" id="operator-result" data-companion="result"></div>
                 <div class="panel" id="review-block">
                   <h2 class="section-title">Persistence findings</h2>
                   <ul class="entry-cards" id="review-cards"></ul>
