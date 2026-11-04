@@ -564,6 +564,43 @@
   /* ---------------------------------------------------------------------
      rendering
      --------------------------------------------------------------------- */
+  /* Case telemetry strip (Stage UI-07): the same figures the board shows,
+     as text, before the operator reads anything else. Em-dashes mean the
+     investigation has not run yet — never a zero. */
+  function renderStats(inv) {
+    const val = function (id) {
+      return $(id);
+    };
+    const total = val("dt-stat-total");
+    const candidates = val("dt-stat-candidates");
+    const files = val("dt-stat-files");
+    const leads = val("dt-stat-leads");
+    if (!inv) {
+      if (total) total.textContent = "—";
+      if (candidates) candidates.textContent = "—";
+      if (files) files.textContent = "—";
+      if (leads) leads.textContent = "—";
+      return;
+    }
+    const map = inv.map || {};
+    const head = inv.headline || {};
+    const evidence = inv.evidence || {};
+    const candidateBytes = head.candidate_bytes || map.candidate_bytes || 0;
+    const candidateLabel =
+      head.candidate_label || map.candidate_label || "—";
+    if (total) total.textContent = map.measured_bytes_label || "—";
+    if (candidates) {
+      candidates.textContent = candidateBytes ? candidateLabel : "None found";
+      candidates.classList.toggle("text-warning", !!candidateBytes);
+    }
+    if (files) {
+      files.textContent = String(evidence.files_measured || 0);
+    }
+    if (leads) {
+      leads.textContent = String((inv.leads || []).length);
+    }
+  }
+
   function render() {
     const inv = state.investigation;
     const subline = $("dt-subline");
@@ -574,6 +611,7 @@
         subline.textContent = "Nothing is measured until you start an investigation.";
       }
       if (total) total.textContent = "—";
+      renderStats(null);
       buildLeads();
       buildDetail();
       return;
@@ -581,6 +619,7 @@
 
     const map = inv.map || {};
     if (total) total.textContent = map.measured_bytes_label || "—";
+    renderStats(inv);
     if (subline) {
       const head = inv.headline || {};
       const candidateBytes = head.candidate_bytes || map.candidate_bytes || 0;

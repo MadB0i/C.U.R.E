@@ -1139,13 +1139,32 @@
                 </div>
               </div>
               <div class="dt-head-actions">
-                <div class="operator-mount dt-operator-slot" data-companion="detective"></div>
                 <button class="btn btn-primary" id="dt-investigate" type="button">
                   Start investigation
                 </button>
                 <button class="btn btn-ghost hidden" id="dt-rescan" type="button">
                   Measure again
                 </button>
+              </div>
+            </div>
+
+            <!-- case telemetry (Stage UI-07) ----------------------------- -->
+            <div aria-label="Case telemetry" class="dt-stats-strip" id="dt-stats-strip">
+              <div class="dt-stat-card">
+                <span class="dt-stat-val" id="dt-stat-total">—</span>
+                <span class="dt-stat-label">Measured total</span>
+              </div>
+              <div class="dt-stat-card">
+                <span class="dt-stat-val text-warning" id="dt-stat-candidates">—</span>
+                <span class="dt-stat-label">Review candidates</span>
+              </div>
+              <div class="dt-stat-card">
+                <span class="dt-stat-val text-info" id="dt-stat-files">—</span>
+                <span class="dt-stat-label">Files measured</span>
+              </div>
+              <div class="dt-stat-card">
+                <span class="dt-stat-val" id="dt-stat-leads">—</span>
+                <span class="dt-stat-label">Discoveries</span>
               </div>
             </div>
 

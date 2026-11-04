@@ -54,10 +54,75 @@
   flex-wrap: wrap;
 }
 
-.dt-operator-slot {
-  flex: 0 1 auto;
-  min-width: 230px;
-  max-width: 340px;
+/* --- case telemetry strip (Stage UI-07) -------------------------------- */
+
+.dt-stats-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s3);
+  margin-bottom: var(--s5);
+}
+
+.dt-stat-card {
+  padding: var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition: border-color 140ms ease;
+}
+
+.dt-stat-card:hover {
+  border-color: var(--hair-strong);
+}
+
+.dt-stat-val {
+  font-family: var(--font-mono);
+  font-size: var(--display);
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dt-stat-val.text-warning {
+  color: var(--warning);
+}
+
+.dt-stat-val.text-info {
+  color: #38bdf8;
+}
+
+.dt-stat-label {
+  font-size: var(--t-2xs);
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+@media (max-width: 960px) {
+  .dt-stats-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .dt-stats-strip {
+    grid-template-columns: 1fr;
+  }
+}
+
+[data-theme="light"] .dt-stat-card {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 /* --- timeline --------------------------------------------------------- */
