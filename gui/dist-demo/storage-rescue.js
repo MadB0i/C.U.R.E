@@ -308,19 +308,19 @@
     if (list) {
       list.innerHTML = `
         <div class="sr-preflight-item">
-          <span class="sr-check-icon">✔</span>
+          <span class="sr-check-icon"><svg aria-hidden="true" height="12" viewBox="0 0 16 16" width="12"><path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           <span>Source directories verified readable and accessible</span>
         </div>
         <div class="sr-preflight-item">
-          <span class="sr-check-icon">✔</span>
+          <span class="sr-check-icon"><svg aria-hidden="true" height="12" viewBox="0 0 16 16" width="12"><path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           <span>Target destination volume ${plan.target_drive} writeable (${formatBytes(plan.target_current_free_bytes)} free)</span>
         </div>
         <div class="sr-preflight-item">
-          <span class="sr-check-icon">✔</span>
+          <span class="sr-check-icon"><svg aria-hidden="true" height="12" viewBox="0 0 16 16" width="12"><path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           <span>Required headroom of ${formatBytes(plan.total_bytes_to_relocate)} + 10% safety buffer (${formatBytes(plan.required_headroom_bytes)}) met</span>
         </div>
         <div class="sr-preflight-item">
-          <span class="sr-check-icon">✔</span>
+          <span class="sr-check-icon"><svg aria-hidden="true" height="12" viewBox="0 0 16 16" width="12"><path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           <strong>Non-Destructive Policy: Source files on ${plan.source_drive} are PRESERVED and never deleted in-place</strong>
         </div>
       `;
@@ -329,7 +329,7 @@
         for (const w of plan.preflight_warnings) {
           list.innerHTML += `
             <div class="sr-preflight-item">
-              <span class="sr-warn-icon">⚠</span>
+              <span class="sr-warn-icon"><svg aria-hidden="true" height="12" viewBox="0 0 16 16" width="12"><path d="M8 2.5 14.5 13.5H1.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6.5v3.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11.9" r="0.9" fill="currentColor"/></svg></span>
               <span>${w}</span>
             </div>
           `;
@@ -542,10 +542,10 @@
             state.cleanupNonce = actReceipt.cleanup_nonce;
             state.requiredCleanupToken = actReceipt.required_cleanup_token || (`CONFIRM_CLEANUP_${item.candidate_id}` + (actReceipt.cleanup_nonce ? `_${actReceipt.cleanup_nonce}` : ""));
 
-            receiptFinalize.textContent = "✔ Activated & Validated";
+            receiptFinalize.textContent = "Activated & Validated";
             if (actText) {
               actText.style.color = "#34d399";
-              actText.innerHTML = `<strong>✔ ACTIVATION &amp; VALIDATION PASSED:</strong> ${actReceipt.configuration_action}. Dynamic verification token generated. Source cleanup unlocked.`;
+              actText.innerHTML = `<strong>ACTIVATION &amp; VALIDATION PASSED:</strong> ${actReceipt.configuration_action}. Dynamic verification token generated. Source cleanup unlocked.`;
             }
             if (receiptCleanup) {
               receiptCleanup.disabled = false;
@@ -561,7 +561,7 @@
             receiptFinalize.textContent = "Activate & Validate Path";
             if (actText) {
               actText.style.color = "#f43f5e";
-              actText.innerHTML = `<strong>⚠ ACTIVATION/VALIDATION FAILED:</strong> ${(actReceipt.notes || []).join("; ") || "Application failed to resolve target path."}. Source cleanup remains locked.`;
+              actText.innerHTML = `<strong>ACTIVATION/VALIDATION FAILED:</strong> ${(actReceipt.notes || []).join("; ") || "Application failed to resolve target path."}. Source cleanup remains locked.`;
             }
             if (receiptCleanup) {
               receiptCleanup.disabled = true;
@@ -703,12 +703,12 @@
           if (resultBox) {
             resultBox.classList.remove("hidden");
             resultBox.innerHTML = `
-              <strong>✔ CLEANUP VERIFIED & COMPLETED:</strong><br/>
+              <strong>CLEANUP VERIFIED & COMPLETED:</strong><br/>
               ${cleanupReceipt.cleanup_status}<br/>
               Original files removed. Measured C: space freed: <strong>${formatBytes(cleanupReceipt.actual_bytes_freed)}</strong>.
             `;
           }
-          cleanupConfirm.textContent = "✔ Completed";
+          cleanupConfirm.textContent = "Completed";
           if (receiptCleanup) {
             receiptCleanup.disabled = true;
             receiptCleanup.textContent = "Source Retired & Freed";

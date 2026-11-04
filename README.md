@@ -1,6 +1,7 @@
 # C.U.R.E
 
-> Evidence-first Windows security toolkit and forensic storage workstation with local AI agent intelligence.
+> Evidence-first Windows security console and forensic storage workstation.
+> Local only. No telemetry. No auto-scan. Move, never delete.
 
 [![CI](https://github.com/MadB0i/C.U.R.E/actions/workflows/ci.yml/badge.svg)](https://github.com/MadB0i/C.U.R.E/actions/workflows/ci.yml)
 [![Platform: Windows 10/11](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20x64-0078D6.svg)](https://github.com/MadB0i/C.U.R.E)
@@ -9,35 +10,61 @@
 
 ---
 
-[![C.U.R.E Native Preview](docs/media/cure-preview.gif)](docs/media/cure-demo.mp4)
+[![C.U.R.E Investigation Console](docs/media/cure-hero.png)](docs/media/cure-hero.png)
 
-*Real-time holographic sweep, 9-vector segmented radar, and LUMA companion in the native desktop console.*  
-**[▶ Watch Full Native Demo Video (1080p MP4, 43s)](docs/media/cure-demo.mp4)**
+*C.U.R.E inspects a Windows machine for persistence, suspicious activity and
+reclaimable storage, and reports what it found with the evidence attached. It
+never changes anything without an explicit, previewed confirmation.*
 
 ---
 
 ## Visual Tour
 
-| Holographic Rescue Scanner V2 | AI Agent Radar V3 |
+| Overview | AI Agent Radar |
 | :---: | :---: |
-| [![Holographic Rescue Scanner V2](docs/media/cure-rescue-scanner.png)](docs/media/cure-rescue-scanner.png) | [![AI Agent Radar V3](docs/media/cure-agent-radar.png)](docs/media/cure-agent-radar.png) |
-| *Active 9-layer persistence radar with real-time collector telemetry and central tactical instrument.* | *Identifies local AI developer tools, model servers, and execution hierarchies.* |
+| [![Overview](docs/media/cure-overview.png)](docs/media/cure-overview.png) | [![AI Agent Radar](docs/media/cure-agents.png)](docs/media/cure-agents.png) |
+| *One posture, nine inspection layers, real operator tiles.* | *Identifies local AI coding agents and model servers, verifies signatures, masks secrets.* |
 
-| LUMA Tactical Companion | Forensic Investigation Dossier |
+| Investigation Console | Quarantine Workstation |
 | :---: | :---: |
-| [![LUMA Companion](docs/media/cure-overview-luma.png)](docs/media/cure-overview-luma.png) | [![Forensic Investigation Dossier](docs/media/cure-investigation.png)](docs/media/cure-investigation.png) |
-| *Dynamic feline console companion with floating drone and scanning aura.* | *Deep inspection of Run keys, Scheduled Tasks, Services, and WMI subscriptions.* |
+| [![Investigation Console](docs/media/cure-investigate.png)](docs/media/cure-investigate.png) | [![Quarantine Workstation](docs/media/cure-quarantine.png)](docs/media/cure-quarantine.png) |
+| *Five forensic lenses over the same collected evidence — findings, processes, Windows changes, ransom indicators, coverage.* | *Reversible isolation enclave with SHA-256 integrity seals and 1-click scoped undo.* |
+
+| Monitor Workstation | Detective Mode |
+| :---: | :---: |
+| [![Monitor Workstation](docs/media/cure-monitor.png)](docs/media/cure-monitor.png) | [![Detective Mode](docs/media/cure-detective.png)](docs/media/cure-detective.png) |
+| *Session telemetry, canary tripwire, and the post-login Observation Chamber.* | *Read-only storage forensics: where the bytes went, what can be reviewed.* |
 
 ---
 
 ## Key Capabilities
 
-- **AI Agent Radar V3**: Discovers local AI agents (`OpenCode`, `OpenAI Codex CLI`, `Claude Code`, `Aider`) and model inference servers (`Ollama`). Verifies Authenticode code-signing signatures, distinguishes inner model orbits from autonomous tools, and automatically masks credentials in process arguments.
-- **Holographic Rescue Scanner V2**: Inspects all 9 Windows persistence layers (Registry Run, Startup, Tasks, Services, WMI, IFEO, COM, Winlogon, Processes) via differentiated segmented orbital tracks, dynamic sweep beam, shockwave ripples, and truthful central tactical instrument.
-- **Agent Flight Recorder**: Captures a forensic timeline of filesystem changes during agent sessions using Windows directory change notifications (`ReadDirectoryChangesW`).
-- **Windows Change Radar**: Tracks persistent system state changes across reboots with point-in-time snapshots and baseline diffing.
-- **Shareable Agent Case Files**: Exports cryptographically signed, sanitized incident reports with allowlisted metrics and zero personal usernames or paths.
-- **LUMA V2 Companion**: Vector-rendered anime cat mascot responding to 7 operational states (`idle`, `curious`, `scanning`, `success`, `warning`, `sleepy`, `excited`) with unobstructed facial expressions, subtle scanning aura, and floating drone companion.
+- **Nine-layer persistence scan** — Registry autoruns, Startup folders, Scheduled
+  Tasks, Services, WMI subscriptions, IFEO, AppInit, COM registrations and running
+  processes, each scored with ATT&CK mapping and the evidence attached.
+- **Investigation Console** — five forensic lenses (Findings, Process Sentinel,
+  Windows Change Radar, Ransom indicators, Collection coverage) over one collected
+  evidence set, with sanitized JSON/TXT report export.
+- **Quarantine Workstation** — flagged items are *moved, never deleted*, into an
+  integrity-sealed enclave with preserved NTFS metadata and scoped one-click undo.
+- **Monitor Workstation** — a live session event feed with kind filters, the
+  experimental **Canary tripwire** (decoy files watched for tampering and
+  bulk-encryption patterns), and the **Login Observation chamber**: a bounded
+  15/30/60/120 s window that correlates what actually starts with recorded
+  startup persistence (DIRECT / STRONG / PARTIAL / WEAK — deterministic levels,
+  never a verdict).
+- **AI agent intelligence** — Agent Radar enumerates local AI coding agents and
+  model servers (Authenticode-verified, secrets masked at capture), the Flight
+  Recorder records filesystem changes during agent sessions via
+  `ReadDirectoryChangesW`, and Case Files export signed, sanitized dossiers.
+  The same surface exists on the CLI: `cure agents`, `cure change`,
+  `cure recorder`, `cure casefile`.
+- **Storage forensics** — the Storage Workstation measures, ranks and (only after
+  an explicit, previewed confirmation) reclaims space; Detective Mode explains
+  where the bytes went. The CLI's `storage` surface is read-only by design.
+- **Share result card** — one click builds a PNG with aggregate counts only
+  (findings, flagged processes, canary alerts, actions). No paths, no names, no
+  secrets. You preview the exact file before it is saved.
 
 ---
 
@@ -46,23 +73,28 @@
 ### Requirements
 - Windows 10 or 11 (x64)
 - WebView2 Runtime (standard on modern Windows)
+- [Rust](https://rustup.rs) (stable) to build from source
 
-### Run Desktop Console from Source
+### Run the desktop console from source
 ```powershell
-# Clone repository
 git clone https://github.com/MadB0i/C.U.R.E.git
-cd C.U.R.E
-
-# Run the Tauri desktop Evidence Console
-cd gui/src-tauri
+cd C.U.R.E\gui\src-tauri
 cargo run --release
 ```
 
-### CLI Scanner
+### Or use the CLI
 ```powershell
-# Run the command-line scanner directly from the repository root
-cargo run --release -p cure_cli -- scan
+# From the repository root
+cargo run --release -p cure_cli -- scan                  # persistence scan
+cargo run --release -p cure_cli -- report --format json  # sanitized report
+cargo run --release -p cure_cli -- incident --duration 30
+cargo run --release -p cure_cli -- agents                # AI agent radar
+cargo run --release -p cure_cli -- storage scan          # read-only storage intel
 ```
+
+Every list the console shows handles loading, empty, error and INCOMPLETE states
+honestly. Areas the engine could not read are reported as INCOMPLETE — never as
+"clean".
 
 ---
 
@@ -70,44 +102,59 @@ cargo run --release -p cure_cli -- scan
 
 In strict adherence to the **Honesty Over Comfort** principle:
 
-1. **Offline by Default**: Zero outbound telemetry, zero cloud scanning, and zero external API dependencies. WinTrust Authenticode revocation checks default strictly to the local cache.
-2. **Move, Never Delete**: Remediation moves flagged items into a SHA-256 integrity-verified quarantine enclave with complete metadata preservation and single-click restoration.
-3. **Correlation Is Not Attribution**: The Flight Recorder uses user-mode Windows directory change notifications (`ReadDirectoryChangesW`), not a kernel minifilter driver. Filesystem modifications occurring while an agent runs are classified as **Correlated**, never **Attributed**.
-4. **Authenticode Verification**: Executable path alone never confers verified status. Unsigned tools compiled locally report honestly as `Unverified process` rather than masquerading as verified binaries.
-5. **Honest Scan Coverage**: Inaccessible directories or denied collectors report `INCOMPLETE`. C.U.R.E never presents an incomplete scan as a clean all-clear.
-6. **Credential & Secret Masking**: Detected API tokens (`sk-*`), Bearer headers, passwords, and sensitive CLI parameters are masked (`***`) at capture time before storage, display, or export.
+1. **Offline by default**: zero outbound telemetry, zero cloud scanning, zero
+   external API dependencies. Revocation checks default strictly to the local cache.
+2. **No auto-scan**: collection starts only from an explicit click or command.
+3. **Move, never delete**: remediation moves flagged items into a SHA-256
+   integrity-verified quarantine with complete metadata preservation and scoped undo.
+4. **Correlation is not attribution**: Flight Recorder events are classified as
+   **Correlated**, never attributed, and correlation levels never claim intent.
+5. **Honest scan coverage**: inaccessible areas report `INCOMPLETE`. C.U.R.E never
+   presents an incomplete scan as an all-clear.
+6. **Secrets are masked, never stored**: detected API tokens, Bearer headers and
+   credentials are masked at capture time before storage, display or export.
 
 ---
 
 ## Development & Verification
 
-### Workspace Verification Suite
 ```powershell
-# Run the 530+ workspace unit and integration tests
+# 590+ workspace unit and integration tests
 cargo test --workspace
 
-# Strict formatting and zero-warning linter checks
+# Strict formatting and zero-warning lints (root workspace + GUI crate)
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 
-# Validate offline frontend assets
-python gui/devtools/make-dev-shell.py
+# Per-stage native UI acceptance (drives the real cure-gui.exe over CDP)
+python gui/devtools/ui06-native-verify.py
+python gui/devtools/ui07-native-verify.py
 ```
 
 ### Architecture
 ```
 C.U.R.E/
-├── cli/              # cure.exe CLI scanner and quarantine engine
-├── core/             # Persistence collectors, Authenticode verification, risk engine
-│   └── src/agent/    # AI Agent Radar, Flight Recorder, detection & case files
-├── dirwatch/         # ReadDirectoryChangesW change notification engine
+├── cli/              # cure.exe CLI: scan, diff, quarantine, incident, agents, change, recorder, casefile
+├── core/             # Persistence collectors, signature & risk engine, canary, incident
+│   └── src/agent/    # AI agent detection, Flight Recorder sessions, case files
+├── watch/            # cure-watch.exe background USB/peripheral monitor (opt-in)
+├── winwatch/         # cure_dirwatch: ReadDirectoryChangesW guard & recorder engine
 ├── gui/              # Tauri desktop Evidence Console
-│   ├── dist/         # Production offline frontend (HTML5/CSS3/Vanilla JS)
-│   ├── dist-demo/    # Byte-identical deterministic demo build
-│   └── src-tauri/    # Tauri native application and IPC commands
-├── watch/            # cure-watch.exe peripheral & USB security monitor
-└── winwatch/         # Win32 change detection primitives
+│   ├── dist/         # Production offline frontend (HTML/CSS/vanilla JS, no framework)
+│   ├── dist-demo/    # Deterministic demo build (mock backend, never touches the machine)
+│   └── src-tauri/    # Tauri v2 native application and IPC commands
+├── testing/          # Native CDP harnesses, fixtures, real-PC validation kit
+└── tools/            # Demo frontend generator, audits
 ```
+
+### Honest limitations
+- Windows-only (x64), user mode. No kernel/ETW tracing — filesystem events stay
+  **Correlated**, never attributed.
+- Scheduled Task XML inspection needs elevation; denied areas are shown as
+  INCOMPLETE, not skipped silently.
+- A second simultaneous scan is refused by design (no cancellation support in the
+  backend yet).
+- The canary tripwire is a tripwire, not ransomware protection.
 
 ---
 

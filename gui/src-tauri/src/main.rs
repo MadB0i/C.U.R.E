@@ -2460,6 +2460,29 @@ fn decode_case_file_png(data_base64: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+/// Write the aggregate-only share result card to this machine.
+///
+/// The card is drawn in the webview from aggregate counts (no paths, no
+/// names, no secret values). The backend only enforces the same PNG guard
+/// and fixed destination folder as the case-file export.
+#[tauri::command]
+fn share_card_png(name: String, data_base64: String) -> Result<String, String> {
+    let bytes = decode_case_file_png(&data_base64)?;
+    let safe: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(64)
+        .collect();
+    if safe.is_empty() {
+        return Err("the share card has no identifier".to_string());
+    }
+    let dir = resolve_data_dir().join("case-files");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create the export folder: {e}"))?;
+    let path = dir.join(format!("{safe}.png"));
+    std::fs::write(&path, &bytes).map_err(|e| format!("cannot write the share card: {e}"))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
 /// Write an exported case file image to this machine.
 ///
 /// The file name is reduced to letters, digits, dashes and underscores, so
@@ -2849,6 +2872,7 @@ fn main() {
             storage_reveal,
             storage_case_file,
             storage_save_case_file,
+            share_card_png,
             storage_available_roots,
             storage_validate_root,
             storage_rescue_status,

@@ -3109,7 +3109,7 @@
   function copyEvidence(text, btn) {
     const originalLabel = btn.textContent;
     const done = () => {
-      btn.textContent = "Copied ✓";
+      btn.textContent = "Copied";
       setTimeout(() => {
         btn.textContent = originalLabel;
       }, 1800);
@@ -4409,6 +4409,170 @@
       focusViewHeading(incView);
   }
 
+  // ---- share result card (MVP2 TASK 8) ------------------------------------
+  // Aggregate counts only: no paths, no file names, no machine identity, no
+  // secret values. The preview shows exactly the bytes that get saved.
+
+  let shareCanvas = null;
+
+  function shareMetrics() {
+    const findings = lastSummary
+      ? (lastSummary.suspicious_for_review || []).length +
+        (lastSummary.high_risk_cleaned || []).length
+      : 0;
+    const procs = lastSummary
+      ? (lastSummary.process_findings || []).length
+      : 0;
+    return {
+      findings: findings,
+      procs: procs,
+      canary: eventLog.filter((e) => e.kind === "canary").length,
+      actions: eventLog.filter((e) => e.kind === "action").length,
+      quarantined: sessionQuarantined,
+      events: eventLog.length,
+      scanned: !!lastSummary,
+    };
+  }
+
+  function buildShareCard() {
+    const W = 1200;
+    const H = 630;
+    const canvas = document.createElement("canvas");
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext("2d");
+    const m = shareMetrics();
+
+    // Chassis
+    ctx.fillStyle = "#0b0e14";
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "rgba(255,255,255,0.10)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(10, 10, W - 20, H - 20);
+
+    // Wordmark
+    ctx.fillStyle = "#e9ecf1";
+    ctx.font = '700 30px "Segoe UI", system-ui, sans-serif';
+    ctx.fillText("C.U.R.E", 64, 84);
+    ctx.fillStyle = "#7f8996";
+    ctx.font = '600 15px "Segoe UI", system-ui, sans-serif';
+    ctx.fillText("EVIDENCE CONSOLE · LOCAL · OFFLINE", 200, 82);
+
+    // Title
+    ctx.fillStyle = "#a78bfa";
+    ctx.font = '650 16px "Segoe UI", system-ui, sans-serif';
+    ctx.fillText("S H A R E   R E S U L T   C A R D", 64, 138);
+    ctx.fillStyle = "#e9ecf1";
+    ctx.font = '650 44px "Segoe UI", system-ui, sans-serif';
+    ctx.fillText("Session Evidence Summary", 64, 192);
+
+    // Scan-status line, so a card without a scan can never read as a verdict
+    ctx.fillStyle = "#a9b1bd";
+    ctx.font = '400 18px "Segoe UI", system-ui, sans-serif';
+    ctx.fillText(
+      m.scanned
+        ? "Based on the last completed scan and this session's recorded actions."
+        : "No scan has completed this session yet — these are session counters only.",
+      64,
+      228,
+    );
+
+    // Metric tiles (2 rows x 3)
+    const tiles = [
+      { label: "FINDINGS IN LAST SCAN", value: String(m.findings), tone: m.findings > 0 ? "#e4706a" : "#63c79a" },
+      { label: "FLAGGED PROCESSES", value: String(m.procs), tone: m.procs > 0 ? "#e0a458" : "#63c79a" },
+      { label: "CANARY ALERTS", value: String(m.canary), tone: m.canary > 0 ? "#e0a458" : "#63c79a" },
+      { label: "ACTIONS TAKEN", value: String(m.actions), tone: "#38bdf8" },
+      { label: "QUARANTINED (SESSION)", value: String(m.quarantined), tone: "#38bdf8" },
+      { label: "SESSION EVENTS", value: String(m.events), tone: "#a9b1bd" },
+    ];
+    const tileW = (W - 128 - 48) / 3;
+    const tileH = 128;
+    tiles.forEach((t, i) => {
+      const col = i % 3;
+      const row = Math.floor(i / 3);
+      const x = 64 + col * (tileW + 24);
+      const y = 256 + row * (tileH + 22);
+      ctx.fillStyle = "#11151c";
+      ctx.beginPath();
+      ctx.roundRect(x, y, tileW, tileH, 10);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.08)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = t.tone;
+      ctx.font = '700 46px Consolas, "Cascadia Mono", monospace';
+      ctx.fillText(t.value, x + 24, y + 66);
+      ctx.fillStyle = "#7f8996";
+      ctx.font = '650 14px "Segoe UI", system-ui, sans-serif';
+      ctx.fillText(t.label, x + 24, y + 98);
+    });
+
+    // Footer: honesty line + generation date. Deliberately no machine name.
+    const now = new Date();
+    ctx.fillStyle = "#7f8996";
+    ctx.font = '400 16px "Segoe UI", system-ui, sans-serif';
+    ctx.fillText(
+      "Aggregate counts only — no paths, no names, no secret values. Verify nothing from this card alone; run C.U.R.E on the machine for the evidence behind it.",
+      64,
+      H - 62,
+    );
+    ctx.fillText(
+      "Generated " +
+        now.toISOString().slice(0, 10) +
+        " " +
+        now.toTimeString().slice(0, 5),
+      64,
+      H - 34,
+    );
+    return canvas;
+  }
+
+  function openSharePreview() {
+    shareCanvas = buildShareCard();
+    const img = document.getElementById("share-preview-img");
+    if (img) img.src = shareCanvas.toDataURL("image/png");
+    const status = document.getElementById("share-status");
+    if (status) {
+      status.textContent = "";
+      status.classList.add("hidden");
+    }
+    const overlay = document.getElementById("share-overlay");
+    if (overlay) {
+      overlay.classList.remove("hidden");
+      const save = document.getElementById("share-save");
+      if (save) save.focus();
+    }
+  }
+
+  function closeSharePreview() {
+    const overlay = document.getElementById("share-overlay");
+    if (overlay) overlay.classList.add("hidden");
+  }
+
+  async function saveShareCard() {
+    if (!shareCanvas) return;
+    const status = document.getElementById("share-status");
+    const stamp = new Date().toISOString().slice(0, 10);
+    try {
+      const path = await invoke("share_card_png", {
+        name: "cure-share-" + stamp,
+        dataBase64: shareCanvas.toDataURL("image/png").split(",")[1],
+      });
+      if (status) {
+        status.textContent = "Saved: " + path;
+        status.classList.remove("hidden");
+      }
+      footFeedback("Share card saved: " + path, false);
+      logEvent("action", "exported share result card to " + path);
+    } catch (err) {
+      if (status) {
+        status.textContent = cleanErrText(err, "Share card export failed");
+        status.classList.remove("hidden");
+      }
+    }
+  }
+
   async function exportIncident(format) {
     if (!lastIncident) {
       footFeedback("Run an investigation first", true);
@@ -4866,7 +5030,7 @@
             } else {
               if (outputBox) {
                 outputBox.style.color = "#34d399";
-                outputBox.textContent = `[✔] DEFENDER ENGINE REPORTED CLEAN (Exit code: ${code}):\n${res.raw_output || "No active threats identified."}`;
+                outputBox.textContent = `[OK] DEFENDER ENGINE REPORTED CLEAN (Exit code: ${code}):\n${res.raw_output || "No active threats identified."}`;
               }
               if (containBox) containBox.classList.add("hidden");
             }
@@ -4906,7 +5070,7 @@
             if (outputBox) {
               outputBox.classList.remove("hidden");
               outputBox.style.color = "#34d399";
-              outputBox.textContent = `[✔] CONTAINMENT EXECUTED: Status=${res.engine_status}\n${res.raw_output}`;
+              outputBox.textContent = `[OK] CONTAINMENT EXECUTED: Status=${res.engine_status}\n${res.raw_output}`;
             }
             if (containBox) containBox.classList.add("hidden");
           } catch (err) {
@@ -4928,7 +5092,7 @@
             if (outputBox) {
               outputBox.classList.remove("hidden");
               outputBox.style.color = "#38bdf8";
-              outputBox.textContent = `[✔] AUDIT JOURNAL INTEGRITY VERIFIED:\n${count} sequential cryptographic SHA-256 blocks validated without tampering or chain breakage.`;
+              outputBox.textContent = `[OK] AUDIT JOURNAL INTEGRITY VERIFIED:\n${count} sequential cryptographic SHA-256 blocks validated without tampering or chain breakage.`;
             }
           } catch (err) {
             verifyJournalBtn.disabled = false;
@@ -4983,6 +5147,31 @@ const canToggle2 = document.getElementById("can-toggle");
     if (expTxt) expTxt.addEventListener("click", () => exportReport("txt"));
     const expJson = document.getElementById("exp-json");
     if (expJson) expJson.addEventListener("click", () => exportReport("json"));
+    // Share result card (MVP2 TASK 8): preview the exact PNG, then save it.
+    const shareBtn = document.getElementById("ov-share-btn");
+    if (shareBtn) shareBtn.addEventListener("click", openSharePreview);
+    const shareClose = document.getElementById("share-close");
+    if (shareClose) shareClose.addEventListener("click", closeSharePreview);
+    const shareCancel = document.getElementById("share-cancel");
+    if (shareCancel) shareCancel.addEventListener("click", closeSharePreview);
+    const shareSave = document.getElementById("share-save");
+    if (shareSave) shareSave.addEventListener("click", saveShareCard);
+    const shareOverlay = document.getElementById("share-overlay");
+    if (shareOverlay)
+      shareOverlay.addEventListener("mousedown", (ev) => {
+        if (ev.target === shareOverlay) closeSharePreview();
+      });
+    document.addEventListener(
+      "keydown",
+      (ev) => {
+        const ov = document.getElementById("share-overlay");
+        if (ev.key === "Escape" && ov && !ov.classList.contains("hidden")) {
+          ev.stopPropagation();
+          closeSharePreview();
+        }
+      },
+      true,
+    );
     const logClear = document.getElementById("log-clear");
     if (logClear)
       logClear.addEventListener("click", () => {

@@ -5,7 +5,7 @@
 | Crate | Dir | Role |
 |---|---|---|
 | `cure_core` | `core/` | Scanners, scoring, quarantine/undo, reports, signature checks. Pure logic + Windows FFI; no UI, no network. |
-| `cure_cli` | `cli/` | `cure.exe`: `scan`, `diff`, `quarantine`, `undo`, `report`, `incident`, `cleanup`, `storage`. Explicit flags only. |
+| `cure_cli` | `cli/` | `cure.exe`: `scan`, `diff`, `quarantine`, `undo`, `report`, `incident`, `cleanup`, `storage`, `agents`, `change`, `recorder`, `casefile`. Explicit flags only. |
 | `cure_watch` | `watch/` | `cure-watch.exe`: USB polling, token-pairing, pinned-GUI launch, consent, self-install/`--uninstall`, canary guard. |
 | `cure_dirwatch` | `winwatch/` | Shared directory watching + canary decoy planting (used by watcher and GUI). |
 | `cure_gui` | `gui/src-tauri` | Tauri v2 desktop UI (separate workspace/lockfile). Thin IPC layer over `cure_core`. |
@@ -117,16 +117,20 @@ and never executes anything from it.
 
 | File | Role |
 |---|---|
-| `app.js` | Shell, navigation, persistence results, quarantine, monitor, settings. |
+| `app.js` | Shell, navigation, Overview, Investigation Console lenses, quarantine, Monitor (session feed, canary, login observation), share result card. |
 | `xray.js` / `xray.css` | System X-Ray: the nine persistence layers as an instrument, driven by real coverage states. |
 | `storage-workstation.js` / `.css` | Storage Workstation: scan lifecycle, squarified treemap, file table, duplicate comparison, queue, inspector, preview, receipt. It can adopt the scan the Detective board already ran instead of measuring twice. |
-| `detective.js` / `.css` | Detective Mode: the storage map, ranked discoveries, lead evidence and the case-file controls. It reads the scan's `investigation` field; opening the view never starts a scan. |
+| `detective.js` / `.css` | Detective Mode: the storage map, ranked discoveries, lead evidence, the case telemetry strip and the case-file controls. It reads the scan's `investigation` field; opening the view never starts a scan. |
 | `casefile.js` | Canvas renderer for the case-file PNG. It draws only the fields returned by `CureCaseFile.allowlist`, and `audit` exposes that exact allowlist for the privacy test. |
-| `luma.js` / `luma.css` | The companion rig, her twelve states, two poses, and the single global motion switch. |
+| `agent-radar.js` / `agent.css` | Agent Radar: agent enumeration, session control, Flight Recorder, Windows Change Radar, agent case files. |
+| `operator.js` / `operator.css` | Operator posture widget: renders the on-device posture (threat level, recommendations) into its mounts. |
+| `investigate.css` / `quarantine.css` / `monitor.css` | Stage stylesheets for the Investigation Console, Quarantine Workstation and Monitor Workstation (one grammar, three views). |
+| `mock-tauri.js` | Deterministic labelled mock backend for the dev shell and the public demo. Never shipped in the production bundle. |
 | `style.css` | Graphite depth ramp, violet identity accent, semantic colours, type and spacing scales. |
 
 All are hand-written, framework-free and dependency-free. The build step is
 Tauri embedding an explicit allowlist of the shipped files, and
 `mock-tauri.js` is deliberately *not* on the production list. The public demo
 is built from the same frontend into `dist-demo/`, with its own Tauri config
-and the deterministic mock; it has no save-case-file handler.
+and the deterministic mock; it has **no IPC handler at all** — the real engine
+is unreachable from the demo binary, and the mock refuses every write path.

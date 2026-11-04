@@ -31,13 +31,14 @@ python gui/devtools/make-dev-shell.py
 ## What the suite covers
 
 Six primary destinations (Overview / Rescue / Investigate / Quarantine /
-Disk Cleanup / Monitor) with no numeric labels; 390px fallback through 1920px;
+Storage / Monitor) with no numeric labels; 390px fallback through 1920px;
 900×600 supported minimum. Scan counts, layer states and reported coverage;
 reduced motion; explicit confirmation, cancel, Escape and focus return;
-quarantine metadata and undo; Luma pause persistence and live reduced-motion
-changes; every authored companion state and variant rotation; storage-core
-measurement, selection and reclaimed receipts; cleanup, Canary and login
-observation; axe WCAG AA; keyboard focus; no remote requests; palette
+quarantine metadata and scoped undo; mascot absence (the companion rig was
+removed — the suite asserts no `data-companion`/Luma elements remain);
+storage-core measurement, selection and reclaimed receipts; cleanup, Canary
+and login observation; agent radar, Flight Recorder and case files; share
+result card preview; axe WCAG AA; keyboard focus; no remote requests; palette
 discipline and tonal depth; offline asset guard and production allowlist
 parity.
 

@@ -2579,3 +2579,76 @@ code,
   padding: 2px 6px;
   border-radius: 4px;
 }
+
+/* ---------- Share result card preview (MVP2 TASK 8) ---------------------- */
+.share-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 7, 10, 0.72);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s6);
+  animation: shareFadeIn 140ms ease;
+}
+
+.share-overlay.hidden {
+  display: none !important;
+}
+
+.share-panel {
+  width: min(860px, 94vw);
+  max-height: 92vh;
+  overflow-y: auto;
+  background: var(--ink-100);
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--r3);
+  box-shadow: var(--shadow-3);
+  padding: var(--s6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+
+.share-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s4);
+}
+
+.share-head .section-title {
+  margin: 0 0 4px;
+}
+
+.share-preview {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  display: block;
+  background: var(--ink-000);
+}
+
+.share-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+
+@keyframes shareFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+[data-theme="light"] .share-panel {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}

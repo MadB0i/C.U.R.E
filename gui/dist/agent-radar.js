@@ -543,7 +543,7 @@
       softBtn.textContent = "Signaling...";
       try {
         const closed = await invoke("operator_agent_graceful_shutdown", { pid: p.pid });
-        softBtn.textContent = closed ? "✔ Window Closed" : "Signal Sent";
+        softBtn.textContent = closed ? "Window Closed" : "Signal Sent";
         setTimeout(() => scanAgents(), 800);
       } catch (e) {
         alert("Graceful shutdown: " + e);

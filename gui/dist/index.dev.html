@@ -570,7 +570,7 @@
               <div class="modal-card">
                 <div class="modal-head">
                   <h3 class="section-title" id="ar-insp-title">Agent Detail Inspector</h3>
-                  <button class="ghost-btn icon-only" id="ar-insp-close" type="button" aria-label="Close">✕</button>
+                  <button class="ghost-btn icon-only" id="ar-insp-close" type="button" aria-label="Close">Close</button>
                 </div>
                 <div class="modal-body" id="ar-insp-body"></div>
               </div>
@@ -2230,6 +2230,14 @@
                     <button class="btn" data-route="view-agents" type="button">
                       Agent Radar
                     </button>
+                    <button
+                      class="btn"
+                      id="ov-share-btn"
+                      title="Aggregate counts only — no paths, no names, no secrets"
+                      type="button"
+                    >
+                      Share result card
+                    </button>
                   </div>
                 </div>
                 <!-- Verified indicators only: every chip here is rendered
@@ -2972,6 +2980,48 @@
       </div>
     </div>
 
+    <!-- Share result card preview (MVP2 TASK 8): the modal shows exactly
+         the PNG that will be saved. Aggregate counts only. -->
+    <div
+      aria-label="Share result card preview"
+      aria-modal="true"
+      class="share-overlay hidden"
+      id="share-overlay"
+      role="dialog"
+    >
+      <div class="share-panel">
+        <div class="share-head">
+          <div>
+            <h2 class="section-title">SHARE RESULT CARD</h2>
+            <p class="dim">
+              Aggregate counts only — no paths, no names, no secret values.
+              This preview is exactly the file that will be saved.
+            </p>
+          </div>
+          <button
+            aria-label="Close"
+            class="ghost-btn"
+            id="share-close"
+            type="button"
+          >
+            Close
+          </button>
+        </div>
+        <img
+          alt="Share result card preview"
+          class="share-preview"
+          id="share-preview-img"
+        />
+        <div class="share-actions">
+          <button class="btn btn-primary" id="share-save" type="button">
+            Save PNG
+          </button>
+          <button class="btn" id="share-cancel" type="button">Cancel</button>
+          <span class="kill-status hidden" id="share-status" role="status"></span>
+        </div>
+      </div>
+    </div>
+
     <div class="canary-alert-overlay hidden" id="canary-alert-overlay">
       <div
         aria-describedby="canary-alert-detail"
@@ -3099,7 +3149,7 @@
             </svg>
             Review Migration Plan & Safety Preflight
           </div>
-          <button class="btn btn-ghost" id="sr-plan-close-x" type="button">✕</button>
+          <button class="btn btn-ghost" id="sr-plan-close-x" type="button">Close</button>
         </div>
         <div class="sr-modal-body">
           <div class="sr-preflight-list" id="sr-preflight-list"></div>
@@ -3202,7 +3252,7 @@
             </svg>
             Explicit Source Cleanup Confirmation
           </div>
-          <button class="ghost-btn icon-only" id="sr-cleanup-cancel-top" type="button">✕</button>
+          <button class="ghost-btn icon-only" id="sr-cleanup-cancel-top" type="button">Close</button>
         </div>
         <div class="op-modal-body">
           <p>
@@ -3237,7 +3287,7 @@
             </svg>
             Windows Defender Native Verification
           </div>
-          <button class="ghost-btn icon-only" id="xray-defender-modal-close" type="button">✕</button>
+          <button class="ghost-btn icon-only" id="xray-defender-modal-close" type="button">Close</button>
         </div>
         <div class="op-modal-body">
           <p style="font-size: 0.82rem; color: #94a3b8; margin-bottom: 4px;">

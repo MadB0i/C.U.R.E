@@ -427,7 +427,12 @@ def run_audit():
                     winreg.SetValueEx(k, reg_key_name, 0, winreg.REG_SZ, reg_val)
                 print(f"Created temporary registry Run key: HKCU\\...\\Run -> {reg_key_name}")
 
-                # Compare changes
+                # Compare changes. Since Stage UI-06 the radar controls live
+                # in the Investigate "Windows changes" lens.
+                page.locator("#nav-results").click()
+                time.sleep(0.5)
+                page.locator("#lens-btn-winchanges").click()
+                time.sleep(0.5)
                 page.locator("#ar-win-compare").click()
                 time.sleep(1.5)
                 diff = page.evaluate("() => window.__TAURI__.core.invoke('windows_change_compare')")
@@ -452,6 +457,18 @@ def run_audit():
 
             # Test Shareable Case File Exports
             runner.section("PHASE 6: PRIVACY-SAFE CASE FILE EXPORTS (JSON, MD, HTML, CARD)")
+            # The stopped recording collapses into history (Stage UI-02A);
+            # reopen it, then open the export menu so the case-file fields
+            # are reachable.
+            page.locator("#nav-agents").click()
+            time.sleep(0.8)
+            if page.locator("#ar-history-open").count() > 0 and page.locator("#ar-history-open").is_visible():
+                page.locator("#ar-history-open").click()
+                time.sleep(0.5)
+            if page.locator("#ar-export-toggle").count() > 0 and page.locator("#ar-export-toggle").is_visible():
+                page.locator("#ar-export-toggle").click()
+                time.sleep(0.5)
+            page.wait_for_selector("#ar-case-summary", state="visible", timeout=10000)
             page.locator("#ar-case-summary").fill("Auditor verification notes: safe test run.")
             page.locator("#ar-case-include").check()
             time.sleep(0.5)

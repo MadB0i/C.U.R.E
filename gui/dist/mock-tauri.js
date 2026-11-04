@@ -2822,6 +2822,19 @@
             return Promise.resolve(
               "C:\\mock\\case-files\\" + String((args && args.name) || "case") + ".png",
             );
+          case "share_card_png":
+            /* Same structural boundary: the demo previews the aggregate-only
+               card and never writes it. */
+            if (window.__CURE_FORCE_MOCK) {
+              return Promise.reject(
+                new Error(
+                  "This is the public demo. The share card is preview-only and is never written.",
+                ),
+              );
+            }
+            return Promise.resolve(
+              "C:\\mock\\case-files\\" + String((args && args.name) || "share") + ".png",
+            );
           case "kill_high_risk_processes":
             return delay(350).then(function () {
               var procs = (args && args.processes) || [];
