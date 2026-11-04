@@ -1106,7 +1106,6 @@
     syncCanaryStatus();
     enablePostScanNav();
     renderOverview(summary);
-    renderAudit(summary);
     renderProcesses(summary);
     if (!resultsView.classList.contains("hidden"))
       focusViewHeading(resultsView);
@@ -1420,15 +1419,12 @@
     "scan-view": "Rescue",
     "landing-view": "Rescue",
     "results-view": "Investigate",
-    "view-audit": "Investigate / Persistence",
-    "view-processes": "Investigate / Processes",
-    "view-winchanges": "Investigate / Windows changes",
     "view-quarantine": "Quarantine",
     "view-detective": "Detective Mode",
     "cleanup-view": "Storage Workstation",
     "view-eventlog": "Monitor",
     "view-canary": "Monitor / Canary",
-    "view-incident": "Incident Investigation",
+    "view-incident": "Monitor / Login Observation",
   };
 
   function setNav(viewId) {
@@ -1437,9 +1433,8 @@
       const target = item.getAttribute("data-view");
       const active =
         target === viewId ||
-        (target === "results-view" &&
-          ["view-audit", "view-processes", "view-incident", "view-winchanges"].includes(viewId)) ||
-        (target === "view-eventlog" && viewId === "view-canary") ||
+        (target === "view-eventlog" &&
+          ["view-canary", "view-incident"].includes(viewId)) ||
         (target === "scan-center" &&
           (viewId === "scan-view" || viewId === "landing-view"));
       item.setAttribute("aria-current", active ? "true" : "false");
@@ -1512,26 +1507,6 @@
     }
     if (viewId === "results-view") {
       switchInvestigateLens("findings");
-      if (lastSummary) renderResults(lastSummary);
-    }
-    if (viewId === "view-audit") {
-      showViewInstant(resultsView);
-      switchInvestigateLens("findings");
-      if (lastSummary) renderResults(lastSummary);
-    }
-    if (viewId === "view-processes") {
-      showViewInstant(resultsView);
-      switchInvestigateLens("processes");
-      if (lastSummary) renderResults(lastSummary);
-    }
-    if (viewId === "view-winchanges") {
-      showViewInstant(resultsView);
-      switchInvestigateLens("winchanges");
-      if (lastSummary) renderResults(lastSummary);
-    }
-    if (viewId === "view-incident") {
-      showViewInstant(resultsView);
-      switchInvestigateLens("ransom");
       if (lastSummary) renderResults(lastSummary);
     }
     if (viewId === "view-agents" && window.CureAgentRadar) {
@@ -1969,6 +1944,12 @@
   }
 
   function updateCanaryUI() {
+    const note = document.getElementById("m-guard-note");
+    if (note) {
+      note.textContent = canaryActive
+        ? "The guard is active. Decoys are planted on this machine and watched for tampering until you disable it. Alerts below are session evidence."
+        : "The guard is off. Enabling it plants decoys on this machine and starts watching them for this session only.";
+    }
     const toggle = document.getElementById("can-toggle");
     if (toggle) {
       toggle.setAttribute("aria-pressed", String(canaryActive));
@@ -2220,21 +2201,11 @@
   // ---- event log view ----
 
   function appendEventLogRow(e) {
+    updateMonitorStats();
+    if (!eventMatchesFilter(e.kind)) return;
     const list = document.getElementById("event-log-list");
     if (!list) return;
-    const li = document.createElement("li");
-    if (e.kind === "canary") li.className = "ev-canary";
-    else if (e.kind === "action") li.className = "ev-action";
-    const time = document.createElement("span");
-    time.className = "ev-time";
-    time.textContent = e.at.toLocaleTimeString();
-    const tag = document.createElement("b");
-    tag.textContent = "[" + e.kind + "]";
-    const body = document.createElement("span");
-    body.className = "selectable";
-    body.textContent = e.text;
-    li.append(time, tag, body);
-    list.appendChild(li);
+    list.appendChild(buildEventRow(e));
     while (list.children.length > 300) list.removeChild(list.firstChild);
     list.scrollTop = list.scrollHeight;
     const empty = document.getElementById("event-log-empty");
@@ -2246,22 +2217,68 @@
     if (!list) return;
     list.innerHTML = "";
     for (const e of eventLog) {
-      const li = document.createElement("li");
-      if (e.kind === "canary") li.className = "ev-canary";
-      else if (e.kind === "action") li.className = "ev-action";
-      const time = document.createElement("span");
-      time.className = "ev-time";
-      time.textContent = e.at.toLocaleTimeString();
-      const tag = document.createElement("b");
-      tag.textContent = "[" + e.kind + "]";
-      const body = document.createElement("span");
-      body.className = "selectable";
-      body.textContent = e.text;
-      li.append(time, tag, body);
-      list.appendChild(li);
+      if (eventMatchesFilter(e.kind)) list.appendChild(buildEventRow(e));
     }
     const empty = document.getElementById("event-log-empty");
-    if (empty) empty.classList.toggle("hidden", eventLog.length > 0);
+    if (empty)
+      empty.classList.toggle(
+        "hidden",
+        eventLog.some((e) => eventMatchesFilter(e.kind)),
+      );
+    updateMonitorStats();
+  }
+
+  // Monitor Workstation feed: one filter state, live telemetry counters.
+  let eventFeedFilter = "all";
+
+  function eventMatchesFilter(kind) {
+    return eventFeedFilter === "all" || kind === eventFeedFilter;
+  }
+
+  function eventKindTag(kind) {
+    if (kind === "canary") return "Canary";
+    if (kind === "action") return "Action";
+    if (kind === "info") return "Scan";
+    return kind || "Info";
+  }
+
+  function buildEventRow(e) {
+    const li = document.createElement("li");
+    li.className = "m-row m-row-" + (e.kind || "info");
+    const time = document.createElement("span");
+    time.className = "m-time";
+    time.textContent = e.at.toLocaleTimeString();
+    const tag = document.createElement("span");
+    tag.className = "m-tag m-tag-" + (e.kind || "info");
+    tag.textContent = eventKindTag(e.kind);
+    const body = document.createElement("span");
+    body.className = "m-text selectable";
+    body.textContent = e.text;
+    li.append(time, tag, body);
+    return li;
+  }
+
+  function updateMonitorStats() {
+    const total = document.getElementById("m-stat-events");
+    const canary = document.getElementById("m-stat-canary");
+    const actions = document.getElementById("m-stat-actions");
+    const last = document.getElementById("m-stat-last");
+    if (total) total.textContent = String(eventLog.length);
+    if (canary)
+      canary.textContent = String(
+        eventLog.filter((e) => e.kind === "canary").length,
+      );
+    if (actions)
+      actions.textContent = String(
+        eventLog.filter((e) => e.kind === "action").length,
+      );
+    if (last) {
+      const e = eventLog[eventLog.length - 1];
+      last.textContent = e ? e.text : "—";
+      last.title = e
+        ? e.at.toLocaleTimeString() + " — " + e.text
+        : "Nothing recorded yet this session";
+    }
   }
 
   // ---- canary view ----
@@ -2270,13 +2287,15 @@
     const list = document.getElementById("can-alerts");
     if (!list) return;
     const li = document.createElement("li");
-    li.className = "ev-canary";
+    li.className = "m-row m-row-canary";
     const time = document.createElement("span");
-    time.className = "ev-time";
+    time.className = "m-time";
     time.textContent = a.at.toLocaleTimeString();
-    const tag = document.createElement("b");
-    tag.textContent = "[alert]";
+    const tag = document.createElement("span");
+    tag.className = "m-tag m-tag-canary";
+    tag.textContent = "Alert";
     const body = document.createElement("span");
+    body.className = "m-text selectable";
     body.textContent = a.text;
     li.append(time, tag, body);
     list.appendChild(li);
@@ -3114,50 +3133,10 @@
     }
   }
 
-  function buildAuditCard(scored, cleaned) {
-    return buildCard(scored, cleaned);
-  }
-
-  function renderAudit(summary) {
-    lastAuditSummary = summary;
-    paintAuditList();
-  }
-
-  function paintAuditList() {
-    const summary = lastAuditSummary;
-    const list = document.getElementById("audit-list");
-    if (!list || !summary) return;
-    list.innerHTML = "";
-    const entries = summary.high_risk_cleaned
-      .map((e) => ({ e, cleaned: true }))
-      .concat(
-        summary.suspicious_for_review.map((e) => ({ e, cleaned: false })),
-      );
-    entries.sort((a, b) => b.e.score - a.e.score);
-    const shown = entries.filter(
-      ({ e }) => auditFilter === "all" || e.risk === auditFilter,
-    );
-    for (const { e, cleaned } of shown) list.append(buildAuditCard(e, cleaned));
-    const sub = document.getElementById("audit-subline");
-    if (sub)
-      sub.textContent =
-        entries.length +
-        " persistence finding(s) in the last scan — showing " +
-        shown.length +
-        " — nothing is disabled automatically.";
-    const note = document.getElementById("audit-note");
-    if (note)
-      note.textContent =
-        summary.safe +
-        " safe-scored entries are not listed individually. Open evidence to collect signature and publisher details.";
-  }
-
   // ---- process sentinel view ----
 
   let procFilter = "all";
   let procCache = [];
-  let auditFilter = "all";
-  let lastAuditSummary = null;
 
   function procRow(p) {
     const tr = document.createElement("tr");
@@ -3268,16 +3247,28 @@
 
   function paintProcessRows() {
     const body = document.getElementById("proc-rows");
-    if (!body) return;
-    body.innerHTML = "";
-    const rows = procCache.filter(
+    const cards = document.getElementById("process-cards");
+    const visible = procCache.filter(
       (p) => procFilter === "all" || p.risk === procFilter,
     );
-    for (const p of rows) body.append(procRow(p));
+    const visiblePids = new Set(visible.map((p) => String(p.pid)));
+    // The lens shows review cards; the hidden table is kept for older
+    // harnesses. Both follow the same filter.
+    if (cards) {
+      cards.querySelectorAll(".proc-entry").forEach((card) => {
+        card.classList.toggle(
+          "hidden",
+          procFilter !== "all" && !visiblePids.has(card.dataset.pid),
+        );
+      });
+    }
+    if (!body) return;
+    body.innerHTML = "";
+    for (const p of visible) body.append(procRow(p));
     const empty = document.getElementById("proc-empty");
     if (empty) {
-      empty.classList.toggle("hidden", rows.length > 0);
-      if (!rows.length)
+      empty.classList.toggle("hidden", visiblePids.size > 0);
+      if (!visiblePids.size)
         empty.textContent = procCache.length
           ? "No processes match this filter."
           : "No flagged processes in the last scan.";
@@ -3382,10 +3373,7 @@
           footFeedback("Restored: " + r.name, false);
           await refreshQuarantine();
           await refreshQuarantineCount();
-          if (lastSummary) {
-            renderResults(lastSummary);
-            paintAuditList();
-          }
+          if (lastSummary) renderResults(lastSummary);
         } catch (err) {
           undo.disabled = false;
           undo.removeAttribute("aria-busy");
@@ -5002,11 +4990,11 @@ const canToggle2 = document.getElementById("can-toggle");
         renderEventLog();
       });
     document
-      .querySelectorAll("#view-processes .filter-btn[data-f]")
+      .querySelectorAll("#lens-panel-processes .filter-btn[data-f]")
       .forEach((btn) => {
         btn.addEventListener("click", () => {
           document
-            .querySelectorAll("#view-processes .filter-btn[data-f]")
+            .querySelectorAll("#lens-panel-processes .filter-btn[data-f]")
             .forEach((b) => b.classList.remove("on"));
           btn.classList.add("on");
           procFilter = btn.getAttribute("data-f") || "all";
@@ -5014,15 +5002,15 @@ const canToggle2 = document.getElementById("can-toggle");
         });
       });
     document
-      .querySelectorAll("#view-audit .filter-btn[data-af]")
+      .querySelectorAll("#view-eventlog .filter-btn[data-ef]")
       .forEach((btn) => {
         btn.addEventListener("click", () => {
           document
-            .querySelectorAll("#view-audit .filter-btn[data-af]")
+            .querySelectorAll("#view-eventlog .filter-btn[data-ef]")
             .forEach((b) => b.classList.remove("on"));
           btn.classList.add("on");
-          auditFilter = btn.getAttribute("data-af") || "all";
-          paintAuditList();
+          eventFeedFilter = btn.getAttribute("data-ef") || "all";
+          renderEventLog();
         });
       });
     document

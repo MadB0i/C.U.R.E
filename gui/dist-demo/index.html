@@ -16,6 +16,7 @@
     <link href="agent.css" rel="stylesheet" />
     <link href="storage-rescue.css" rel="stylesheet" />
     <link href="quarantine.css" rel="stylesheet" />
+    <link href="monitor.css" rel="stylesheet" />
   </head>
   <body>
     <div class="fallback hidden" id="fallback">
@@ -996,6 +997,11 @@
                             <span class="kill-status hidden" id="kill-procs-status"></span>
                           </div>
                         </div>
+                        <div aria-label="Process filters" class="inv-filters" role="group">
+                          <button class="filter-btn on" data-f="all" type="button">All</button>
+                          <button class="filter-btn" data-f="HighRisk" type="button">High risk</button>
+                          <button class="filter-btn" data-f="Suspicious" type="button">Suspicious</button>
+                        </div>
                         <ul class="entry-cards" id="process-cards"></ul>
                         <div class="table-wrap hidden">
                           <table class="data-table" id="proc-table">
@@ -1023,26 +1029,29 @@
                       <div class="panel">
                         <div class="inv-panel-head">
                           <div>
-                            <h2 class="section-title">Windows Persistence Diff · Baseline Comparison</h2>
+                            <h2 class="section-title">Windows Change Radar · Trusted Snapshot Comparison</h2>
                             <p class="dim">
-                              Diff between the stored baseline.json and current system autorun registrations.
+                              Read-only persistence snapshot and comparison. No registry or service is modified.
                             </p>
                           </div>
-                        </div>
-                        <div class="inv-empty-card" id="inv-winchanges-empty">
-                          <div class="inv-empty-icon">
-                            <svg fill="none" height="26" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24" width="26">
-                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                              <polyline points="14 2 14 8 20 8"/>
-                              <line x1="16" y1="13" x2="8" y2="13"/>
-                              <line x1="16" y1="17" x2="8" y2="17"/>
-                            </svg>
+                          <div class="ar-win-actions">
+                            <button class="btn" id="ar-win-capture" type="button">
+                              Capture trusted snapshot
+                            </button>
+                            <button class="btn btn-primary" id="ar-win-compare" type="button">
+                              Compare now
+                            </button>
                           </div>
-                          <h3 class="inv-empty-title">No Drift Detected Against Baseline</h3>
-                          <p class="inv-empty-sub">
-                            No newly added or modified autorun entries compared to the last recorded baseline.
-                          </p>
                         </div>
+                        <div class="ar-win-state" id="ar-winsnap-state">
+                          No trusted persistence snapshot is stored yet. Capture one to
+                          establish the comparison baseline.
+                        </div>
+                        <div class="ar-win-summary hidden" id="ar-win-summary"></div>
+                        <div class="ar-win-lists" id="ar-win-lists"></div>
+                        <p class="ar-caveat" id="ar-win-note">
+                          Differences are review leads, not malware verdicts.
+                        </p>
                       </div>
                     </div>
 
@@ -1072,6 +1081,24 @@
                           <p class="inv-empty-sub">
                             User directories, Downloads, and Canary honey-decoy tripwires show zero mass encryption or note creation signatures.
                           </p>
+                        </div>
+                      </div>
+                      <div class="panel" id="ransom-observe-cta">
+                        <div class="report-row">
+                          <span class="report-copy dim">
+                            Ransom indicators are point-in-time. To watch what
+                            actually starts after login, run a bounded live
+                            observation — it installs nothing and modifies
+                            nothing.
+                          </span>
+                          <span class="flex-spacer"></span>
+                          <button
+                            class="btn"
+                            data-route="view-incident"
+                            type="button"
+                          >
+                            Run a live observation
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -2293,217 +2320,6 @@
           </section>
 
           <!-- ============================================================
-               INVESTIGATE · persistence audit
-               ============================================================ -->
-          <section
-            aria-label="Startup audit"
-            class="view hidden"
-            id="view-audit"
-          >
-            <div class="results-stack">
-              <nav aria-label="Investigation tools" class="tool-nav">
-                <button class="btn" data-route="results-view" type="button">
-                  Findings</button
-                ><button
-                  class="btn"
-                  data-route="view-audit"
-                  id="tool-audit-view-audit"
-                  type="button"
-                >
-                  Persistence audit</button
-                ><button
-                  class="btn"
-                  data-route="view-processes"
-                  id="tool-process-view-audit"
-                  type="button"
-                >
-                  Processes</button
-                ><button
-                  class="btn"
-                  data-route="view-incident"
-                  id="tool-incident-view-audit"
-                  type="button"
-                >
-                  Login observation</button
-                ><button
-                  class="btn"
-                  data-route="view-winchanges"
-                  type="button"
-                >
-                  Windows changes
-                </button>
-              </nav>
-              <div class="results-head">
-                <div class="headline-wrap">
-                  <h1 class="headline">Persistence audit</h1>
-                  <div class="subline" id="audit-subline"></div>
-                </div>
-              </div>
-              <div class="panel">
-                <h2 class="section-title">PERSISTENCE FINDINGS</h2>
-                <div
-                  aria-label="Audit filters"
-                  class="proc-filters"
-                  role="group"
-                >
-                  <button class="filter-btn on" data-af="all" type="button">
-                    All
-                  </button>
-                  <button class="filter-btn" data-af="HighRisk" type="button">
-                    High risk
-                  </button>
-                  <button class="filter-btn" data-af="Suspicious" type="button">
-                    Suspicious
-                  </button>
-                </div>
-                <ul class="entry-cards" id="audit-list"></ul>
-                <div class="dim" id="audit-note"></div>
-              </div>
-            </div>
-          </section>
-
-          <!-- ============================================================
-               INVESTIGATE · processes
-               ============================================================ -->
-          <section
-            aria-label="Process sentinel"
-            class="view hidden"
-            id="view-processes"
-          >
-            <div class="results-stack">
-              <nav aria-label="Investigation tools" class="tool-nav">
-                <button class="btn" data-route="results-view" type="button">
-                  Findings</button
-                ><button
-                  class="btn"
-                  data-route="view-audit"
-                  id="tool-audit-view-processes"
-                  type="button"
-                >
-                  Persistence audit</button
-                ><button
-                  class="btn"
-                  data-route="view-processes"
-                  id="tool-process-view-processes"
-                  type="button"
-                >
-                  Processes</button
-                ><button
-                  class="btn"
-                  data-route="view-incident"
-                  id="tool-incident-view-processes"
-                  type="button"
-                >
-                  Login observation</button
-                ><button
-                  class="btn"
-                  data-route="view-winchanges"
-                  type="button"
-                >
-                  Windows changes
-                </button>
-              </nav>
-              <div class="results-head">
-                <div class="headline-wrap">
-                  <h1 class="headline">Process evidence</h1>
-                  <div class="subline" id="proc-subline"></div>
-                </div>
-              </div>
-              <div class="panel">
-                <div
-                  aria-label="Process filters"
-                  class="proc-filters"
-                  role="group"
-                >
-                  <button class="filter-btn on" data-f="all" type="button">
-                    All
-                  </button>
-                  <button class="filter-btn" data-f="HighRisk" type="button">
-                    High risk
-                  </button>
-                  <button class="filter-btn" data-f="Suspicious" type="button">
-                    Suspicious
-                  </button>
-                </div>
-                <div class="table-wrap">
-                  <table class="data-table" id="proc-table">
-                    <caption class="sr-only">
-                      Running processes observed during this scan
-                    </caption>
-                    <thead>
-                      <tr>
-                        <th scope="col">Process</th>
-                        <th scope="col">PID</th>
-                        <th scope="col">Path</th>
-                        <th scope="col">Score</th>
-                        <th scope="col">Risk</th>
-                        <th scope="col">Reasons</th>
-                        <th scope="col"><span class="sr-only">Action</span></th>
-                      </tr>
-                    </thead>
-                    <tbody id="proc-rows"></tbody>
-                  </table>
-                </div>
-                <div class="empty-state hidden" id="proc-empty">
-                  No flagged processes in the last scan.
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <!-- ============================================================
-               INVESTIGATE · Windows change radar (moved from Agents, UI-02A)
-               ============================================================ -->
-          <section
-            aria-label="Windows change radar"
-            class="view hidden"
-            id="view-winchanges"
-          >
-            <div class="results-stack">
-              <nav aria-label="Investigation tools" class="tool-nav">
-                <button class="btn" data-route="results-view" type="button">
-                  Findings</button
-                ><button class="btn" data-route="view-audit" type="button">
-                  Persistence audit</button
-                ><button class="btn" data-route="view-processes" type="button">
-                  Processes</button
-                ><button class="btn" data-route="view-incident" type="button">
-                  Login observation</button
-                ><button class="btn" data-route="view-winchanges" type="button">
-                  Windows changes
-                </button>
-              </nav>
-              <div class="results-head">
-                <div class="headline-wrap">
-                  <h1 class="headline">Windows Change Radar</h1>
-                  <div class="subline">
-                    Read-only persistence snapshot and comparison. No registry
-                    or service is modified.
-                  </div>
-                </div>
-              </div>
-              <div class="panel ar-windows-panel">
-                <div class="ar-win-actions">
-                  <button class="btn" id="ar-win-capture" type="button">
-                    Capture trusted snapshot
-                  </button>
-                  <button class="btn btn-primary" id="ar-win-compare" type="button">
-                    Compare now
-                  </button>
-                </div>
-                <div class="ar-win-state" id="ar-winsnap-state">
-                  No trusted persistence snapshot is stored yet.
-                </div>
-                <div class="ar-win-summary hidden" id="ar-win-summary"></div>
-                <div class="ar-win-lists" id="ar-win-lists"></div>
-                <p class="ar-caveat" id="ar-win-note">
-                  Differences are review leads, not malware verdicts.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          <!-- ============================================================
                QUARANTINE WORKSTATION (Stage UI-05)
                ============================================================ -->
           <section
@@ -2622,37 +2438,114 @@
           <!-- ============================================================
                MONITOR
                ============================================================ -->
+          <!-- ============================================================
+               MONITOR WORKSTATION (Stage UI-06)
+               ============================================================ -->
           <section
-            aria-label="Event log"
+            aria-label="Monitor Workstation"
             class="view hidden"
             id="view-eventlog"
           >
-            <div class="results-stack">
-              <nav aria-label="Monitor tools" class="tool-nav">
-                <button class="btn" data-route="view-eventlog" type="button">
-                  Session events</button
-                ><button class="btn" data-route="view-canary" type="button">
+            <div class="m-shell">
+              <header class="m-head">
+                <div class="m-head-copy">
+                  <div class="eyebrow">SESSION TELEMETRY · LOCAL ONLY</div>
+                  <h1 class="headline">Monitor Workstation</h1>
+                  <p class="subline">
+                    What this session did, as it happened — scan progress, canary
+                    tripwires, and actions taken. Session events only: nothing is
+                    persisted between runs and nothing leaves this machine.
+                  </p>
+                </div>
+                <div class="m-head-actions">
+                  <button class="btn" id="log-clear" type="button">
+                    Clear view
+                  </button>
+                </div>
+              </header>
+              <div class="m-stats-strip" id="m-stats-strip">
+                <div class="m-stat-card">
+                  <span class="m-stat-val" id="m-stat-events">0</span>
+                  <span class="m-stat-label">SESSION EVENTS</span>
+                </div>
+                <div class="m-stat-card">
+                  <span class="m-stat-val text-warning" id="m-stat-canary">0</span>
+                  <span class="m-stat-label">CANARY ALERTS</span>
+                </div>
+                <div class="m-stat-card">
+                  <span class="m-stat-val text-ok" id="m-stat-actions">0</span>
+                  <span class="m-stat-label">ACTIONS TAKEN</span>
+                </div>
+                <div class="m-stat-card">
+                  <span class="m-stat-val text-info" id="m-stat-last">—</span>
+                  <span class="m-stat-label">LAST EVENT</span>
+                </div>
+              </div>
+              <nav aria-label="Monitor tools" class="m-rail">
+                <button
+                  aria-current="true"
+                  class="m-rail-btn"
+                  data-route="view-eventlog"
+                  type="button"
+                >
+                  Session events
+                </button>
+                <button
+                  class="m-rail-btn"
+                  data-route="view-canary"
+                  type="button"
+                >
                   Canary tripwire
                 </button>
+                <button
+                  class="m-rail-btn"
+                  data-route="view-incident"
+                  type="button"
+                >
+                  Login observation
+                </button>
               </nav>
-              <div class="results-head">
-                <div class="headline-wrap">
-                  <h1 class="headline">Event Log</h1>
-                  <div class="subline">
-                    Session events only — scan progress, canary alerts, and actions
-                    taken in this run.
-                  </div>
-                </div>
-                <span class="flex-spacer"></span>
-                <button class="btn" id="log-clear" type="button">
-                  Clear view
+              <div
+                aria-label="Event type filters"
+                class="m-feed-filters"
+                role="group"
+              >
+                <button class="filter-btn on" data-ef="all" type="button">
+                  All events
+                </button>
+                <button class="filter-btn" data-ef="info" type="button">
+                  Scan activity
+                </button>
+                <button class="filter-btn" data-ef="canary" type="button">
+                  Canary
+                </button>
+                <button class="filter-btn" data-ef="action" type="button">
+                  Actions
                 </button>
               </div>
-              <div class="panel">
-                <ul class="log" id="event-log-list"></ul>
-                <div class="empty-state hidden" id="event-log-empty">
-                  No events yet this session.
+              <div class="m-feed-card">
+                <ul class="m-feed" id="event-log-list"></ul>
+              </div>
+              <div class="m-empty hidden" id="event-log-empty">
+                <div class="m-empty-icon">
+                  <svg
+                    fill="none"
+                    height="26"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                    viewBox="0 0 24 24"
+                    width="26"
+                  >
+                    <path d="M3 12h4l2-7 4 14 2-7h6" />
+                  </svg>
                 </div>
+                <h3 class="m-empty-title">No events yet this session</h3>
+                <p class="m-empty-sub">
+                  Run a rescue scan, enable the canary guard, or take an action —
+                  every step this console performs is recorded here with its
+                  timestamp. The feed is session-scoped and cleared when the app
+                  closes.
+                </p>
               </div>
             </div>
           </section>
@@ -2661,103 +2554,150 @@
             class="view hidden"
             id="view-canary"
           >
-            <div class="results-stack">
-              <nav aria-label="Monitor tools" class="tool-nav">
-                <button class="btn" data-route="view-eventlog" type="button">
-                  Session events</button
-                ><button class="btn" data-route="view-canary" type="button">
+            <div class="m-shell">
+              <header class="m-head">
+                <div class="m-head-copy">
+                  <div class="eyebrow">DECOY TRIPWIRE · EXPERIMENTAL</div>
+                  <h1 class="headline">Canary Tripwire</h1>
+                  <p class="subline">
+                    Decoy-based ransomware tripwire. Plants decoys, watches for
+                    tampering, and records what it sees as session evidence.
+                  </p>
+                </div>
+              </header>
+              <nav aria-label="Monitor tools" class="m-rail">
+                <button
+                  class="m-rail-btn"
+                  data-route="view-eventlog"
+                  type="button"
+                >
+                  Session events
+                </button>
+                <button
+                  aria-current="true"
+                  class="m-rail-btn"
+                  data-route="view-canary"
+                  type="button"
+                >
                   Canary tripwire
                 </button>
+                <button
+                  class="m-rail-btn"
+                  data-route="view-incident"
+                  type="button"
+                >
+                  Login observation
+                </button>
               </nav>
-              <div class="results-head">
-                <div class="headline-wrap">
-                  <h1 class="headline">Canary tripwire</h1>
-                  <div class="subline">Decoy-based ransomware tripwire.</div>
+              <div class="m-guard-card" id="m-guard-card">
+                <div class="m-guard-copy">
+                  <div class="m-guard-state-row">
+                    <span class="severity-badge m-guard-state" id="can-state"
+                      >OFF</span
+                    >
+                  </div>
+                  <p class="m-guard-note" id="m-guard-note">
+                    The guard is off. Enabling it plants decoys on this machine
+                    and starts watching them for this session only.
+                  </p>
                 </div>
-              </div>
-              <div class="panel canary-detail">
-                <div class="canary-status-row">
-                  <span class="severity-badge" id="can-state">OFF</span>
+                <div class="m-guard-actions m-head-actions">
                   <button class="btn" id="can-toggle" type="button">
                     Enable guard
                   </button>
                 </div>
-                <p class="experimental-note">
+              </div>
+              <div class="m-disclosure m-disclosure-warn">
+                <p>
                   <strong>Experimental.</strong> Plants
                   <code>~cure-canary-*</code> decoys in Desktop, Documents and
                   Downloads, watches for tampering and bulk-encryption patterns,
-                  and polls for shadow-copy-wiping tools. This is a tripwire — not
-                  full ransomware protection.
+                  and polls for shadow-copy-wiping tools. This is a tripwire —
+                  not full ransomware protection.
                 </p>
-                <div class="coverage-note dim">
+                <p>
                   Limitations: detects decoy tampering and crude bulk-encryption
                   patterns only. Verify any alert with a rescue scan — the alert
                   below is session evidence, not a diagnosis.
+                </p>
+              </div>
+              <h2 class="section-title">SESSION ALERTS</h2>
+              <div class="m-feed-card">
+                <ul class="m-feed" id="can-alerts"></ul>
+              </div>
+              <div class="m-empty hidden" id="can-empty">
+                <div class="m-empty-icon">
+                  <svg
+                    fill="none"
+                    height="26"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                    viewBox="0 0 24 24"
+                    width="26"
+                  >
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                    <path d="m9 12 2 2 4-4" />
+                  </svg>
                 </div>
-                <h2 class="section-title">SESSION ALERTS</h2>
-                <ul class="log" id="can-alerts"></ul>
-                <div class="empty-state hidden" id="can-empty">
-                  No canary alerts this session.
-                </div>
+                <h3 class="m-empty-title">No canary alerts this session</h3>
+                <p class="m-empty-sub">
+                  No decoy tampering, bulk-encryption pattern, or
+                  shadow-copy-wipe attempt has been observed. This is session
+                  evidence only — it is not a verdict on the machine.
+                </p>
               </div>
             </div>
           </section>
 
           <!-- ============================================================
-               INVESTIGATE · login observation
+               MONITOR · login observation chamber (Stage UI-06)
                ============================================================ -->
           <section
             aria-label="Post-login incident investigation"
             class="view hidden"
             id="view-incident"
           >
-            <div class="results-stack">
-              <nav aria-label="Investigation tools" class="tool-nav">
-                <button class="btn" data-route="results-view" type="button">
-                  Findings</button
-                ><button
-                  class="btn"
-                  data-route="view-audit"
-                  id="tool-audit-view-incident"
+            <div class="m-shell">
+              <header class="m-head">
+                <div class="m-head-copy">
+                  <div class="eyebrow">POST-LOGIN OBSERVATION · CORRELATION</div>
+                  <h1 class="headline">Login Observation</h1>
+                  <p class="subline">
+                    Observe what actually starts after login and correlate it
+                    with recorded startup persistence. Observation installs
+                    nothing and modifies nothing.
+                  </p>
+                </div>
+              </header>
+              <nav aria-label="Monitor tools" class="m-rail">
+                <button
+                  class="m-rail-btn"
+                  data-route="view-eventlog"
                   type="button"
                 >
-                  Persistence audit</button
-                ><button
-                  class="btn"
-                  data-route="view-processes"
-                  id="tool-process-view-incident"
+                  Session events
+                </button>
+                <button
+                  class="m-rail-btn"
+                  data-route="view-canary"
                   type="button"
                 >
-                  Processes</button
-                ><button
-                  class="btn"
+                  Canary tripwire
+                </button>
+                <button
+                  aria-current="true"
+                  class="m-rail-btn"
                   data-route="view-incident"
-                  id="tool-incident-view-incident"
                   type="button"
                 >
-                  Login observation</button
-                ><button
-                  class="btn"
-                  data-route="view-winchanges"
-                  type="button"
-                >
-                  Windows changes
+                  Login observation
                 </button>
               </nav>
-              <div class="results-head">
-                <div class="headline-wrap">
-                  <h1 class="headline">Post-Login Investigation</h1>
-                  <div class="subline">
-                    Correlate startup persistence with observed process and window
-                    activity.
-                  </div>
-                </div>
-              </div>
-              <div class="panel" id="inc-prepare">
-                <h2 class="section-title">
-                  STEP 1 — PREPARE · OBSERVATION WINDOW
-                </h2>
-                <div class="incident-prepare">
+              <div class="m-panels">
+                <div class="m-observe" id="inc-prepare">
+                  <h2 class="section-title">
+                    STEP 1 — PREPARE · OBSERVATION WINDOW
+                  </h2>
                   <p class="dim">
                     C.U.R.E. will observe startup activity for a limited period.
                     Observation installs nothing and modifies nothing — no Startup,
@@ -2827,11 +2767,10 @@
                     id="inc-progress"
                     role="status"
                   ></div>
-                </div>
               </div>
               <div class="panel hidden" id="inc-results">
                 <h2 class="section-title">INCIDENT STATUS</h2>
-                <div class="canary-status-row">
+                <div class="m-verdict-row">
                   <span class="severity-badge" id="inc-verdict">—</span>
                   <span class="dim" id="inc-verdict-why"></span>
                 </div>
@@ -2896,7 +2835,7 @@
                   truncate visually — hover or focus to see the full value; all
                   evidence text is selectable.
                 </div>
-                <ul class="log inc-timeline" id="incident-timeline"></ul>
+                <ul class="m-feed inc-timeline" id="incident-timeline"></ul>
               </div>
               <div class="panel hidden" id="inc-review-panel">
                 <h2 class="section-title">
@@ -2999,6 +2938,7 @@
                     Export JSON
                   </button>
                 </div>
+              </div>
               </div>
             </div>
           </section>

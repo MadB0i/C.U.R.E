@@ -11,6 +11,7 @@
       "../dist/xray.css",
       "../dist/investigate.css",
       "../dist/quarantine.css",
+      "../dist/monitor.css",
       "../dist/storage-workstation.css",
       "../dist/detective.css",
       "../dist/agent.css",

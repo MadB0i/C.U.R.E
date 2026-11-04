@@ -690,7 +690,9 @@ def secondary(browser):
     expect(page.locator("#canary-alert-overlay")).to_be_visible(timeout=8000)
     axe(page, "Canary alert");page.keyboard.press("Escape")
     page.locator("#can-toggle").click();expect(page.locator("#can-state")).to_contain_text("OFF")
-    page.locator("#nav-results").click();page.locator("#nav-incident").click()
+    page.locator("#nav-results").click()
+    page.locator("#nav-eventlog").click()
+    page.locator("#view-eventlog [data-route='view-incident']").click()
     page.locator("#btn-incident-start").click()
     expect(page.locator("#inc-results")).to_be_visible(timeout=15000)
     layout(page, "login observation");axe(page, "login observation")
@@ -1113,12 +1115,13 @@ def agent_radar_flow(browser):
     check(page.locator('#ar-stat-total').inner_text() == '6',
           'opening history shows the recorded evidence')
 
-    # Windows Change Radar: compact entry point under Investigate.
+    # Windows Change Radar: a forensic lens under Investigate (Stage UI-06
+    # moved the live radar controls out of the removed secondary view).
     page.locator('#nav-results').click()
     page.wait_for_timeout(400)
-    page.locator('[data-route="view-winchanges"]').first.click()
-    expect(page.locator('#view-winchanges')).to_be_visible(timeout=10000)
-    check(page.locator('#view-title').inner_text() == 'Investigate / Windows changes',
+    page.locator('#lens-btn-winchanges').click()
+    expect(page.locator('#lens-panel-winchanges')).to_be_visible(timeout=10000)
+    check(page.locator('#view-title').inner_text() == 'Investigate',
           'Windows Change Radar is reachable under Investigate')
     page.locator('#ar-win-capture').click()
     expect(page.locator('#ar-winsnap-state')).to_contain_text('Trusted snapshot saved', timeout=10000)

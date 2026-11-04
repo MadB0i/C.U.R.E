@@ -148,6 +148,7 @@ def main() -> None:
         "xray.css",
         "investigate.css",
         "quarantine.css",
+        "monitor.css",
         "storage-workstation.css",
         "storage-rescue.css",
         "detective.css",
