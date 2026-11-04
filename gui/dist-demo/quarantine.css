@@ -1,0 +1,428 @@
+/* ==========================================================================
+   C.U.R.E QUARANTINE WORKSTATION — Stylesheet (Stage UI-05)
+   Cryptographic isolation enclave, scoped reversible undo, evidence-first accounting.
+   Dark graphite chassis, monospace tabular figures, zero AI sloppiness / zero emojis.
+   ========================================================================== */
+
+/* ---------- Quarantine Workstation Shell --------------------------------- */
+.q-shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ---------- Header Area -------------------------------------------------- */
+.q-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s4) var(--s6);
+}
+
+.q-head-copy {
+  min-width: 0;
+  max-width: 72ch;
+}
+
+.q-head .eyebrow {
+  font-size: var(--t-2xs);
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: var(--s1);
+}
+
+.q-head .headline {
+  font-size: var(--xl);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  color: var(--text);
+  margin: 0 0 var(--s2) 0;
+  line-height: 1.25;
+}
+
+.q-head .subline {
+  font-size: var(--t-sm);
+  color: var(--text-2);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.q-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+
+.q-head-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-xs);
+  font-weight: 600;
+  padding: 8px 14px;
+}
+
+/* ---------- Quarantine Telemetry Strip ----------------------------------- */
+.q-stats-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s3);
+}
+
+.q-stat-card {
+  padding: var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.q-stat-card:hover {
+  border-color: var(--hair-strong);
+}
+
+.q-stat-val {
+  font-family: var(--font-mono);
+  font-size: var(--display);
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.q-stat-val.text-warning {
+  color: var(--warning);
+}
+
+.q-stat-val.text-ok {
+  color: var(--ok);
+}
+
+.q-stat-val.text-info {
+  color: #38bdf8;
+}
+
+.q-stat-val.text-danger {
+  color: var(--danger);
+}
+
+.q-stat-label {
+  font-size: var(--t-2xs);
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* ---------- Main Panel & List -------------------------------------------- */
+.q-main-panel {
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: var(--r3);
+  padding: var(--s5);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  min-height: 380px;
+}
+
+/* Quarantined Item Card */
+.q-card {
+  background: var(--surface-2, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  padding: var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.q-card:hover {
+  border-color: var(--hair-strong);
+  background: var(--surface-3, rgba(255, 255, 255, 0.035));
+}
+
+.q-top {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  padding-bottom: var(--s2);
+  border-bottom: 1px solid var(--hair);
+}
+
+.q-top .rc-name {
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  font-weight: 700;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.q-top .q-undo {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--hair-strong);
+  color: var(--text);
+  padding: 6px 14px;
+  border-radius: var(--r1);
+  font-size: var(--t-xs);
+  font-weight: 650;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.q-top .q-undo:hover:not(:disabled) {
+  border-color: var(--ok);
+  color: var(--ok);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.q-top .q-undo:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.q-facts {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 8px var(--s4);
+  font-size: var(--t-xs);
+  margin: 0;
+  padding: var(--s2) 0;
+}
+
+.q-facts dt {
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  padding-top: 2px;
+}
+
+.q-facts dd {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  margin: 0;
+  word-break: break-all;
+}
+
+.q-rev {
+  font-size: var(--t-2xs);
+  color: var(--text-3);
+  border-top: 1px solid var(--hair);
+  padding-top: var(--s2);
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* Scoped Undo Confirmation Receipt */
+.receipt {
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r2);
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  color: var(--ok);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  line-height: 1.5;
+}
+
+/* ---------- Operator Empty Enclave State --------------------------------- */
+.q-empty-enclave {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s6);
+  padding: var(--s6) var(--s4);
+  text-align: center;
+}
+
+.q-empty-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s2);
+  max-width: 640px;
+}
+
+.q-empty-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: var(--r-full);
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--ok);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  margin-bottom: var(--s1);
+}
+
+.q-empty-title {
+  font-size: var(--lg);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  margin: 0;
+}
+
+.q-empty-desc {
+  font-size: var(--t-sm);
+  color: var(--text-2);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.mono-code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--hair);
+  padding: 1px 5px;
+  border-radius: var(--r1);
+  color: #38bdf8;
+}
+
+/* Three Architectural Pillars */
+.q-pillars {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s4);
+  width: 100%;
+  max-width: 960px;
+  text-align: left;
+}
+
+.q-pillar-card {
+  padding: var(--s4);
+  background: var(--surface-2, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  transition: border-color 140ms ease;
+}
+
+.q-pillar-card:hover {
+  border-color: var(--hair-strong);
+}
+
+.q-pillar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.q-pillar-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r1);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--hair);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-2);
+}
+
+.q-pillar-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+  text-transform: uppercase;
+}
+
+.q-pillar-title {
+  font-size: var(--t-sm);
+  font-weight: 650;
+  color: var(--text);
+  margin: 0;
+}
+
+.q-pillar-body {
+  font-size: var(--t-xs);
+  color: var(--text-3);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ---------- Responsive Breakpoints --------------------------------------- */
+@media (max-width: 1024px) {
+  .q-stats-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .q-pillars {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .q-stats-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .q-pillars {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .q-facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+}
+
+/* ---------- Light Theme Overrides ---------------------------------------- */
+[data-theme="light"] .q-main-panel {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+}
+
+[data-theme="light"] .q-stat-card,
+[data-theme="light"] .q-card,
+[data-theme="light"] .q-pillar-card {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .q-pillar-icon {
+  background: #edf2f7;
+  border-color: #cbd5e1;
+  color: #334155;
+}
+
+[data-theme="light"] .mono-code {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #0284c7;
+}
+
+[data-theme="light"] .receipt {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #15803d;
+}

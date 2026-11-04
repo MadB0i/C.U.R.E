@@ -931,6 +931,28 @@
     countUp(document.getElementById("stat-cleaned"), sessionQuarantined);
     countUp(document.getElementById("stat-review"), reviewCount);
     countUp(document.getElementById("stat-safe"), summary.safe);
+    countUp(document.getElementById("stat-procs"), procCount);
+
+    const bFindings = document.getElementById("badge-findings");
+    if (bFindings) bFindings.textContent = String(reviewCount);
+    const bProcs = document.getElementById("badge-processes");
+    if (bProcs) bProcs.textContent = String(procCount);
+    const bRansom = document.getElementById("badge-ransom");
+    if (bRansom) {
+      bRansom.textContent = String(ransomCount);
+      bRansom.classList.toggle("hidden", ransomCount === 0);
+    }
+    const bCov = document.getElementById("badge-coverage");
+    if (bCov && summary.source_states) {
+      const checked = summary.source_states.filter((s) => s.state === "Checked").length;
+      bCov.textContent = checked + "/" + summary.source_states.length;
+      bCov.className = "inv-lens-badge " + (checked === summary.source_states.length ? "inv-lens-badge-ok" : "inv-lens-badge-neutral");
+    }
+
+    const procEmpty = document.getElementById("proc-empty");
+    if (procEmpty) procEmpty.classList.toggle("hidden", procCount > 0);
+    const ransomEmpty = document.getElementById("ransom-empty");
+    if (ransomEmpty) ransomEmpty.classList.toggle("hidden", ransomCount > 0);
 
     fillCards(
       document.getElementById("review-cards"),
@@ -1459,6 +1481,18 @@
 
   // Sidebar navigation. The Storage Workstation is an ordinary view now: no
   // open/close ceremony, no pill save/restore, nothing to unwind.
+  // Stage UI-04: Forensic Investigation Lens State Machine
+  function switchInvestigateLens(lensName) {
+    document.querySelectorAll(".inv-lens-btn").forEach((btn) => {
+      const active = btn.dataset.lens === lensName;
+      btn.classList.toggle("is-active", active);
+      btn.setAttribute("aria-selected", String(active));
+    });
+    document.querySelectorAll(".inv-lens-panel").forEach((panel) => {
+      panel.classList.toggle("hidden", panel.id !== `lens-panel-${lensName}`);
+    });
+  }
+
   async function navTo(viewId) {
     if (viewId === "scan-center") {
       showViewInstant(scanView);
@@ -1475,6 +1509,30 @@
       else if (lastSummary) renderOverview(lastSummary);
       else renderOverviewIdle();
       loadOperatorPosture();
+    }
+    if (viewId === "results-view") {
+      switchInvestigateLens("findings");
+      if (lastSummary) renderResults(lastSummary);
+    }
+    if (viewId === "view-audit") {
+      showViewInstant(resultsView);
+      switchInvestigateLens("findings");
+      if (lastSummary) renderResults(lastSummary);
+    }
+    if (viewId === "view-processes") {
+      showViewInstant(resultsView);
+      switchInvestigateLens("processes");
+      if (lastSummary) renderResults(lastSummary);
+    }
+    if (viewId === "view-winchanges") {
+      showViewInstant(resultsView);
+      switchInvestigateLens("winchanges");
+      if (lastSummary) renderResults(lastSummary);
+    }
+    if (viewId === "view-incident") {
+      showViewInstant(resultsView);
+      switchInvestigateLens("ransom");
+      if (lastSummary) renderResults(lastSummary);
     }
     if (viewId === "view-agents" && window.CureAgentRadar) {
       window.CureAgentRadar.refresh();
@@ -3244,6 +3302,18 @@
     }
     updateOvAside();
   }
+  function formatQuarantineBytes(bytes) {
+    if (bytes == null || isNaN(bytes) || bytes === 0) return "0 B";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let i = 0;
+    let v = Number(bytes);
+    while (v >= 1024 && i < units.length - 1) {
+      v /= 1024;
+      i++;
+    }
+    return (i === 0 ? v : v.toFixed(1)) + " " + units[i];
+  }
+
   async function refreshQuarantine() {
     const list = document.getElementById("q-list"),
       empty = document.getElementById("q-empty");
@@ -3266,11 +3336,20 @@
       " archived file" +
       (records.length === 1 ? "" : "s") +
       " · moves recorded · scoped undo";
+
+    const statCount = document.getElementById("q-stat-count");
+    if (statCount) statCount.textContent = records.length;
+    const statBytes = document.getElementById("q-stat-bytes");
+    if (statBytes) {
+      const total = records.reduce((sum, r) => sum + (Number(r.file_size) || 0), 0);
+      statBytes.textContent = formatQuarantineBytes(total);
+    }
+
     for (const r of records) {
-      const li = makeText("li", "", "review-card q-row");
+      const li = makeText("li", "", "review-card q-row q-card");
       const top = makeText("div", "", "q-top");
       top.append(
-        makeText("span", r.name, "rc-name"),
+        makeText("span", r.name, "rc-name mono"),
         makeText("span", r.source, "chip src"),
       );
       const undo = makeText("button", "Undo / Restore", "copy-btn q-undo");
@@ -4616,6 +4695,47 @@
       .forEach((btn) =>
         btn.addEventListener("click", () => navTo(btn.dataset.route)),
       );
+
+    // Stage UI-04: Forensic Investigation Lens Switching
+    document.querySelectorAll(".inv-lens-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const lens = btn.dataset.lens;
+        if (!lens) return;
+        switchInvestigateLens(lens);
+      });
+    });
+
+    // Stage UI-04: Live search across findings
+    const findingsSearch = document.getElementById("inv-findings-search");
+    if (findingsSearch) {
+      findingsSearch.addEventListener("input", () => {
+        const query = findingsSearch.value.trim().toLowerCase();
+        document.querySelectorAll("#review-cards li, #cleaned-cards li").forEach((card) => {
+          const text = card.textContent.toLowerCase();
+          card.classList.toggle("hidden", query.length > 0 && !text.includes(query));
+        });
+      });
+    }
+
+    // Stage UI-04: Findings filter buttons (All, High Risk, Suspicious, Safe)
+    document.querySelectorAll("[data-ff]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("[data-ff]").forEach((b) => b.classList.remove("on"));
+        btn.classList.add("on");
+        const filter = btn.dataset.ff;
+        document.querySelectorAll("#review-cards li").forEach((card) => {
+          if (filter === "all") {
+            card.classList.remove("hidden");
+          } else if (filter === "HighRisk") {
+            card.classList.toggle("hidden", !card.classList.contains("risk-crit") && !card.classList.contains("risk-high"));
+          } else if (filter === "Suspicious") {
+            card.classList.toggle("hidden", !card.classList.contains("risk-med"));
+          } else if (filter === "Safe") {
+            card.classList.toggle("hidden", !card.classList.contains("risk-safe"));
+          }
+        });
+      });
+    });
     document
       .getElementById("scan-retry")
       .addEventListener("click", () => runScan());

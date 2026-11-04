@@ -7,6 +7,8 @@
       "../dist-demo/style.css",
       "../dist-demo/operator.css",
       "../dist-demo/xray.css",
+      "../dist-demo/investigate.css",
+      "../dist-demo/quarantine.css",
       "../dist-demo/storage-workstation.css",
       "../dist-demo/detective.css",
       "../dist-demo/agent.css",

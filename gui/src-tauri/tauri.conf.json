@@ -9,6 +9,8 @@
       "../dist/style.css",
       "../dist/operator.css",
       "../dist/xray.css",
+      "../dist/investigate.css",
+      "../dist/quarantine.css",
       "../dist/storage-workstation.css",
       "../dist/detective.css",
       "../dist/agent.css",
