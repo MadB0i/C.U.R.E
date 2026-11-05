@@ -11,8 +11,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "gui/dist/index.html"
 DST = ROOT / "gui/dist/index.dev.html"
 
-DEV_WORDMARK = '<div class="wordmark">C.U.R.E<span>Evidence Console · sample data</span></div>'
-PROD_WORDMARK = '<div class="wordmark">C.U.R.E<span>Evidence Console</span></div>'
+DEV_WORDMARK = '<div class="wordmark">C.U.R.E<span>· sample data</span></div>'
+PROD_WORDMARK = '<div class="wordmark">C.U.R.E</div>'
 MOCK = '<script src="mock-tauri.js"></script>'
 
 

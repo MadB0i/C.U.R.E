@@ -2945,7 +2945,7 @@ fn main() {
                 "main",
                 tauri::WebviewUrl::App("index.html".into()),
             )
-            .title("C.U.R.E \u{2014} Evidence Console")
+            .title("C.U.R.E")
             .inner_size(1200.0, 800.0)
             .min_inner_size(900.0, 600.0)
             .resizable(true);

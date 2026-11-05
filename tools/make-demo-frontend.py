@@ -18,9 +18,9 @@ DIST = ROOT / "gui" / "dist"
 OUT = ROOT / "gui" / "dist-demo"
 
 DEMO_WORDMARK = (
-    '<div class="wordmark">C.U.R.E<span>Evidence Console · public demo</span></div>'
+    '<div class="wordmark">C.U.R.E<span>· public demo</span></div>'
 )
-PROD_WORDMARK = '<div class="wordmark">C.U.R.E<span>Evidence Console</span></div>'
+PROD_WORDMARK = '<div class="wordmark">C.U.R.E</div>'
 
 # The demo banner. It is deliberately impossible to mistake for a real
 # finding: it is present for the whole recording.
