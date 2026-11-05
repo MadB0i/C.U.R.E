@@ -1508,6 +1508,7 @@
       ["wmi", "Querying WMI subscriptions"],
       ["ifeo", "Checking IFEO / AppInit"],
       ["com", "Inspecting COM registrations"],
+      ["bootlogon", "Checking Winlogon and Active Setup"],
     ]) {
       emit("scan-progress", { stage, message });
       await delay(120);
@@ -1519,6 +1520,11 @@
       { area: "WMI subscriptions", state: "Checked", detail: "0 entries" },
       { area: "IFEO and AppInit", state: "Checked", detail: "0 entries" },
       { area: "COM registrations", state: "Checked", detail: "0 entries" },
+      {
+        area: "Winlogon & Active Setup",
+        state: "Checked",
+        detail: "2 values",
+      },
       { area: "Running processes", state: "Checked", detail: "15 enumerated" },
       { area: "Ransom indicators", state: "Checked", detail: "4 folders, 0 findings" },
     ])

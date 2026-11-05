@@ -10,11 +10,12 @@
 
 ---
 
-[![C.U.R.E Investigation Console](docs/media/cure-hero.png)](docs/media/cure-hero.png)
+[![C.U.R.E demo](docs/media/cure-preview.gif)](docs/media/cure-demo.mp4)
 
-*C.U.R.E inspects a Windows machine for persistence, suspicious activity and
-reclaimable storage, and reports what it found with the evidence attached. It
-never changes anything without an explicit, previewed confirmation.*
+*Live ten-layer persistence scan, the Investigation Console, and the Move Bot
+relocating folders from C: to D: in one click — recorded on the labelled demo
+build, so every path and finding on screen is sample data.*
+**[▶ Watch the full demo (MP4, 43 s)](docs/media/cure-demo.mp4)**
 
 ---
 

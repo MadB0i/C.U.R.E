@@ -43,3 +43,7 @@ docs/LUMA-PREVIEW.html
 # Runtime process-lease state from native test harnesses (their own spawned
 # PIDs + user-data dirs, identity-verified before cleanup). Never committed.
 /.process-lease-*.json
+
+# Release artifacts: built binaries are attached to a GitHub Release by the
+# owner (never committed); checksums and the release draft are tracked.
+/release/*.exe

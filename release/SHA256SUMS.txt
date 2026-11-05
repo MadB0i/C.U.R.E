@@ -1,0 +1,2 @@
+ab91d060481cb3af65487adc2d73c2c99c1c8b4c28521f077c54f4370509bfed  CURE-portable.exe
+b2b0fe95dd4c173fcd8ca10c8b6f21de57e11f3af586b213e5911f8a448fea27  cure-cli.exe
