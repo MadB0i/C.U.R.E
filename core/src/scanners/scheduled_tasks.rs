@@ -96,8 +96,38 @@ pub fn scan_report(root: &Path) -> TaskScanReport {
             }
             continue;
         }
-        let Some(command) = extract_command(&xml) else {
+        let details = parse_details(&xml);
+        let mut actions = details.actions.into_iter();
+        let Some(first) = actions.next() else {
             continue;
+        };
+        if first.command.trim().is_empty() {
+            continue;
+        }
+        // Detection Engine v2: the scorer must see EVERY action's arguments,
+        // not just the first command element. A task whose Command is
+        // `powershell.exe` and whose Arguments are `-enc AAAA…` used to score
+        // 0 because arguments lived in entry details only. The stable id is
+        // computed from `command` alone (see make_id), so attaching argument
+        // material here never churns existing baseline/quarantine identities.
+        let mut argument_parts: Vec<String> = Vec::new();
+        if !first.arguments.trim().is_empty() {
+            argument_parts.push(first.arguments.clone());
+        }
+        for action in actions {
+            if action.command.trim().is_empty() {
+                continue;
+            }
+            if action.arguments.trim().is_empty() {
+                argument_parts.push(action.command.clone());
+            } else {
+                argument_parts.push(format!("{} {}", action.command, action.arguments));
+            }
+        }
+        let arguments = if argument_parts.is_empty() {
+            None
+        } else {
+            Some(argument_parts.join(" ; "))
         };
         let relative = path.strip_prefix(root).unwrap_or(path);
         let name = relative
@@ -105,12 +135,15 @@ pub fn scan_report(root: &Path) -> TaskScanReport {
             .map(|c| c.as_os_str().to_string_lossy().into_owned())
             .collect::<Vec<_>>()
             .join("\\");
-        report.entries.push(PersistenceEntry::new(
-            PersistenceSource::ScheduledTask,
-            name,
-            command,
-            path.to_string_lossy().into_owned(),
-        ));
+        report.entries.push(
+            PersistenceEntry::new(
+                PersistenceSource::ScheduledTask,
+                name,
+                first.command,
+                path.to_string_lossy().into_owned(),
+            )
+            .with_arguments(arguments),
+        );
     }
     report.entries.sort_by(|a, b| a.name.cmp(&b.name));
     report
@@ -390,6 +423,46 @@ mod tests {
             e.id,
             make_id(&PersistenceSource::ScheduledTask, &e.name, &e.command)
         );
+    }
+
+    #[test]
+    fn scan_report_attaches_argument_material_without_churning_ids() {
+        // Detection Engine v2: the scorer must see every action's arguments
+        // (the encoded-PowerShell-in-Arguments gap), while the stable id —
+        // which baselines and quarantine records key on — stays computed
+        // from (source, name, command) alone.
+        let dir = tempdir().unwrap();
+        let task_dir = dir.path().join("CURE-SYNTH");
+        fs::create_dir_all(&task_dir).unwrap();
+        fs::write(
+            task_dir.join("MultiAction"),
+            crate::fixtures::multi_action_task_xml(),
+        )
+        .unwrap();
+
+        let report = scan_report(dir.path());
+        assert_eq!(report.entries.len(), 1);
+        let e = &report.entries[0];
+        // First action still drives the stable identity...
+        assert_eq!(e.command, "powershell.exe");
+        // ...while the scorer sees the hidden flag argument AND action two.
+        let scorer = e.scorer_command();
+        assert!(
+            scorer.contains("-WindowStyle Hidden"),
+            "scorer must see action-1 arguments: {scorer}"
+        );
+        assert!(
+            scorer.contains("CURE-SYNTH-stage2.exe"),
+            "scorer must see action-2 command: {scorer}"
+        );
+
+        let bare = PersistenceEntry::new(
+            PersistenceSource::ScheduledTask,
+            e.name.clone(),
+            e.command.clone(),
+            e.location.clone(),
+        );
+        assert_eq!(e.id, bare.id, "argument material must not churn ids");
     }
 
     #[test]

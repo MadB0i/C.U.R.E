@@ -394,6 +394,34 @@ fn collect(paths: &ResolvedPaths) -> CollectOutput {
     );
     entries.extend(reg_entries);
     source_states.push(reg_row);
+    #[cfg(windows)]
+    let boot_row = {
+        // Detection Engine v2: Winlogon session-start values and Active
+        // Setup StubPaths — persistence spots Defender never surfaces.
+        let wl = scanners::bootlogon::scan_winlogon_report();
+        let aset = scanners::bootlogon::scan_active_setup_report();
+        let mut report = scanners::bootlogon::BootLogonReport {
+            entries: Vec::new(),
+            values_read: wl.values_read + aset.values_read,
+            skipped_keys: wl.skipped_keys + aset.skipped_keys,
+        };
+        report.entries.extend(wl.entries);
+        report.entries.extend(aset.entries);
+        let row = source_state_row(
+            "Winlogon & Active Setup",
+            &report.status(),
+            format!("{} values", report.values_read),
+        );
+        entries.extend(report.entries);
+        row
+    };
+    #[cfg(windows)]
+    source_states.push(boot_row);
+    #[cfg(not(windows))]
+    source_states.push(cure_core::report::CoverageRow::unavailable(
+        "Winlogon & Active Setup",
+        "Windows-only source",
+    ));
     let svc_report = scanners::services::scan_report();
     let svc_skipped = svc_report.skipped_config;
     source_states.push(source_state_row(
@@ -514,6 +542,9 @@ fn print_report(scored: &[ScoredEntry], data_dir: &Path) {
             s.entry.id
         );
         println!("             cmd: {}", s.entry.command);
+        if let Some(args) = &s.entry.arguments {
+            println!("             arg: {}", args);
+        }
         if s.entry.location != s.entry.command {
             println!("             loc: {}", s.entry.location);
         }

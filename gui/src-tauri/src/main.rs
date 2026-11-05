@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use cure_core::agent;
-use cure_core::canary::{shadow_wipe_reason, CanaryAlert};
+use cure_core::canary::{shadow_wipe_name_reason, CanaryAlert};
 use cure_core::model::{PersistenceEntry, PersistenceSource, RiskLevel, ScoredEntry};
 use cure_core::overlay::{self, WindowDesc};
 use cure_core::process_scan::{self, ProcessInfo, ProcessScore};
@@ -299,6 +299,23 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
             ),
         );
         entries.extend(com_entries);
+        // Detection Engine v2: Winlogon session-start values and Active
+        // Setup StubPaths — boot/logon persistence Defender never surfaces.
+        emit_stage(&app, "bootlogon", "Checking Winlogon and Active Setup");
+        let boot_entries = scanners::bootlogon::scan().unwrap_or_default();
+        record_source_state(
+            &app,
+            &mut source_states,
+            cure_core::report::CoverageRow::checked(
+                "Winlogon & Active Setup",
+                format!(
+                    "{} entr{}",
+                    boot_entries.len(),
+                    if boot_entries.len() == 1 { "y" } else { "ies" }
+                ),
+            ),
+        );
+        entries.extend(boot_entries);
     }
     #[cfg(not(windows))]
     {
@@ -312,6 +329,10 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         ));
         source_states.push(cure_core::report::CoverageRow::unavailable(
             "COM registrations",
+            "Windows-only source",
+        ));
+        source_states.push(cure_core::report::CoverageRow::unavailable(
+            "Winlogon & Active Setup",
             "Windows-only source",
         ));
     }
@@ -3669,7 +3690,12 @@ fn spawn_tripwire_poller(app: AppHandle, stop: Arc<AtomicBool>, _alert_count: Ar
                         .file_name()
                         .map(|n| n.to_string_lossy().to_string())
                         .unwrap_or_default();
-                    if let Some(reason) = shadow_wipe_reason(&name, "") {
+                    // The process snapshot carries no command line, so the
+                    // phrase check is unusable here — passing an empty one,
+                    // as this poller used to, made the wipe tripwire dead
+                    // code. The name-only check is correlated evidence for
+                    // the two tools with no benign mid-session use.
+                    if let Some(reason) = shadow_wipe_name_reason(&name) {
                         let _ = app.emit(
                             "canary-alert",
                             CanaryAlertEvent {

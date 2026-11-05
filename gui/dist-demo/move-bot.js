@@ -57,7 +57,6 @@
     els.doneBody = document.getElementById("mb-done-body");
     els.doneText = document.getElementById("mb-done-text");
     els.doneDetail = document.getElementById("mb-done-detail");
-    els.doneUndo = document.getElementById("mb-done-undo");
     els.doneFinish = document.getElementById("mb-done-finish");
     els.errorBody = document.getElementById("mb-error-body");
     els.errorText = document.getElementById("mb-error-text");

@@ -889,14 +889,29 @@
     for (const row of states) {
       const st = row.state;
       const info = sourceStatusInfo(st);
+      // Stage UI-03 known-cosmetic fix: the reason text rode in BOTH the
+      // status-derived detail and the coverage row's own detail, so a denied
+      // source read "ACCESS DENIED — access denied (elevation may help) ·
+      // access denied (elevation may help)". Append the row detail only when
+      // it adds information the status detail does not already contain.
+      const statusDetail =
+        info.detail && info.detail !== "fully enumerated" ? info.detail : "";
+      const rowDetail =
+        row.detail &&
+        !(
+          statusDetail &&
+          statusDetail
+            .toLowerCase()
+            .includes(String(row.detail).toLowerCase())
+        )
+          ? row.detail
+          : "";
       cov.append(
         covRow(
           row.area || "source",
           info.label +
-            (info.detail && info.detail !== "fully enumerated"
-              ? " — " + info.detail
-              : "") +
-            (row.detail ? " · " + row.detail : ""),
+            (statusDetail ? " — " + statusDetail : "") +
+            (rowDetail ? " · " + rowDetail : ""),
           levelOf(st),
         ),
       );
@@ -1544,10 +1559,11 @@
   }
 
   function enablePostScanNav() {
-    ["nav-results", "nav-audit", "nav-processes"].forEach((id) => {
-      const btn = document.getElementById(id);
-      if (btn) btn.disabled = false;
-    });
+    // The Investigate entry unlocks once a scan has something to show. (The
+    // old nav-audit/nav-processes sidebar items died with the Stage UI-06
+    // dead-section removal — those destinations are Investigate lenses now.)
+    const btn = document.getElementById("nav-results");
+    if (btn) btn.disabled = false;
   }
 
   /* Scan lifecycle ownership. One state machine (scanPhase + scanToken),
@@ -2750,16 +2766,17 @@
     }
   }
 
-  /* Overview dial: the nine inspection layers, one segment each.
+  /* Overview dial: the inspection layers, one segment each.
 
      The earlier version drew a single ring and a coverage arc, which before
-     the first scan was a large empty circle. Nine segments say what the
+     the first scan was a large empty circle. Segments say what the
      ring could not: how many of the machine's layers have actually
-     reported. */
+     reported. Ten collection surfaces since Detection Engine v2 added
+     Winlogon & Active Setup. */
   const DIAL_R = 48;
   const DIAL_CX = 60;
   const DIAL_CY = 60;
-  const DIAL_LAYERS = 9;
+  const DIAL_LAYERS = 10;
   function dialSegmentPath(index) {
     const slot = 360 / DIAL_LAYERS;
     const gap = 13;

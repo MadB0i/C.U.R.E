@@ -1059,6 +1059,7 @@ mod tests {
             location: link_file.to_string_lossy().to_string(),
             command: link_file.to_string_lossy().to_string(),
             source: PersistenceSource::StartupFolder,
+            arguments: None,
         };
 
         let err = quarantine_entry(data.path(), &entry).unwrap_err();

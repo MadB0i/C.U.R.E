@@ -484,7 +484,7 @@
   color: var(--text);
 }
 
-/* ---------- Nine-layer matrix ------------------------------------------ */
+/* ---------- Layer matrix ------------------------------------------ */
 .xr-matrix {
   display: flex;
   flex-direction: column;

@@ -1,6 +1,6 @@
 /* ==========================================================================
-   C.U.R.E SYSTEM X-RAY — holographic persistence radar
-   Nine collector layers painted from the backend's own event stream
+   C.U.R.E SYSTEM X-RAY — persistence radar
+   Collector layers painted from the backend's own event stream
    (`scan-progress`), never from a timer and never from a guess.
 
    Each layer carries exactly one *outcome* at a time:
@@ -20,7 +20,7 @@
 (function () {
   "use strict";
 
-  /* ---------- The nine inspection layers -------------------------------- */
+  /* ---------- The inspection layers -------------------------------------- */
   const LAYERS = [
     {
       id: "registry",
@@ -70,6 +70,13 @@
       full: "COM registrations",
       areas: ["COM registrations", "COM hijacks (HKCU)"],
       note: "per-user InprocServer32 / TreatAs",
+    },
+    {
+      id: "bootlogon",
+      label: "Boot logon",
+      full: "Winlogon & Active Setup",
+      areas: ["Winlogon & Active Setup"],
+      note: "session-start values and per-user StubPaths",
     },
     {
       id: "processes",
@@ -693,7 +700,7 @@
       }
     }
 
-    /* 6. Central hub: nine outcome ticks around the live readout. */
+    /* 6. Central hub: one outcome tick per layer around the live readout. */
     const hubR = geo.innerR;
     const verdict = getVerdict();
     ctx.save();
@@ -709,8 +716,8 @@
       ctx.fill();
     }
 
-    const tickArc = (Math.PI * 2) / 9;
-    for (let k = 0; k < 9; k += 1) {
+    const tickArc = (Math.PI * 2) / state.layers.length;
+    for (let k = 0; k < state.layers.length; k += 1) {
       const tickColor = toneColor(state.layers[k].outcome, P);
       const sAngle = k * tickArc - Math.PI / 2 + 0.05;
       const eAngle = (k + 1) * tickArc - Math.PI / 2 - 0.05;
@@ -1108,7 +1115,7 @@
           coreReadout.textContent =
             findings > 0
               ? findings + " " + findingsWord + " DETECTED"
-              : "ALL 9 LAYERS CLEAN";
+              : "ALL " + state.layers.length + " LAYERS CLEAN";
         } else {
           coreReadout.textContent =
             findings > 0

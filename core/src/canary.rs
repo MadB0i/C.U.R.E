@@ -179,6 +179,28 @@ pub fn shadow_wipe_reason(image_name: &str, command_line: &str) -> Option<&'stat
     None
 }
 
+/// Name-only tripwire (Detection Engine v2).
+///
+/// Both real pollers used to pass an empty command line, which the command
+/// check above correctly refused — so the shadow-copy-wipe tripwire could
+/// never fire anywhere in production. Command lines are not available to a
+/// Toolhelp snapshot, so this companion check fires on the two tools that
+/// are almost never started by a person in the middle of normal use:
+/// `vssadmin.exe` and `bcdedit.exe`. (`wmic`/`diskshadow`/`wbadmin` stay
+/// command-line-only — they have benign everyday uses a name match would
+/// mislabel.) The wording is honest about what was witnessed: a NAME match
+/// is correlated evidence, not an observed wipe command.
+pub fn shadow_wipe_name_reason(image_name: &str) -> Option<&'static str> {
+    let image = image_name.to_ascii_lowercase();
+    if image.ends_with(concat!("vss", "admin.exe")) {
+        Some("vssadmin started while the guard was active (command line not captured) — verify no shadow copies were deleted")
+    } else if image.ends_with(concat!("bcd", "edit.exe")) {
+        Some("bcdedit started while the guard was active (command line not captured) — verify boot-recovery settings were not disabled")
+    } else {
+        None
+    }
+}
+
 // -- engine config ----------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -688,6 +710,32 @@ mod tests {
         assert!(shadow_wipe_reason("vssadmin.exe", "").is_none());
         assert!(shadow_wipe_reason("vssadmin.exe", "vssadmin list shadows").is_none());
         assert!(shadow_wipe_reason("notepad.exe", "delete shadows").is_none());
+    }
+
+    #[test]
+    fn name_only_tripwire_fires_for_the_two_unambiguous_tools() {
+        // Detection Engine v2: the pollers carry no command lines, so the
+        // phrase check could never fire anywhere (both real callers passed
+        // an empty line). The name-only companion covers vssadmin and
+        // bcdedit — tools with no benign mid-session use — and is worded as
+        // correlated evidence, not as an observed wipe command.
+        assert!(shadow_wipe_name_reason("vssadmin.exe").is_some());
+        assert!(shadow_wipe_name_reason("VSSADMIN.EXE").is_some());
+        assert!(shadow_wipe_name_reason("bcdedit.exe").is_some());
+        let reason = shadow_wipe_name_reason("vssadmin.exe").unwrap();
+        assert!(reason.contains("command line not captured"));
+    }
+
+    #[test]
+    fn name_only_tripwire_stays_silent_for_command_line_only_tools() {
+        // wmic/diskshadow/wbadmin have benign everyday uses; a bare name
+        // match would mislabel legitimate admin work, so they deliberately
+        // require a captured command line.
+        assert!(shadow_wipe_name_reason("wmic.exe").is_none());
+        assert!(shadow_wipe_name_reason("diskshadow.exe").is_none());
+        assert!(shadow_wipe_name_reason("wbadmin.exe").is_none());
+        assert!(shadow_wipe_name_reason("explorer.exe").is_none());
+        assert!(shadow_wipe_name_reason("notvssadmin.exe.is_false.positive.exe").is_none());
     }
 
     #[test]

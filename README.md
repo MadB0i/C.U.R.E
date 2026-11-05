@@ -39,9 +39,13 @@ never changes anything without an explicit, previewed confirmation.*
 
 ## Key Capabilities
 
-- **Nine-layer persistence scan** — Registry autoruns, Startup folders, Scheduled
-  Tasks, Services, WMI subscriptions, IFEO, AppInit, COM registrations and running
-  processes, each scored with ATT&CK mapping and the evidence attached.
+- **Ten-surface persistence scan** — Registry autoruns, Startup folders, Scheduled
+  Tasks (arguments included), Services, WMI subscriptions, IFEO, AppInit, COM
+  registrations, Winlogon/Active Setup and running processes, each scored with
+  ATT&CK mapping and the evidence attached. Script-cradle arguments
+  (`IEX`, `DownloadString`, encoded payloads), network-share persistence and
+  the LOLBins Defender trusts (`certutil`, `bitsadmin`, `msiexec`) are scored
+  even when the binary is signed.
 - **Investigation Console** — five forensic lenses (Findings, Process Sentinel,
   Windows Change Radar, Ransom indicators, Collection coverage) over one collected
   evidence set, with sanitized JSON/TXT report export.

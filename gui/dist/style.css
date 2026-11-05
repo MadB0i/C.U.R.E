@@ -758,11 +758,11 @@ code,
 }
 
 /* Evidence is read, not scanned: keep a measured column so a finding's
-   evidence, verdict and action stay in one glance. */
-#results-view .results-stack,
-#view-audit .results-stack,
-#view-processes .results-stack,
-#view-incident .results-stack {
+   evidence, verdict and action stay in one glance. (The view-audit /
+   view-processes / view-incident selectors died with the Stage UI-06
+   dead-section removal — those views are Investigate lenses and the
+   Monitor workstations now.) */
+#results-view .results-stack {
   max-width: 1200px;
 }
 

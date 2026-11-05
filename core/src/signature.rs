@@ -967,6 +967,7 @@ mod tests {
             command: r"C:\Program Files\App\app.exe".to_string(),
             location: "loc".to_string(),
             source: crate::model::PersistenceSource::RegistryRun,
+            arguments: None,
         };
         let scored =
             crate::risk::score_with_signals(&entry, SignatureStatus::ValidRevocationUnknown, None);

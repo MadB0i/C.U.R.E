@@ -290,7 +290,7 @@ def main():
             page.locator("#lens-btn-coverage").click()
             time.sleep(0.4)
             cov_items = page.locator("#res-coverage li")
-            check("res-coverage has 9 layer rows", cov_items.count() >= 9, f"count={cov_items.count()}")
+            check("res-coverage has one row per layer", cov_items.count() >= 9, f"count={cov_items.count()}")
             page.screenshot(path=str(OUT / "04-coverage-lens.png"))
             shutil.copy(OUT / "04-coverage-lens.png", DOCS_OUT / "04-coverage-lens.png")
 
