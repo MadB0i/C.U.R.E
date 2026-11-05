@@ -274,9 +274,9 @@
     const textEl = $("sr-guide-text");
     if (textEl) {
       if (selected.length === 0) {
-        textEl.textContent = "Pick one or more folders above and I will move them to your other drive — copied, checked bit by bit, and switched over. Your originals stay in place until you approve the cleanup.";
+        textEl.textContent = "Pick folders above and I will move them to your other drive.";
       } else {
-        textEl.textContent = `${selected.length} folder${selected.length === 1 ? "" : "s"} (${formatBytes(totalBytes)}) ready to move to drive ${state.targetDrive}. Or press "Move it for me" and I will take it from here — nothing is deleted until the copy is fully verified.`;
+        textEl.textContent = `${selected.length} folder${selected.length === 1 ? "" : "s"} (${formatBytes(totalBytes)}) ready to move to drive ${state.targetDrive}. Or press "Move it for me".`;
       }
     }
   }

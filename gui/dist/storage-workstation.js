@@ -201,9 +201,8 @@
   };
 
   const DEPTH_NOTES = {
-    quick:
-      "Known cache, temporary and diagnostic locations. Fast, and rarely noisy.",
-    deep: "Also inventories browser profiles, application data and developer caches. Slower, and reports far more that will not be recommended.",
+    quick: "Fast",
+    deep: "Thorough — slower",
   };
 
   const TIER_ORDER = ["safe_to_review", "review_carefully", "protected", "unknown"];

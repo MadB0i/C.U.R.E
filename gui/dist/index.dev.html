@@ -502,28 +502,17 @@
                       <ul aria-label="Observed changes" class="ar-event-list" id="ar-event-list"></ul>
                       <div class="empty-state" id="ar-event-empty">
                         <strong>No changes observed yet</strong>
-                        <span
-                          >New metadata changes appear here as they are
-                          observed.</span
-                        >
+                        <span>Changes appear here as they are observed.</span>
                       </div>
                     </div>
                     <aside aria-label="Evidence details" class="ar-evidence" id="ar-evidence">
                       <div class="empty-state" id="ar-evidence-empty">
                         <strong>Select an observation</strong>
-                        <span
-                          >Observed metadata, source and evidence limits appear
-                          here.</span
-                        >
+                        <span>Its evidence appears here.</span>
                       </div>
                       <div class="hidden" id="ar-evidence-card"></div>
                     </aside>
                   </div>
-
-                  <p class="ar-caveat">
-                    <b>Correlated</b> means a supported agent process was present
-                    while the change was observed — it is not attribution.
-                  </p>
 
                   <!-- Privacy-safe case file, revealed on request. -->
                   <div class="ar-export hidden" id="ar-export">
@@ -588,10 +577,6 @@
               <div class="rescue-head-copy">
                 <div class="eyebrow">Rescue / System X-Ray</div>
                 <h1 class="headline">System X-Ray</h1>
-                <p class="subline">
-                  Read-only inspection of this machine. A scan changes nothing;
-                  remediation is a separate, explicitly confirmed action.
-                </p>
               </div>
               <div class="rescue-head-actions">
                 <span
@@ -712,11 +697,6 @@
                     <p class="xr-matrix-foot">
                       <span id="sweep-current">Awaiting collection</span>
                       <span id="sweep-items">0 entries inspected</span>
-                    </p>
-                    <p class="xr-matrix-note">
-                      States come from the backend's own coverage report. A
-                      collector that ran without reporting coverage is never
-                      counted as checked.
                     </p>
                   </section>
                 </aside>
@@ -985,9 +965,7 @@
                         <div class="inv-panel-head">
                           <div>
                             <h2 class="section-title">Running programs</h2>
-                            <p class="dim" id="proc-subline">
-                              Everything running right now, with a safety check of each program's digital signature.
-                            </p>
+                            <p class="dim" id="proc-subline"></p>
                           </div>
                           <div class="kill-row">
                             <button class="btn btn-danger" disabled id="kill-procs-btn" type="button">
@@ -1029,9 +1007,6 @@
                         <div class="inv-panel-head">
                           <div>
                             <h2 class="section-title">System changes</h2>
-                            <p class="dim">
-                              Compare your PC's startup settings against a saved snapshot. Read-only — nothing is modified.
-                            </p>
                           </div>
                           <div class="ar-win-actions">
                             <button class="btn" id="ar-win-capture" type="button">
@@ -1060,9 +1035,6 @@
                         <div class="inv-panel-head">
                           <div>
                             <h2 class="section-title">Ransomware signs</h2>
-                            <p class="dim">
-                              Mass file renaming, ransom notes, and tampering with the canary decoy files.
-                            </p>
                           </div>
                         </div>
                         <div class="entry-cards" id="ransom-cards"></div>
@@ -1108,9 +1080,6 @@
                         <div class="inv-panel-head">
                           <div>
                             <h2 class="section-title">What was checked</h2>
-                            <p class="dim">
-                              Includes the places C.U.R.E could not read — an incomplete check is never reported as all-clear.
-                            </p>
                           </div>
                         </div>
                         <ul class="coverage-list" id="res-coverage"></ul>
@@ -1261,9 +1230,7 @@
                 <div class="dt-empty hidden" id="dt-empty">
                   <p class="dt-empty-title">No clue here yet.</p>
                   <p class="dim" id="dt-empty-note">
-                    A scan that finds nothing is a result, not a failure. It
-                    means the places this engine measured hold nothing it can
-                    put a name to.
+                    Nothing measurable was found in the places scanned.
                   </p>
                 </div>
               </section>
@@ -1289,12 +1256,6 @@
             <section class="dt-panel dt-case" id="dt-case">
               <div class="dt-case-copy">
                 <h2 class="section-title">Case file</h2>
-                <p class="dim">
-                  A one-page summary of what this investigation found, built
-                  from an allowlist. It carries category names and byte
-                  counts. It never carries a path, a user name, a machine
-                  name or a file name.
-                </p>
                 <div class="dt-case-controls">
                   <label class="dt-field">
                     <span>Privacy</span>
@@ -1329,8 +1290,8 @@
               </div>
               <div class="dt-case-preview" id="dt-case-preview-stage">
                 <p class="dim" id="dt-case-preview-note">
-                  Export to see the case file before you share it. Nothing is
-                  uploaded anywhere: the image is written to this machine only.
+                  Nothing is uploaded anywhere — the image is written to this
+                  machine only.
                 </p>
               </div>
             </section>
@@ -1609,9 +1570,8 @@
                         <span class="sr-badge sr-badge-ready" id="sr-guide-badge">WATCHING</span>
                       </div>
                       <p class="sr-guide-text" id="sr-guide-text">
-                        Your C: drive is running out of room. Pick the folders below and I will move
-                        them to your other drive — copied, checked bit by bit, and switched over.
-                        Nothing is deleted until the copy is fully verified, and you can undo.
+                        Pick the folders below and I will move them to your
+                        other drive — copied, verified, switched over.
                       </p>
                       <div class="sr-steps-strip">
                         <span class="sr-step-chip is-done">1. Measured your drives</span>
@@ -1766,10 +1726,7 @@
                     <div class="sw-headline-label" id="sw-amount-label">
                       Not measured
                     </div>
-                    <p class="sw-headline-note dim" id="sw-amount-note">
-                      Run a scan to measure this machine. C.U.R.E reports only
-                      bytes it has actually measured.
-                    </p>
+                    <p class="sw-headline-note dim" id="sw-amount-note"></p>
                   </div>
                   <dl class="sw-headline-split">
                     <div>
@@ -1949,11 +1906,7 @@
                 tabindex="0"
               >
                 <div class="sw-dupe-head">
-                  <p class="dim" id="sw-dupe-coverage">
-                    Duplicates are only reported after every copy has been read
-                    in full and hashed. Nothing is proposed on a size match
-                    alone.
-                  </p>
+                  <p class="dim" id="sw-dupe-coverage"></p>
                 </div>
                 <div id="sw-dupe-list" class="sw-dupe-list"></div>
               </div>
@@ -2314,10 +2267,8 @@
                     </ul>
                     <div class="coverage-note dim">
                       <span
-                        >Watcher pairing and USB installs are managed with
-                        cure-watch.exe; this console cannot verify their
-                        connection. Completed collection is shown separately
-                        from verified coverage.</span
+                        >USB watchdog is managed separately by
+                        cure-watch.exe.</span
                       >
                     </div>
                   </div>
@@ -2329,12 +2280,6 @@
               <div class="panel" id="ov-report-panel">
                 <h2 class="section-title">Export evidence</h2>
                 <div class="report-row">
-                  <span class="report-copy dim"
-                    >Explicit export — runs fresh scans, remediates nothing.
-                    Findings carry evidence, ATT&amp;CK, signature, and
-                    recommended actions.</span
-                  >
-                  <span class="flex-spacer"></span>
                   <label class="redact-check"
                     ><input checked="" id="exp-redact" type="checkbox" /> Redact
                     personal paths</label
@@ -2363,9 +2308,6 @@
                 <div class="q-head-copy">
                   <div class="eyebrow">ISOLATION ENCLAVE · REVERSIBLE ARTIFACTS</div>
                   <h1 class="headline">Quarantine Workstation</h1>
-                  <p class="subline" id="q-subline">
-                    Recorded file moves with preserved NTFS metadata and SHA-256 integrity seals. Reversible with 1-click scoped undo.
-                  </p>
                 </div>
                 <div class="q-head-actions">
                   <button class="btn" id="q-refresh" type="button" aria-label="Refresh Quarantine">
@@ -2408,7 +2350,8 @@
                     <div class="q-empty-badge">SECURE ENCLAVE · READY</div>
                     <h2 class="q-empty-title">Quarantine Isolation Vault Empty</h2>
                     <p class="q-empty-desc">
-                      No files are currently quarantined. When an item is moved during persistence cleanup or an incident response, it is sealed inside the isolated directory under <code class="mono-code">%LOCALAPPDATA%\CURE\quarantine</code> with intact metadata and zero unrecoverable deletions.
+                      Moved files are sealed here with intact metadata — never
+                      deleted, always reversible.
                     </p>
                   </div>
 
@@ -2482,11 +2425,6 @@
                 <div class="m-head-copy">
                   <div class="eyebrow">SESSION TELEMETRY · LOCAL ONLY</div>
                   <h1 class="headline">Monitor Workstation</h1>
-                  <p class="subline">
-                    What this session did, as it happened — scan progress, canary
-                    tripwires, and actions taken. Session events only: nothing is
-                    persisted between runs and nothing leaves this machine.
-                  </p>
                 </div>
                 <div class="m-head-actions">
                   <button class="btn" id="log-clear" type="button">
@@ -2572,10 +2510,7 @@
                 </div>
                 <h3 class="m-empty-title">No events yet this session</h3>
                 <p class="m-empty-sub">
-                  Run a rescue scan, enable the canary guard, or take an action —
-                  every step this console performs is recorded here with its
-                  timestamp. The feed is session-scoped and cleared when the app
-                  closes.
+                  Scan, arm the canary, or take an action — it will be logged here.
                 </p>
               </div>
             </div>
@@ -2590,10 +2525,6 @@
                 <div class="m-head-copy">
                   <div class="eyebrow">DECOY TRIPWIRE · EXPERIMENTAL</div>
                   <h1 class="headline">Canary Tripwire</h1>
-                  <p class="subline">
-                    Decoy-based ransomware tripwire. Plants decoys, watches for
-                    tampering, and records what it sees as session evidence.
-                  </p>
                 </div>
               </header>
               <nav aria-label="Monitor tools" class="m-rail">
@@ -2628,8 +2559,7 @@
                     >
                   </div>
                   <p class="m-guard-note" id="m-guard-note">
-                    The guard is off. Enabling it plants decoys on this machine
-                    and starts watching them for this session only.
+                    Enabling plants decoys and watches them for this session.
                   </p>
                 </div>
                 <div class="m-guard-actions m-head-actions">
@@ -2640,16 +2570,9 @@
               </div>
               <div class="m-disclosure m-disclosure-warn">
                 <p>
-                  <strong>Experimental.</strong> Plants
-                  <code>~cure-canary-*</code> decoys in Desktop, Documents and
-                  Downloads, watches for tampering and bulk-encryption patterns,
-                  and polls for shadow-copy-wiping tools. This is a tripwire —
-                  not full ransomware protection.
-                </p>
-                <p>
-                  Limitations: detects decoy tampering and crude bulk-encryption
-                  patterns only. Verify any alert with a rescue scan — the alert
-                  below is session evidence, not a diagnosis.
+                  <strong>Experimental tripwire — not full ransomware protection.</strong>
+                  Decoys live in your user folders for this session only; verify
+                  any alert with a rescue scan.
                 </p>
               </div>
               <h2 class="section-title">SESSION ALERTS</h2>
@@ -2672,9 +2595,8 @@
                 </div>
                 <h3 class="m-empty-title">No canary alerts this session</h3>
                 <p class="m-empty-sub">
-                  No decoy tampering, bulk-encryption pattern, or
-                  shadow-copy-wipe attempt has been observed. This is session
-                  evidence only — it is not a verdict on the machine.
+                  No tampering or encryption patterns observed — session
+                  evidence only, not a verdict on the machine.
                 </p>
               </div>
             </div>
@@ -2693,11 +2615,6 @@
                 <div class="m-head-copy">
                   <div class="eyebrow">POST-LOGIN OBSERVATION · CORRELATION</div>
                   <h1 class="headline">Login Observation</h1>
-                  <p class="subline">
-                    Observe what actually starts after login and correlate it
-                    with recorded startup persistence. Observation installs
-                    nothing and modifies nothing.
-                  </p>
                 </div>
               </header>
               <nav aria-label="Monitor tools" class="m-rail">
@@ -2730,17 +2647,8 @@
                     STEP 1 — PREPARE · OBSERVATION WINDOW
                   </h2>
                   <p class="dim">
-                    C.U.R.E. will observe startup activity for a limited period.
-                    Observation installs nothing and modifies nothing — no Startup,
-                    registry, service, or task changes. For true post-login capture,
-                    start the observation within a minute of logging in; a reboot
-                    flow is intentionally not offered.
-                  </p>
-                  <p class="dim">
-                    Each choice passively records process starts/exits and window
-                    titles/classes only — no screenshots, no keystrokes, no window
-                    contents. Longer windows catch more activity but keep this
-                    screen busy.
+                    Watches what starts after login — titles and process names
+                    only. Installs nothing, modifies nothing.
                   </p>
                   <div
                     aria-label="Observation duration — how long to observe"
@@ -2849,23 +2757,11 @@
               <div class="panel hidden" id="inc-scope-panel">
                 <h2 class="section-title">OBSERVATION WINDOW / SCOPE</h2>
                 <ul class="coverage-list" id="inc-scope"></ul>
-                <div class="coverage-note dim">
-                  Command lines are fetched only for correlated processes (bounded).
-                  Window evidence is titles + classes only — no screenshots, no
-                  keystrokes, no contents.
-                </div>
               </div>
               <div class="panel hidden" id="inc-timeline-panel">
                 <h2 class="section-title">
                   TIMELINE — WHAT WAS OBSERVED, WHEN
                 </h2>
-                <div class="coverage-note dim">
-                  Each event shows its timestamp and, where the backend collected
-                  it, the process, PID, PPID, path, command line, correlation, and
-                  window. Unavailable values say “Not collected”. Long values
-                  truncate visually — hover or focus to see the full value; all
-                  evidence text is selectable.
-                </div>
                 <ul class="m-feed inc-timeline" id="incident-timeline"></ul>
               </div>
               <div class="panel hidden" id="inc-review-panel">
@@ -2932,35 +2828,9 @@
                   </ul>
                 </div>
               </div>
-              <div class="panel" id="inc-limits-panel">
-                <h2 class="section-title">
-                  LIMITATIONS — WHAT COULD NOT BE OBSERVED
-                </h2>
-                <ul class="limits-list">
-                  <li>
-                    Sub-500 ms processes may be missed (snapshot + WMI delivery
-                    timing).
-                  </li>
-                  <li>Command lines are collected only for correlated PIDs.</li>
-                  <li>
-                    PIDs are re-validated before any action; PID reuse is handled,
-                    not assumed.
-                  </li>
-                  <li>No persistence or reboot capture — observation installs nothing.</li>
-                  <li>
-                    Window/process lifetimes carry ±500 ms poll precision where
-                    applicable.
-                  </li>
-                </ul>
-              </div>
               <div class="panel hidden" id="inc-export-panel">
                 <h2 class="section-title">EXPORT REPORT — KEEP THE EVIDENCE</h2>
                 <div class="report-row">
-                  <span class="report-copy dim"
-                    >JSON/TXT incident report: investigation id, elevation,
-                    coverage, timeline, window events, correlations,
-                    findings.</span
-                  >
                   <span class="flex-spacer"></span>
                   <button class="btn" id="exp-inc-txt" type="button">
                     Export TXT

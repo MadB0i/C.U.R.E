@@ -984,8 +984,8 @@
 
     reviewClear.classList.toggle("hidden", reviewCount > 0);
     reviewClear.querySelector("span").textContent = coverageIncomplete(summary)
-      ? "No persistence findings in collected evidence. Coverage is incomplete; review the collection limits below."
-      : "No persistence findings in collected evidence. Review the reported coverage below.";
+      ? "No persistence findings in collected evidence — coverage is incomplete."
+      : "No persistence findings in collected evidence.";
     reviewBlock.classList.toggle("hidden", false);
 
     const showCleanedPanel = cleanedCount > 0;
@@ -1963,8 +1963,8 @@
     const note = document.getElementById("m-guard-note");
     if (note) {
       note.textContent = canaryActive
-        ? "The guard is active. Decoys are planted on this machine and watched for tampering until you disable it. Alerts below are session evidence."
-        : "The guard is off. Enabling it plants decoys on this machine and starts watching them for this session only.";
+        ? "Decoys planted — watching until you disable it."
+        : "Enabling plants decoys and watches them for this session.";
     }
     const toggle = document.getElementById("can-toggle");
     if (toggle) {
@@ -3255,10 +3255,7 @@
   function renderProcesses(summary) {
     procCache = summary.process_findings || [];
     const sub = document.getElementById("proc-subline");
-    if (sub)
-      sub.textContent =
-        procCache.length +
-        " flagged process(es) in the last scan. Killing requires confirmation per process — PIDs are re-validated before termination.";
+    if (sub) sub.textContent = procCache.length + " flagged in the last scan";
     paintProcessRows();
   }
 
