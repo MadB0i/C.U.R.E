@@ -417,24 +417,28 @@
     draw();
   }
 
-  /* ---------- Palette --------------------------------------------------- */
+  /* ---------- Palette ---------------------------------------------------
+     Stage UI-10: the radar wore the pre-workstation cyan "holographic"
+     identity. The console grammar is graphite + scarce violet: violet is
+     C.U.R.E acting (the sweep, the active layer), the info blue reports
+     checked layers, amber/red stay strictly semantic. */
   function getPalette() {
     const isLight = document.documentElement.getAttribute("data-theme") === "light";
     return {
       isLight: isLight,
       ringBase: isLight ? "rgba(71, 85, 105, 0.18)" : "rgba(148, 163, 184, 0.15)",
       ringActive: isLight ? "#7c3aed" : "#a78bfa",
-      ringCyan: isLight ? "#0891b2" : "#22d3ee",
-      ringAmber: isLight ? "#d97706" : "#f59e0b",
-      ringRed: isLight ? "#dc2626" : "#ef4444",
+      ringCyan: isLight ? "#0891b2" : "#38bdf8",
+      ringAmber: isLight ? "#d97706" : "#e0a458",
+      ringRed: isLight ? "#dc2626" : "#e4706a",
       ringDim: isLight ? "rgba(100, 116, 139, 0.45)" : "rgba(148, 163, 184, 0.42)",
       sweepFill: isLight ? "rgba(124, 58, 237, 0.15)" : "rgba(139, 111, 240, 0.20)",
-      sweepLine: isLight ? "#0891b2" : "#00f0ff",
+      sweepLine: isLight ? "#7c3aed" : "#c4b1ff",
       hubBody: isLight ? "#ffffff" : "#0c101a",
       hubBorder: isLight ? "rgba(124, 58, 237, 0.4)" : "rgba(139, 111, 240, 0.4)",
       textPrimary: isLight ? "#0f172a" : "#f1f5f9",
       textDim: isLight ? "#64748b" : "#94a3b8",
-      glowCyan: isLight ? "rgba(8, 145, 178, 0.25)" : "rgba(34, 211, 238, 0.38)",
+      glowCyan: isLight ? "rgba(124, 58, 237, 0.22)" : "rgba(139, 111, 240, 0.4)",
     };
   }
 
@@ -454,7 +458,7 @@
     state.ripples.push({
       r: geo.innerR + 4,
       maxR: geo.outerR + 25,
-      color: color || "#22d3ee",
+      color: color || "#a78bfa",
       alpha: 0.8,
     });
     if (state.ripples.length > 4) state.ripples.shift();
@@ -1174,7 +1178,7 @@
       /* The backend moved on. That is not evidence the layer was checked:
          without a coverage row it is only known to have run. */
       layer.outcome = "unreported";
-      triggerShockwave("#22d3ee");
+      triggerShockwave("#a78bfa");
     }
     state.active = null;
   }
@@ -1341,10 +1345,10 @@
           ) {
             L.ran = true;
           }
-          if (L.outcome === "partial") triggerShockwave("#f59e0b");
+          if (L.outcome === "partial") triggerShockwave("#e0a458");
           else if (L.outcome === "denied" || L.outcome === "failed")
-            triggerShockwave("#ef4444");
-          else triggerShockwave("#22d3ee");
+            triggerShockwave("#e4706a");
+          else triggerShockwave("#38bdf8");
         }
         state.lastMessage = p.area + " · " + (OUTCOME_TEXT[outcomeFromCoverage(p.state)] || "");
         render();

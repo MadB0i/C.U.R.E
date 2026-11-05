@@ -181,22 +181,22 @@
   overflow: hidden;
   background: radial-gradient(
     circle at 46% 50%,
-    rgba(18, 23, 36, 0.9),
+    rgba(19, 16, 34, 0.92),
     rgba(8, 10, 16, 0.99)
   );
-  border: 1px solid rgba(34, 211, 238, 0.13);
+  border: 1px solid var(--cure-line);
   box-shadow:
-    inset 0 0 30px rgba(0, 0, 0, 0.55),
+    inset 0 0 34px rgba(0, 0, 0, 0.55),
     0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 [data-theme="light"] .xray-field {
   background: radial-gradient(
     circle at 46% 50%,
-    rgba(241, 245, 249, 0.95),
-    rgba(226, 232, 240, 0.98)
+    rgba(248, 250, 252, 0.96),
+    rgba(228, 231, 240, 0.99)
   );
-  border-color: rgba(15, 23, 42, 0.08);
+  border-color: rgba(124, 58, 237, 0.28);
   box-shadow: inset 0 0 18px rgba(15, 23, 42, 0.05);
 }
 
@@ -264,8 +264,8 @@
 }
 
 .xray-field[data-running="true"] .xray-live::before {
-  background: #22d3ee;
-  box-shadow: 0 0 10px #22d3ee;
+  background: var(--cure-300);
+  box-shadow: 0 0 10px var(--cure-400);
   animation: xray-pulse 1.6s ease-in-out infinite;
 }
 
@@ -317,7 +317,7 @@
   letter-spacing: 0.07em;
   color: var(--text);
   background: rgba(11, 14, 22, 0.94);
-  border: 1px solid rgba(34, 211, 238, 0.4);
+  border: 1px solid var(--cure-line);
   border-radius: 5px;
   padding: 3px 12px;
   white-space: nowrap;
@@ -329,7 +329,7 @@
 
 [data-theme="light"] .xray-core-readout {
   background: rgba(255, 255, 255, 0.95);
-  border-color: rgba(8, 145, 178, 0.4);
+  border-color: rgba(124, 58, 237, 0.4);
 }
 
 .xray-field[data-state="failed"] .xray-core-readout {
@@ -372,7 +372,25 @@
 }
 
 .xray-telemetry-hud {
-  display: none;
+  /* Stage UI-10: this instrument was fully wired in the render path but
+     hidden by a bare `display: none` — dead UI. It is the scanning screen's
+     live readout (current collector, entries, coverage, flags), so it now
+     heads the telemetry column as a workstation card. */
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  min-width: 0;
+}
+
+[data-theme="light"] .xray-telemetry-hud {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .xray-hud-header {
@@ -388,7 +406,7 @@
   font: 650 var(--t-2xs) / 1.2 var(--font-mono);
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--text-3);
+  color: var(--accent);
 }
 
 .xray-hud-badge {
@@ -532,7 +550,7 @@
   grid-template-columns: 9px minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: var(--s2);
-  padding: 5px 7px;
+  padding: 6px 8px;
   border-radius: 6px;
   border: 1px solid transparent;
   background: transparent;
@@ -556,21 +574,27 @@
 }
 
 .xr-layer-name {
-  font: 550 11.5px/1.35 var(--font-ui);
-  color: var(--text-2);
+  font: 550 12px/1.35 var(--font-ui);
+  color: var(--text);
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .xr-layer-status {
-  font: 600 10px/1.3 var(--font-mono);
-  letter-spacing: 0.02em;
+  font: 700 9px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--text-3);
+  background: var(--ink-200);
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+  padding: 3px 7px;
   white-space: nowrap;
 }
 
 .xr-layer-count {
-  font: 600 10px/1 var(--font-mono);
+  font: 600 10.5px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
   color: var(--text-3);
   white-space: nowrap;
 }
@@ -607,14 +631,16 @@
   overflow-wrap: anywhere;
 }
 
-/* Outcome colouring: dot + status text only, never a whole-row wash. */
+/* Outcome colouring: dot + status pill only, never a whole-row wash. */
 .xr-layer[data-outcome="checked"] .xr-layer-mark {
-  background: #22d3ee;
+  background: #38bdf8;
   border-color: transparent;
 }
 
 .xr-layer[data-outcome="checked"] .xr-layer-status {
-  color: #22d3ee;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.3);
 }
 
 .xr-layer[data-outcome="running"] .xr-layer-mark {
@@ -625,6 +651,8 @@
 
 .xr-layer[data-outcome="running"] .xr-layer-status {
   color: var(--cure-300);
+  background: var(--cure-tint);
+  border-color: var(--cure-line);
 }
 
 .xr-layer[data-outcome="partial"] .xr-layer-mark {
@@ -641,6 +669,8 @@
 .xr-layer[data-outcome="partial"] .xr-layer-status,
 .xr-layer[data-outcome="denied"] .xr-layer-status {
   color: var(--warning);
+  background: var(--warning-tint);
+  border-color: rgba(224, 164, 88, 0.3);
 }
 
 .xr-layer[data-outcome="denied"] .xr-layer-mark {
@@ -657,6 +687,8 @@
 
 .xr-layer[data-outcome="failed"] .xr-layer-status {
   color: var(--danger);
+  background: var(--danger-tint);
+  border-color: rgba(228, 112, 106, 0.35);
 }
 
 .xr-layer[data-outcome="unreported"] .xr-layer-mark {
@@ -671,6 +703,14 @@
 .xr-layer[data-outcome="pending"] .xr-layer-mark {
   background: transparent;
   border: 1px solid var(--hair-strong);
+}
+
+[data-theme="light"] .xr-layer[data-outcome="checked"] .xr-layer-status {
+  background: rgba(8, 145, 178, 0.1);
+}
+
+[data-theme="light"] .xr-layer[data-outcome="running"] .xr-layer-status {
+  background: rgba(139, 111, 240, 0.1);
 }
 
 .xr-layer.has-findings .xr-layer-count {
