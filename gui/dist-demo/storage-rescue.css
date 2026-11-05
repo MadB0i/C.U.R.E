@@ -656,3 +656,303 @@
   flex-direction: column;
   gap: 6px;
 }
+
+/* ==========================================================================
+   MOVE BOT (Stage UI-09) — one confirmation, then it does the rest.
+   ========================================================================== */
+.mb-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 7, 10, 0.78);
+  backdrop-filter: blur(6px);
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s6, 24px);
+  animation: mbFadeIn 150ms ease;
+}
+
+.mb-overlay.hidden {
+  display: none !important;
+}
+
+.mb-panel {
+  width: min(620px, 94vw);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--ink-100, #0f1216);
+  border: 1px solid var(--cure-line, rgba(167, 139, 250, 0.34));
+  border-radius: var(--r3, 14px);
+  box-shadow: var(--shadow-3, 0 18px 48px rgba(0, 0, 0, 0.55));
+  padding: var(--s6, 24px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4, 16px);
+}
+
+.mb-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mb-pulse {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--cure-400, #a78bfa);
+  box-shadow: 0 0 0 0 rgba(167, 139, 250, 0.5);
+  animation: mbPulse 1.8s ease-out infinite;
+}
+
+@keyframes mbPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(167, 139, 250, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 9px rgba(167, 139, 250, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(167, 139, 250, 0);
+  }
+}
+
+.mb-title {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--t-2xs, 0.6875rem);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--accent, #a78bfa);
+}
+
+.mb-heading {
+  font-size: var(--xl, 1.44rem);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text, #e9ecf1);
+  margin: 0;
+}
+
+.mb-plain {
+  font-size: var(--t-sm, 0.875rem);
+  color: var(--text-2, #a9b1bd);
+  line-height: 1.55;
+  margin: 0;
+}
+
+#mb-confirm-items,
+#mb-done-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mb-item-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3, 12px);
+  background: var(--ink-150, #14181e);
+  border: 1px solid var(--hair, rgba(255, 255, 255, 0.062));
+  border-radius: var(--r2, 8px);
+  padding: 10px 14px;
+}
+
+.mb-item-name {
+  font-weight: 600;
+  color: var(--text, #e9ecf1);
+  font-size: var(--t-sm, 0.875rem);
+}
+
+.mb-item-size {
+  font-family: var(--font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  color: var(--accent, #a78bfa);
+  font-weight: 700;
+  font-size: var(--t-sm, 0.875rem);
+  flex: 0 0 auto;
+}
+
+.mb-item-where {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--t-2xs, 0.6875rem);
+  color: var(--text-3, #7f8996);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mb-note {
+  font-size: var(--t-sm, 0.875rem);
+  color: var(--text-2, #a9b1bd);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.mb-note.mb-note-strong {
+  color: var(--warning, #e0a458);
+}
+
+.mb-cleanup-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: var(--t-sm, 0.875rem);
+  color: var(--text-2, #a9b1bd);
+  line-height: 1.5;
+  background: var(--ink-150, #14181e);
+  border: 1px solid var(--hair, rgba(255, 255, 255, 0.062));
+  border-radius: var(--r2, 8px);
+  padding: 12px 14px;
+  cursor: pointer;
+}
+
+.mb-cleanup-option input {
+  margin-top: 2px;
+  accent-color: var(--cure-400, #a78bfa);
+}
+
+.mb-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s3, 12px);
+  flex-wrap: wrap;
+}
+
+/* Running phase */
+.mb-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mb-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ink-200, #191e25);
+  border: 1px solid var(--hair, rgba(255, 255, 255, 0.062));
+  overflow: hidden;
+}
+
+.mb-progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--cure-500, #8b6ff0), var(--cure-300, #c4b1ff));
+  transition: width 220ms var(--ease, ease);
+}
+
+.mb-run-detail {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--t-xs, 0.78125rem);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3, #7f8996);
+  margin: 0;
+  min-height: 1.2em;
+}
+
+.mb-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mb-step {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: var(--r1, 4px);
+  font-size: var(--t-sm, 0.875rem);
+  color: var(--text-3, #7f8996);
+}
+
+.mb-step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-300, #262d36);
+  flex: 0 0 auto;
+  transform: translateY(-1px);
+}
+
+.mb-step.is-active {
+  color: var(--text, #e9ecf1);
+  background: var(--cure-tint-soft, rgba(139, 111, 240, 0.07));
+}
+
+.mb-step.is-active .mb-step-dot {
+  background: var(--cure-400, #a78bfa);
+  animation: mbPulse 1.8s ease-out infinite;
+}
+
+.mb-step.is-done {
+  color: var(--text-2, #a9b1bd);
+}
+
+.mb-step.is-done .mb-step-dot {
+  background: var(--ok, #63c79a);
+}
+
+.mb-step.is-failed {
+  color: var(--danger, #e4706a);
+}
+
+.mb-step.is-failed .mb-step-dot {
+  background: var(--danger, #e4706a);
+}
+
+/* Error + done phases */
+.mb-error-detail p {
+  margin: 0 0 6px;
+  font-size: var(--t-sm, 0.875rem);
+  color: var(--text, #e9ecf1);
+  line-height: 1.55;
+}
+
+.mb-error-detail p.mb-plain {
+  color: var(--text-2, #a9b1bd);
+}
+
+[data-theme="light"] .mb-panel {
+  background: #ffffff;
+  border-color: #cbd5e1;
+}
+
+[data-theme="light"] .mb-item-row,
+[data-theme="light"] .mb-cleanup-option {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .mb-progress-track {
+  background: #e2e8f0;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .mb-step.is-active {
+  background: rgba(139, 111, 240, 0.08);
+}
+
+@media (max-width: 640px) {
+  .mb-panel {
+    padding: var(--s5, 20px);
+  }
+  .mb-actions .btn {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
+@keyframes mbFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

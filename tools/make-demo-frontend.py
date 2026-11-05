@@ -157,6 +157,7 @@ def main() -> None:
         "xray.js",
         "storage-workstation.js",
         "storage-rescue.js",
+        "move-bot.js",
         "casefile.js",
         "detective.js",
         "agent-radar.js",

@@ -22,7 +22,8 @@
       "../dist-demo/agent-radar.js",
       "../dist-demo/mock-tauri.js",
       "../dist-demo/storage-rescue.css",
-      "../dist-demo/storage-rescue.js"
+      "../dist-demo/storage-rescue.js",
+      "../dist-demo/move-bot.js"
     ]
   },
   "bundle": {

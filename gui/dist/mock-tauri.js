@@ -2405,6 +2405,13 @@
             });
           }
           case "storage_rescue_execute": {
+            /* Test hook: a labelled failure the UI-09 bot-flow harness uses
+               to prove the bot stops safely when the engine fails. */
+            if (window.__CURE_MOCK_FAIL_RESCUE) {
+              return Promise.reject(
+                new Error(String(window.__CURE_MOCK_FAIL_RESCUE)),
+              );
+            }
             const candId = (args && args.candidate_id) || "downloads";
             const srcPath = (args && args.source_path) || "C:\\Users\\Operator\\Downloads";
             const tgtPath = (args && args.target_path) || "D:\\CURE_Relocated\\Downloads";

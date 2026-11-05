@@ -984,9 +984,9 @@
                       <div class="panel" id="process-block">
                         <div class="inv-panel-head">
                           <div>
-                            <h2 class="section-title">Running Process Sentinel</h2>
+                            <h2 class="section-title">Running programs</h2>
                             <p class="dim" id="proc-subline">
-                              Process memory and binary signatures validated on-demand with Authenticode leaf verification.
+                              Everything running right now, with a safety check of each program's digital signature.
                             </p>
                           </div>
                           <div class="kill-row">
@@ -1028,17 +1028,17 @@
                       <div class="panel">
                         <div class="inv-panel-head">
                           <div>
-                            <h2 class="section-title">Windows Change Radar · Trusted Snapshot Comparison</h2>
+                            <h2 class="section-title">System changes</h2>
                             <p class="dim">
-                              Read-only persistence snapshot and comparison. No registry or service is modified.
+                              Compare your PC's startup settings against a saved snapshot. Read-only — nothing is modified.
                             </p>
                           </div>
                           <div class="ar-win-actions">
                             <button class="btn" id="ar-win-capture" type="button">
-                              Capture trusted snapshot
+                              Save snapshot
                             </button>
                             <button class="btn btn-primary" id="ar-win-compare" type="button">
-                              Compare now
+                              Compare
                             </button>
                           </div>
                         </div>
@@ -1059,9 +1059,9 @@
                       <div class="panel" id="ransom-block">
                         <div class="inv-panel-head">
                           <div>
-                            <h2 class="section-title">Ransomware Indicators & Tripwires</h2>
+                            <h2 class="section-title">Ransomware signs</h2>
                             <p class="dim">
-                              Surfaces mass extension anomalies, ransom note stems, and decoy Canary tripwire tampering.
+                              Mass file renaming, ransom notes, and tampering with the canary decoy files.
                             </p>
                           </div>
                         </div>
@@ -1107,9 +1107,9 @@
                       <div class="panel" id="res-coverage-panel">
                         <div class="inv-panel-head">
                           <div>
-                            <h2 class="section-title">Nine-Layer Inspection Coverage</h2>
+                            <h2 class="section-title">What was checked</h2>
                             <p class="dim">
-                              Access limits and collection bounds are part of the evidence. Incomplete coverage cannot establish an all-clear verdict.
+                              Includes the places C.U.R.E could not read — an incomplete check is never reported as all-clear.
                             </p>
                           </div>
                         </div>
@@ -1144,6 +1144,9 @@
                 </button>
                 <button class="btn btn-ghost hidden" id="dt-rescan" type="button">
                   Measure again
+                </button>
+                <button class="btn" id="dt-move-bot" type="button">
+                  Free up C: drive — let me handle it
                 </button>
               </div>
             </div>
@@ -1601,20 +1604,22 @@
                       <div class="sr-guide-title">
                         <div class="operator-id">
                           <span class="operator-pulse-dot"></span>
-                          <span>C.U.R.E OPERATOR · CROSS-VOLUME MIGRATION</span>
+                          <span>C.U.R.E MOVE ASSISTANT · C: TO D:</span>
                         </div>
-                        <span class="sr-badge sr-badge-ready" id="sr-guide-badge">MONITORING</span>
+                        <span class="sr-badge sr-badge-ready" id="sr-guide-badge">WATCHING</span>
                       </div>
                       <p class="sr-guide-text" id="sr-guide-text">
-                        System drive C: storage pressure detected. Select personal libraries below to stage a verified, non-destructive migration to secondary storage (D:). Source files are preserved until explicitly retired.
+                        Your C: drive is running out of room. Pick the folders below and I will move
+                        them to your other drive — copied, checked bit by bit, and switched over.
+                        Nothing is deleted until the copy is fully verified, and you can undo.
                       </p>
                       <div class="sr-steps-strip">
-                        <span class="sr-step-chip is-done">1. Pressure Measured</span>
-                        <span class="sr-step-chip is-active">2. Select Candidates</span>
-                        <span class="sr-step-chip">3. Boundary Validation</span>
-                        <span class="sr-step-chip">4. Bit-Exact SHA-256 Copy</span>
-                        <span class="sr-step-chip">5. Known Folder Finalize</span>
-                        <span class="sr-step-chip">6. User-Approved Cleanup</span>
+                        <span class="sr-step-chip is-done">1. Measured your drives</span>
+                        <span class="sr-step-chip is-active">2. Pick what to move</span>
+                        <span class="sr-step-chip">3. Safety checks</span>
+                        <span class="sr-step-chip">4. Verified copy</span>
+                        <span class="sr-step-chip">5. Switch over</span>
+                        <span class="sr-step-chip">6. You approve cleanup</span>
                       </div>
                     </div>
                   </div>
@@ -1625,10 +1630,10 @@
                     <div class="sr-segment">
                       <div class="sr-segment-head">
                         <div class="sr-segment-title">
-                          <span class="sr-badge sr-segment-badge-safe">SAFE TO RELOCATE</span>
-                          <span>Personal Content Libraries</span>
+                          <span class="sr-badge sr-segment-badge-safe">SAFE TO MOVE</span>
+                          <span>Your personal folders</span>
                         </div>
-                        <span class="sr-segment-desc">Independent user files. Zero system, registry, or application binary links.</span>
+                        <span class="sr-segment-desc">Your own files only — nothing Windows or your apps depend on.</span>
                       </div>
                       <table class="sr-table">
                         <thead>
@@ -1650,10 +1655,10 @@
                     <div class="sr-segment">
                       <div class="sr-segment-head">
                         <div class="sr-segment-title">
-                          <span class="sr-badge sr-segment-badge-caution">CAUTION / RECONFIGURE</span>
-                          <span>Developer Toolchains & Workspaces</span>
+                          <span class="sr-badge sr-segment-badge-caution">MOVABLE, NEEDS A TWEAK</span>
+                          <span>Developer tools & workspaces</span>
                         </div>
-                        <span class="sr-segment-desc">Safe to relocate, but requires updating environment variables or IDE bookmarks.</span>
+                        <span class="sr-segment-desc">Safe to move, but a setting (like a path variable) has to be updated afterwards — I handle that for you.</span>
                       </div>
                       <table class="sr-table">
                         <thead>
@@ -1675,10 +1680,10 @@
                     <div class="sr-segment">
                       <div class="sr-segment-head">
                         <div class="sr-segment-title">
-                          <span class="sr-badge sr-segment-badge-blocked">PROTECTED · DO NOT MOVE</span>
-                          <span>Windows Operating System & Internals</span>
+                          <span class="sr-badge sr-segment-badge-blocked">PROTECTED · NEVER MOVED</span>
+                          <span>Windows itself</span>
                         </div>
-                        <span class="sr-segment-desc">C.U.R.E protects these system stores and will never recommend moving them.</span>
+                        <span class="sr-segment-desc">C.U.R.E protects these system files and will never suggest moving them.</span>
                       </div>
                       <table class="sr-table">
                         <tbody>
@@ -1723,17 +1728,20 @@
                   <div class="sr-action-bar">
                     <div class="sr-action-summary">
                       <div class="sr-summary-stat">
-                        <span>Staged: </span>
+                        <span>Ready to move: </span>
                         <strong id="sr-summary-count">3 libraries</strong>
                       </div>
                       <div class="sr-summary-stat">
-                        <span>Projected C: Relief: </span>
+                        <span>Space freed on C: </span>
                         <strong id="sr-summary-bytes">+129.1 GB</strong>
                       </div>
                     </div>
                     <div class="sr-action-btns">
-                      <button class="btn btn-ghost" id="sr-btn-rescan" type="button">Rescan Drives</button>
-                      <button class="btn btn-primary" id="sr-btn-build-plan" type="button">Build Migration Plan</button>
+                      <button class="btn btn-ghost" id="sr-btn-rescan" type="button">Rescan drives</button>
+                      <button class="btn" id="sr-btn-build-plan" type="button">Pick folders myself</button>
+                      <button class="btn btn-primary" id="sr-btn-move-bot" type="button">
+                        Move it for me — one click
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -2980,6 +2988,81 @@
       </div>
     </div>
 
+    <!-- Move Bot (Stage UI-09): one confirmation, then it does the rest.
+         Copying, verifying, switching Windows over, and (only if asked)
+         freeing the space on C:. Nothing is deleted before the copy is
+         fully verified. -->
+    <div
+      aria-label="Move assistant"
+      aria-modal="true"
+      class="mb-overlay hidden"
+      id="mb-overlay"
+      role="dialog"
+    >
+      <div class="mb-panel">
+        <div class="mb-head">
+          <span class="mb-pulse" aria-hidden="true"></span>
+          <span class="mb-title">MOVE ASSISTANT</span>
+        </div>
+
+        <div id="mb-confirm-body">
+          <h2 class="mb-heading">Let me handle it</h2>
+          <div id="mb-confirm-items"></div>
+          <p class="mb-note" id="mb-confirm-note"></p>
+          <label class="mb-cleanup-option" id="mb-cleanup-box">
+            <input id="mb-cleanup-tick" type="checkbox" />
+            <span
+              >After the copies are verified, also free the space on C:
+              (removes the originals)</span
+            >
+          </label>
+          <div class="mb-actions">
+            <button class="btn btn-primary" id="mb-confirm-go" type="button">
+              Move it for me
+            </button>
+            <button class="btn" id="mb-confirm-cancel" type="button">
+              Cancel
+            </button>
+          </div>
+        </div>
+
+        <div class="hidden" id="mb-run-body">
+          <h2 class="mb-heading" id="mb-run-title">Working…</h2>
+          <div class="mb-progress">
+            <div class="mb-progress-track">
+              <div class="mb-progress-fill" id="mb-run-bar-fill"></div>
+            </div>
+            <p class="mb-run-detail" id="mb-run-detail"></p>
+          </div>
+          <ol class="mb-steps" id="mb-run-steps"></ol>
+        </div>
+
+        <div class="hidden" id="mb-done-body">
+          <h2 class="mb-heading">Done</h2>
+          <p class="mb-note" id="mb-done-text"></p>
+          <div id="mb-done-detail"></div>
+          <div class="mb-actions">
+            <button class="btn btn-primary" id="mb-done-finish" type="button">
+              Finish
+            </button>
+          </div>
+        </div>
+
+        <div class="hidden" id="mb-error-body">
+          <h2 class="mb-heading">I stopped — your files are safe</h2>
+          <div id="mb-error-text"></div>
+          <div class="mb-actions">
+            <button class="btn hidden" id="mb-error-undo" type="button">
+              Put everything back (undo)
+            </button>
+            <button class="btn btn-primary hidden" id="mb-error-close" type="button">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Share result card preview (MVP2 TASK 8): the modal shows exactly
          the PNG that will be saved. Aggregate counts only. -->
     <div
@@ -3133,6 +3216,7 @@
     <script src="xray.js"></script>
     <script src="storage-workstation.js"></script>
     <script src="storage-rescue.js"></script>
+    <script src="move-bot.js"></script>
     <script src="casefile.js"></script>
     <script src="detective.js"></script>
     <script src="agent-radar.js"></script>
