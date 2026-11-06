@@ -315,10 +315,7 @@
                   <div class="ar-radar-side">
                     <div class="ar-radar-readout">
                       <span class="ar-live-dot" id="ar-live-dot"></span>
-                      <span id="ar-radar-note"
-                        >Not scanned this session. Run a scan to enumerate
-                        supported agent processes.</span
-                      >
+                      <span id="ar-radar-note"></span>
                     </div>
                     <div aria-label="Indicator legend" class="ar-legend">
                       <span><i class="ar-legend-dot tone-ok"></i>Verified</span>
@@ -355,10 +352,6 @@
                     </svg>
                     <strong id="ar-empty-title">Not scanned this session</strong>
                   </div>
-                  <p class="ar-empty-lead" id="ar-empty-lead">
-                    Scan Agents reads the local process table once and reports
-                    what it saw. Nothing is watched, started or stopped.
-                  </p>
                   <div class="ar-supported-grid" id="ar-supported-grid">
                     <span class="ar-tool-chip"><code>OpenCode</code></span>
                     <span class="ar-tool-chip"><code>Codex</code></span>
@@ -421,11 +414,7 @@
 
                 <div class="empty-state ar-flight-empty" id="ar-flight-empty">
                   <strong>No recording in progress</strong>
-                  <span
-                    >Start monitoring to record workspace metadata changes.
-                    File contents, prompts and credentials are never
-                    read.</span
-                  >
+                  <span>Start monitoring to record workspace changes.</span>
                 </div>
 
                 <div class="ar-flight hidden" id="ar-flight-live">

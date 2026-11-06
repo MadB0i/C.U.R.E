@@ -924,8 +924,6 @@ def agent_radar_flow(browser):
     # Fresh launch: honest idle. No snapshot may pose as a current scan.
     check(page.locator('#ar-radar').get_attribute('data-phase') == 'idle',
           'the radar starts idle on a fresh launch')
-    check('Not scanned' in page.locator('#ar-radar-note').inner_text(),
-          'fresh launch states that nothing has been scanned')
     check(page.locator('#ar-blips .ar-blip').count() == 0,
           'no agent indicators exist before a scan')
     check(page.locator('#ar-agent-list').is_hidden(),
@@ -1108,8 +1106,8 @@ def agent_radar_flow(browser):
           'the recovered session is marked stopped')
     check(page.locator('#ar-flight-live').is_hidden(),
           'the recovered recording stays collapsed until opened')
-    check(page.locator('#ar-radar-note').inner_text().startswith('Not scanned'),
-          'the radar stays honest across a reload')
+    check(page.locator('#ar-radar-note').inner_text() == '',
+          'the radar idle note stays empty across a reload (de-cluttered copy)')
     page.locator('#ar-history-open').click()
     expect(page.locator('#ar-flight-live')).to_be_visible()
     check(page.locator('#ar-stat-total').inner_text() == '6',
