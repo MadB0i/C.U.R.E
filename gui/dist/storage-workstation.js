@@ -320,7 +320,7 @@
     state.zoom = null;
     state.lastPlan = null;
     setStatus("Ready", null);
-    if (el.subline) el.subline.textContent = message || "Nothing is measured until you run a scan.";
+    if (el.subline) el.subline.textContent = message || "";
     if (el.amount) el.amount.textContent = "—";
     if (el.amountLabel) el.amountLabel.textContent = "Not measured";
     if (el.amountNote) {

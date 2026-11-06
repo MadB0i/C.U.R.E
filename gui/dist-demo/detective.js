@@ -603,13 +603,9 @@
 
   function render() {
     const inv = state.investigation;
-    const subline = $("dt-subline");
     const total = $("dt-map-total");
 
     if (!inv) {
-      if (subline) {
-        subline.textContent = "Nothing is measured until you start an investigation.";
-      }
       if (total) total.textContent = "—";
       renderStats(null);
       buildLeads();
@@ -620,49 +616,12 @@
     const map = inv.map || {};
     if (total) total.textContent = map.measured_bytes_label || "—";
     renderStats(inv);
-    if (subline) {
-      const head = inv.headline || {};
-      const candidateBytes = head.candidate_bytes || map.candidate_bytes || 0;
-      const candidateLabel =
-        head.candidate_label || map.candidate_label || "—";
-      subline.textContent =
-        (map.measured_bytes_label || head.measured_label || "—") +
-        " measured across " +
-        ((inv.evidence && inv.evidence.files_measured) || 0) +
-        " files. " +
-        (candidateBytes
-          ? candidateLabel + " can be reviewed for removal."
-          : "Nothing in this measurement can be offered for removal.") +
-        (map.certainty && map.certainty !== "measured"
-          ? " Some locations could not be read, so this is a floor, not a total."
-          : "");
-    }
 
     buildMap(inv);
     buildLegend(inv);
     buildBands(inv);
     buildLeads();
     buildDetail();
-
-    const mapHint = $("dt-map-hint");
-    if (mapHint && state.focus) {
-      const slice = (map.slices || []).find(function (s) {
-        return s.key === state.focus;
-      });
-      if (slice) {
-        mapHint.textContent =
-          "Focused on " +
-          slice.label +
-          " — " +
-          slice.bytes_allocated_label +
-          ", " +
-          percent(slice.share) +
-          " of what was measured. Select it again to clear the focus.";
-      }
-    } else if (mapHint) {
-      mapHint.textContent =
-        "Each arc is one measured category, sized by the bytes it occupies on the volume. Select one to focus the discoveries beside it.";
-    }
   }
 
   /* ---------------------------------------------------------------------
@@ -701,11 +660,6 @@
         button.textContent = "Start investigation";
       }
       setStep("scan");
-      const subline = $("dt-subline");
-      if (subline) {
-        subline.textContent =
-          "The measurement could not finish: " + clean(err, "unknown error") + ".";
-      }
       return;
     }
     state.running = false;

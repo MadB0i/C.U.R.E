@@ -154,8 +154,8 @@ def main():
                 "Where did my storage go?" in (page.locator("#view-detective .headline").text_content() or ""),
             )
             check(
-                "idle subline stays honest",
-                "Nothing is measured" in (page.locator("#dt-subline").text_content() or ""),
+                "header is title-only (no description subline)",
+                page.locator("#dt-subline").count() == 0,
             )
 
             strip = page.locator("#dt-stats-strip")

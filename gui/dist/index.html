@@ -1081,9 +1081,6 @@
               <div class="dt-head-copy">
                 <div class="eyebrow">Detective mode</div>
                 <h1 class="headline">Where did my storage go?</h1>
-                <div class="subline" id="dt-subline">
-                  Nothing is measured until you start an investigation.
-                </div>
               </div>
               <div class="dt-head-actions">
                 <button class="btn btn-primary" id="dt-investigate" type="button">
@@ -1144,11 +1141,6 @@
                     <span class="dt-map-core-label">measured</span>
                   </div>
                 </div>
-                <p class="dt-hint dim" id="dt-map-hint">
-                  Each arc is one measured category, sized by the bytes it
-                  occupies on the volume. Select one to focus the discoveries
-                  beside it.
-                </p>
                 <ul class="dt-legend" id="dt-legend"></ul>
                 <div class="dt-bands" id="dt-bands"></div>
               </section>
@@ -1213,14 +1205,14 @@
                 </div>
               </section>
 
-              <aside
-                aria-label="Selected discovery"
-                class="dt-panel dt-detail"
-                id="dt-detail"
-              >
-                <div class="dt-detail-empty dim" id="dt-detail-empty">
-                  Select a discovery to read the evidence behind it.
-                </div>
+                <aside
+                  aria-label="Selected discovery"
+                  class="dt-panel dt-detail"
+                  id="dt-detail"
+                >
+                  <div class="dt-detail-empty dim" id="dt-detail-empty">
+                    Select a discovery.
+                  </div>
                 <div class="hidden" id="dt-detail-body">
                   <div class="dt-detail-kind" id="dt-detail-kind"></div>
                   <h2 class="dt-detail-title" id="dt-detail-title"></h2>
@@ -1287,9 +1279,6 @@
               <div class="results-head">
                 <div class="headline-wrap">
                   <h1 class="headline">Storage Workstation</h1>
-                  <div class="subline" id="sw-subline">
-                    Nothing is measured until you run a scan.
-                  </div>
                 </div>
                 <span class="flex-spacer"></span>
                 <div class="pill" id="sw-status-pill">
@@ -1483,29 +1472,6 @@
                 tabindex="0"
               >
                 <div class="sr-container">
-                  <!-- Header & Honest Philosophy Banner -->
-                  <div class="sr-header-banner">
-                    <div class="sr-banner-top">
-                      <div class="sr-banner-eyebrow">
-                        <span class="sr-uplink-dot"></span>
-                        <span>C.U.R.E OPERATOR · STORAGE RELIEF CONSOLE</span>
-                      </div>
-                      <span class="sr-badge sr-badge-ready">EVIDENCE-FIRST · NON-DESTRUCTIVE</span>
-                    </div>
-                    <h2 class="sr-banner-title">Storage Rescue</h2>
-                    <p class="sr-banner-desc">
-                      Safely relieve C: drive pressure by identifying and guiding the migration of large personal data libraries to secondary storage (D:) with bit-exact verification.
-                    </p>
-                    <div class="sr-honest-callout">
-                      <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
-                      </svg>
-                      <span>
-                        <strong>Honest Differentiation:</strong> Standard "Disk Cleanup" purges temp files that rebuild within 48 hours. Storage Rescue relocates your largest actual data libraries, guarantees zero in-place deletions, and issues a cryptographically-verified rollback receipt.
-                      </span>
-                    </div>
-                  </div>
-
                   <!-- Drive Pressure Dashboard Cards -->
                   <div class="sr-drives-grid">
                     <div class="sr-drive-card sr-source-card" id="sr-source-card">
@@ -1774,11 +1740,6 @@
                       </li>
                     </ul>
                     <ul class="sw-classes" id="sw-classes"></ul>
-                    <div class="sw-legend-note dim">
-                      A category never shows as safe unless every file in it
-                      is. Anything unreadable lowers the totals to a floor and
-                      says so.
-                    </div>
                   </aside>
                 </div>
               </div>
@@ -1899,10 +1860,6 @@
               >
                 <div class="sw-queue-head">
                   <h2 class="section-title">Queued for removal</h2>
-                  <p class="dim">
-                    Review every line, then preview. There is no bulk action
-                    for protected or uncertain files.
-                  </p>
                 </div>
                 <div id="sw-queue-groups" class="sw-queue-groups"></div>
                 <div class="sw-queue-empty dim" id="sw-queue-empty">

@@ -321,7 +321,6 @@
 /* ---- tabs --------------------------------------------------------------- */
 
 .sw-tabs {
-  border-bottom: 1px solid var(--hair);
   display: flex;
   /* Wraps rather than scrolls: a horizontally clipped tab strip hides its own
      destinations from anyone reading left to right, and at narrow widths the
@@ -333,20 +332,33 @@
 
 .sw-tab {
   background: transparent;
-  border: 0;
-  border-bottom: 2px solid transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
   color: var(--text-3);
   cursor: pointer;
   font: inherit;
   font-size: var(--t-sm);
   font-weight: 560;
-  padding: var(--s2) var(--s3);
+  padding: 7px 14px;
   white-space: nowrap;
+  transition: all var(--fast) var(--ease);
 }
 
-.sw-tab:hover { color: var(--text-2); }
-.sw-tab.is-on { border-bottom-color: var(--cure-400); color: var(--text); }
+.sw-tab:hover { color: var(--text-2); background: var(--cure-tint-soft); }
+.sw-tab.is-on {
+  background: var(--ink-250);
+  border-color: var(--hair-strong);
+  color: var(--text);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
 .sw-tab:focus-visible { outline: 2px solid var(--cure-400); outline-offset: -2px; }
+
+[data-theme="light"] .sw-tab.is-on {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #0f172a;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
 
 .sw-tab-count {
   background: var(--surface-3);
@@ -369,17 +381,21 @@
 
 .sw-headline-card {
   align-items: center;
-  background:
-    radial-gradient(120% 160% at 8% 0%, var(--ambient-cool), transparent 62%),
-    var(--surface-2);
-  border-top: 1px solid var(--hair);
-  border-radius: 0;
-  box-shadow: var(--shadow-2);
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   display: grid;
   gap: var(--s4);
   grid-template-columns: auto minmax(0, 1fr) auto;
   margin-bottom: var(--s4);
   padding: var(--s4);
+}
+
+[data-theme="light"] .sw-headline-card {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .sw-headline-figure { flex: 0 0 auto; }

@@ -135,8 +135,8 @@
   margin: 0 0 var(--s5);
   padding: 0;
   border: 1px solid var(--hair);
-  border-radius: var(--r3);
-  background: linear-gradient(180deg, var(--surface), var(--surface-2));
+  border-radius: var(--r2);
+  background: var(--surface);
   overflow: hidden;
 }
 
@@ -144,8 +144,9 @@
   position: relative;
   flex: 1 1 0;
   min-width: 0;
-  padding: 10px 12px 10px 30px;
-  font-size: var(--t-xs);
+  padding: 8px 10px 8px 26px;
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--text-3);
@@ -218,12 +219,18 @@
 }
 
 .dt-panel {
-  background: linear-gradient(180deg, var(--surface), var(--surface-2));
+  background: var(--surface);
   border: 1px solid var(--hair);
-  border-radius: var(--r3);
+  border-radius: var(--r2);
   padding: var(--s4);
-  box-shadow: var(--shadow-1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   min-width: 0;
+}
+
+[data-theme="light"] .dt-panel {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .dt-panel .section-title {
@@ -510,10 +517,10 @@
   display: block;
   width: 100%;
   text-align: left;
-  padding: 9px 11px 10px;
-  border: 1px solid var(--hair-soft);
+  padding: 8px 11px 9px;
+  border: 1px solid var(--hair);
   border-radius: var(--r2);
-  background: var(--surface-sunken);
+  background: var(--ink-150);
   color: var(--text-2);
   font: inherit;
   cursor: pointer;
@@ -527,7 +534,12 @@
 
 .dt-lead-button.is-on {
   border-color: var(--cure-line);
-  background: linear-gradient(180deg, var(--cure-tint-soft), transparent);
+  background: var(--cure-tint-soft);
+}
+
+[data-theme="light"] .dt-lead-button {
+  background: #f8fafc;
+  border-color: #e2e8f0;
 }
 
 .dt-lead-top {
