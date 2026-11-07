@@ -1409,17 +1409,6 @@
                   Storage Rescue
                 </button>
                 <button
-                  aria-controls="sw-panel-map"
-                  aria-selected="false"
-                  class="sw-tab"
-                  id="sw-tab-map"
-                  role="tab"
-                  tabindex="-1"
-                  type="button"
-                >
-                  Map
-                </button>
-                <button
                   aria-controls="sw-panel-large"
                   aria-selected="false"
                   class="sw-tab"
@@ -1755,18 +1744,19 @@
                 role="tabpanel"
                 tabindex="0"
               >
-                <div class="sw-toolbar">
-                  <label class="sw-sort">
-                    <span>Sort</span>
-                    <select id="sw-large-sort">
-                      <option value="size">Largest first</option>
-                      <option value="age">Oldest first</option>
-                      <option value="name">Name</option>
-                    </select>
-                  </label>
-                  <span class="flex-spacer"></span>
-                  <span class="dim" id="sw-large-count"></span>
-                </div>
+                  <div class="sw-toolbar">
+                    <label class="sw-sort">
+                      <span>Sort</span>
+                      <select id="sw-large-sort">
+                        <option value="size">Largest first</option>
+                        <option value="age">Oldest first</option>
+                        <option value="name">Name</option>
+                      </select>
+                    </label>
+                    <span class="flex-spacer"></span>
+                    <span class="dim" id="sw-large-count"></span>
+                  </div>
+                  <div class="hidden" id="sw-file-filter"></div>
                 <div
                   aria-label="Largest files. Scrollable."
                   class="sw-table-wrap"
@@ -1832,6 +1822,7 @@
                         <th scope="col">Class</th>
                         <th scope="col">Files</th>
                         <th scope="col" class="num">On disk</th>
+                        <th scope="col"><span class="visually-hidden">Actions</span></th>
                       </tr>
                     </thead>
                     <tbody id="sw-folders-body"></tbody>

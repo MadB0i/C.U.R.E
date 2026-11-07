@@ -224,6 +224,8 @@
     /* selection is a path set; the queue is derived from it */
     selected: new Set(),
     queue: new Map(),
+    /* folder prefixes batch-added through the "Queue folder" action */
+    folderQueue: new Set(),
     zoom: null,
     treemapCells: [],
     drill: null,
@@ -555,15 +557,17 @@
   }
 
   /* Focus a category without inventing a new measurement. Used by the
-     Detective board's "Open in Storage Workstation" action. */
+     Detective board's "Open in Storage Workstation" action. The map tab
+     was removed in the de-clutter pass, so the category focus lands on the
+     largest-files view with the tier filter applied. */
   function focusClass(classKey) {
     if (!state.scan || !classKey) return false;
     const summary = (state.scan.summaries || []).find((s) => s.key === classKey);
     if (!summary) return false;
-    state.tab = "map";
+    state.tab = "large";
     state.tierFilter = summary.tier;
     state.drill = { class: summary.key, label: summary.label, level: "category" };
-    setTab("map");
+    setTab("large");
     renderTierFilter();
     renderBreadcrumbs();
     renderAll();
@@ -605,9 +609,24 @@
     state.treemapCells = [];
 
     try {
+      /* Operator request (Stage UI-11): pressing Scan must cover every
+         drive it can see — C:, D:, any USB — without the operator adding
+         locations first. Available roots come from the engine; the operator
+         can still add custom folders on top. */
+      let roots = state.extraRoots.slice();
+      try {
+        const options = await invoke("storage_available_roots", {});
+        for (const o of options || []) {
+          if (o.exists && o.path && !roots.some((r) => r.toLowerCase() === o.path.toLowerCase())) {
+            roots.push(o.path);
+          }
+        }
+      } catch (_) {
+        /* fall back to the engine defaults when the drive probe fails */
+      }
       const scan = await invoke("storage_scan", {
         depth: state.depth,
-        roots: state.extraRoots.slice(),
+        roots: roots,
         findDuplicates: true,
         findAbandoned: state.depth === "deep",
       });
@@ -616,6 +635,7 @@
       renderBreadcrumbs();
       state.selected.clear();
       state.queue.clear();
+      state.folderQueue.clear();
       state.zoom = null;
       renderMeasuredHeadline(scan);
       if (scan && scan.coverage && scan.coverage.cancelled) {
@@ -633,6 +653,9 @@
       publishScanToTopbar(scan);
       renderAll();
       revealTreemap();
+      /* Operator request: after a scan, the biggest files are the answer —
+         land there, sorted largest first, with delete/move one click away. */
+      setTab("large");
     } catch (err) {
       setStatus("Failed", "is-err");
       paintScanStages("final", "failed");
@@ -749,33 +772,93 @@
     if (!folders.length) {
       const tr = node("tr");
       const td = node("td", "sw-empty", "No folders were measured.");
-      td.colSpan = 4;
+      td.colSpan = 5;
       tr.appendChild(td);
       el.foldersBody.appendChild(tr);
       return;
     }
+    /* Folder-level protection (operator request): a folder that contains a
+       single protected or uncertain file carries the RED mark and is never
+       bulk-queued — the engine would refuse it, and important folders like
+       an 8 GB Android backup must be visibly off-limits. */
+    const files = state.scan.files || [];
     for (const f of folders) {
       const tr = node("tr");
+      const prefix = (f.path || "").toLowerCase();
+      let protectedCount = 0;
+      let unknownCount = 0;
+      let queueable = 0;
+      if (prefix) {
+        for (const file of files) {
+          const p = (file.path || "").toLowerCase();
+          if (p.startsWith(prefix)) {
+            if (file.tier === "protected") protectedCount += 1;
+            else if (file.tier === "unknown") unknownCount += 1;
+            else queueable += 1;
+          }
+        }
+      }
       const name = node("td");
-      /* The folder name opens the map at that folder, so the map is not a
-         mouse-only surface: the same drill is reachable from the keyboard
-         through this table. */
-      const open = node("button", "sw-file-name", f.name || f.path);
-      open.type = "button";
-      open.addEventListener("click", () => drillToFolder(f));
-      name.appendChild(open);
+      name.appendChild(node("span", "sw-file-name", f.name || f.path));
       name.appendChild(node("span", "dim", f.path));
       tr.appendChild(name);
       tr.appendChild(node("td", null, f.class || "other"));
       tr.appendChild(node("td", "num", (f.file_count || 0).toLocaleString()));
       tr.appendChild(node("td", "num", fmtBytes(f.size_allocated || 0)));
+
+      const actionCell = node("td");
+      if (prefix && (protectedCount > 0 || unknownCount > 0)) {
+        const mark = node("span", "sw-folder-protected", "PROTECTED");
+        mark.title =
+          "This folder holds " +
+          (protectedCount + unknownCount) +
+          " system or uncertain file(s) — C.U.R.E will not delete it.";
+        actionCell.appendChild(mark);
+      } else if (prefix && queueable > 0) {
+        const on = state.folderQueue.has(prefix);
+        const b = node(
+          "button",
+          "sw-queue-btn" + (on ? " is-on" : ""),
+          on ? "Queued (" + queueable + ")" : "Queue folder",
+        );
+        b.type = "button";
+        b.setAttribute("aria-pressed", on ? "true" : "false");
+        b.addEventListener("click", () => {
+          if (state.folderQueue.has(prefix)) {
+            state.folderQueue.delete(prefix);
+            for (const file of files) {
+              const p = (file.path || "").toLowerCase();
+              if (p.startsWith(prefix)) state.queue.delete(file.path);
+            }
+          } else {
+            state.folderQueue.add(prefix);
+            for (const file of files) {
+              const p = (file.path || "").toLowerCase();
+              if (
+                p.startsWith(prefix) &&
+                !state.queue.has(file.path) &&
+                file.tier !== "protected" &&
+                file.tier !== "unknown"
+              ) {
+                state.queue.set(file.path, { path: file.path, tier: file.tier });
+              }
+            }
+          }
+          renderQueue();
+          renderLarge();
+          renderFolders();
+        });
+        actionCell.appendChild(b);
+      } else {
+        actionCell.appendChild(node("span", "sw-no-action", "—"));
+      }
+      tr.appendChild(actionCell);
       el.foldersBody.appendChild(tr);
     }
   }
 
-  /* Open the map at a folder, whatever level the map is on. The map tab is
-     brought forward with it: the operator asked where the space went, and
-     the answer is the map. */
+  /* Open a folder's files in the largest-files view. The map tab was
+     removed in the de-clutter pass; the files table is the answer now. */
   function drillToFolder(folder) {
     const classKey = folder.class;
     const all = (state.scan && state.scan.folders) || [];
@@ -792,9 +875,8 @@
       path: folder.path,
       level: owners.length ? "folder" : "files",
     };
-    setTab("map");
-    renderBreadcrumbs();
-    drawTreemap();
+    setTab("large");
+    renderAll();
   }
 
   function tierChip(tier) {
@@ -844,13 +926,47 @@
 
   function visibleFiles() {
     if (!state.scan) return [];
-    if (state.tierFilter === "all") return state.scan.files;
-    return state.scan.files.filter((f) => f.tier === state.tierFilter);
+    let files = state.scan.files;
+    if (state.tierFilter !== "all") {
+      files = files.filter((f) => f.tier === state.tierFilter);
+    }
+    /* A folder drill narrows the files table to that folder's contents. */
+    if (state.drill && state.drill.path) {
+      const prefix = state.drill.path.toLowerCase();
+      files = files.filter((f) =>
+        (f.path || "").toLowerCase().startsWith(prefix),
+      );
+    }
+    return files;
   }
 
   function renderLarge() {
     if (!el.largeBody || !state.scan) return;
     el.largeBody.replaceChildren();
+    /* Active folder drill: a clearable chip, so the narrowed table never
+       silently hides the rest of the machine. */
+    const filterHost = document.getElementById("sw-file-filter");
+    if (filterHost) {
+      filterHost.replaceChildren();
+      if (state.drill && state.drill.path) {
+        const chip = node("span", "tier-chip tier-unknown", state.drill.path);
+        const clear = node(
+          "button",
+          "sw-queue-btn",
+          "Show everything",
+        );
+        clear.type = "button";
+        clear.addEventListener("click", () => {
+          state.drill = null;
+          renderLarge();
+          renderFolders();
+        });
+        filterHost.append(chip, clear);
+        filterHost.classList.remove("hidden");
+      } else {
+        filterHost.classList.add("hidden");
+      }
+    }
     const files = visibleFiles().slice();
     const mode = el.largeSort ? el.largeSort.value : "size";
     if (mode === "age") {

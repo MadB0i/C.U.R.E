@@ -587,15 +587,39 @@
 }
 
 .tier-protected {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: var(--hair-strong);
-  color: var(--text-2);
+  background: var(--danger-tint);
+  border-color: rgba(228, 112, 106, 0.45);
+  color: var(--danger);
+  font-weight: 700;
 }
 
 .tier-unknown {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: var(--hair-strong);
-  color: var(--text-2);
+  background: rgba(224, 164, 88, 0.08);
+  border-color: rgba(224, 164, 88, 0.3);
+  color: var(--warning);
+}
+
+/* Folder-level protection marker: a folder containing protected or
+   uncertain files carries the red mark and is never bulk-queued. */
+.sw-folder-protected {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 700 var(--t-2xs) / 1.2 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--danger);
+  background: var(--danger-tint);
+  border: 1px solid rgba(228, 112, 106, 0.45);
+  border-radius: 4px;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+
+.sw-queue-btn.is-on {
+  background: var(--cure-tint);
+  border-color: var(--cure-line);
+  color: var(--cure-300);
 }
 
 /* ---- tables ------------------------------------------------------------- */
