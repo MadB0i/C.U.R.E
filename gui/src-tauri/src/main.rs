@@ -142,9 +142,9 @@ fn tasks_root() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(scanners::scheduled_tasks::default_tasks_root)
 }
-const SCAN_TARGET_TOTAL_MS: u64 = 5000;
-const SCAN_MIN_PER_ITEM_MS: u64 = 15;
-const SCAN_MAX_PER_ITEM_MS: u64 = 250;
+const SCAN_TARGET_TOTAL_MS: u64 = 500;
+const SCAN_MIN_PER_ITEM_MS: u64 = 0;
+const SCAN_MAX_PER_ITEM_MS: u64 = 25;
 // Live process enumeration lives in cure_core::process_scan// (shared with the CLI report) — pure scoring stays there too.// ---------------------------------------------------------------------------// Ransom-detection folder scanning (OS glue: read-only directory walks)// ---------------------------------------------------------------------------
 fn user_folder_candidates() -> Vec<PathBuf> {
     let mut folders = Vec::new();
@@ -682,45 +682,53 @@ fn find_current_entry(id: &str) -> Option<PersistenceEntry> {
         .find(|entry| entry.id == id)
 }
 #[tauri::command]
-fn quarantine_entry(id: String, _name: String, _command: String) -> Result<String, String> {
-    let data_dir = resolve_data_dir();
-    // Strict: only entries present in a fresh scan may be quarantined. Never
-    // construct an entry from frontend-supplied paths — the webview must not
-    // be able to turn this command into a move-any-file primitive.
-    let Some(entry) = find_current_entry(&id) else {
-        return Err(
-            "entry is no longer present in the latest scan (already quarantined or removed?) — rescan to refresh"
-                .to_string(),
-        );
-    };
-    if entry.source == PersistenceSource::RegistryRun {
-        return Err(format!(
-            "registry autoruns are detected and scored but never auto-disabled — remove manually: {} / value \"{}\" (back up the key first)",
-            entry.location, entry.name
-        ));
-    }
-    if !entry.source.is_file_backed() {
-        return Err(format!(
-            "{} findings are detected and scored but never auto-disabled — investigate first, back up {}, then remove manually",
-            entry.source, entry.location
-        ));
-    }
-    let record = quarantine::quarantine_file(&data_dir, &entry).map_err(|e| e.to_string())?;
-    Ok(format!(
-        "moved {} -> {}",
-        record.original_path.display(),
-        record.quarantine_path.display()
-    ))
+async fn quarantine_entry(id: String, _name: String, _command: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let data_dir = resolve_data_dir();
+        // Strict: only entries present in a fresh scan may be quarantined. Never
+        // construct an entry from frontend-supplied paths — the webview must not
+        // be able to turn this command into a move-any-file primitive.
+        let Some(entry) = find_current_entry(&id) else {
+            return Err(
+                "entry is no longer present in the latest scan (already quarantined or removed?) — rescan to refresh"
+                    .to_string(),
+            );
+        };
+        if entry.source == PersistenceSource::RegistryRun {
+            return Err(format!(
+                "registry autoruns are detected and scored but never auto-disabled — remove manually: {} / value \"{}\" (back up the key first)",
+                entry.location, entry.name
+            ));
+        }
+        if !entry.source.is_file_backed() {
+            return Err(format!(
+                "{} findings are detected and scored but never auto-disabled — investigate first, back up {}, then remove manually",
+                entry.source, entry.location
+            ));
+        }
+        let record = quarantine::quarantine_file(&data_dir, &entry).map_err(|e| e.to_string())?;
+        Ok(format!(
+            "moved {} -> {}",
+            record.original_path.display(),
+            record.quarantine_path.display()
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
-fn undo_entry(id: String) -> Result<(), String> {
-    // Scoped restore (see cli cmd_undo): only under the scanned roots. The
-    // machine-wide Startup folder is always scanned, so always in scope.
-    let mut roots = vec![startup_root(), tasks_root()];
-    roots.extend(scanners::startup::default_common_startup_root());
-    quarantine::undo_scoped(&resolve_data_dir(), &id, Some(&roots))
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+async fn undo_entry(id: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        // Scoped restore (see cli cmd_undo): only under the scanned roots. The
+        // machine-wide Startup folder is always scanned, so always in scope.
+        let mut roots = vec![startup_root(), tasks_root()];
+        roots.extend(scanners::startup::default_common_startup_root());
+        quarantine::undo_scoped(&resolve_data_dir(), &id, Some(&roots))
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[derive(Serialize)]
 struct QuarantineRecordDto {
@@ -738,33 +746,41 @@ struct QuarantineRecordDto {
 }
 /// Everything currently in quarantine (newest last). Powers the Quarantine/// view; undo actions go through `undo_entry` one record at a time.
 #[tauri::command]
-fn list_quarantine() -> Result<Vec<QuarantineRecordDto>, String> {
-    Ok(quarantine::list_records(&resolve_data_dir())
-        .into_iter()
-        .map(|r| QuarantineRecordDto {
-            id: r.id,
-            name: r.name,
-            source: r.source,
-            original_path: r.original_path.to_string_lossy().into_owned(),
-            quarantine_path: r.quarantine_path.to_string_lossy().into_owned(),
-            archived_at: r.archived_at.to_rfc3339(),
-            state: format!("{:?}", r.state),
-            file_size: r.file_size,
-            sha256_hex: r.sha256_hex,
-            acl_captured: r.security.as_ref().is_some_and(|s| s.sddl.is_some()),
-            security_notes: r.security_notes,
-        })
-        .collect())
+async fn list_quarantine() -> Result<Vec<QuarantineRecordDto>, String> {
+    tokio::task::spawn_blocking(move || {
+        Ok(quarantine::list_records(&resolve_data_dir())
+            .into_iter()
+            .map(|r| QuarantineRecordDto {
+                id: r.id,
+                name: r.name,
+                source: r.source,
+                original_path: r.original_path.to_string_lossy().into_owned(),
+                quarantine_path: r.quarantine_path.to_string_lossy().into_owned(),
+                archived_at: r.archived_at.to_rfc3339(),
+                state: format!("{:?}", r.state),
+                file_size: r.file_size,
+                sha256_hex: r.sha256_hex,
+                acl_captured: r.security.as_ref().is_some_and(|s| s.sddl.is_some()),
+                security_notes: r.security_notes,
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 /// Forensic details for one finding (shortcut resolution, task metadata,/// publisher/signature) — strictly read-only enrichment for display./// The id must come from a fresh scan; unknown ids are rejected, so the/// webview cannot turn this into an arbitrary-path inspection oracle.
 #[tauri::command]
-fn entry_details(id: String) -> Result<cure_core::entry_details::EntryDetails, String> {
-    let Some(entry) = find_current_entry(&id) else {
-        return Err(
-            "entry is no longer present in the latest scan — rescan to refresh".to_string(),
-        );
-    };
-    Ok(cure_core::entry_details::for_entry(&entry))
+async fn entry_details(id: String) -> Result<cure_core::entry_details::EntryDetails, String> {
+    tokio::task::spawn_blocking(move || {
+        let Some(entry) = find_current_entry(&id) else {
+            return Err(
+                "entry is no longer present in the latest scan — rescan to refresh".to_string(),
+            );
+        };
+        Ok(cure_core::entry_details::for_entry(&entry))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 /// Reveal a finding's file in Explorer (selects it, opens nothing)./// Strict id-based lookup like `entry_details`; registry/service/WMI and/// other non-file locations are refused. Direct argv to explorer — no/// shell parsing, so spaces and metacharacters in paths are inert.
 #[tauri::command]
@@ -1190,8 +1206,20 @@ fn pid_still_matches(
     approved_name: &str,
     live: &std::collections::HashMap<u32, String>,
 ) -> Result<(), String> {
+    if cure_core::operator::defense::is_critical_system_process(pid, approved_name) {
+        return Err(format!(
+            "pid {pid} ({approved_name}) is a critical Windows system process — termination refused"
+        ));
+    }
     match live.get(&pid) {
-        Some(current) if current.eq_ignore_ascii_case(approved_name) => Ok(()),
+        Some(current) if current.eq_ignore_ascii_case(approved_name) => {
+            if cure_core::operator::defense::is_critical_system_process(pid, current) {
+                return Err(format!(
+                    "pid {pid} ({current}) is a critical Windows system process — termination refused"
+                ));
+            }
+            Ok(())
+        }
         Some(current) => Err(format!(
             "pid {pid} no longer belongs to {approved_name} (now {current}) — refusing to kill"
         )),
@@ -1209,38 +1237,42 @@ fn pid_still_matches(
     Ok(())
 }
 #[tauri::command]
-fn kill_high_risk_processes(processes: Vec<(String, u32)>) -> Result<KillReport, String> {
-    let mut killed = Vec::new();
-    let mut failed = Vec::new();
-    // Snapshot once so every decision below uses the same process table.
-    let live: std::collections::HashMap<u32, String> = process_scan::enumerate_processes()
-        .into_iter()
-        .map(|p| (p.pid, p.name))
-        .collect();
-    for (name, pid) in processes {
-        if let Err(reason) = pid_still_matches(pid, &name, &live) {
-            failed.push(reason);
-            continue;
-        }
-        match kill_process_by_pid(pid) {
-            Ok(()) => {
-                killed.push(ProcessFinding {
-                    name: name.clone(),
-                    pid,
-                    exe_path: String::new(),
-                    score: 0,
-                    risk: "HighRisk".to_string(),
-                    evidence: vec![cure_core::evidence::Evidence::observed(
-                        "termination requested by the operator",
-                    )],
-                });
+async fn kill_high_risk_processes(processes: Vec<(String, u32)>) -> Result<KillReport, String> {
+    tokio::task::spawn_blocking(move || {
+        let mut killed = Vec::new();
+        let mut failed = Vec::new();
+        // Snapshot once so every decision below uses the same process table.
+        let live: std::collections::HashMap<u32, String> = process_scan::enumerate_processes()
+            .into_iter()
+            .map(|p| (p.pid, p.name))
+            .collect();
+        for (name, pid) in processes {
+            if let Err(reason) = pid_still_matches(pid, &name, &live) {
+                failed.push(reason);
+                continue;
             }
-            Err(e) => {
-                failed.push(format!("{name} (pid {pid}): {e}"));
+            match kill_process_by_pid(pid) {
+                Ok(()) => {
+                    killed.push(ProcessFinding {
+                        name: name.clone(),
+                        pid,
+                        exe_path: String::new(),
+                        score: 0,
+                        risk: "HighRisk".to_string(),
+                        evidence: vec![cure_core::evidence::Evidence::observed(
+                            "termination requested by the operator",
+                        )],
+                    });
+                }
+                Err(e) => {
+                    failed.push(format!("{name} (pid {pid}): {e}"));
+                }
             }
         }
-    }
-    Ok(KillReport { killed, failed })
+        Ok(KillReport { killed, failed })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 fn open_quarantine_folder() -> Result<String, String> {
@@ -1585,89 +1617,119 @@ struct StorageRootOptionDto {
 /// `D:\Projects` is exactly the kind of place a storage tool needs to look,
 /// and the operator is the only one who knows where it is.
 #[tauri::command]
-fn storage_validate_root(path: String) -> Result<StorageRootOptionDto, String> {
-    let trimmed = path.trim();
-    if trimmed.is_empty() {
-        return Err("Type a folder path.".to_string());
-    }
-    let target = PathBuf::from(trimmed);
-    let metadata = std::fs::symlink_metadata(&target)
-        .map_err(|e| format!("That folder could not be read: {e}"))?;
-    if !metadata.is_dir() {
-        return Err("That path is not a folder.".to_string());
-    }
-    if storage::fsx::is_reparse_point(&metadata) {
-        return Err(
-            "That path is a link or junction. Add the folder it points to instead.".to_string(),
-        );
-    }
-    let space = storage::fsx::volume_space(&target);
-    Ok(StorageRootOptionDto {
-        label: target
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| trimmed.to_string()),
-        path: target.to_string_lossy().into_owned(),
-        exists: true,
-        is_drive: false,
-        total_bytes: space.as_ref().map(|v| v.total_bytes),
-        free_bytes: space.as_ref().map(|v| v.free_bytes),
-        volume_label: space.and_then(|v| v.label),
-        selectable: true,
+async fn storage_validate_root(path: String) -> Result<StorageRootOptionDto, String> {
+    tokio::task::spawn_blocking(move || {
+        let trimmed = path.trim();
+        if trimmed.is_empty() {
+            return Err("Type a folder path.".to_string());
+        }
+        let target = PathBuf::from(trimmed);
+        let metadata = std::fs::symlink_metadata(&target)
+            .map_err(|e| format!("That folder could not be read: {e}"))?;
+        if !metadata.is_dir() {
+            return Err("That path is not a folder.".to_string());
+        }
+        if storage::fsx::is_reparse_point(&metadata) {
+            return Err(
+                "That path is a link or junction. Add the folder it points to instead.".to_string(),
+            );
+        }
+        let space = storage::fsx::volume_space(&target);
+        Ok(StorageRootOptionDto {
+            label: target
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| trimmed.to_string()),
+            path: target.to_string_lossy().into_owned(),
+            exists: true,
+            is_drive: false,
+            total_bytes: space.as_ref().map(|v| v.total_bytes),
+            free_bytes: space.as_ref().map(|v| v.free_bytes),
+            volume_label: space.and_then(|v| v.label),
+            selectable: true,
+        })
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Assess drive pressure and discover safe relocation candidates.
 #[tauri::command]
-fn storage_rescue_status(
+async fn storage_rescue_status(
     source_drive: Option<String>,
     target_drive: Option<String>,
 ) -> Result<cure_core::storage::StorageRescueStatus, String> {
-    let src = source_drive.unwrap_or_else(|| "C:".into());
-    let tgt = target_drive.unwrap_or_default();
-    Ok(cure_core::storage::discover_migration_candidates(
-        &src, &tgt,
-    ))
+    tokio::task::spawn_blocking(move || {
+        let src = source_drive.unwrap_or_else(|| "C:".into());
+        let tgt = target_drive.unwrap_or_default();
+        Ok(cure_core::storage::discover_migration_candidates(
+            &src, &tgt,
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Build a preflight-verified migration plan for selected candidate folders.
 #[tauri::command]
-fn storage_rescue_plan(
+async fn storage_rescue_plan(
     selected_ids: Vec<String>,
     source_drive: String,
     target_drive: String,
 ) -> Result<cure_core::storage::MigrationPlan, String> {
-    Ok(cure_core::storage::build_migration_plan(
-        &selected_ids,
-        &source_drive,
-        &target_drive,
-    ))
+    tokio::task::spawn_blocking(move || {
+        Ok(cure_core::storage::build_migration_plan(
+            &selected_ids,
+            &source_drive,
+            &target_drive,
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Execute a safe copy-and-verify migration flow non-destructively.
 #[tauri::command]
 async fn storage_rescue_execute(
     app: AppHandle,
+    state: State<'_, StorageState>,
     candidate_id: String,
     source_path: String,
     target_path: String,
     source_drive: String,
     target_drive: String,
 ) -> Result<cure_core::storage::MigrationReceipt, String> {
-    let cancel = AtomicBool::new(false);
+    let cancel = Arc::new(AtomicBool::new(false));
+    {
+        let mut guard = state
+            .cancel
+            .lock()
+            .map_err(|_| "storage state poisoned".to_string())?;
+        *guard = Some(Arc::clone(&cancel));
+    }
+    let app_clone = app.clone();
+    let cid = candidate_id.clone();
     let src = PathBuf::from(&source_path);
     let dst = PathBuf::from(&target_path);
-    cure_core::storage::execute_candidate_migration(
-        &candidate_id,
-        &src,
-        &dst,
-        &source_drive,
-        &target_drive,
-        &cancel,
-        |progress| {
-            let _ = app.emit("rescue-migration-progress", progress);
-        },
-    )
+    let s_drv = source_drive.clone();
+    let t_drv = target_drive.clone();
+    let cancel_flag = Arc::clone(&cancel);
+
+    let res = tokio::task::spawn_blocking(move || {
+        cure_core::storage::execute_candidate_migration(
+            &cid,
+            &src,
+            &dst,
+            &s_drv,
+            &t_drv,
+            &cancel_flag,
+            |progress| {
+                let _ = app_clone.emit("rescue-migration-progress", progress);
+            },
+        )
+    })
+    .await
+    .map_err(|e| format!("Migration task panicked: {e}"))?
     .inspect(|receipt| {
         let outcome = match receipt.items.first() {
             Some(item) if item.is_verified => "copy_verified",
@@ -1682,7 +1744,13 @@ async fn storage_rescue_execute(
             serde_json::to_value(receipt).unwrap_or(serde_json::Value::Null),
         );
     })
-    .map_err(|e| format!("Migration failed: {e}"))
+    .map_err(|e| format!("Migration failed: {e}"));
+
+    if let Ok(mut guard) = state.cancel.lock() {
+        *guard = None;
+    }
+
+    res
 }
 
 /// Persist a migration lifecycle record to the app data directory so a
@@ -1841,94 +1909,102 @@ fn storage_rescue_receipts() -> Result<Vec<ReconciledRescueReceipt>, String> {
 
 /// Retrieve overall system posture and operator recommendations.
 #[tauri::command]
-fn operator_status() -> Result<cure_core::operator::OperatorPosture, String> {
-    let pressures = cure_core::storage::assess_drive_pressures();
-    let c_drive = pressures
-        .iter()
-        .find(|d| d.is_system)
-        .cloned()
-        .unwrap_or_else(|| cure_core::storage::DrivePressure {
-            drive_letter: "C:".into(),
-            volume_label: None,
-            total_bytes: 0,
-            free_bytes: 0,
-            used_bytes: 0,
-            pressure_pct: 0.0,
-            is_system: true,
-            is_congested: false,
-        });
-
-    let status = cure_core::storage::discover_migration_candidates("C:", "D:");
-    let safe_relief: u64 = status
-        .candidates
-        .iter()
-        .filter(|c| c.safety == cure_core::storage::MigrationSafety::Safe)
-        .map(|c| c.size_bytes)
-        .sum();
-
-    let sessions = cure_core::agent::inspect_agent_sessions();
-    let unverified_count = sessions
-        .iter()
-        .filter(|s| {
-            s.state == cure_core::agent::SessionProcessState::Unverified
-                || s.state == cure_core::agent::SessionProcessState::SuspectMismatch
-        })
-        .count();
-
-    let mut recommendations = Vec::new();
-    let mut highest_level = cure_core::operator::ResponseLevel::Level0Observe;
-
-    if c_drive.is_congested && safe_relief > 0 {
-        recommendations.push(cure_core::operator::OperatorRecommendation {
-            id: "rec_drive_pressure".into(),
-            level: cure_core::operator::ResponseLevel::Level2ActionRecommended,
-            title: "C: Drive Pressure Relief Available".into(),
-            description: format!("System drive is {:.1}% full. Relocating {} safe personal libraries can relieve storage pressure.", c_drive.pressure_pct, status.candidates.len()),
-            risk_assessment: "Non-destructive. Source preserved until verified.".into(),
-            action_type: "storage_rescue".into(),
-            action_label: "Open Storage Rescue".into(),
-            target: "C:".into(),
-            required_confirmation_token: None,
-        });
-        highest_level =
-            highest_level.max(cure_core::operator::ResponseLevel::Level2ActionRecommended);
-    }
-
-    for s in &sessions {
-        if s.is_orphan {
-            recommendations.push(cure_core::operator::OperatorRecommendation {
-                id: format!("rec_orphan_{}", s.pid),
-                level: cure_core::operator::ResponseLevel::Level1Review,
-                title: format!("Orphaned Worker Detected (PID {})", s.pid),
-                description: format!("Process '{}' has survived the exit of its parent process.", s.name),
-                risk_assessment: "Worker may be consuming background CPU/RAM without active user session.".into(),
-                action_type: "agent_session".into(),
-                action_label: "Inspect Session".into(),
-                target: format!("{}", s.pid),
-                required_confirmation_token: Some(format!("TERMINATE_{}", s.pid)),
+async fn operator_status() -> Result<cure_core::operator::OperatorPosture, String> {
+    tokio::task::spawn_blocking(move || {
+        let pressures = cure_core::storage::assess_drive_pressures();
+        let c_drive = pressures
+            .iter()
+            .find(|d| d.is_system)
+            .cloned()
+            .unwrap_or_else(|| cure_core::storage::DrivePressure {
+                drive_letter: "C:".into(),
+                volume_label: None,
+                total_bytes: 0,
+                free_bytes: 0,
+                used_bytes: 0,
+                pressure_pct: 0.0,
+                is_system: true,
+                is_congested: false,
             });
-            highest_level = highest_level.max(cure_core::operator::ResponseLevel::Level1Review);
-        }
-    }
 
-    Ok(cure_core::operator::OperatorPosture {
-        timestamp_unix: cure_core::agent::now_unix(),
-        highest_threat_level: highest_level,
-        c_drive_congested: c_drive.is_congested,
-        c_drive_pressure_pct: c_drive.pressure_pct,
-        c_drive_free_bytes: c_drive.free_bytes,
-        recommended_storage_relief_bytes: safe_relief,
-        active_agent_count: sessions.len(),
-        unverified_agent_count: unverified_count,
-        threat_findings: vec![],
-        recommendations,
+        let status = cure_core::storage::discover_migration_candidates("C:", "D:");
+        let safe_relief: u64 = status
+            .candidates
+            .iter()
+            .filter(|c| c.safety == cure_core::storage::MigrationSafety::Safe)
+            .map(|c| c.size_bytes)
+            .sum();
+
+        let sessions = cure_core::agent::inspect_agent_sessions();
+        let unverified_count = sessions
+            .iter()
+            .filter(|s| {
+                s.state == cure_core::agent::SessionProcessState::Unverified
+                    || s.state == cure_core::agent::SessionProcessState::SuspectMismatch
+            })
+            .count();
+
+        let mut recommendations = Vec::new();
+        let mut highest_level = cure_core::operator::ResponseLevel::Level0Observe;
+
+        if c_drive.is_congested && safe_relief > 0 {
+            recommendations.push(cure_core::operator::OperatorRecommendation {
+                id: "rec_drive_pressure".into(),
+                level: cure_core::operator::ResponseLevel::Level2ActionRecommended,
+                title: "C: Drive Pressure Relief Available".into(),
+                description: format!("System drive is {:.1}% full. Relocating {} safe personal libraries can relieve storage pressure.", c_drive.pressure_pct, status.candidates.len()),
+                risk_assessment: "Non-destructive. Source preserved until verified.".into(),
+                action_type: "storage_rescue".into(),
+                action_label: "Open Storage Rescue".into(),
+                target: "C:".into(),
+                required_confirmation_token: None,
+            });
+            highest_level =
+                highest_level.max(cure_core::operator::ResponseLevel::Level2ActionRecommended);
+        }
+
+        for s in &sessions {
+            if s.is_orphan {
+                recommendations.push(cure_core::operator::OperatorRecommendation {
+                    id: format!("rec_orphan_{}", s.pid),
+                    level: cure_core::operator::ResponseLevel::Level1Review,
+                    title: format!("Orphaned Worker Detected (PID {})", s.pid),
+                    description: format!("Process '{}' has survived the exit of its parent process.", s.name),
+                    risk_assessment: "Worker may be consuming background CPU/RAM without active user session.".into(),
+                    action_type: "agent_session".into(),
+                    action_label: "Inspect Session".into(),
+                    target: format!("{}", s.pid),
+                    required_confirmation_token: Some(format!("TERMINATE_{}", s.pid)),
+                });
+                highest_level = highest_level.max(cure_core::operator::ResponseLevel::Level1Review);
+            }
+        }
+
+        Ok(cure_core::operator::OperatorPosture {
+            timestamp_unix: cure_core::agent::now_unix(),
+            highest_threat_level: highest_level,
+            c_drive_congested: c_drive.is_congested,
+            c_drive_pressure_pct: c_drive.pressure_pct,
+            c_drive_free_bytes: c_drive.free_bytes,
+            recommended_storage_relief_bytes: safe_relief,
+            active_agent_count: sessions.len(),
+            unverified_agent_count: unverified_count,
+            threat_findings: vec![],
+            recommendations,
+        })
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Retrieve deep agent session hierarchy and orphan states.
 #[tauri::command]
-fn operator_agent_sessions() -> Result<Vec<cure_core::agent::AgentSessionDetail>, String> {
-    Ok(cure_core::agent::inspect_agent_sessions())
+async fn operator_agent_sessions() -> Result<Vec<cure_core::agent::AgentSessionDetail>, String> {
+    tokio::task::spawn_blocking(move || {
+        Ok(cure_core::agent::inspect_agent_sessions())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Request non-destructive graceful shutdown of an agent window or session.
@@ -2032,19 +2108,27 @@ fn operator_agent_end_process(
 
 /// Scan a specific file with native Windows Defender without shell expansion.
 #[tauri::command]
-fn operator_defender_scan(
+async fn operator_defender_scan(
     file_path: String,
 ) -> Result<cure_core::operator::DefenderScanResult, String> {
-    cure_core::operator::scan_file_with_defender(Path::new(&file_path))
+    tokio::task::spawn_blocking(move || {
+        cure_core::operator::scan_file_with_defender(Path::new(&file_path))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Explicit, user-approved containment scan with remediation enabled.
 #[tauri::command]
-fn operator_defender_contain(
+async fn operator_defender_contain(
     file_path: String,
     confirmation_token: String,
 ) -> Result<cure_core::operator::DefenderScanResult, String> {
-    cure_core::operator::contain_file_with_defender(Path::new(&file_path), &confirmation_token)
+    tokio::task::spawn_blocking(move || {
+        cure_core::operator::contain_file_with_defender(Path::new(&file_path), &confirmation_token)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Fetch recent operator audit log entries.
@@ -2057,65 +2141,73 @@ fn operator_audit_log(
 
 /// Verify integrity of the operator audit journal.
 #[tauri::command]
-fn operator_verify_audit_journal() -> Result<usize, String> {
-    let log_path = resolve_data_dir().join("operator_audit.jsonl");
-    cure_core::operator::verify_global_journal_integrity(&log_path)
+async fn operator_verify_audit_journal() -> Result<usize, String> {
+    tokio::task::spawn_blocking(move || {
+        let log_path = resolve_data_dir().join("operator_audit.jsonl");
+        cure_core::operator::verify_global_journal_integrity(&log_path)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// List candidate roots: fixed drives plus the profile's real user folders.
 #[tauri::command]
-fn storage_available_roots() -> Result<Vec<StorageRootOptionDto>, String> {
-    let mut out: Vec<StorageRootOptionDto> = Vec::new();
-    for letter in b'A'..=b'Z' {
-        let root = PathBuf::from(format!("{}:\\", letter as char));
-        let Ok(md) = std::fs::metadata(&root) else {
-            continue;
-        };
-        if !md.is_dir() {
-            continue;
+async fn storage_available_roots() -> Result<Vec<StorageRootOptionDto>, String> {
+    tokio::task::spawn_blocking(move || {
+        let mut out: Vec<StorageRootOptionDto> = Vec::new();
+        for letter in b'A'..=b'Z' {
+            let root = PathBuf::from(format!("{}:\\", letter as char));
+            let Ok(md) = std::fs::metadata(&root) else {
+                continue;
+            };
+            if !md.is_dir() {
+                continue;
+            }
+            let space = storage::fsx::volume_space(&root);
+            out.push(StorageRootOptionDto {
+                label: format!("Drive {}", letter as char),
+                path: root.to_string_lossy().into_owned(),
+                exists: true,
+                is_drive: true,
+                total_bytes: space.as_ref().map(|v| v.total_bytes),
+                free_bytes: space.as_ref().map(|v| v.free_bytes),
+                volume_label: space.and_then(|v| v.label),
+                selectable: true,
+            });
         }
-        let space = storage::fsx::volume_space(&root);
-        out.push(StorageRootOptionDto {
-            label: format!("Drive {}", letter as char),
-            path: root.to_string_lossy().into_owned(),
-            exists: true,
-            is_drive: true,
-            total_bytes: space.as_ref().map(|v| v.total_bytes),
-            free_bytes: space.as_ref().map(|v| v.free_bytes),
-            volume_label: space.and_then(|v| v.label),
-            selectable: true,
-        });
-    }
-    // The removable/external drives a USB rescue copy sits on are the whole
-    // point of the watcher; offer them explicitly rather than hiding them in
-    // an OS dialog the operator may not know to open.
-    for (key, label) in [
-        ("USERPROFILE", "Profile"),
-        ("LOCALAPPDATA", "App data (local)"),
-        ("APPDATA", "App data (roaming)"),
-        ("TEMP", "Temp"),
-        ("SystemDrive", "Windows drive"),
-    ] {
-        let Some(p) = std::env::var_os(key).map(PathBuf::from) else {
-            continue;
-        };
-        if p.as_os_str().is_empty() || out.iter().any(|o| o.path == p.to_string_lossy()) {
-            continue;
+        // The removable/external drives a USB rescue copy sits on are the whole
+        // point of the watcher; offer them explicitly rather than hiding them in
+        // an OS dialog the operator may not know to open.
+        for (key, label) in [
+            ("USERPROFILE", "Profile"),
+            ("LOCALAPPDATA", "App data (local)"),
+            ("APPDATA", "App data (roaming)"),
+            ("TEMP", "Temp"),
+            ("SystemDrive", "Windows drive"),
+        ] {
+            let Some(p) = std::env::var_os(key).map(PathBuf::from) else {
+                continue;
+            };
+            if p.as_os_str().is_empty() || out.iter().any(|o| o.path == p.to_string_lossy()) {
+                continue;
+            }
+            let exists = p.is_dir();
+            let space = storage::fsx::volume_space(&p);
+            out.push(StorageRootOptionDto {
+                label: label.to_string(),
+                path: p.to_string_lossy().into_owned(),
+                exists,
+                is_drive: false,
+                total_bytes: space.as_ref().map(|v| v.total_bytes),
+                free_bytes: space.as_ref().map(|v| v.free_bytes),
+                volume_label: space.and_then(|v| v.label),
+                selectable: true,
+            });
         }
-        let exists = p.is_dir();
-        let space = storage::fsx::volume_space(&p);
-        out.push(StorageRootOptionDto {
-            label: label.to_string(),
-            path: p.to_string_lossy().into_owned(),
-            exists,
-            is_drive: false,
-            total_bytes: space.as_ref().map(|v| v.total_bytes),
-            free_bytes: space.as_ref().map(|v| v.free_bytes),
-            volume_label: space.and_then(|v| v.label),
-            selectable: true,
-        });
-    }
-    Ok(out)
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 /// Run a storage scan. Blocking work runs on a worker thread; progress and/// the finished scan are relayed through events, never invented by the UI.
 #[tauri::command]
@@ -3037,7 +3129,7 @@ fn save_overlay_allowlist_to(
 }
 /// List overlay candidates for per-window confirmation. Matches are SHOWN,/// never closed here — closing is a separate per-window command below.
 #[tauri::command]
-fn list_overlay_candidates() -> Result<OverlayCandidateList, String> {
+async fn list_overlay_candidates() -> Result<OverlayCandidateList, String> {
     #[cfg(not(windows))]
     {
         return Ok(OverlayCandidateList {
@@ -3047,41 +3139,45 @@ fn list_overlay_candidates() -> Result<OverlayCandidateList, String> {
     }
     #[cfg(windows)]
     {
-        use cure_core::overlay::OverlayCandidate;
-        let allowlist = load_overlay_allowlist();
-        let collected = collect_window_candidates()?;
-        let checked = collected.len();
-        let mut with_hash: Vec<OverlayCandidate> = Vec::with_capacity(checked);
-        for (_, desc, sig) in &collected {
-            let hash = cure_core::hash_intel::sha256_file_hex(&desc.process_path);
-            with_hash.push(OverlayCandidate {
-                desc: desc.clone(),
-                signature: *sig,
-                binary_sha256: hash,
-            });
-        }
-        let picks = overlay::pick_overlays(&with_hash, &allowlist);
-        let mut candidates = Vec::with_capacity(picks.len());
-        for idx in picks {
-            let (hwnd_raw, desc, sig) = &collected[idx];
-            let width = (desc.rect.right - desc.rect.left).max(0);
-            let height = (desc.rect.bottom - desc.rect.top).max(0);
-            candidates.push(OverlayCandidateDto {
-                hwnd: *hwnd_raw,
-                title: desc.title.clone(),
-                process: desc.process_name(),
-                path: desc.process_path.to_string_lossy().into_owned(),
-                pid: desc.pid,
-                signature: signature_text(sig),
-                width,
-                height,
-                coverage_pct: desc.coverage_ratio() * 100.0,
-            });
-        }
-        Ok(OverlayCandidateList {
-            checked,
-            candidates,
+        tokio::task::spawn_blocking(move || {
+            use cure_core::overlay::OverlayCandidate;
+            let allowlist = load_overlay_allowlist();
+            let collected = collect_window_candidates()?;
+            let checked = collected.len();
+            let mut with_hash: Vec<OverlayCandidate> = Vec::with_capacity(checked);
+            for (_, desc, sig) in &collected {
+                let hash = cure_core::hash_intel::sha256_file_hex(&desc.process_path);
+                with_hash.push(OverlayCandidate {
+                    desc: desc.clone(),
+                    signature: *sig,
+                    binary_sha256: hash,
+                });
+            }
+            let picks = overlay::pick_overlays(&with_hash, &allowlist);
+            let mut candidates = Vec::with_capacity(picks.len());
+            for idx in picks {
+                let (hwnd_raw, desc, sig) = &collected[idx];
+                let width = (desc.rect.right - desc.rect.left).max(0);
+                let height = (desc.rect.bottom - desc.rect.top).max(0);
+                candidates.push(OverlayCandidateDto {
+                    hwnd: *hwnd_raw,
+                    title: desc.title.clone(),
+                    process: desc.process_name(),
+                    path: desc.process_path.to_string_lossy().into_owned(),
+                    pid: desc.pid,
+                    signature: signature_text(sig),
+                    width,
+                    height,
+                    coverage_pct: desc.coverage_ratio() * 100.0,
+                });
+            }
+            Ok(OverlayCandidateList {
+                checked,
+                candidates,
+            })
         })
+        .await
+        .map_err(|e| e.to_string())?
     }
 }
 /// Close a single candidate window the operator confirmed./// `force = false`: graceful `WM_CLOSE` only. `force = true`: terminate the/// owning process (explicit per-window Force-close button only).
@@ -3953,8 +4049,7 @@ fn agent_state_for(
 }
 
 #[tauri::command]
-fn agent_radar(state: State<'_, AgentState>) -> Result<AgentRadarDto, String> {
-    let processes = agent::enumerate_agent_processes();
+async fn agent_radar(state: State<'_, AgentState>) -> Result<AgentRadarDto, String> {
     let session = state
         .recorder
         .lock()
@@ -3969,95 +4064,101 @@ fn agent_radar(state: State<'_, AgentState>) -> Result<AgentRadarDto, String> {
                 .and_then(|guard| guard.clone())
         });
 
-    let mut panels = Vec::new();
-    for kind in agent::AgentKind::ALL {
-        let own: Vec<AgentProcessDto> = processes
-            .iter()
-            .filter(|p| p.kind == kind)
-            .map(agent_process_dto)
-            .collect();
-        let detected = !own.is_empty();
-        let (state_id, state_label, state_note) = agent_state_for(kind, &own, session.as_ref());
-        panels.push(AgentPanelDto {
-            id: kind.id().to_string(),
-            label: kind.label().to_string(),
-            detected,
-            process_count: own.len(),
-            state: state_id,
-            state_label,
-            state_note,
-            integration_note: kind.integration_note().to_string(),
-            processes: own,
-            is_model_server: kind.is_model_server(),
-            category: format!("{:?}", kind.category()),
-        });
-    }
-
-    let detected_count = panels
-        .iter()
-        .filter(|p| p.detected && !p.is_model_server)
-        .count();
-    let model_server_count = panels
-        .iter()
-        .filter(|p| p.detected && p.is_model_server)
-        .count();
     let windows = state
         .last_windows
         .lock()
         .map_err(|_| "Windows change state is unavailable".to_string())?
         .clone();
 
-    let mut notes = Vec::new();
-    notes.push(
-        "A running process does not prove that an agent is generating code or executing tasks."
-            .to_string(),
-    );
-    if detected_count == 0 && model_server_count == 0 {
-        notes.push(
-            "No supported agent process or model server was detected in this sample.".to_string(),
-        );
-    } else {
-        if detected_count > 0 {
-            let verified_count = panels
+    tokio::task::spawn_blocking(move || {
+        let processes = agent::enumerate_agent_processes();
+        let mut panels = Vec::new();
+        for kind in agent::AgentKind::ALL {
+            let own: Vec<AgentProcessDto> = processes
                 .iter()
-                .filter(|p| {
-                    p.detected
-                        && !p.is_model_server
-                        && p.processes
-                            .iter()
-                            .any(|proc| proc.identity.contains("Verified"))
-                })
-                .count();
-            if verified_count == detected_count {
-                notes.push(format!("{detected_count} verified AI agent(s) detected."));
-            } else if verified_count > 0 {
+                .filter(|p| p.kind == kind)
+                .map(agent_process_dto)
+                .collect();
+            let detected = !own.is_empty();
+            let (state_id, state_label, state_note) = agent_state_for(kind, &own, session.as_ref());
+            panels.push(AgentPanelDto {
+                id: kind.id().to_string(),
+                label: kind.label().to_string(),
+                detected,
+                process_count: own.len(),
+                state: state_id,
+                state_label,
+                state_note,
+                integration_note: kind.integration_note().to_string(),
+                processes: own,
+                is_model_server: kind.is_model_server(),
+                category: format!("{:?}", kind.category()),
+            });
+        }
+
+        let detected_count = panels
+            .iter()
+            .filter(|p| p.detected && !p.is_model_server)
+            .count();
+        let model_server_count = panels
+            .iter()
+            .filter(|p| p.detected && p.is_model_server)
+            .count();
+
+        let mut notes = Vec::new();
+        notes.push(
+            "A running process does not prove that an agent is generating code or executing tasks."
+                .to_string(),
+        );
+        if detected_count == 0 && model_server_count == 0 {
+            notes.push(
+                "No supported agent process or model server was detected in this sample.".to_string(),
+            );
+        } else {
+            if detected_count > 0 {
+                let verified_count = panels
+                    .iter()
+                    .filter(|p| {
+                        p.detected
+                            && !p.is_model_server
+                            && p.processes
+                                .iter()
+                                .any(|proc| proc.identity.contains("Verified"))
+                    })
+                    .count();
+                if verified_count == detected_count {
+                    notes.push(format!("{detected_count} verified AI agent(s) detected."));
+                } else if verified_count > 0 {
+                    notes.push(format!(
+                        "{detected_count} agent image(s) detected ({verified_count} verified tool, {} unverified).",
+                        detected_count - verified_count
+                    ));
+                } else {
+                    notes.push(format!(
+                        "{detected_count} unverified agent candidate(s) detected (image name match only; tool identity unconfirmed)."
+                    ));
+                }
+            }
+            if model_server_count > 0 {
                 notes.push(format!(
-                    "{detected_count} agent image(s) detected ({verified_count} verified tool, {} unverified).",
-                    detected_count - verified_count
-                ));
-            } else {
-                notes.push(format!(
-                    "{detected_count} unverified agent candidate(s) detected (image name match only; tool identity unconfirmed)."
+                    "{model_server_count} local model server(s) running (Ollama)."
                 ));
             }
         }
-        if model_server_count > 0 {
-            notes.push(format!(
-                "{model_server_count} local model server(s) running (Ollama)."
-            ));
-        }
-    }
 
-    Ok(AgentRadarDto {
-        generated_unix: agent::now_unix(),
-        supported_agents: panels,
-        detected_count,
-        model_server_count,
-        processes: processes.iter().map(agent_process_dto).collect(),
-        monitoring: session,
-        windows,
-        notes,
+        Ok(AgentRadarDto {
+            generated_unix: agent::now_unix(),
+            supported_agents: panels,
+            detected_count,
+            model_server_count,
+            processes: processes.iter().map(agent_process_dto).collect(),
+            monitoring: session,
+            windows,
+            notes,
+        })
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn current_agent_kinds() -> Vec<agent::AgentKind> {

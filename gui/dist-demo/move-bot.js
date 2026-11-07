@@ -260,21 +260,57 @@
     const results = [];
     let failed = null;
 
-    // Listen once for copy progress; events carry the candidate id.
+    // Listen once for copy progress with live speed & ETA
+    let lastBytes = 0;
+    let lastTime = performance.now();
+    let smoothedSpeed = 0;
     if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.listen) {
       try {
         progressUnlisten = await window.__TAURI__.event.listen(
           "rescue-migration-progress",
           (ev) => {
             const p = ev.payload || {};
+            const now = performance.now();
+            const timeDelta = (now - lastTime) / 1000;
+            if (timeDelta >= 0.4) {
+              const bytesDelta = (p.bytes_copied || 0) - lastBytes;
+              const currentSpeed = bytesDelta / timeDelta;
+              smoothedSpeed = smoothedSpeed === 0 ? currentSpeed : (smoothedSpeed * 0.7 + currentSpeed * 0.3);
+              lastBytes = p.bytes_copied || 0;
+              lastTime = now;
+            }
+            const speedMb = (Math.max(0, smoothedSpeed) / (1024 * 1024)).toFixed(1);
+            const remainingBytes = Math.max(0, (p.total_bytes || 0) - (p.bytes_copied || 0));
+            let etaText = "--";
+            if (smoothedSpeed > 1024) {
+              const remainingSec = Math.round(remainingBytes / smoothedSpeed);
+              if (remainingSec < 60) etaText = `${remainingSec}s`;
+              else if (remainingSec < 3600) etaText = `${Math.floor(remainingSec / 60)}m ${remainingSec % 60}s`;
+              else etaText = `${(remainingSec / 3600).toFixed(1)}h`;
+            }
+
             if (els.runBar) els.runBar.style.width = Math.min(p.percent || 0, 100) + "%";
             if (els.runDetail)
               els.runDetail.textContent =
                 (p.files_copied || 0) + " / " + (p.total_files || 0) + " files · " +
-                formatBytes(p.bytes_copied || 0) + " of " + formatBytes(p.total_bytes || 0);
+                formatBytes(p.bytes_copied || 0) + " of " + formatBytes(p.total_bytes || 0) +
+                " · " + speedMb + " MB/s · ETA: " + etaText;
           },
         );
       } catch (_) {}
+    }
+
+    const mbCancelBtn = document.getElementById("mb-run-cancel");
+    if (mbCancelBtn) {
+      mbCancelBtn.disabled = false;
+      mbCancelBtn.textContent = "Cancel Transfer";
+      mbCancelBtn.onclick = async () => {
+        mbCancelBtn.disabled = true;
+        mbCancelBtn.textContent = "Cancelling…";
+        try {
+          await invoke("storage_cancel");
+        } catch (_) {}
+      };
     }
 
     for (const cand of pendingPlan.candidates) {

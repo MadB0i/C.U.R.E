@@ -83,9 +83,114 @@ pub fn extract_program_path(command: &str) -> &str {
     trimmed.split_whitespace().next().unwrap_or(trimmed)
 }
 
+/// Strips architecture / platform tokens from the end of an executable stem.
+/// E.g. "ffmpeg-x64" -> "ffmpeg", "node_x64" -> "node", "tool-win64" -> "tool".
+pub fn strip_arch_tokens(mut s: &str) -> &str {
+    for _ in 0..2 {
+        let lower = s.to_ascii_lowercase();
+        if lower.ends_with("-x64")
+            || lower.ends_with("-x86")
+            || lower.ends_with("_x64")
+            || lower.ends_with("_x86")
+        {
+            s = &s[..s.len() - 4];
+        } else if lower.ends_with("win64") || lower.ends_with("win32") {
+            s = &s[..s.len() - 5];
+        } else if lower.ends_with("-windows") {
+            s = &s[..s.len() - 8];
+        } else {
+            break;
+        }
+    }
+    s
+}
+
+/// Checks if an executable stem corresponds to a standard developer or system tool.
+/// Only exempts authentic version patterns (e.g. "python312", "node-v20"), never
+/// arbitrary long random strings (e.g. "python_9823749823").
+pub fn is_standard_developer_tool(s: &str) -> bool {
+    let lower = s.to_ascii_lowercase();
+    let lower = strip_arch_tokens(&lower);
+
+    const EXACT_TOOLS: &[&str] = &[
+        "python",
+        "pythonw",
+        "node",
+        "npm",
+        "npx",
+        "pnpm",
+        "yarn",
+        "rustc",
+        "cargo",
+        "rustup",
+        "rust-analyzer",
+        "ffmpeg",
+        "ffprobe",
+        "ffplay",
+        "git",
+        "bash",
+        "sh",
+        "deno",
+        "bun",
+        "go",
+        "javac",
+        "java",
+        "ruby",
+        "perl",
+    ];
+    if EXACT_TOOLS.contains(&lower) {
+        return true;
+    }
+
+    // Versioned python binaries: "python3", "python311", "python312", "python3.12", "pythonw3.11"
+    if let Some(rest) = lower
+        .strip_prefix("pythonw")
+        .or_else(|| lower.strip_prefix("python"))
+    {
+        let rest = rest.strip_prefix('-').unwrap_or(rest);
+        if !rest.is_empty()
+            && rest.len() <= 6
+            && rest.chars().all(|c| c.is_ascii_digit() || c == '.')
+        {
+            return true;
+        }
+    }
+
+    // Versioned node binaries: "node-v20", "node-v18.16.0", "node-20"
+    if let Some(rest) = lower.strip_prefix("node") {
+        let rest = rest.strip_prefix('-').unwrap_or(rest);
+        let rest = rest.strip_prefix('v').unwrap_or(rest);
+        if !rest.is_empty()
+            && rest.len() <= 8
+            && rest.chars().all(|c| c.is_ascii_digit() || c == '.')
+        {
+            return true;
+        }
+    }
+
+    // Versioned cargo commands: "cargo-clippy", "cargo-fmt"
+    if let Some(rest) = lower.strip_prefix("cargo-") {
+        if !rest.is_empty()
+            && rest.len() <= 12
+            && rest.chars().all(|c| c.is_ascii_alphabetic() || c == '-')
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
 pub fn looks_randomized(name: &str) -> bool {
     let stem = name.split('.').next().unwrap_or(name);
-    let compact: Vec<char> = stem.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+    let stripped = strip_arch_tokens(stem);
+    if is_standard_developer_tool(stripped) {
+        return false;
+    }
+    let compact: Vec<char> = stripped
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
     let len = compact.len();
     if len < 6 {
         return false;
@@ -1320,6 +1425,22 @@ mod tests {
         assert!(!looks_randomized("WindowsDefender"));
         assert!(!looks_randomized("svchost"));
         assert!(!looks_randomized("Update"));
+
+        // Standard developer tools and versioned names are NOT randomized
+        assert!(!looks_randomized("python.exe"));
+        assert!(!looks_randomized("python312.exe"));
+        assert!(!looks_randomized("python3.11.exe"));
+        assert!(!looks_randomized("node.exe"));
+        assert!(!looks_randomized("node-v20.exe"));
+        assert!(!looks_randomized("rustc.exe"));
+        assert!(!looks_randomized("cargo-clippy.exe"));
+        assert!(!looks_randomized("ffmpeg-x64.exe"));
+
+        // Spoofed prefix with long randomized string IS detected as randomized
+        assert!(looks_randomized("python_9823749823.exe"));
+        assert!(looks_randomized("node_9823749823.exe"));
+        assert!(looks_randomized("python1234567890.exe"));
+        assert!(looks_randomized("a3f8k2m9x1-x64.exe"));
     }
 
     #[test]

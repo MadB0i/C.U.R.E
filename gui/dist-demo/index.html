@@ -45,7 +45,7 @@
               stroke-width="1.5"
             ></path>
           </svg>
-          <div class="wordmark">C.U.R.E<span>· public demo</span></div>
+          <div class="wordmark">C.U.R.E</div>
         </div>
         <nav aria-label="Sections" class="nav">
           <button
@@ -146,7 +146,7 @@
             ><span aria-hidden="true" class="crumb-sep">›</span>
             <div class="view-title" id="view-title">Overview</div>
           </nav>
-          <span class="demo-chip" title="Deterministic sample data. Nothing here came from a real machine.">PUBLIC DEMO</span><span
+          <span
             class="topbar-clock"
             id="topbar-clock"
             title="Local PC date and time"
@@ -551,7 +551,6 @@
             class="view"
             id="scan-view"
           >
-            <div class="demo-banner" role="note"><strong>Public demo</strong> — every file, path and finding on this screen is deterministic sample data. Nothing here was read from a real machine, and nothing here is a threat detection.</div>
             <div class="rescue-head">
               <div class="rescue-head-copy">
                 <div class="eyebrow">Rescue / System X-Ray</div>
@@ -813,7 +812,7 @@
                ============================================================ -->
                               <section class="view hidden" id="results-view" aria-label="Investigation">
             <div class="results-main">
-              <div class="demo-banner" role="note"><strong>Public demo</strong> — every file, path and finding on this screen is deterministic sample data. Nothing here was read from a real machine, and nothing here is a threat detection.</div><div class="results-stack">
+              <div class="results-stack">
                 <div class="inv-shell">
                   <header class="inv-head">
                     <div class="inv-head-copy">
@@ -1078,7 +1077,6 @@
             class="view hidden"
             id="view-detective"
           >
-            <div class="demo-banner" role="note"><strong>Public demo</strong> — every file, path and finding on this screen is deterministic sample data. Nothing here was read from a real machine, and nothing here is a threat detection.</div>
             <div class="dt-head">
               <div class="dt-head-copy">
                 <div class="eyebrow">Detective mode</div>
@@ -1278,7 +1276,6 @@
             id="cleanup-view"
           >
             <div class="results-stack">
-            <div class="demo-banner" role="note"><strong>Public demo</strong> — every file, path and finding on this screen is deterministic sample data. Nothing here was read from a real machine, and nothing here is a threat detection.</div>
               <div class="results-head">
                 <div class="headline-wrap">
                   <h1 class="headline">Storage Workstation</h1>
@@ -2059,7 +2056,6 @@
             class="view hidden"
             id="view-overview"
           >
-            <div class="demo-banner" role="note"><strong>Public demo</strong> — every file, path and finding on this screen is deterministic sample data. Nothing here was read from a real machine, and nothing here is a threat detection.</div>
             <div class="results-stack">
               <div class="ov-hero">
                 <div class="ov-dial-wrap">
@@ -2832,6 +2828,11 @@
             <p class="mb-run-detail" id="mb-run-detail"></p>
           </div>
           <ol class="mb-steps" id="mb-run-steps"></ol>
+          <div class="mb-actions" style="margin-top: 1rem;">
+            <button class="btn btn-secondary btn-sm" id="mb-run-cancel" type="button">
+              Cancel Transfer
+            </button>
+          </div>
         </div>
 
         <div class="hidden" id="mb-done-body">
@@ -3007,9 +3008,6 @@
         <dl class="detail-drawer inc-drawer-body" id="inc-drawer-body"></dl>
       </div>
     </div>
-    <!-- Public demo: deterministic labelled mock backend. Not shipped. -->
-    <script>window.__CURE_FORCE_MOCK = true;</script>
-    <script src="mock-tauri.js"></script>
     <script src="operator.js"></script>
     <script src="xray.js"></script>
     <script src="storage-workstation.js"></script>
@@ -3070,6 +3068,9 @@
           <div style="display: flex; justify-content: space-between; font-size: 0.78rem; font-family: monospace;">
             <span id="sr-exec-current-file">Reading source directories...</span>
             <span id="sr-exec-stats">Calculating...</span>
+          </div>
+          <div style="margin-top: 1rem; display: flex; justify-content: flex-end;">
+            <button class="btn btn-secondary btn-sm" id="sr-exec-cancel-btn" type="button">Cancel Transfer</button>
           </div>
         </div>
       </div>

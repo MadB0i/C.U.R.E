@@ -61,14 +61,7 @@ fn normalize(path: &str) -> String {
 }
 
 fn looks_randomized(name: &str) -> bool {
-    let stem = name.split('.').next().unwrap_or(name);
-    let len = stem.len();
-    if len < 8 {
-        return false;
-    }
-    let digits = stem.chars().filter(|c| c.is_ascii_digit()).count();
-    let vowels = stem.chars().filter(|c| "aeiou".contains(*c)).count();
-    (digits as f64 / len as f64) > 0.4 || (len >= 10 && (vowels as f64 / len as f64) < 0.15)
+    crate::risk::looks_randomized(name)
 }
 
 fn in_drop_zone(path: &str) -> bool {

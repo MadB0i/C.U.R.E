@@ -379,17 +379,52 @@
     const progressFile = $("sr-exec-current-file");
     const progressStats = $("sr-exec-stats");
 
-    // Setup listener for Tauri progress events
+    // Setup listener for Tauri progress events with live speed & ETA
     let unlisten = null;
+    let lastBytes = 0;
+    let lastTime = performance.now();
+    let smoothedSpeed = 0;
     if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.listen) {
       unlisten = await window.__TAURI__.event.listen("rescue-migration-progress", (ev) => {
-        const p = ev.payload;
-        if (progressFill) progressFill.style.width = `${Math.min(p.percent, 100)}%`;
-        if (progressFile) progressFile.textContent = p.current_file;
+        const p = ev.payload || {};
+        const now = performance.now();
+        const timeDelta = (now - lastTime) / 1000;
+        if (timeDelta >= 0.4) {
+          const bytesDelta = (p.bytes_copied || 0) - lastBytes;
+          const currentSpeed = bytesDelta / timeDelta;
+          smoothedSpeed = smoothedSpeed === 0 ? currentSpeed : (smoothedSpeed * 0.7 + currentSpeed * 0.3);
+          lastBytes = p.bytes_copied || 0;
+          lastTime = now;
+        }
+        const speedMb = (Math.max(0, smoothedSpeed) / (1024 * 1024)).toFixed(1);
+        const remainingBytes = Math.max(0, (p.total_bytes || 0) - (p.bytes_copied || 0));
+        let etaText = "--";
+        if (smoothedSpeed > 1024) {
+          const remainingSec = Math.round(remainingBytes / smoothedSpeed);
+          if (remainingSec < 60) etaText = `${remainingSec}s`;
+          else if (remainingSec < 3600) etaText = `${Math.floor(remainingSec / 60)}m ${remainingSec % 60}s`;
+          else etaText = `${(remainingSec / 3600).toFixed(1)}h`;
+        }
+
+        if (progressFill) progressFill.style.width = `${Math.min(p.percent || 0, 100)}%`;
+        if (progressFile) progressFile.textContent = p.current_file || "";
         if (progressStats) {
-          progressStats.textContent = `${p.files_copied} / ${p.total_files} files · ${formatBytes(p.bytes_copied)} / ${formatBytes(p.total_bytes)}`;
+          progressStats.textContent = `${p.files_copied || 0} / ${p.total_files || 0} files · ${formatBytes(p.bytes_copied || 0)} / ${formatBytes(p.total_bytes || 0)} · ${speedMb} MB/s · ETA: ${etaText}`;
         }
       });
+    }
+
+    const cancelBtn = $("sr-exec-cancel-btn");
+    if (cancelBtn) {
+      cancelBtn.disabled = false;
+      cancelBtn.textContent = "Cancel Transfer";
+      cancelBtn.onclick = async () => {
+        cancelBtn.disabled = true;
+        cancelBtn.textContent = "Cancelling…";
+        try {
+          await invoke("storage_cancel");
+        } catch (_) {}
+      };
     }
 
     try {

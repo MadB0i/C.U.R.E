@@ -2828,6 +2828,11 @@
             <p class="mb-run-detail" id="mb-run-detail"></p>
           </div>
           <ol class="mb-steps" id="mb-run-steps"></ol>
+          <div class="mb-actions" style="margin-top: 1rem;">
+            <button class="btn btn-secondary btn-sm" id="mb-run-cancel" type="button">
+              Cancel Transfer
+            </button>
+          </div>
         </div>
 
         <div class="hidden" id="mb-done-body">
@@ -3063,6 +3068,9 @@
           <div style="display: flex; justify-content: space-between; font-size: 0.78rem; font-family: monospace;">
             <span id="sr-exec-current-file">Reading source directories...</span>
             <span id="sr-exec-stats">Calculating...</span>
+          </div>
+          <div style="margin-top: 1rem; display: flex; justify-content: flex-end;">
+            <button class="btn btn-secondary btn-sm" id="sr-exec-cancel-btn" type="button">Cancel Transfer</button>
           </div>
         </div>
       </div>
