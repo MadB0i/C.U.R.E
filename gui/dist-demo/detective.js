@@ -73,17 +73,6 @@
     receipt: null,
   };
 
-  let luma = null;
-
-  function companion() {
-    if (!luma && window.CureCompanion) {
-      /* Claimed eagerly: a screen with its own persona must never be
-         overwritten by a global event that arrives first. */
-      luma = window.CureCompanion.onHost("detective");
-    }
-    return luma;
-  }
-
   /* ---------------------------------------------------------------------
      helpers
      --------------------------------------------------------------------- */
@@ -553,19 +542,11 @@
     const lead = leads.find(function (l) {
       return l.id === id;
     });
-    if (lead && companion()) {
-      if (lead.action_kind === "not_offered") {
-        companion().thinking("This one is off-limits. Here is why.");
-      } else {
-        companion().curious("Looking at " + lead.title);
-      }
-    }
     render();
   }
 
   function gotoWorkstation(lead) {
     setStep("review");
-    if (companion()) companion().review(1, "Ready for a decision");
     const ws = window.CureStorageWorkstation;
     /* Hand over the measurement the board is reading. The workstation must
        not rescan behind the operator's back, and the two screens must not
@@ -583,16 +564,50 @@
   /* ---------------------------------------------------------------------
      rendering
      --------------------------------------------------------------------- */
+  /* Case telemetry strip (Stage UI-07): the same figures the board shows,
+     as text, before the operator reads anything else. Em-dashes mean the
+     investigation has not run yet — never a zero. */
+  function renderStats(inv) {
+    const val = function (id) {
+      return $(id);
+    };
+    const total = val("dt-stat-total");
+    const candidates = val("dt-stat-candidates");
+    const files = val("dt-stat-files");
+    const leads = val("dt-stat-leads");
+    if (!inv) {
+      if (total) total.textContent = "—";
+      if (candidates) candidates.textContent = "—";
+      if (files) files.textContent = "—";
+      if (leads) leads.textContent = "—";
+      return;
+    }
+    const map = inv.map || {};
+    const head = inv.headline || {};
+    const evidence = inv.evidence || {};
+    const candidateBytes = head.candidate_bytes || map.candidate_bytes || 0;
+    const candidateLabel =
+      head.candidate_label || map.candidate_label || "—";
+    if (total) total.textContent = map.measured_bytes_label || "—";
+    if (candidates) {
+      candidates.textContent = candidateBytes ? candidateLabel : "None found";
+      candidates.classList.toggle("text-warning", !!candidateBytes);
+    }
+    if (files) {
+      files.textContent = String(evidence.files_measured || 0);
+    }
+    if (leads) {
+      leads.textContent = String((inv.leads || []).length);
+    }
+  }
+
   function render() {
     const inv = state.investigation;
-    const subline = $("dt-subline");
     const total = $("dt-map-total");
 
     if (!inv) {
-      if (subline) {
-        subline.textContent = "Nothing is measured until you start an investigation.";
-      }
       if (total) total.textContent = "—";
+      renderStats(null);
       buildLeads();
       buildDetail();
       return;
@@ -600,49 +615,13 @@
 
     const map = inv.map || {};
     if (total) total.textContent = map.measured_bytes_label || "—";
-    if (subline) {
-      const head = inv.headline || {};
-      const candidateBytes = head.candidate_bytes || map.candidate_bytes || 0;
-      const candidateLabel =
-        head.candidate_label || map.candidate_label || "—";
-      subline.textContent =
-        (map.measured_bytes_label || head.measured_label || "—") +
-        " measured across " +
-        ((inv.evidence && inv.evidence.files_measured) || 0) +
-        " files. " +
-        (candidateBytes
-          ? candidateLabel + " can be reviewed for removal."
-          : "Nothing in this measurement can be offered for removal.") +
-        (map.certainty && map.certainty !== "measured"
-          ? " Some locations could not be read, so this is a floor, not a total."
-          : "");
-    }
+    renderStats(inv);
 
     buildMap(inv);
     buildLegend(inv);
     buildBands(inv);
     buildLeads();
     buildDetail();
-
-    const mapHint = $("dt-map-hint");
-    if (mapHint && state.focus) {
-      const slice = (map.slices || []).find(function (s) {
-        return s.key === state.focus;
-      });
-      if (slice) {
-        mapHint.textContent =
-          "Focused on " +
-          slice.label +
-          " — " +
-          slice.bytes_allocated_label +
-          ", " +
-          percent(slice.share) +
-          " of what was measured. Select it again to clear the focus.";
-      }
-    } else if (mapHint) {
-      mapHint.textContent =
-        "Each arc is one measured category, sized by the bytes it occupies on the volume. Select one to focus the discoveries beside it.";
-    }
   }
 
   /* ---------------------------------------------------------------------
@@ -659,7 +638,6 @@
     }
     if (rescan) rescan.classList.add("hidden");
     setStep("scan");
-    if (companion()) companion().scan("Measuring storage");
     if (window.CureTopbar && window.CureTopbar.storageScanStarted) {
       window.CureTopbar.storageScanStarted();
     }
@@ -682,12 +660,6 @@
         button.textContent = "Start investigation";
       }
       setStep("scan");
-      if (companion()) companion().failed("The measurement could not finish");
-      const subline = $("dt-subline");
-      if (subline) {
-        subline.textContent =
-          "The measurement could not finish: " + clean(err, "unknown error") + ".";
-      }
       return;
     }
     state.running = false;
@@ -713,7 +685,6 @@
 
     if (!state.investigation) {
       setStep("scan");
-      if (companion()) companion().idle("No investigation data");
       render();
       return;
     }
@@ -731,23 +702,11 @@
     setStep("discover");
     const inv = state.investigation;
     if (inv.major_lead) {
-      if (companion()) {
-        companion().major("That is the biggest concentration here");
-      }
       revealMajor(inv.major_lead);
     } else if (inv.notable_leads && inv.notable_leads.length) {
-      if (companion()) {
-        companion().notice("New clue discovered");
-      }
       revealMajor(inv.notable_leads[0]);
     } else if (inv.leads && inv.leads.length) {
-      if (companion()) {
-        companion().investigating("Looking over the measurement");
-      }
     } else {
-      if (companion()) {
-        companion().idle("Nothing to reclaim here");
-      }
     }
     render();
   }
@@ -873,7 +832,6 @@
       setCaseStatus(
         "Synthetic demo case file. Nothing was measured, written or uploaded."
       );
-      if (companion()) companion().curious("A synthetic case file, ready to read");
       return;
     }
 
@@ -902,9 +860,7 @@
          same claim. */
       if (caseFile.status === "recovery_verified") {
         setStep("closed");
-        if (companion()) companion().cleanup("success", "Recovery verified");
       } else {
-        if (companion()) companion().curious("Case file ready");
       }
     } catch (err) {
       setCaseStatus(clean(err, "The case file could not be written."), true);
@@ -927,13 +883,6 @@
         if (!p) return;
         if (p.phase === lastPhase) return;
         lastPhase = p.phase;
-        if (companion()) {
-          if (p.phase === "hashing") {
-            companion().thinking("Verifying duplicate copies byte for byte");
-          } else if (p.phase === "walking") {
-            companion().scan("scan", "Measuring storage");
-          }
-        }
       });
     }
 
@@ -974,12 +923,8 @@
         }, 0);
         if (gain > 0) {
           setStep("closed");
-          if (companion()) companion().cleanup("success", "Space recovery verified");
         } else {
           setStep("verify");
-          if (companion()) {
-            companion().thinking("Files removed; free space not observed");
-          }
         }
       });
     }

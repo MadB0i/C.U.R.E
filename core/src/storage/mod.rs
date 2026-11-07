@@ -23,6 +23,7 @@ pub mod detective;
 pub mod duplicates;
 pub mod fsx;
 pub mod reclaim;
+pub mod rescue;
 pub mod safedelete;
 pub mod tiers;
 pub mod types;
@@ -30,6 +31,7 @@ pub mod walk;
 
 // The DTO vocabulary is re-exported flat so callers write
 // `storage::StorageScan` rather than reaching through `storage::types::`.
+pub use rescue::*;
 pub use types::*;
 
 use std::path::{Path, PathBuf};

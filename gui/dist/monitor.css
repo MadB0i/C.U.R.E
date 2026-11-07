@@ -1,0 +1,586 @@
+/* ==========================================================================
+   C.U.R.E MONITOR — Workstation Stylesheet (Stage UI-06)
+   Session event feed, canary tripwire guard, post-login observation chamber.
+   Same grammar as the Investigation Console and the Quarantine Workstation:
+   graphite chassis, restrained violet identity, semantic indicators only.
+   Monospace tabular figures, honest session-scoped evidence, zero clutter.
+   ========================================================================== */
+
+/* ---------- Monitor Workstation Shell ------------------------------------ */
+.m-shell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ---------- Header Area -------------------------------------------------- */
+.m-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s4) var(--s6);
+}
+
+.m-head-copy {
+  min-width: 0;
+  max-width: 68ch;
+}
+
+.m-head .eyebrow {
+  font-size: var(--t-2xs);
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: var(--s1);
+}
+
+.m-head .headline {
+  font-size: var(--xl);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  color: var(--text);
+  margin: 0 0 var(--s2) 0;
+  line-height: 1.25;
+}
+
+.m-head .subline {
+  font-size: var(--t-sm);
+  color: var(--text-2);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.m-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+
+/* ---------- Monitor Rail (Session events · Canary · Login observation) --- */
+.m-rail {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  border-bottom: 1px solid var(--hair);
+  padding-bottom: var(--s2);
+  overflow-x: auto;
+}
+
+.m-rail-btn {
+  padding: 8px 14px;
+  font-size: var(--t-sm);
+  font-weight: 600;
+  font-family: var(--font-ui);
+  color: var(--text-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 120ms ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.m-rail-btn:hover {
+  color: var(--text);
+  background: var(--cure-tint-soft);
+}
+
+.m-rail-btn[aria-current="true"] {
+  color: var(--text);
+  background: var(--ink-250);
+  border-color: var(--hair-strong);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+/* ---------- Telemetry Stats Strip ---------------------------------------- */
+.m-stats-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s3);
+}
+
+.m-stat-card {
+  padding: var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition: border-color 140ms ease;
+}
+
+.m-stat-card:hover {
+  border-color: var(--hair-strong);
+}
+
+.m-stat-val {
+  font-family: var(--font-mono);
+  font-size: var(--display);
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-stat-val.text-warning {
+  color: var(--warning);
+}
+
+.m-stat-val.text-ok {
+  color: var(--ok);
+}
+
+.m-stat-val.text-info {
+  color: #38bdf8;
+}
+
+.m-stat-val.text-danger {
+  color: var(--danger);
+}
+
+.m-stat-label {
+  font-size: var(--t-2xs);
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* ---------- Feed Filters -------------------------------------------------- */
+.m-feed-filters {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+/* ---------- Session Event Feed ------------------------------------------- */
+.m-feed-card {
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.m-feed {
+  list-style: none;
+  margin: 0;
+  padding: var(--s2) 0;
+  max-height: 480px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* An empty feed collapses entirely; the tactical empty state carries the
+   message instead of a hollow pill. */
+.m-feed-card:has(> .m-feed:empty) {
+  display: none;
+}
+
+.m-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  padding: 7px var(--s5);
+  border-bottom: 1px solid var(--hair-soft);
+  font-size: var(--t-sm);
+  line-height: 1.5;
+  transition: background 100ms ease;
+}
+
+.m-row:last-child {
+  border-bottom: none;
+}
+
+.m-row:hover {
+  background: var(--cure-tint-soft);
+}
+
+.m-row.m-row-canary {
+  background: var(--warning-tint);
+}
+
+.m-row.m-row-canary:hover {
+  background: var(--warning-tint);
+  border-color: rgba(224, 164, 88, 0.2);
+}
+
+.m-time {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  flex: 0 0 auto;
+}
+
+.m-tag {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 7px;
+  border-radius: 4px;
+  flex: 0 0 auto;
+}
+
+.m-tag-info {
+  background: var(--ink-200);
+  color: var(--text-3);
+  border: 1px solid var(--hair);
+}
+
+.m-tag-scan {
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+}
+
+.m-tag-canary {
+  background: var(--warning-tint);
+  color: var(--warning);
+  border: 1px solid rgba(224, 164, 88, 0.3);
+}
+
+.m-tag-action {
+  background: var(--ok-tint);
+  color: var(--ok);
+  border: 1px solid rgba(99, 199, 154, 0.25);
+}
+
+.m-text {
+  color: var(--text-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.m-text.selectable {
+  user-select: text;
+}
+
+/* ---------- Tactical Empty State ----------------------------------------- */
+.m-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: var(--s8) var(--s6);
+  background: var(--ink-150);
+  border: 1px solid var(--hair);
+  border-radius: var(--r3);
+  gap: var(--s3);
+  max-width: 680px;
+  margin: var(--s4) auto;
+}
+
+.m-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--ink-200);
+  border: 1px solid var(--hair);
+  color: var(--text-3);
+  margin-bottom: var(--s1);
+}
+
+.m-empty-title {
+  font-size: var(--lg);
+  font-weight: 650;
+  color: var(--text);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.m-empty-sub {
+  font-size: var(--t-sm);
+  color: var(--text-2);
+  line-height: 1.55;
+  margin: 0;
+  max-width: 54ch;
+}
+
+/* ---------- Canary Guard Card -------------------------------------------- */
+.m-guard-card {
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  padding: var(--s5);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s4);
+}
+
+.m-guard-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-width: 0;
+}
+
+.m-guard-state-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+
+.m-guard-state {
+  font-family: var(--font-mono);
+  font-size: var(--lg);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.m-guard-note {
+  font-size: var(--t-sm);
+  color: var(--text-2);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.m-guard-card .severity-badge {
+  font-size: var(--t-sm);
+  padding: 4px 12px;
+}
+
+/* ---------- Disclosure Cards (experimental scope, limitations) ----------- */
+.m-disclosure {
+  background: var(--ink-150);
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--cure-line);
+  border-radius: var(--r2);
+  padding: var(--s4) var(--s5);
+  font-size: var(--t-sm);
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+.m-disclosure strong {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.m-disclosure code {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  background: var(--ink-200);
+  border: 1px solid var(--hair);
+  border-radius: 4px;
+  padding: 1px 6px;
+  color: var(--text);
+}
+
+.m-disclosure.m-disclosure-warn {
+  border-left-color: var(--warning);
+}
+
+.m-disclosure p {
+  margin: 0 0 var(--s2) 0;
+}
+
+.m-disclosure p:last-child {
+  margin-bottom: 0;
+}
+
+/* ---------- Incident · Observation Chamber -------------------------------- */
+.m-observe {
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  padding: var(--s5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+
+.m-observe p {
+  margin: 0;
+}
+
+.m-observe .section-title {
+  margin-bottom: 0;
+}
+
+.m-verdict-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  flex-wrap: wrap;
+}
+
+.m-verdict-row .severity-badge {
+  font-family: var(--font-mono);
+  font-size: var(--lg);
+  padding: 6px 16px;
+  letter-spacing: 0.03em;
+}
+
+.m-panels {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+
+/* The incident timeline keeps its historical class names (the render path
+   builds `.inc-event` rows); they are restyled here into the feed grammar. */
+.inc-timeline .inc-event {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--s2) var(--s5);
+  border-bottom: 1px solid var(--hair-soft);
+}
+
+.inc-timeline .inc-event:last-child {
+  border-bottom: none;
+}
+
+.inc-timeline .inc-event:hover {
+  background: var(--cure-tint-soft);
+}
+
+.inc-timeline .inc-event-top {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+
+.inc-timeline .inc-event-top .ev-time {
+  flex: 0 0 auto;
+  font-size: var(--t-2xs);
+  color: var(--text-3);
+}
+
+.inc-timeline .inc-event-top b {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.inc-timeline .inc-event-top .selectable {
+  color: var(--text-2);
+  font-size: var(--t-sm);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.inc-timeline .inc-event-det {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px var(--s3);
+  background: transparent;
+  border: none;
+  padding: 0 0 var(--s1) 0;
+}
+
+.inc-timeline .inc-field.trunc {
+  max-width: 640px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  color: var(--text-3);
+}
+
+.inc-timeline .inc-field.trunc:focus,
+.inc-timeline .inc-field.trunc:hover {
+  white-space: normal;
+}
+
+/* ---------- Responsive Layout -------------------------------------------- */
+@media (max-width: 960px) {
+  .m-stats-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .m-stats-strip {
+    grid-template-columns: 1fr;
+  }
+  .m-head-actions {
+    width: 100%;
+  }
+  .m-guard-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .m-guard-actions {
+    width: 100%;
+  }
+  .m-guard-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ---------- Light Theme Overrides ---------------------------------------- */
+[data-theme="light"] .m-stat-card,
+[data-theme="light"] .m-feed-card,
+[data-theme="light"] .m-guard-card,
+[data-theme="light"] .m-observe {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .m-rail-btn[aria-current="true"] {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+[data-theme="light"] .m-empty,
+[data-theme="light"] .m-disclosure {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .m-empty-icon {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .m-tag-info {
+  background: #f1f5f9;
+  color: #475569;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .m-row:hover,
+[data-theme="light"] .inc-event:hover {
+  background: rgba(139, 111, 240, 0.05);
+}
+
+[data-theme="light"] .m-row.m-row-canary {
+  background: rgba(224, 164, 88, 0.09);
+}

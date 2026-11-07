@@ -10,7 +10,8 @@
 //  What it is NOT: no file access, no encryption, no network, no registry,
 //                  no persistence, nothing but a visible window.
 //
-//  Close it with Alt+F4 (or `taskkill /IM fake-overlay.exe /F`).
+//  Close it with Alt+F4, or `taskkill /F /T /PID <pid>` for the exact PID
+//  (name-based killing is forbidden by core/tests/qa_process_safety.rs).
 //  Source of truth lives next to this file; review before running anything.
 // ============================================================================
 

@@ -5,22 +5,32 @@
     "frontendDist": [
       "../dist-demo/index.html",
       "../dist-demo/style.css",
+      "../dist-demo/operator.css",
       "../dist-demo/xray.css",
-      "../dist-demo/luma.css",
+      "../dist-demo/investigate.css",
+      "../dist-demo/quarantine.css",
+      "../dist-demo/monitor.css",
       "../dist-demo/storage-workstation.css",
       "../dist-demo/detective.css",
-      "../dist-demo/luma.js",
+      "../dist-demo/agent.css",
+      "../dist-demo/app.js",
+      "../dist-demo/operator.js",
       "../dist-demo/xray.js",
       "../dist-demo/storage-workstation.js",
       "../dist-demo/casefile.js",
       "../dist-demo/detective.js",
-      "../dist-demo/app.js",
-      "../dist-demo/mock-tauri.js"
+      "../dist-demo/agent-radar.js",
+      "../dist-demo/mock-tauri.js",
+      "../dist-demo/storage-rescue.css",
+      "../dist-demo/storage-rescue.js",
+      "../dist-demo/move-bot.js"
     ]
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -33,7 +43,9 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "languages": ["English"],
+        "languages": [
+          "English"
+        ],
         "displayLanguageSelector": false
       }
     }

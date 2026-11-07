@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use cure_core::canary::{shadow_wipe_reason, CanaryAlert};
+use cure_core::agent;
+use cure_core::canary::{shadow_wipe_name_reason, CanaryAlert};
 use cure_core::model::{PersistenceEntry, PersistenceSource, RiskLevel, ScoredEntry};
 use cure_core::overlay::{self, WindowDesc};
 use cure_core::process_scan::{self, ProcessInfo, ProcessScore};
@@ -7,6 +8,7 @@ use cure_core::ransom_detect::{self, RansomFinding as RansomFindingCore};
 use cure_core::signature::SignatureStatus;
 use cure_core::storage;
 use cure_core::{baseline, quarantine, risk, scanners};
+use cure_dirwatch::WorkspaceChangeKind;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -68,7 +70,8 @@ struct ProcessFinding {
     exe_path: String,
     score: i32,
     risk: String,
-    reasons: Vec<String>,
+    /// Evidence items with explicit levels (mirrors the core model).
+    evidence: Vec<cure_core::evidence::Evidence>,
 }
 #[derive(Serialize)]
 struct RansomFinding {
@@ -222,13 +225,28 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         "Windows-only source",
     ));
     emit_stage(&app, "startup", "Walking the per-user Startup folder");
-    entries.extend(scanners::startup::scan(&startup_root()));
+    let startup_user = scanners::startup::scan(&startup_root());
     emit_stage(
         &app,
         "startup-common",
         "Walking the machine-wide Startup folder",
     );
-    entries.extend(scanners::startup::scan_common());
+    let startup_common = scanners::startup::scan_common();
+    let startup_total = startup_user.len() + startup_common.len();
+    record_source_state(
+        &app,
+        &mut source_states,
+        cure_core::report::CoverageRow::checked(
+            "Startup folders",
+            format!(
+                "{} entr{}",
+                startup_total,
+                if startup_total == 1 { "y" } else { "ies" }
+            ),
+        ),
+    );
+    entries.extend(startup_user);
+    entries.extend(startup_common);
     emit_stage(&app, "tasks", "Parsing scheduled task definitions");
     let task_report = scanners::scheduled_tasks::scan_report(&tasks_root());
     record_source_state(&app, &mut source_states, tasks_state_row(&task_report));
@@ -249,16 +267,75 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         record_source_state(&app, &mut source_states, wmi_state_row(&wmi_report));
         entries.extend(wmi_report.entries);
         emit_stage(&app, "ifeo", "Checking IFEO debuggers and AppInit DLLs");
-        entries.extend(scanners::ifeo::scan());
-        entries.extend(scanners::appinit::scan());
+        let ifeo_entries = scanners::ifeo::scan();
+        let appinit_entries = scanners::appinit::scan();
+        let ifeo_total = ifeo_entries.len() + appinit_entries.len();
+        record_source_state(
+            &app,
+            &mut source_states,
+            cure_core::report::CoverageRow::checked(
+                "IFEO and AppInit",
+                format!(
+                    "{} entr{}",
+                    ifeo_total,
+                    if ifeo_total == 1 { "y" } else { "ies" }
+                ),
+            ),
+        );
+        entries.extend(ifeo_entries);
+        entries.extend(appinit_entries);
         emit_stage(&app, "com", "Walking per-user COM registrations");
-        entries.extend(scanners::com::scan());
+        let com_entries = scanners::com::scan();
+        record_source_state(
+            &app,
+            &mut source_states,
+            cure_core::report::CoverageRow::checked(
+                "COM registrations",
+                format!(
+                    "{} entr{}",
+                    com_entries.len(),
+                    if com_entries.len() == 1 { "y" } else { "ies" }
+                ),
+            ),
+        );
+        entries.extend(com_entries);
+        // Detection Engine v2: Winlogon session-start values and Active
+        // Setup StubPaths — boot/logon persistence Defender never surfaces.
+        emit_stage(&app, "bootlogon", "Checking Winlogon and Active Setup");
+        let boot_entries = scanners::bootlogon::scan().unwrap_or_default();
+        record_source_state(
+            &app,
+            &mut source_states,
+            cure_core::report::CoverageRow::checked(
+                "Winlogon & Active Setup",
+                format!(
+                    "{} entr{}",
+                    boot_entries.len(),
+                    if boot_entries.len() == 1 { "y" } else { "ies" }
+                ),
+            ),
+        );
+        entries.extend(boot_entries);
     }
     #[cfg(not(windows))]
-    source_states.push(cure_core::report::CoverageRow::unavailable(
-        "WMI subscriptions",
-        "Windows-only source",
-    ));
+    {
+        source_states.push(cure_core::report::CoverageRow::unavailable(
+            "WMI subscriptions",
+            "Windows-only source",
+        ));
+        source_states.push(cure_core::report::CoverageRow::unavailable(
+            "IFEO and AppInit",
+            "Windows-only source",
+        ));
+        source_states.push(cure_core::report::CoverageRow::unavailable(
+            "COM registrations",
+            "Windows-only source",
+        ));
+        source_states.push(cure_core::report::CoverageRow::unavailable(
+            "Winlogon & Active Setup",
+            "Windows-only source",
+        ));
+    }
     let count = entries.len();
     emit_stage(
         &app,
@@ -422,7 +499,7 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
                 exe_path: info.exe_path.clone(),
                 score: ps.score,
                 risk: format!("{:?}", ps.risk),
-                reasons: ps.reasons.clone(),
+                evidence: ps.evidence.clone(),
             };
             let _ = app.emit(
                 "scan-progress",
@@ -437,6 +514,20 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
             process_findings.push(finding);
         }
     }
+    #[cfg(windows)]
+    record_source_state(
+        &app,
+        &mut source_states,
+        cure_core::report::CoverageRow::checked(
+            "Running processes",
+            format!("{} enumerated", processes.len()),
+        ),
+    );
+    #[cfg(not(windows))]
+    source_states.push(cure_core::report::CoverageRow::unavailable(
+        "Running processes",
+        "Windows-only source",
+    ));
     // ── ransom detection ───────────────────────────────────────────────
     emit_stage(
         &app,
@@ -490,6 +581,22 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         );
         ransom_findings.push(rf);
     }
+    let ransom_row = if folders.is_empty() {
+        cure_core::report::CoverageRow::not_checked(
+            "Ransom indicators",
+            "no user profile folders found",
+        )
+    } else {
+        cure_core::report::CoverageRow::checked(
+            "Ransom indicators",
+            format!(
+                "{} folders, {} findings",
+                folders.len(),
+                ransom_findings.len()
+            ),
+        )
+    };
+    record_source_state(&app, &mut source_states, ransom_row);
     emit_stage(&app, "done", "Saving baseline");
     baseline::save_baseline(&data_dir.join("baseline.json"), &entries)
         .map_err(|e| format!("cannot write baseline: {e}"))?;
@@ -1123,7 +1230,9 @@ fn kill_high_risk_processes(processes: Vec<(String, u32)>) -> Result<KillReport,
                     exe_path: String::new(),
                     score: 0,
                     risk: "HighRisk".to_string(),
-                    reasons: vec!["killed by user request".to_string()],
+                    evidence: vec![cure_core::evidence::Evidence::observed(
+                        "termination requested by the operator",
+                    )],
                 });
             }
             Err(e) => {
@@ -1506,6 +1615,451 @@ fn storage_validate_root(path: String) -> Result<StorageRootOptionDto, String> {
         volume_label: space.and_then(|v| v.label),
         selectable: true,
     })
+}
+
+/// Assess drive pressure and discover safe relocation candidates.
+#[tauri::command]
+fn storage_rescue_status(
+    source_drive: Option<String>,
+    target_drive: Option<String>,
+) -> Result<cure_core::storage::StorageRescueStatus, String> {
+    let src = source_drive.unwrap_or_else(|| "C:".into());
+    let tgt = target_drive.unwrap_or_default();
+    Ok(cure_core::storage::discover_migration_candidates(
+        &src, &tgt,
+    ))
+}
+
+/// Build a preflight-verified migration plan for selected candidate folders.
+#[tauri::command]
+fn storage_rescue_plan(
+    selected_ids: Vec<String>,
+    source_drive: String,
+    target_drive: String,
+) -> Result<cure_core::storage::MigrationPlan, String> {
+    Ok(cure_core::storage::build_migration_plan(
+        &selected_ids,
+        &source_drive,
+        &target_drive,
+    ))
+}
+
+/// Execute a safe copy-and-verify migration flow non-destructively.
+#[tauri::command]
+async fn storage_rescue_execute(
+    app: AppHandle,
+    candidate_id: String,
+    source_path: String,
+    target_path: String,
+    source_drive: String,
+    target_drive: String,
+) -> Result<cure_core::storage::MigrationReceipt, String> {
+    let cancel = AtomicBool::new(false);
+    let src = PathBuf::from(&source_path);
+    let dst = PathBuf::from(&target_path);
+    cure_core::storage::execute_candidate_migration(
+        &candidate_id,
+        &src,
+        &dst,
+        &source_drive,
+        &target_drive,
+        &cancel,
+        |progress| {
+            let _ = app.emit("rescue-migration-progress", progress);
+        },
+    )
+    .inspect(|receipt| {
+        let outcome = match receipt.items.first() {
+            Some(item) if item.is_verified => "copy_verified",
+            _ => "copy_failed",
+        };
+        persist_rescue_record(
+            "migration_copy",
+            outcome,
+            &candidate_id,
+            Some(&source_path),
+            Some(&target_path),
+            serde_json::to_value(receipt).unwrap_or(serde_json::Value::Null),
+        );
+    })
+    .map_err(|e| format!("Migration failed: {e}"))
+}
+
+/// Persist a migration lifecycle record to the app data directory so a
+/// restarted application can reconstruct and reconcile interrupted work.
+/// Persistence failures are logged but never fail the operator action.
+fn persist_rescue_record(
+    kind: &str,
+    outcome: &str,
+    candidate_id: &str,
+    source_path: Option<&str>,
+    target_path: Option<&str>,
+    payload: serde_json::Value,
+) {
+    let record = cure_core::storage::new_transaction_record(
+        kind,
+        candidate_id,
+        source_path.map(str::to_string),
+        target_path.map(str::to_string),
+        outcome,
+        payload,
+    );
+    let dir = cure_core::storage::migration_receipts_dir(&resolve_data_dir());
+    if let Err(e) = cure_core::storage::persist_transaction_record(&dir, &record) {
+        eprintln!("[cure] failed to persist migration record '{kind}': {e}");
+    }
+}
+
+/// Finalize candidate relocation (e.g. repointing Windows Known Folders or toolchains).
+#[tauri::command]
+fn storage_rescue_finalize(
+    candidate_id: String,
+    target_path: String,
+) -> Result<cure_core::storage::FinalizationReceipt, String> {
+    cure_core::storage::finalize_candidate_migration(&candidate_id, Path::new(&target_path))
+        .inspect(|receipt| {
+            persist_rescue_record(
+                "activation",
+                if receipt.registry_updated {
+                    "finalized"
+                } else {
+                    "finalization_failed"
+                },
+                &candidate_id,
+                None,
+                Some(&target_path),
+                serde_json::to_value(receipt).unwrap_or(serde_json::Value::Null),
+            );
+        })
+        .map_err(|e| format!("Finalization failed: {e}"))
+}
+
+/// Activate candidate relocation and validate application resolution.
+#[tauri::command]
+fn storage_rescue_activate(
+    candidate_id: String,
+    target_path: String,
+) -> Result<cure_core::storage::ActivationReceipt, String> {
+    cure_core::storage::activate_candidate_relocation(&candidate_id, Path::new(&target_path))
+        .inspect(|receipt| {
+            let outcome = if receipt.activation_succeeded && receipt.application_validation_passed {
+                "activated_validated"
+            } else if receipt.activation_succeeded {
+                "activation_failed_auto_rolled_back"
+            } else {
+                "activation_failed"
+            };
+            persist_rescue_record(
+                "activation",
+                outcome,
+                &candidate_id,
+                Some(receipt.previous_configuration.as_deref().unwrap_or("")),
+                Some(&target_path),
+                serde_json::to_value(receipt).unwrap_or(serde_json::Value::Null),
+            );
+        })
+        .map_err(|e| format!("Activation failed: {e}"))
+}
+
+/// Rollback candidate relocation to the original source path.
+#[tauri::command]
+fn storage_rescue_rollback(
+    candidate_id: String,
+    original_path: String,
+) -> Result<cure_core::storage::RollbackReceipt, String> {
+    cure_core::storage::rollback_candidate_relocation(&candidate_id, Path::new(&original_path))
+        .inspect(|receipt| {
+            persist_rescue_record(
+                "rollback",
+                if receipt.rollback_succeeded {
+                    "rolled_back"
+                } else {
+                    "rollback_failed"
+                },
+                &candidate_id,
+                Some(&original_path),
+                None,
+                serde_json::to_value(receipt).unwrap_or(serde_json::Value::Null),
+            );
+        })
+        .map_err(|e| format!("Rollback failed: {e}"))
+}
+
+/// User-approved source directory cleanup with live before/after C: free space measurement.
+#[tauri::command]
+fn storage_rescue_cleanup_source(
+    candidate_id: String,
+    source_path: String,
+    target_path: String,
+    confirmation_token: String,
+    expected_nonce: Option<String>,
+) -> Result<cure_core::storage::SourceCleanupReceipt, String> {
+    cure_core::storage::execute_source_cleanup(
+        &candidate_id,
+        Path::new(&source_path),
+        Path::new(&target_path),
+        &confirmation_token,
+        expected_nonce.as_deref(),
+    )
+    .inspect(|receipt| {
+        persist_rescue_record(
+            "source_cleanup",
+            "cleaned",
+            &candidate_id,
+            Some(&source_path),
+            Some(&target_path),
+            serde_json::to_value(receipt).unwrap_or(serde_json::Value::Null),
+        );
+    })
+    .map_err(|e| format!("Source cleanup failed: {e}"))
+}
+
+/// List persisted migration lifecycle records, reconciled against the live
+/// system. Read-only: this surfaces the state of interrupted migrations after
+/// an application restart without mutating anything.
+#[derive(serde::Serialize)]
+struct ReconciledRescueReceipt {
+    #[serde(flatten)]
+    record: cure_core::storage::MigrationTransactionRecord,
+    reconciliation: String,
+}
+
+#[tauri::command]
+fn storage_rescue_receipts() -> Result<Vec<ReconciledRescueReceipt>, String> {
+    let dir = cure_core::storage::migration_receipts_dir(&resolve_data_dir());
+    Ok(cure_core::storage::load_transaction_records(&dir)
+        .into_iter()
+        .map(|record| {
+            let reconciliation = cure_core::storage::reconcile_transaction_record(&record);
+            ReconciledRescueReceipt {
+                record,
+                reconciliation,
+            }
+        })
+        .collect())
+}
+
+/// Retrieve overall system posture and operator recommendations.
+#[tauri::command]
+fn operator_status() -> Result<cure_core::operator::OperatorPosture, String> {
+    let pressures = cure_core::storage::assess_drive_pressures();
+    let c_drive = pressures
+        .iter()
+        .find(|d| d.is_system)
+        .cloned()
+        .unwrap_or_else(|| cure_core::storage::DrivePressure {
+            drive_letter: "C:".into(),
+            volume_label: None,
+            total_bytes: 0,
+            free_bytes: 0,
+            used_bytes: 0,
+            pressure_pct: 0.0,
+            is_system: true,
+            is_congested: false,
+        });
+
+    let status = cure_core::storage::discover_migration_candidates("C:", "D:");
+    let safe_relief: u64 = status
+        .candidates
+        .iter()
+        .filter(|c| c.safety == cure_core::storage::MigrationSafety::Safe)
+        .map(|c| c.size_bytes)
+        .sum();
+
+    let sessions = cure_core::agent::inspect_agent_sessions();
+    let unverified_count = sessions
+        .iter()
+        .filter(|s| {
+            s.state == cure_core::agent::SessionProcessState::Unverified
+                || s.state == cure_core::agent::SessionProcessState::SuspectMismatch
+        })
+        .count();
+
+    let mut recommendations = Vec::new();
+    let mut highest_level = cure_core::operator::ResponseLevel::Level0Observe;
+
+    if c_drive.is_congested && safe_relief > 0 {
+        recommendations.push(cure_core::operator::OperatorRecommendation {
+            id: "rec_drive_pressure".into(),
+            level: cure_core::operator::ResponseLevel::Level2ActionRecommended,
+            title: "C: Drive Pressure Relief Available".into(),
+            description: format!("System drive is {:.1}% full. Relocating {} safe personal libraries can relieve storage pressure.", c_drive.pressure_pct, status.candidates.len()),
+            risk_assessment: "Non-destructive. Source preserved until verified.".into(),
+            action_type: "storage_rescue".into(),
+            action_label: "Open Storage Rescue".into(),
+            target: "C:".into(),
+            required_confirmation_token: None,
+        });
+        highest_level =
+            highest_level.max(cure_core::operator::ResponseLevel::Level2ActionRecommended);
+    }
+
+    for s in &sessions {
+        if s.is_orphan {
+            recommendations.push(cure_core::operator::OperatorRecommendation {
+                id: format!("rec_orphan_{}", s.pid),
+                level: cure_core::operator::ResponseLevel::Level1Review,
+                title: format!("Orphaned Worker Detected (PID {})", s.pid),
+                description: format!("Process '{}' has survived the exit of its parent process.", s.name),
+                risk_assessment: "Worker may be consuming background CPU/RAM without active user session.".into(),
+                action_type: "agent_session".into(),
+                action_label: "Inspect Session".into(),
+                target: format!("{}", s.pid),
+                required_confirmation_token: Some(format!("TERMINATE_{}", s.pid)),
+            });
+            highest_level = highest_level.max(cure_core::operator::ResponseLevel::Level1Review);
+        }
+    }
+
+    Ok(cure_core::operator::OperatorPosture {
+        timestamp_unix: cure_core::agent::now_unix(),
+        highest_threat_level: highest_level,
+        c_drive_congested: c_drive.is_congested,
+        c_drive_pressure_pct: c_drive.pressure_pct,
+        c_drive_free_bytes: c_drive.free_bytes,
+        recommended_storage_relief_bytes: safe_relief,
+        active_agent_count: sessions.len(),
+        unverified_agent_count: unverified_count,
+        threat_findings: vec![],
+        recommendations,
+    })
+}
+
+/// Retrieve deep agent session hierarchy and orphan states.
+#[tauri::command]
+fn operator_agent_sessions() -> Result<Vec<cure_core::agent::AgentSessionDetail>, String> {
+    Ok(cure_core::agent::inspect_agent_sessions())
+}
+
+/// Request non-destructive graceful shutdown of an agent window or session.
+#[tauri::command]
+fn operator_agent_graceful_shutdown(pid: u32) -> Result<bool, String> {
+    cure_core::agent::request_graceful_shutdown(pid)
+}
+
+/// Safely terminate an agent process tree with explicit user confirmation token.
+#[tauri::command]
+fn operator_agent_terminate(
+    pid: u32,
+    expected_exe: String,
+    expected_start_time: Option<u64>,
+    confirmation_token: String,
+) -> Result<cure_core::operator::ProcessContainmentReceipt, String> {
+    cure_core::agent::end_agent_process_tree(
+        pid,
+        &expected_exe,
+        expected_start_time,
+        &confirmation_token,
+    )
+}
+
+/// End ONE detected agent process, selected from the radar.
+///
+/// Scoped by design: the target must be present in a fresh, backend-side
+/// enumeration of supported agent processes — the renderer cannot name an
+/// arbitrary process. The fresh enumeration also supplies the identity
+/// anchor (image name + creation time) that rejects stale or recycled
+/// PIDs; the renderer's own start time must still agree with it, so a
+/// stale UI snapshot cannot act on a process it last saw earlier. Only
+/// the selected PID is signalled — never its children (tree termination
+/// stays behind the separate, explicitly authorised command). Success is
+/// reported only after Windows confirms the exit; every attempt is
+/// journalled by the core without secrets.
+/// Target-validation for `operator_agent_end_process`, extracted as a pure
+/// function so the ownership rules carry their own unit tests (UI-02B QA
+/// safety gate). The rules, in order:
+///   1. the live process must exist (the caller looks it up in a FRESH
+///      backend enumeration — a renderer-provided name alone never counts);
+///   2. the renderer's recorded image name must equal the live name;
+///   3. the renderer's recorded start time must agree with the live start
+///      time (2 s tolerance), so a stale UI snapshot cannot act on a
+///      process it last saw earlier;
+///   4. an unreadable live start time refuses the action rather than
+///      guessing.
+fn validate_end_process_target(
+    live: &cure_core::agent::DetectedAgentProcess,
+    expected_name: &str,
+    expected_started_unix: Option<u64>,
+) -> Result<(), String> {
+    if !live.name.eq_ignore_ascii_case(expected_name.trim()) {
+        return Err(format!(
+            "The selected snapshot does not match the live process ('{}' vs '{}'). Refresh the radar and retry.",
+            expected_name.trim(),
+            live.name
+        ));
+    }
+
+    match (live.started_unix, expected_started_unix) {
+        (Some(actual), Some(expected)) if actual.abs_diff(expected) > 2 => Err(
+            "The selected snapshot is stale: the process start time no longer matches. Refresh the radar and retry."
+                .into(),
+        ),
+        (None, Some(_)) => Err(
+            "The live process start time could not be read, so the snapshot cannot be verified. Refresh the radar and retry."
+                .into(),
+        ),
+        _ => Ok(()),
+    }
+}
+
+#[tauri::command]
+fn operator_agent_end_process(
+    pid: u32,
+    expected_name: String,
+    expected_started_unix: Option<u64>,
+    confirmation_token: String,
+) -> Result<cure_core::operator::ProcessContainmentReceipt, String> {
+    let processes = cure_core::agent::enumerate_agent_processes();
+    let live = processes
+        .iter()
+        .find(|p| p.pid == pid)
+        .ok_or_else(|| {
+            format!(
+                "PID {pid} is not a currently detected supported agent process. Refresh the radar and retry."
+            )
+        })?
+        .clone();
+
+    validate_end_process_target(&live, &expected_name, expected_started_unix)?;
+
+    cure_core::agent::end_agent_process_single(
+        pid,
+        &live.name,
+        live.started_unix,
+        &confirmation_token,
+    )
+}
+
+/// Scan a specific file with native Windows Defender without shell expansion.
+#[tauri::command]
+fn operator_defender_scan(
+    file_path: String,
+) -> Result<cure_core::operator::DefenderScanResult, String> {
+    cure_core::operator::scan_file_with_defender(Path::new(&file_path))
+}
+
+/// Explicit, user-approved containment scan with remediation enabled.
+#[tauri::command]
+fn operator_defender_contain(
+    file_path: String,
+    confirmation_token: String,
+) -> Result<cure_core::operator::DefenderScanResult, String> {
+    cure_core::operator::contain_file_with_defender(Path::new(&file_path), &confirmation_token)
+}
+
+/// Fetch recent operator audit log entries.
+#[tauri::command]
+fn operator_audit_log(
+    limit: Option<usize>,
+) -> Result<Vec<cure_core::operator::OperatorJournalEntry>, String> {
+    Ok(cure_core::operator::get_audit_log(limit.unwrap_or(50)))
+}
+
+/// Verify integrity of the operator audit journal.
+#[tauri::command]
+fn operator_verify_audit_journal() -> Result<usize, String> {
+    let log_path = resolve_data_dir().join("operator_audit.jsonl");
+    cure_core::operator::verify_global_journal_integrity(&log_path)
 }
 
 /// List candidate roots: fixed drives plus the profile's real user folders.
@@ -1927,6 +2481,29 @@ fn decode_case_file_png(data_base64: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+/// Write the aggregate-only share result card to this machine.
+///
+/// The card is drawn in the webview from aggregate counts (no paths, no
+/// names, no secret values). The backend only enforces the same PNG guard
+/// and fixed destination folder as the case-file export.
+#[tauri::command]
+fn share_card_png(name: String, data_base64: String) -> Result<String, String> {
+    let bytes = decode_case_file_png(&data_base64)?;
+    let safe: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(64)
+        .collect();
+    if safe.is_empty() {
+        return Err("the share card has no identifier".to_string());
+    }
+    let dir = resolve_data_dir().join("case-files");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create the export folder: {e}"))?;
+    let path = dir.join(format!("{safe}.png"));
+    std::fs::write(&path, &bytes).map_err(|e| format!("cannot write the share card: {e}"))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
 /// Write an exported case file image to this machine.
 ///
 /// The file name is reduced to letters, digits, dashes and underscores, so
@@ -2267,6 +2844,22 @@ fn main() {
             "[cure-demo] public demo build: the engine is not reachable; \
              every command is answered by the deterministic sample backend"
         );
+    } else {
+        // Production engine only: activate the durable operator safeguards.
+        // - The hash-chained audit journal (otherwise every audit_log call is
+        //   a silent no-op and operator_audit.jsonl is never written).
+        // - The durable nonce ledger, so activation/cleanup nonces survive a
+        //   process restart and consumed nonces cannot be replayed.
+        // - Journal-based nonce recovery for activations that happened in a
+        //   previous process.
+        let data_dir = resolve_data_dir();
+        let journal_path = data_dir.join("operator_audit.jsonl");
+        cure_core::operator::init_global_journal(&journal_path);
+        cure_core::storage::set_nonce_store_path(&data_dir.join("operator_nonces.json"));
+        let recovered = cure_core::storage::recover_nonce_issuances_from_journal(&journal_path);
+        if recovered > 0 {
+            eprintln!("[cure] recovered {recovered} activation nonce(s) from the audit journal");
+        }
     }
 
     let builder = tauri::Builder::default();
@@ -2300,17 +2893,47 @@ fn main() {
             storage_reveal,
             storage_case_file,
             storage_save_case_file,
+            share_card_png,
             storage_available_roots,
             storage_validate_root,
+            storage_rescue_status,
+            storage_rescue_plan,
+            storage_rescue_execute,
+            storage_rescue_finalize,
+            storage_rescue_activate,
+            storage_rescue_rollback,
+            storage_rescue_cleanup_source,
+            storage_rescue_receipts,
+            operator_status,
+            operator_agent_sessions,
+            operator_agent_graceful_shutdown,
+            operator_agent_terminate,
+            operator_agent_end_process,
+            operator_defender_scan,
+            operator_defender_contain,
+            operator_audit_log,
+            operator_verify_audit_journal,
             start_canary_guard,
             stop_canary_guard,
-            canary_status
+            canary_status,
+            agent_radar,
+            flight_start,
+            flight_status,
+            flight_stop,
+            windows_change_capture,
+            windows_change_compare,
+            agent_case_file,
+            export_agent_case_file
         ])
     };
 
     builder
         .manage(CanaryState::new())
         .manage(StorageState::default())
+        .manage(AgentState {
+            last_session: Mutex::new(recover_last_session()),
+            ..AgentState::default()
+        })
         .setup(|app| {
             // Create the main window programmatically so we can conditionally
             // inject --remote-debugging-port only when CURE_E2E_CDP_PORT is set.
@@ -2322,7 +2945,7 @@ fn main() {
                 "main",
                 tauri::WebviewUrl::App("index.html".into()),
             )
-            .title("C.U.R.E \u{2014} Evidence Console")
+            .title("C.U.R.E")
             .inner_size(1200.0, 800.0)
             .min_inner_size(900.0, 600.0)
             .resizable(true);
@@ -3067,7 +3690,12 @@ fn spawn_tripwire_poller(app: AppHandle, stop: Arc<AtomicBool>, _alert_count: Ar
                         .file_name()
                         .map(|n| n.to_string_lossy().to_string())
                         .unwrap_or_default();
-                    if let Some(reason) = shadow_wipe_reason(&name, "") {
+                    // The process snapshot carries no command line, so the
+                    // phrase check is unusable here — passing an empty one,
+                    // as this poller used to, made the wipe tripwire dead
+                    // code. The name-only check is correlated evidence for
+                    // the two tools with no benign mid-session use.
+                    if let Some(reason) = shadow_wipe_name_reason(&name) {
                         let _ = app.emit(
                             "canary-alert",
                             CanaryAlertEvent {
@@ -3089,6 +3717,973 @@ fn spawn_tripwire_poller(app: AppHandle, stop: Arc<AtomicBool>, _alert_count: Ar
         }
     });
 }
+
+// ---------------------------------------------------------------------------
+// AI agent visibility: radar, flight recorder, Windows change radar,
+// privacy-safe case file.
+// ---------------------------------------------------------------------------
+
+fn recover_last_session() -> Option<agent::FlightSession> {
+    let dir = agent::recorder::session_dir(&resolve_data_dir());
+    let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(modified) = entry.metadata().and_then(|meta| meta.modified()) else {
+            continue;
+        };
+        if newest
+            .as_ref()
+            .map(|(at, _)| modified > *at)
+            .unwrap_or(true)
+        {
+            newest = Some((modified, path));
+        }
+    }
+    let (_, path) = newest?;
+    Some(
+        agent::recorder::load_session(&path)
+            .ok()?
+            .recover_interrupted(),
+    )
+}
+
+#[derive(Default)]
+struct AgentState {
+    recorder: Mutex<Option<FlightRecorder>>,
+    last_session: Mutex<Option<agent::FlightSession>>,
+    last_windows: Mutex<Option<agent::WindowsChanges>>,
+    counter: AtomicUsize,
+    starting: AtomicBool,
+}
+
+struct FlightRecorder {
+    root: PathBuf,
+    baseline: agent::WorkspaceSnapshot,
+    session: Arc<Mutex<agent::FlightSession>>,
+    stop: Arc<AtomicBool>,
+    watcher_started: Arc<AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+#[derive(Serialize)]
+struct AgentRadarDto {
+    generated_unix: u64,
+    supported_agents: Vec<AgentPanelDto>,
+    detected_count: usize,
+    model_server_count: usize,
+    processes: Vec<AgentProcessDto>,
+    monitoring: Option<agent::FlightSession>,
+    windows: Option<agent::WindowsChanges>,
+    notes: Vec<String>,
+}
+
+#[derive(Serialize, Clone)]
+struct AgentPanelDto {
+    id: String,
+    label: String,
+    detected: bool,
+    process_count: usize,
+    state: String,
+    state_label: String,
+    state_note: String,
+    integration_note: String,
+    processes: Vec<AgentProcessDto>,
+    is_model_server: bool,
+    category: String,
+}
+
+#[derive(Serialize, Clone)]
+struct AgentProcessDto {
+    pid: u32,
+    parent_pid: Option<u32>,
+    name: String,
+    exe_path: String,
+    command_line: Option<String>,
+    started_unix: Option<u64>,
+    memory_usage_bytes: Option<u64>,
+    has_windows: bool,
+    identity: String,
+    identity_label: String,
+    evidence: String,
+    confidence: String,
+    limitations: String,
+    is_model_server: bool,
+}
+
+#[derive(Serialize)]
+struct WindowsSnapshotSummary {
+    saved_at_unix: u64,
+    entry_count: usize,
+    previous_saved_at_unix: Option<u64>,
+    path: String,
+    note: String,
+}
+
+fn agent_process_dto(process: &agent::DetectedAgentProcess) -> AgentProcessDto {
+    AgentProcessDto {
+        pid: process.pid,
+        parent_pid: process.parent_pid,
+        name: process.name.clone(),
+        exe_path: process.exe_path.clone(),
+        command_line: process.command_line.clone(),
+        started_unix: process.started_unix,
+        memory_usage_bytes: process.memory_usage_bytes,
+        has_windows: process.has_windows,
+        identity: format!("{:?}", process.identity),
+        identity_label: process.identity.label().to_string(),
+        evidence: process.evidence.clone(),
+        confidence: process.confidence.clone(),
+        limitations: process.limitations.clone(),
+        is_model_server: process.is_model_server,
+    }
+}
+
+fn collect_persistence_entries() -> Vec<PersistenceEntry> {
+    let mut entries: Vec<PersistenceEntry> = Vec::new();
+    #[cfg(windows)]
+    entries.extend(scanners::registry::scan().unwrap_or_default());
+    entries.extend(scanners::startup::scan(&startup_root()));
+    entries.extend(scanners::startup::scan_common());
+    entries.extend(scanners::scheduled_tasks::scan(&tasks_root()));
+    let service_records = scanners::collect_services();
+    entries.extend(service_records.iter().map(|r| r.entry.clone()));
+    #[cfg(windows)]
+    {
+        entries.extend(scanners::wmi::scan());
+        entries.extend(scanners::ifeo::scan());
+        entries.extend(scanners::appinit::scan());
+        entries.extend(scanners::com::scan());
+    }
+    entries
+}
+
+fn agent_state_for(
+    kind: agent::AgentKind,
+    processes: &[AgentProcessDto],
+    session: Option<&agent::FlightSession>,
+) -> (String, String, String) {
+    let active = session.filter(|s| s.active);
+    if processes.is_empty() {
+        if let Some(session) = active {
+            if session.agents_seen.contains(&kind) {
+                return (
+                    "disconnected".to_string(),
+                    "Disconnected".to_string(),
+                    "The process is no longer present in this sample; the monitored session continues."
+                        .to_string(),
+                );
+            }
+        }
+        return (
+            "not_detected".to_string(),
+            "Not detected".to_string(),
+            "No supported process image with this agent's documented name is running.".to_string(),
+        );
+    }
+
+    let any_verified = processes.iter().any(|p| p.identity.contains("Verified"));
+    let any_suspect = processes
+        .iter()
+        .any(|p| p.identity.contains("SuspectMismatch"));
+    let all_access_denied = processes
+        .iter()
+        .all(|p| p.identity.contains("AccessDenied"));
+
+    if any_suspect {
+        return (
+            "suspect_mismatch".to_string(),
+            "Suspect mismatch".to_string(),
+            "Process image name matched, but binary metadata or signature contradicts the genuine tool."
+                .to_string(),
+        );
+    }
+
+    if all_access_denied {
+        return (
+            "access_denied".to_string(),
+            "Access denied".to_string(),
+            "Process was enumerated in snapshot, but query access was denied.".to_string(),
+        );
+    }
+
+    if !any_verified {
+        return (
+            "unverified_process".to_string(),
+            "Unverified process".to_string(),
+            "Process matched image name, but tool identity is unconfirmed (unsigned or unverified binary)."
+                .to_string(),
+        );
+    }
+
+    match active {
+        None => (
+            "process_detected".to_string(),
+            "Process detected".to_string(),
+            if kind.is_model_server() {
+                "Local inference server active. Ready for local queries."
+            } else {
+                "The executable is running. No monitored workspace session is active, so no activity is claimed."
+            }
+            .to_string(),
+        ),
+        Some(session) => {
+            let recent = session.events.iter().rev().any(|e| {
+                e.agents.contains(&kind) && agent::now_unix().saturating_sub(e.at_unix) <= 300
+            });
+            if recent {
+                (
+                    "active".to_string(),
+                    "Active (changes observed)".to_string(),
+                    "A monitored file change was observed while this process was present. Correlation is not attribution."
+                        .to_string(),
+                )
+            } else {
+                (
+                    "idle".to_string(),
+                    "Present (no recent changes)".to_string(),
+                    "The process is present during a monitored session. No recent correlated change was observed."
+                        .to_string(),
+                )
+            }
+        }
+    }
+}
+
+#[tauri::command]
+fn agent_radar(state: State<'_, AgentState>) -> Result<AgentRadarDto, String> {
+    let processes = agent::enumerate_agent_processes();
+    let session = state
+        .recorder
+        .lock()
+        .map_err(|_| "agent state is unavailable".to_string())?
+        .as_ref()
+        .and_then(|r| r.session.lock().ok().map(|s| s.clone()))
+        .or_else(|| {
+            state
+                .last_session
+                .lock()
+                .ok()
+                .and_then(|guard| guard.clone())
+        });
+
+    let mut panels = Vec::new();
+    for kind in agent::AgentKind::ALL {
+        let own: Vec<AgentProcessDto> = processes
+            .iter()
+            .filter(|p| p.kind == kind)
+            .map(agent_process_dto)
+            .collect();
+        let detected = !own.is_empty();
+        let (state_id, state_label, state_note) = agent_state_for(kind, &own, session.as_ref());
+        panels.push(AgentPanelDto {
+            id: kind.id().to_string(),
+            label: kind.label().to_string(),
+            detected,
+            process_count: own.len(),
+            state: state_id,
+            state_label,
+            state_note,
+            integration_note: kind.integration_note().to_string(),
+            processes: own,
+            is_model_server: kind.is_model_server(),
+            category: format!("{:?}", kind.category()),
+        });
+    }
+
+    let detected_count = panels
+        .iter()
+        .filter(|p| p.detected && !p.is_model_server)
+        .count();
+    let model_server_count = panels
+        .iter()
+        .filter(|p| p.detected && p.is_model_server)
+        .count();
+    let windows = state
+        .last_windows
+        .lock()
+        .map_err(|_| "Windows change state is unavailable".to_string())?
+        .clone();
+
+    let mut notes = Vec::new();
+    notes.push(
+        "A running process does not prove that an agent is generating code or executing tasks."
+            .to_string(),
+    );
+    if detected_count == 0 && model_server_count == 0 {
+        notes.push(
+            "No supported agent process or model server was detected in this sample.".to_string(),
+        );
+    } else {
+        if detected_count > 0 {
+            let verified_count = panels
+                .iter()
+                .filter(|p| {
+                    p.detected
+                        && !p.is_model_server
+                        && p.processes
+                            .iter()
+                            .any(|proc| proc.identity.contains("Verified"))
+                })
+                .count();
+            if verified_count == detected_count {
+                notes.push(format!("{detected_count} verified AI agent(s) detected."));
+            } else if verified_count > 0 {
+                notes.push(format!(
+                    "{detected_count} agent image(s) detected ({verified_count} verified tool, {} unverified).",
+                    detected_count - verified_count
+                ));
+            } else {
+                notes.push(format!(
+                    "{detected_count} unverified agent candidate(s) detected (image name match only; tool identity unconfirmed)."
+                ));
+            }
+        }
+        if model_server_count > 0 {
+            notes.push(format!(
+                "{model_server_count} local model server(s) running (Ollama)."
+            ));
+        }
+    }
+
+    Ok(AgentRadarDto {
+        generated_unix: agent::now_unix(),
+        supported_agents: panels,
+        detected_count,
+        model_server_count,
+        processes: processes.iter().map(agent_process_dto).collect(),
+        monitoring: session,
+        windows,
+        notes,
+    })
+}
+
+fn current_agent_kinds() -> Vec<agent::AgentKind> {
+    let mut seen = Vec::new();
+    for process in agent::enumerate_agent_processes() {
+        if process.is_model_server || process.identity == agent::ExecutableIdentity::SuspectMismatch
+        {
+            continue;
+        }
+        if !seen.contains(&process.kind) {
+            seen.push(process.kind);
+        }
+    }
+    seen
+}
+
+fn display_workspace(path: &Path) -> &str {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("workspace")
+}
+
+fn file_meta(root: &Path, rel: &str) -> Option<(u64, Option<u64>)> {
+    let path = root.join(rel);
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs());
+    Some((meta.len(), modified))
+}
+
+enum FlightRaw {
+    Change {
+        kind: WorkspaceChangeKind,
+        path: String,
+        at: u64,
+    },
+    Rename {
+        from: Option<String>,
+        to: String,
+        size_after: Option<u64>,
+        at: u64,
+    },
+}
+
+fn make_flight_event(
+    kind: WorkspaceChangeKind,
+    path: String,
+    meta: Option<(u64, Option<u64>)>,
+    size_before: Option<u64>,
+    at: u64,
+    agents: &[agent::AgentKind],
+    session: &agent::FlightSession,
+) -> agent::FlightEvent {
+    let (change, size) = match kind {
+        WorkspaceChangeKind::Created => (agent::ChangeKind::Created, meta.map(|(s, _)| s)),
+        WorkspaceChangeKind::Modified => (agent::ChangeKind::Modified, meta.map(|(s, _)| s)),
+        WorkspaceChangeKind::Removed => (agent::ChangeKind::Removed, None),
+        WorkspaceChangeKind::RenamedFrom
+        | WorkspaceChangeKind::RenamedTo
+        | WorkspaceChangeKind::Overflow => (agent::ChangeKind::Modified, meta.map(|(s, _)| s)),
+    };
+    let confidence = if !session.coverage.complete {
+        agent::EvidenceConfidence::Unknown
+    } else if agents.is_empty() {
+        agent::EvidenceConfidence::Observed
+    } else {
+        agent::EvidenceConfidence::Correlated
+    };
+    agent::FlightEvent {
+        seq: 0,
+        at_unix: at,
+        kind: change,
+        path,
+        from_path: None,
+        size_before: if change == agent::ChangeKind::Created {
+            None
+        } else {
+            size_before
+        },
+        size_after: size,
+        source: agent::ObservationSource::DirectoryWatcher,
+        confidence,
+        agents: agents.to_vec(),
+        note: if agents.is_empty() {
+            "Filesystem change observed. No supported agent process was present.".to_string()
+        } else {
+            "Filesystem change observed while a process matching a supported tool was running in the background. Correlation is not attribution — filesystem notifications do not track process write handles."
+                .to_string()
+        },
+    }
+}
+
+#[tauri::command]
+async fn flight_start(
+    state: State<'_, AgentState>,
+    app: AppHandle,
+    workspace: String,
+) -> Result<agent::FlightSession, String> {
+    if state.starting.swap(true, Ordering::SeqCst) {
+        return Err("A monitoring session is already starting.".to_string());
+    }
+    let result = flight_start_inner(&state, app, workspace).await;
+    state.starting.store(false, Ordering::SeqCst);
+    result
+}
+
+async fn flight_start_inner(
+    state: &AgentState,
+    app: AppHandle,
+    workspace: String,
+) -> Result<agent::FlightSession, String> {
+    let requested = PathBuf::from(&workspace);
+    if !requested.is_dir() {
+        return Err("Choose an existing workspace directory to monitor.".to_string());
+    }
+    let root = requested
+        .canonicalize()
+        .map_err(|e| format!("The workspace could not be resolved: {e}"))?;
+    if root.parent().is_none() {
+        return Err(
+            "Choose a project folder, not an entire drive. Monitoring a drive root is too broad."
+                .to_string(),
+        );
+    }
+
+    {
+        let recorder = state
+            .recorder
+            .lock()
+            .map_err(|_| "agent state is unavailable".to_string())?;
+        if let Some(active) = recorder.as_ref() {
+            if let Ok(session) = active.session.lock() {
+                if session.active {
+                    return Err(format!(
+                        "A monitoring session is already active for {}. Stop it before starting another.",
+                        active.root.to_string_lossy()
+                    ));
+                }
+            }
+        }
+    }
+
+    let scan_root = root.clone();
+    let baseline = tokio::task::spawn_blocking(move || {
+        agent::capture_workspace(&scan_root, agent::recorder::MAX_BASELINE_FILES)
+    })
+    .await
+    .map_err(|e| format!("baseline task failed: {e}"))?
+    .map_err(|e| format!("The baseline could not be captured: {e}"))?;
+
+    let counter = state.counter.fetch_add(1, Ordering::SeqCst);
+    let id = format!("session-{}-{counter}", agent::now_unix());
+    let agents = current_agent_kinds();
+    let watcher_started = Arc::new(AtomicBool::new(true));
+    let stop = Arc::new(AtomicBool::new(false));
+    let session = Arc::new(Mutex::new(agent::FlightSession::new(
+        &id,
+        display_workspace(&root),
+        &baseline,
+        agents.clone(),
+        true,
+    )));
+    if let Ok(mut s) = session.lock() {
+        s.note_agents(&agents);
+    }
+
+    let data_dir = resolve_data_dir();
+    let thread_root = root.clone();
+    let thread_stop = Arc::clone(&stop);
+    let thread_session = Arc::clone(&session);
+    let thread_app = app.clone();
+    let thread_started = Arc::clone(&watcher_started);
+    let thread_data = data_dir.clone();
+    let mut known_sizes: std::collections::HashMap<String, u64> = baseline
+        .files
+        .iter()
+        .map(|file| (file.path.clone(), file.size))
+        .collect();
+
+    let handle = std::thread::spawn(move || {
+        let mut last_probe = std::time::Instant::now() - std::time::Duration::from_secs(5);
+        let mut cached_agents: Vec<agent::AgentKind> = Vec::new();
+        let mut last_save = std::time::Instant::now();
+        let probe = |last: &mut std::time::Instant, cached: &mut Vec<agent::AgentKind>| {
+            if last.elapsed() >= std::time::Duration::from_secs(1) {
+                *cached = current_agent_kinds();
+                *last = std::time::Instant::now();
+            }
+            cached.clone()
+        };
+
+        let watch_result = cure_dirwatch::run_workspace_recorder(
+            &thread_root,
+            &thread_stop,
+            |batch| {
+                let agents = probe(&mut last_probe, &mut cached_agents);
+                let mut events = Vec::new();
+                let mut pending_rename: Option<(String, u64)> = None;
+                for change in &batch {
+                    if change.kind == WorkspaceChangeKind::Overflow {
+                        continue;
+                    }
+                    match change.kind {
+                        WorkspaceChangeKind::RenamedFrom => {
+                            pending_rename = Some((change.relative.clone(), change.at_unix));
+                        }
+                        WorkspaceChangeKind::RenamedTo => {
+                            let after = file_meta(&thread_root, &change.relative);
+                            events.push(FlightRaw::Rename {
+                                from: pending_rename.take().map(|(p, _)| p),
+                                to: change.relative.clone(),
+                                size_after: after.map(|(s, _)| s),
+                                at: change.at_unix,
+                            });
+                        }
+                        WorkspaceChangeKind::Created
+                        | WorkspaceChangeKind::Modified
+                        | WorkspaceChangeKind::Removed => {
+                            events.push(FlightRaw::Change {
+                                kind: change.kind,
+                                path: change.relative.clone(),
+                                at: change.at_unix,
+                            });
+                        }
+                        WorkspaceChangeKind::Overflow => {}
+                    }
+                }
+
+                let overflow = batch
+                    .iter()
+                    .any(|c| c.kind == WorkspaceChangeKind::Overflow);
+
+                if let Ok(mut session) = thread_session.lock() {
+                    session.note_agents(&agents);
+                    if overflow {
+                        session.coverage.complete = false;
+                        session.coverage.dropped_events += 1;
+                        if !session.coverage.note.contains("overflow") {
+                            session.coverage.note =
+                            "The Windows directory-notification buffer overflowed during a change burst; some events were not observed."
+                                .to_string();
+                        }
+                    }
+                    for raw in events {
+                        match raw {
+                            FlightRaw::Change { kind, path, at } => {
+                                let meta = file_meta(&thread_root, &path);
+                                let size_before = if kind == WorkspaceChangeKind::Created {
+                                    None
+                                } else {
+                                    known_sizes.get(&path).copied()
+                                };
+                                match kind {
+                                    WorkspaceChangeKind::Created
+                                    | WorkspaceChangeKind::Modified => {
+                                        if let Some((size, _)) = meta {
+                                            known_sizes.insert(path.clone(), size);
+                                        }
+                                    }
+                                    WorkspaceChangeKind::Removed => {
+                                        known_sizes.remove(&path);
+                                    }
+                                    _ => {}
+                                }
+                                let event = make_flight_event(
+                                    kind,
+                                    path,
+                                    meta,
+                                    size_before,
+                                    at,
+                                    &agents,
+                                    &session,
+                                );
+                                session.record_event(event);
+                            }
+                            FlightRaw::Rename {
+                                from,
+                                to,
+                                size_after,
+                                at,
+                            } => {
+                                let size_before = from.as_ref().and_then(|p| known_sizes.remove(p));
+                                if let Some(size) = size_after {
+                                    known_sizes.insert(to.clone(), size);
+                                }
+                                let confidence = if !session.coverage.complete {
+                                    agent::EvidenceConfidence::Unknown
+                                } else if agents.is_empty() {
+                                    agent::EvidenceConfidence::Observed
+                                } else {
+                                    agent::EvidenceConfidence::Correlated
+                                };
+                                session.record_event(agent::FlightEvent {
+                                seq: 0,
+                                at_unix: at,
+                                kind: agent::ChangeKind::Renamed,
+                                path: to,
+                                from_path: from,
+                                size_before,
+                                size_after,
+                                source: agent::ObservationSource::DirectoryWatcher,
+                                confidence,
+                                agents: agents.clone(),
+                                note: if agents.is_empty() {
+                                    "Rename observed. No supported agent process was present."
+                                        .to_string()
+                                } else {
+                                    "Rename observed while a process matching a supported tool was running in the background. Correlation is not attribution — filesystem notifications do not track process write handles."
+                                        .to_string()
+                                },
+                            });
+                            }
+                        }
+                    }
+
+                    if last_save.elapsed() >= std::time::Duration::from_secs(5) {
+                        let _ = agent::recorder::save_session(&thread_data, &session);
+                        last_save = std::time::Instant::now();
+                    }
+                }
+
+                let _ = thread_app.emit("flight-update", ());
+            },
+        );
+
+        if let Err(e) = watch_result {
+            thread_started.store(false, Ordering::SeqCst);
+            if let Ok(mut session) = thread_session.lock() {
+                session.coverage.complete = false;
+                session.coverage.note =
+                    format!("The directory watcher failed to start or encountered an error: {e}");
+            }
+        }
+    });
+
+    let snapshot = {
+        let guard = session
+            .lock()
+            .map_err(|_| "session lock poisoned".to_string())?;
+        guard.clone()
+    };
+
+    *state
+        .recorder
+        .lock()
+        .map_err(|_| "agent state is unavailable".to_string())? = Some(FlightRecorder {
+        root,
+        baseline,
+        session,
+        stop,
+        watcher_started,
+        handle: Some(handle),
+    });
+
+    let _ = agent::recorder::save_session(&data_dir, &snapshot);
+    *state
+        .last_session
+        .lock()
+        .map_err(|_| "session state is unavailable".to_string())? = Some(snapshot.clone());
+
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn flight_status(state: State<'_, AgentState>) -> Result<Option<agent::FlightSession>, String> {
+    let recorder = state
+        .recorder
+        .lock()
+        .map_err(|_| "agent state is unavailable".to_string())?;
+    if let Some(recorder) = recorder.as_ref() {
+        return recorder
+            .session
+            .lock()
+            .map(|s| Some(s.clone()))
+            .map_err(|_| "session state is unavailable".to_string());
+    }
+    Ok(state
+        .last_session
+        .lock()
+        .map_err(|_| "session state is unavailable".to_string())?
+        .clone())
+}
+
+#[tauri::command]
+async fn flight_stop(state: State<'_, AgentState>) -> Result<agent::FlightSession, String> {
+    let mut recorder = {
+        let mut guard = state
+            .recorder
+            .lock()
+            .map_err(|_| "agent state is unavailable".to_string())?;
+        guard.take()
+    };
+    let Some(mut active) = recorder.take() else {
+        return state
+            .last_session
+            .lock()
+            .map_err(|_| "session state is unavailable".to_string())?
+            .clone()
+            .ok_or_else(|| "No monitoring session is active.".to_string());
+    };
+
+    active.stop.store(true, Ordering::SeqCst);
+    if let Some(handle) = active.handle.take() {
+        let _ = handle.join();
+    }
+
+    let scan_root = active.root.clone();
+    let final_snapshot = tokio::task::spawn_blocking(move || {
+        agent::capture_workspace(&scan_root, agent::recorder::MAX_BASELINE_FILES)
+    })
+    .await
+    .map_err(|e| format!("final reconciliation task failed: {e}"))?;
+
+    let mut session = active
+        .session
+        .lock()
+        .map_err(|_| "session state is unavailable".to_string())?
+        .clone();
+    if let Ok(final_snapshot) = final_snapshot {
+        session.reconcile(&final_snapshot, &active.baseline);
+    } else {
+        session.coverage.complete = false;
+        session.coverage.note =
+            "Final reconciliation could not run; completeness cannot be claimed.".to_string();
+    }
+    session.note_agents(&current_agent_kinds());
+    session.finish();
+    if !active.watcher_started.load(Ordering::SeqCst) {
+        session.coverage.complete = false;
+        if !session.coverage.note.contains("overflow") {
+            session.coverage.note =
+                "The directory watcher did not start or overflowed; coverage is incomplete."
+                    .to_string();
+        }
+    }
+
+    let data_dir = resolve_data_dir();
+    let _ = agent::recorder::save_session(&data_dir, &session);
+    *state
+        .last_session
+        .lock()
+        .map_err(|_| "session state is unavailable".to_string())? = Some(session.clone());
+    Ok(session)
+}
+
+#[tauri::command]
+async fn windows_change_capture(
+    state: State<'_, AgentState>,
+) -> Result<WindowsSnapshotSummary, String> {
+    let entries = tokio::task::spawn_blocking(collect_persistence_entries)
+        .await
+        .map_err(|e| format!("Windows inventory task failed: {e}"))?;
+    let data_dir = resolve_data_dir();
+    let path = agent::windows::snapshot_path(&data_dir);
+    let previous = agent::windows::load(&path).ok();
+    let saved = agent::windows::save(&path, &entries)
+        .map_err(|e| format!("The trusted snapshot could not be written: {e}"))?;
+    Ok(WindowsSnapshotSummary {
+        saved_at_unix: saved.saved_at.timestamp().max(0) as u64,
+        entry_count: saved.entries.len(),
+        previous_saved_at_unix: previous
+            .as_ref()
+            .map(|p| p.saved_at.timestamp().max(0) as u64),
+        path: path.to_string_lossy().into_owned(),
+        note: if previous.is_some() {
+            "Trusted snapshot replaced. Future comparisons use this timestamp.".to_string()
+        } else {
+            "First trusted snapshot captured. Future comparisons use this timestamp.".to_string()
+        },
+    })
+    .inspect(|_| {
+        if let Ok(mut last) = state.last_windows.lock() {
+            *last = None;
+        }
+    })
+}
+
+#[tauri::command]
+async fn windows_change_compare(
+    state: State<'_, AgentState>,
+) -> Result<agent::WindowsChanges, String> {
+    let entries = tokio::task::spawn_blocking(collect_persistence_entries)
+        .await
+        .map_err(|e| format!("Windows inventory task failed: {e}"))?;
+    let data_dir = resolve_data_dir();
+    let path = agent::windows::snapshot_path(&data_dir);
+    let snapshot = agent::windows::load(&path).ok();
+    let changes = agent::windows::compare(snapshot.as_ref(), &entries);
+    *state
+        .last_windows
+        .lock()
+        .map_err(|_| "Windows change state is unavailable".to_string())? = Some(changes.clone());
+    Ok(changes)
+}
+
+#[tauri::command]
+fn agent_case_file(
+    state: State<'_, AgentState>,
+    summary: String,
+    include_summary: bool,
+) -> Result<agent::AgentCaseFile, String> {
+    let session = state
+        .last_session
+        .lock()
+        .map_err(|_| "session state is unavailable".to_string())?
+        .clone()
+        .or_else(|| {
+            state.recorder.lock().ok().and_then(|r| {
+                r.as_ref()
+                    .and_then(|rec| rec.session.lock().ok().map(|s| s.clone()))
+            })
+        })
+        .ok_or_else(|| {
+            "Run and stop a monitoring session before building a case file.".to_string()
+        })?;
+    let windows = state
+        .last_windows
+        .lock()
+        .map_err(|_| "Windows change state is unavailable".to_string())?
+        .clone();
+    Ok(agent::casefile::build(
+        &session,
+        windows.as_ref(),
+        Some(&summary),
+        include_summary,
+        false,
+    ))
+}
+
+#[tauri::command]
+fn export_agent_case_file(case: agent::AgentCaseFile, format: String) -> Result<String, String> {
+    let data_dir = resolve_data_dir();
+    let export_dir = data_dir.join("exports");
+    std::fs::create_dir_all(&export_dir).map_err(|e| format!("cannot create exports dir: {e}"))?;
+
+    let filename = format!(
+        "case-{}.{}",
+        case.case_id,
+        match format.to_lowercase().as_str() {
+            "json" => "json",
+            "html" => "html",
+            _ => "md",
+        }
+    );
+    let target = export_dir.join(filename);
+    let content = match format.to_lowercase().as_str() {
+        "json" => case.to_json().map_err(|e| e.to_string())?,
+        "html" => case.to_html(),
+        _ => case.to_markdown(),
+    };
+    std::fs::write(&target, content).map_err(|e| format!("cannot write export file: {e}"))?;
+    Ok(target.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod end_process_target_tests {
+    use super::validate_end_process_target;
+    use cure_core::agent::{
+        detection::AgentCategory, detection::AgentKind, detection::ExecutableIdentity,
+        DetectedAgentProcess,
+    };
+
+    fn live_process(name: &str, started_unix: Option<u64>) -> DetectedAgentProcess {
+        DetectedAgentProcess {
+            kind: AgentKind::Codex,
+            category: AgentCategory::Agent,
+            pid: 4242,
+            parent_pid: None,
+            name: name.to_string(),
+            exe_path: r"C:\Tools\codex.exe".to_string(),
+            command_line: None,
+            started_unix,
+            memory_usage_bytes: Some(1_048_576),
+            has_windows: false,
+            identity: ExecutableIdentity::Verified,
+            evidence: "test fixture".to_string(),
+            confidence: "test".to_string(),
+            limitations: "test".to_string(),
+            is_model_server: false,
+        }
+    }
+
+    #[test]
+    fn matching_snapshot_is_accepted() {
+        let live = live_process("codex.exe", Some(1_700_000_000));
+        assert!(validate_end_process_target(&live, "codex.exe", Some(1_700_000_000)).is_ok());
+        assert!(
+            validate_end_process_target(&live, "CODEX.EXE", Some(1_700_000_001)).is_ok(),
+            "name is case-insensitive and start time has a 2 s tolerance"
+        );
+        assert!(
+            validate_end_process_target(&live, "  codex.exe  ", None).is_ok(),
+            "a snapshot without a start time is still name-checked"
+        );
+    }
+
+    #[test]
+    fn name_mismatch_is_rejected() {
+        let live = live_process("codex.exe", Some(1_700_000_000));
+        let err = validate_end_process_target(&live, "explorer.exe", Some(1_700_000_000))
+            .expect_err("a different image name must never pass");
+        assert!(err.contains("does not match the live process"), "{err}");
+    }
+
+    #[test]
+    fn stale_start_time_is_rejected() {
+        let live = live_process("codex.exe", Some(1_700_000_000));
+        // The live start time is the anchor: a renderer snapshot recorded
+        // under a previous process generation must not act on this PID.
+        let err = validate_end_process_target(&live, "codex.exe", Some(999_999_999))
+            .expect_err("stale snapshot must be rejected");
+        assert!(err.contains("stale"), "{err}");
+    }
+
+    #[test]
+    fn unreadable_live_start_time_is_rejected() {
+        let live = live_process("codex.exe", None);
+        let err = validate_end_process_target(&live, "codex.exe", Some(1_700_000_000))
+            .expect_err("an unreadable live start time must refuse the action");
+        assert!(err.contains("could not be read"), "{err}");
+    }
+}
+
 #[cfg(test)]
 #[cfg(windows)]
 mod overlay_fixture_tests {

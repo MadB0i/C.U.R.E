@@ -199,10 +199,19 @@ if ($Phase -eq 'Setup') {
         exit 1
     }
 
-    # Clean-slate checks
+    # Clean-slate checks. Pre-existing cure-watch processes are unexpected
+    # in the disposable VM and may be owner-controlled; per the QA safety
+    # gate this harness NEVER terminates processes it did not launch. Fail
+    # with diagnostics instead of a name-based PowerShell kill.
     $pre = @(Get-Process cure-watch -ErrorAction SilentlyContinue)
     $L += "pre-existing cure-watch processes: $($pre.Count) (expected 0)"
-    if ($pre.Count -gt 0) { $pre | Stop-Process -Force; $L += '(killed pre-existing instances)' }
+    if ($pre.Count -gt 0) {
+        $pre | ForEach-Object { $L += "  pre-existing PID $($_.Id) started $($_.StartTime)" }
+        $L += 'SETUP ABORTED: cure-watch was already running in the guest. Close it manually (it may be owner-controlled; do not kill by name), then re-run Setup.'
+        Save-Evidence '01-setup-aborted-cure-watch-running' ($L -join "`r`n")
+        Write-Host ($L -join "`n")
+        exit 1
+    }
 
     # Copy payload from stage with integrity hashes
     $hashes = @{}

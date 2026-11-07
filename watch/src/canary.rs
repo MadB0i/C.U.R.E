@@ -98,7 +98,15 @@ fn spawn_tripwire_poller(stop: Arc<AtomicBool>) {
         while !stop.load(Ordering::Relaxed) {
             let names = enumerate_process_names();
             for name in &names {
-                if let Some(reason) = canary::shadow_wipe_reason(name, "") {
+                // A Toolhelp snapshot carries no command line, so the phrase
+                // check (`shadow_wipe_reason`) is unusable here — passing it
+                // an empty command line, as this poller used to do, made the
+                // whole wipe tripwire dead code. The name-only check below is
+                // correlated evidence for the two tools that have no benign
+                // reason to appear mid-session; `wmic`/`diskshadow`/`wbadmin`
+                // stay command-line-only because a bare name match there
+                // would mislabel benign admin work.
+                if let Some(reason) = canary::shadow_wipe_name_reason(name) {
                     crate::logger::log("canary", &format!("[SHADOW-WIPE] {name}: {reason}"));
                 }
             }

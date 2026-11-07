@@ -1,4 +1,6 @@
 pub mod appinit;
+#[cfg(windows)]
+pub mod bootlogon;
 pub mod com;
 pub mod ifeo;
 #[cfg(windows)]
@@ -24,6 +26,7 @@ pub fn collect_all(startup_root: &Path, tasks_root: &Path) -> Vec<PersistenceEnt
     #[cfg(windows)]
     {
         all.extend(registry::scan().unwrap_or_default());
+        all.extend(bootlogon::scan().unwrap_or_default());
         all.extend(ifeo::scan());
         all.extend(appinit::scan());
         all.extend(com::scan());

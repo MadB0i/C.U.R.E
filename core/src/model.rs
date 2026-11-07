@@ -2,6 +2,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::evidence::Evidence;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PersistenceSource {
     RegistryRun,
@@ -58,6 +60,15 @@ pub struct PersistenceEntry {
     pub name: String,
     pub command: String,
     pub location: String,
+    /// Extra command-line material the scorer must see but the stable
+    /// identity must not: scheduled-task `Arguments` (and second+ actions).
+    /// The `id` hash covers `source + name + command` only, so adding this
+    /// field never churns existing baseline/quarantine identities, and
+    /// `#[serde(default)]` keeps old baselines readable. Detection Engines
+    /// v1 stored task arguments in entry details only — the sneaky-PowerShell
+    /// heuristic never saw an encoded argument. This field closes that gap.
+    #[serde(default)]
+    pub arguments: Option<String>,
 }
 
 impl PersistenceEntry {
@@ -76,6 +87,29 @@ impl PersistenceEntry {
             name,
             command,
             location: location.into(),
+            arguments: None,
+        }
+    }
+
+    /// Attach scorer-visible argument material without touching the stable
+    /// identity. Empty/whitespace arguments collapse to `None`.
+    pub fn with_arguments(mut self, arguments: Option<String>) -> Self {
+        let trimmed = arguments
+            .as_deref()
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+            .map(str::to_owned);
+        self.arguments = trimmed;
+        self
+    }
+
+    /// The full command-line text the scorer should reason about: the stable
+    /// `command` plus any attached argument material. Pure; used by risk and
+    /// by callers that want one honest string.
+    pub fn scorer_command(&self) -> String {
+        match self.arguments.as_deref() {
+            Some(args) if !args.trim().is_empty() => format!("{} {}", self.command, args),
+            _ => self.command.clone(),
         }
     }
 }
@@ -102,7 +136,12 @@ pub struct ScoredEntry {
     pub entry: PersistenceEntry,
     pub score: i32,
     pub risk: RiskLevel,
-    pub reasons: Vec<String>,
+    /// What backs this finding — every item built through the explicit
+    /// `Evidence` constructors. Scorer-produced items are `Observed` with a
+    /// detail stating WHAT was witnessed (path token, signature verdict,
+    /// hash hit). The `+30 `/-40 ` numeric prefix convention is kept in the
+    /// detail for score transparency; frontends strip it for chips.
+    pub evidence: Vec<Evidence>,
     /// MITRE ATT&CK technique for the finding's source — the single source
     /// of truth (see `attack::technique_for_source`). Empty when the source
     /// has no mapping. Frontends must prefer these fields over any local

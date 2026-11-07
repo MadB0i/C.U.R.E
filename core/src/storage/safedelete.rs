@@ -68,6 +68,12 @@ pub enum RemoveError {
 
 impl RemoveError {
     /// A sentence the operator can read.
+    ///
+    /// Deliberately NOT part of the evidence model (`core::evidence`): this
+    /// is an error message for one refused removal, not a finding's
+    /// evidence. There is no separate `plain_english_reason()` anywhere —
+    /// `Evidence::detail` IS the plain-English reason for a finding, and
+    /// this method IS the plain-English reason for a refusal.
     pub fn reason(&self) -> String {
         match self {
             RemoveError::NotOpenable(e) => format!("could not be opened for removal: {e}"),

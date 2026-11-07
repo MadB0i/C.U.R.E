@@ -67,6 +67,97 @@ pub fn plant_decoys(dir: &Path) {
 /// Returns when `stop` becomes true or the directory handle breaks.
 /// Never panics on I/O errors: an unwatched directory simply yields no
 /// events (callers log the coverage gap if they care).
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkspaceChangeKind {
+    Created,
+    Modified,
+    Removed,
+    RenamedFrom,
+    RenamedTo,
+    Overflow,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceChange {
+    pub kind: WorkspaceChangeKind,
+    pub relative: String,
+    pub at_unix: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedNotifyEvent {
+    pub action: u32,
+    pub name: String,
+}
+
+/// Safely parse raw `FILE_NOTIFY_INFORMATION` buffers without unaligned pointer casts.
+///
+/// Windows `ReadDirectoryChangesW` writes a variable-length list of records into the
+/// caller's buffer. Each record has:
+/// - NextEntryOffset: u32 (offset 0)
+/// - Action: u32 (offset 4)
+/// - FileNameLength: u32 (offset 8, in bytes)
+/// - FileName: [u16] (offset 12)
+///
+/// This function reads fields using `u32::from_le_bytes`, validates all slice bounds,
+/// rejects misaligned NextEntryOffset, and safely decodes UTF-16 filenames.
+pub fn parse_notify_buffer(buf: &[u8]) -> Vec<ParsedNotifyEvent> {
+    let mut events = Vec::new();
+    let mut offset: usize = 0;
+    let buf_len = buf.len();
+
+    while offset + 12 <= buf_len {
+        let next_offset = u32::from_le_bytes([
+            buf[offset],
+            buf[offset + 1],
+            buf[offset + 2],
+            buf[offset + 3],
+        ]) as usize;
+        let action = u32::from_le_bytes([
+            buf[offset + 4],
+            buf[offset + 5],
+            buf[offset + 6],
+            buf[offset + 7],
+        ]);
+        let name_len = u32::from_le_bytes([
+            buf[offset + 8],
+            buf[offset + 9],
+            buf[offset + 10],
+            buf[offset + 11],
+        ]) as usize;
+
+        let name_start = offset + 12;
+        if name_start + name_len > buf_len {
+            break; // Truncated record or invalid length: stop safely
+        }
+
+        let name_bytes = &buf[name_start..name_start + name_len];
+        let name = String::from_utf16_lossy(
+            name_bytes
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes(*c))
+                .collect::<Vec<_>>()
+                .as_slice(),
+        );
+
+        events.push(ParsedNotifyEvent { action, name });
+
+        if next_offset == 0 {
+            break;
+        }
+        // Windows specs require NextEntryOffset to be DWORD aligned (4 bytes) and at least 12 bytes
+        if next_offset < 12 || !next_offset.is_multiple_of(4) || offset + next_offset > buf_len {
+            break; // Corrupt offset: prevent infinite loops and buffer overruns
+        }
+        offset += next_offset;
+    }
+
+    events
+}
+
 #[cfg(windows)]
 pub fn run_dir_guard(dir: &Path, stop: &AtomicBool, on_alert: impl Fn(CanaryAlert)) {
     use windows::core::PCWSTR;
@@ -76,8 +167,7 @@ pub fn run_dir_guard(dir: &Path, stop: &AtomicBool, on_alert: impl Fn(CanaryAler
         FILE_ACTION_REMOVED, FILE_ACTION_RENAMED_NEW_NAME, FILE_ACTION_RENAMED_OLD_NAME,
         FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_LIST_DIRECTORY,
         FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE,
-        FILE_NOTIFY_INFORMATION, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-        OPEN_EXISTING,
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
     };
     use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
     use windows::Win32::System::IO::{CancelIo, GetOverlappedResult, OVERLAPPED};
@@ -176,39 +266,17 @@ pub fn run_dir_guard(dir: &Path, stop: &AtomicBool, on_alert: impl Fn(CanaryAler
         }
 
         let ts = now_secs();
-        let mut offset: usize = 0;
-        let buf_end = bytes_returned as usize;
-
-        while offset + 12 <= buf_end {
-            let info = unsafe { &*(buffer.as_ptr().add(offset) as *const FILE_NOTIFY_INFORMATION) };
-            let name_len = info.FileNameLength as usize;
-            // FileName starts at byte 12 (after NextEntryOffset + Action + FileNameLength)
-            let name_byte_offset = offset + 12;
-            if name_byte_offset + name_len > buf_end {
-                break;
-            }
-            let name_bytes = unsafe {
-                std::slice::from_raw_parts(buffer.as_ptr().add(name_byte_offset), name_len)
-            };
-            let name = String::from_utf16_lossy(
-                name_bytes
-                    .as_chunks::<2>()
-                    .0
-                    .iter()
-                    .map(|c| u16::from_le_bytes(*c))
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-            );
-
-            let kind = if info.Action == FILE_ACTION_ADDED {
+        let events = parse_notify_buffer(&buffer[..bytes_returned as usize]);
+        for ev in events {
+            let kind = if ev.action == FILE_ACTION_ADDED.0 {
                 FileEventKind::Added
-            } else if info.Action == FILE_ACTION_REMOVED {
+            } else if ev.action == FILE_ACTION_REMOVED.0 {
                 FileEventKind::Removed
-            } else if info.Action == FILE_ACTION_MODIFIED {
+            } else if ev.action == FILE_ACTION_MODIFIED.0 {
                 FileEventKind::Modified
-            } else if info.Action == FILE_ACTION_RENAMED_OLD_NAME {
+            } else if ev.action == FILE_ACTION_RENAMED_OLD_NAME.0 {
                 FileEventKind::RenamedOldName
-            } else if info.Action == FILE_ACTION_RENAMED_NEW_NAME {
+            } else if ev.action == FILE_ACTION_RENAMED_NEW_NAME.0 {
                 FileEventKind::RenamedNewName
             } else {
                 FileEventKind::Modified
@@ -217,17 +285,12 @@ pub fn run_dir_guard(dir: &Path, stop: &AtomicBool, on_alert: impl Fn(CanaryAler
             let alerts = engine.observe(FileEvent {
                 at_secs: ts,
                 folder: folder_str.clone(),
-                name,
+                name: ev.name,
                 kind,
             });
             for alert in alerts {
                 on_alert(alert);
             }
-
-            if info.NextEntryOffset == 0 {
-                break;
-            }
-            offset += info.NextEntryOffset as usize;
         }
     }
 
@@ -244,9 +307,209 @@ pub fn run_dir_guard(_dir: &Path, stop: &AtomicBool, _on_alert: impl Fn(CanaryAl
     }
 }
 
+#[cfg(windows)]
+pub fn run_workspace_recorder(
+    dir: &Path,
+    stop: &AtomicBool,
+    mut on_batch: impl FnMut(Vec<WorkspaceChange>),
+) -> Result<(), std::io::Error> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{
+        CloseHandle, BOOL, ERROR_NOTIFY_ENUM_DIR, INVALID_HANDLE_VALUE,
+    };
+    use windows::Win32::Storage::FileSystem::{
+        CreateFileW, ReadDirectoryChangesW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED,
+        FILE_LIST_DIRECTORY, FILE_NOTIFY_CHANGE_CREATION, FILE_NOTIFY_CHANGE_FILE_NAME,
+        FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE, FILE_SHARE_DELETE, FILE_SHARE_READ,
+        FILE_SHARE_WRITE, OPEN_EXISTING,
+    };
+    use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
+    use windows::Win32::System::IO::{CancelIo, GetOverlappedResult, OVERLAPPED};
+
+    let dir_wide: Vec<u16> = {
+        use std::os::windows::ffi::OsStrExt;
+        std::ffi::OsStr::new(dir.as_os_str())
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    };
+
+    // SAFETY: dir_wide is null-terminated UTF-16
+    let h_dir = unsafe {
+        CreateFileW(
+            PCWSTR(dir_wide.as_ptr()),
+            FILE_LIST_DIRECTORY.0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            None,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
+            None,
+        )
+    };
+    let h_dir = match h_dir {
+        Ok(h) if h != INVALID_HANDLE_VALUE => h,
+        _ => return Err(std::io::Error::last_os_error()),
+    };
+
+    // SAFETY: Creating event for overlapped I/O
+    let h_event = unsafe { CreateEventW(None, BOOL::from(false), BOOL::from(false), None) };
+    let h_event = match h_event {
+        Ok(h) => h,
+        Err(e) => {
+            let _ = unsafe { CloseHandle(h_dir) };
+            return Err(std::io::Error::from_raw_os_error(e.code().0));
+        }
+    };
+
+    let mut buffer = [0u8; 64 * 1024];
+
+    while !stop.load(Ordering::Relaxed) {
+        let mut bytes_returned = 0u32;
+        let mut overlapped = OVERLAPPED {
+            hEvent: h_event,
+            ..OVERLAPPED::default()
+        };
+
+        // SAFETY: buffer and overlapped are valid stack pointers
+        let ok = unsafe {
+            ReadDirectoryChangesW(
+                h_dir,
+                buffer.as_mut_ptr() as *mut core::ffi::c_void,
+                buffer.len() as u32,
+                BOOL::from(true),
+                FILE_NOTIFY_CHANGE_FILE_NAME
+                    | FILE_NOTIFY_CHANGE_LAST_WRITE
+                    | FILE_NOTIFY_CHANGE_SIZE
+                    | FILE_NOTIFY_CHANGE_CREATION,
+                Some(&mut bytes_returned),
+                Some(&mut overlapped),
+                None,
+            )
+        };
+        if ok.is_err() {
+            on_batch(vec![WorkspaceChange {
+                kind: WorkspaceChangeKind::Overflow,
+                relative: String::new(),
+                at_unix: now_secs(),
+            }]);
+            break;
+        }
+
+        // SAFETY: Waiting on event handle with 2s timeout
+        let wait_result = unsafe { WaitForSingleObject(h_event, 2000) };
+        if wait_result.0 != 0 {
+            // SAFETY: Canceling pending I/O on timeout
+            unsafe {
+                let _ = CancelIo(h_dir);
+            }
+            continue;
+        }
+
+        // SAFETY: Checking overlapped result
+        let result = unsafe {
+            GetOverlappedResult(h_dir, &overlapped, &mut bytes_returned, BOOL::from(false))
+        };
+        if let Err(err) = result {
+            if err.code().0 == ERROR_NOTIFY_ENUM_DIR.0 as i32 {
+                on_batch(vec![WorkspaceChange {
+                    kind: WorkspaceChangeKind::Overflow,
+                    relative: String::new(),
+                    at_unix: now_secs(),
+                }]);
+                continue;
+            }
+            on_batch(vec![WorkspaceChange {
+                kind: WorkspaceChangeKind::Overflow,
+                relative: String::new(),
+                at_unix: now_secs(),
+            }]);
+            break;
+        }
+        if bytes_returned == 0 {
+            continue;
+        }
+
+        let ts = now_secs();
+        let events = parse_notify_buffer(&buffer[..bytes_returned as usize]);
+        let mut batch = Vec::with_capacity(events.len());
+        for ev in events {
+            let kind = match ev.action {
+                1 => Some(WorkspaceChangeKind::Created),
+                2 => Some(WorkspaceChangeKind::Removed),
+                3 => Some(WorkspaceChangeKind::Modified),
+                4 => Some(WorkspaceChangeKind::RenamedFrom),
+                5 => Some(WorkspaceChangeKind::RenamedTo),
+                _ => None,
+            };
+            if let Some(kind) = kind {
+                batch.push(WorkspaceChange {
+                    kind,
+                    relative: ev.name.replace('\\', "/"),
+                    at_unix: ts,
+                });
+            }
+        }
+        if !batch.is_empty() {
+            on_batch(batch);
+        }
+    }
+
+    // SAFETY: Closing open Win32 handles
+    let _ = unsafe { CloseHandle(h_event) };
+    let _ = unsafe { CloseHandle(h_dir) };
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn run_workspace_recorder(
+    _dir: &Path,
+    stop: &AtomicBool,
+    _on_batch: impl FnMut(Vec<WorkspaceChange>),
+) -> Result<(), std::io::Error> {
+    while !stop.load(Ordering::Relaxed) {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_notify_buffer_normal_and_malformed() {
+        // Build a mock FILE_NOTIFY_INFORMATION record:
+        // NextEntryOffset: 0
+        // Action: 1 (FILE_ACTION_ADDED)
+        // FileNameLength: 8 bytes (4 UTF-16 characters: "test")
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&0u32.to_le_bytes()); // NextEntryOffset
+        buf.extend_from_slice(&1u32.to_le_bytes()); // Action
+        buf.extend_from_slice(&8u32.to_le_bytes()); // FileNameLength (8 bytes)
+                                                    // UTF-16 "test"
+        for ch in "test".encode_utf16() {
+            buf.extend_from_slice(&ch.to_le_bytes());
+        }
+
+        let events = parse_notify_buffer(&buf);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].action, 1);
+        assert_eq!(events[0].name, "test");
+
+        // Malformed test 1: truncated header (< 12 bytes)
+        assert!(parse_notify_buffer(&buf[..10]).is_empty());
+
+        // Malformed test 2: filename length extends past end of buffer
+        let mut bad_len_buf = buf.clone();
+        bad_len_buf[8..12].copy_from_slice(&100u32.to_le_bytes());
+        assert!(parse_notify_buffer(&bad_len_buf).is_empty());
+
+        // Malformed test 3: NextEntryOffset not aligned to 4 bytes or < 12
+        let mut bad_offset_buf = buf.clone();
+        bad_offset_buf[0..4].copy_from_slice(&13u32.to_le_bytes()); // misaligned offset 13
+        let events = parse_notify_buffer(&bad_offset_buf);
+        assert_eq!(events.len(), 1); // parses first, safely stops without crash/loop on corrupt offset
+    }
 
     #[test]
     fn plant_decoys_creates_six_decoys() {
@@ -473,5 +736,24 @@ mod tests {
                 "round {round}: guard did not stop promptly after activity"
             );
         }
+    }
+
+    #[test]
+    fn run_workspace_recorder_nonexistent_dir_fails() {
+        let fake = Path::new("C:\\cure_nonexistent_directory_for_test_123456");
+        let stop = AtomicBool::new(false);
+        let res = run_workspace_recorder(fake, &stop, |_| {});
+        assert!(res.is_err(), "expected error for non-existent directory");
+    }
+
+    #[test]
+    fn run_workspace_recorder_pre_stopped_succeeds() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let stop = AtomicBool::new(true);
+        let res = run_workspace_recorder(dir.path(), &stop, |_| {});
+        assert!(
+            res.is_ok(),
+            "expected success for valid directory pre-stopped"
+        );
     }
 }

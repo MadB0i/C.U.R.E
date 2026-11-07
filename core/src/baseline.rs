@@ -69,7 +69,7 @@ mod tests {
             attack: crate::risk::attack_info_for(&entry.source),
             entry,
             score,
-            reasons: vec![],
+            evidence: vec![],
         }
     }
 
@@ -117,5 +117,31 @@ mod tests {
         let dir = tempdir().unwrap();
         let err = load(&dir.path().join("nope.json")).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::NotFound);
+    }
+
+    /// Old-format fixture (pre-evidence baselines have no evidence fields at
+    /// all): must still load through the real file path with fields intact.
+    /// Baselines store raw entries, so the format is unchanged — this test
+    /// pins that an upgrade must never orphan an existing baseline file.
+    #[test]
+    fn old_format_baseline_fixture_still_loads() {
+        const OLD: &str = include_str!("../../testing/formats/baseline-v0.json");
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("baseline-v0.json");
+        std::fs::write(&path, OLD).unwrap();
+
+        let loaded = load(&path).unwrap();
+
+        assert_eq!(loaded.entries.len(), 2);
+        assert_eq!(
+            loaded.entries[0].name,
+            "CURE-SYNTH-OneDriveStandaloneUpdater"
+        );
+        assert_eq!(
+            loaded.entries[1].source,
+            crate::model::PersistenceSource::RegistryRun
+        );
+        // The loaded entries remain usable as diff inputs (ids preserved).
+        assert_eq!(loaded.entries[0].id, "0123456789abcdef");
     }
 }

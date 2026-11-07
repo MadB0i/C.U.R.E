@@ -118,34 +118,7 @@
   }
 
 
-  /* LUMA's storage persona. Scoped to the storage host so a rescue finding
-     never leaves her posing about a screen she is not on.
-
-     Every state the workstation can ask for has a route here. A missing
-     one is not a cosmetic gap: the failure path calls `failed()`, and a
-     missing method there threw and left the screen stuck in the scanning
-     pose with the engine's own error swallowed. */
-  const luma = {
-    host: null,
-    get api() {
-      if (!this.host && window.CureCompanion) {
-        /* Claimed eagerly, not lazily: a host that has its own persona
-           must never be overwritten by a global event that arrives first. */
-        this.host = window.CureCompanion.onHost("storage");
-      }
-      return this.host;
-    },
-    idle: (detail) => luma.api && luma.api.idle(detail),
-    scan: (detail) => luma.api && luma.api.scan("scan", detail),
-    review: (count, detail) => luma.api && luma.api.review(count, detail),
-    discovering: (count, detail) => luma.api && luma.api.discovering(count, detail),
-    curious: (detail) => luma.api && luma.api.curious(detail),
-    thinking: (detail) => luma.api && luma.api.thinking(detail),
-    failed: (detail) => luma.api && luma.api.failed(detail),
-    cancelled: (detail) => luma.api && luma.api.cancelled(detail),
-    seal: (detail) => luma.api && luma.api.seal(detail),
-    state: (name, title, detail) => luma.api && luma.api.cleanup(name, title, detail),
-  };
+;
 
   /* The phrase the engine requires. It is stated by the backend in the
      plan, so the UI never hard-codes a second copy of the rule. */
@@ -228,9 +201,8 @@
   };
 
   const DEPTH_NOTES = {
-    quick:
-      "Known cache, temporary and diagnostic locations. Fast, and rarely noisy.",
-    deep: "Also inventories browser profiles, application data and developer caches. Slower, and reports far more that will not be recommended.",
+    quick: "Fast",
+    deep: "Thorough — slower",
   };
 
   const TIER_ORDER = ["safe_to_review", "review_carefully", "protected", "unknown"];
@@ -247,7 +219,7 @@
     extraRoots: [],
     running: false,
     cancelled: false,
-    tab: "map",
+    tab: "rescue",
     tierFilter: "all",
     /* selection is a path set; the queue is derived from it */
     selected: new Set(),
@@ -348,7 +320,7 @@
     state.zoom = null;
     state.lastPlan = null;
     setStatus("Ready", null);
-    if (el.subline) el.subline.textContent = message || "Nothing is measured until you run a scan.";
+    if (el.subline) el.subline.textContent = message || "";
     if (el.amount) el.amount.textContent = "—";
     if (el.amountLabel) el.amountLabel.textContent = "Not measured";
     if (el.amountNote) {
@@ -579,9 +551,7 @@
     publishScanToTopbar(scan);
     renderBreadcrumbs();
     renderAll();
-    revealTreemap();
-    luma.idle("Measurement adopted from Detective Mode");
-    return true;
+    revealTreemap();    return true;
   }
 
   /* Focus a category without inventing a new measurement. Used by the
@@ -605,9 +575,7 @@
     state.running = true;
     state.cancelled = false;
     setRunning(true);
-    setStatus("Scanning", "is-busy");
-    luma.scan("Measuring storage");
-    if (el.subline) el.subline.textContent = "Walking the catalogue roots…";
+    setStatus("Scanning", "is-busy");    if (el.subline) el.subline.textContent = "Walking the catalogue roots…";
     /* The topbar says a storage measurement is in flight, so the kind of
        scan on screen is never ambiguous. */
     if (window.CureTopbar) window.CureTopbar.storageScanStarted();
@@ -658,26 +626,9 @@
         if (el.amountNote) {
           el.amountNote.textContent =
             "The scan was stopped before it finished, so these totals cover only the locations that were read. Nothing was removed.";
-        }
-        luma.state("cancelled", "Scan stopped", "Partial results are shown; nothing was removed.");
-      } else {
+        }      } else {
         setStatus("Measured", "is-ok");
         paintScanStages("final", null);
-        /* LUMA reacts to the real outcome: a measured file count, or an
-           honest "nothing here" when the machine genuinely has nothing. */
-        const found = scan && scan.coverage ? scan.coverage.files_seen : 0;
-        if (found > 0) {
-          luma.state(
-            "discovering",
-            found.toLocaleString() +
-              (found === 1 ? " file measured" : " files measured"),
-            scan.headline.incomplete
-              ? "Some locations could not be read, so the totals are a floor."
-              : "Measured across every root this scan covered.",
-          );
-        } else {
-          luma.idle("Measured — this machine reported no files in those locations.");
-        }
       }
       publishScanToTopbar(scan);
       renderAll();
@@ -687,9 +638,7 @@
       paintScanStages("final", "failed");
       if (el.progress) el.progress.setAttribute("data-failed", "1");
       if (el.progressPhase) el.progressPhase.textContent = "Failed";
-      if (el.progressDetail) el.progressDetail.textContent = clean(err);
-      luma.failed("The scan did not complete: " + clean(err));
-      if (el.subline) {
+      if (el.progressDetail) el.progressDetail.textContent = clean(err);      if (el.subline) {
         el.subline.textContent = "The scan did not complete: " + clean(err);
       }
       /* A failed scan leaves nothing measured. The summary must say so
@@ -987,9 +936,7 @@
     renderQueue();
     renderLarge();
     renderFolders();
-    drawTreemap();
-    luma.review(state.queue.size, "Queued for removal");
-  }
+    drawTreemap();  }
 
   function renderDuplicates() {
     if (!el.dupeList || !state.scan) return;
@@ -1779,6 +1726,7 @@
   function setTab(tab) {
     state.tab = tab;
     const map = {
+      rescue: ["sw-tab-rescue", "sw-panel-rescue"],
       map: ["sw-tab-map", "sw-panel-map"],
       large: ["sw-tab-large", "sw-panel-large"],
       dupes: ["sw-tab-dupes", "sw-panel-dupes"],
@@ -1798,18 +1746,18 @@
       t.setAttribute("tabindex", on ? "0" : "-1");
       p.classList.toggle("hidden", !on);
     }
+    if (tab === "rescue") {
+      if (window.storageRescue && window.storageRescue.onActivate) {
+        window.storageRescue.onActivate();
+      }
+    }
     if (tab === "map") drawTreemap();
     /* Opening the coverage report after a partial scan is the moment worth
        a curious look: some places could not be read. */
     if (tab === "coverage" && state.scan) {
       const c = state.scan.coverage || {};
       const unread = (c.permission_denied_dirs || 0) + (c.permission_denied_files || 0);
-      if (unread > 0) {
-        luma.curious(
-          unread.toLocaleString() +
-            " location(s) could not be read; the coverage tab lists them",
-        );
-      }
+      if (unread > 0) {      }
     }
   }
 
@@ -1854,9 +1802,7 @@
     el.previewConfirm.disabled = true;
     el.previewPhrase.textContent =
       "Type " + (plan.confirmation_phrase || "REMOVE") + " to approve this plan.";
-    openModal(el.previewOverlay, { initial: el.confirmInput });
-    luma.state("review", "Removal preview", plan.consequence);
-  }
+    openModal(el.previewOverlay, { initial: el.confirmInput });  }
 
   function planRow(item) {
     const li = node("li", "sw-plan-row");
@@ -1883,13 +1829,7 @@
     setStatus("Removing", "is-busy");
     /* The working pose is entered before the call, not after: while the
        engine is still running there are no bytes to report, and nothing on
-       screen may imply otherwise. */
-    luma.state(
-      "cleanup",
-      "Removing confirmed files",
-      "Waiting for the engine receipt.",
-    );
-    try {
+       screen may imply otherwise. */    try {
       const receipt = await invoke("storage_execute", {
         planId: state.lastPlan.plan_id,
         confirmPhrase: el.confirmInput.value,
@@ -1898,9 +1838,7 @@
       state.queue.clear();
       showReceipt(receipt);
     } catch (err) {
-      setStatus("Removal stopped", "is-err");
-      luma.failed("Removal stopped: " + clean(err));
-      el.previewConsequence.textContent = clean(err);
+      setStatus("Removal stopped", "is-err");      el.previewConsequence.textContent = clean(err);
     } finally {
       btn.disabled = true;
       btn.textContent = "Remove permanently";
@@ -1974,9 +1912,7 @@
       el.receiptNotes.appendChild(node("li", "sw-empty", "Nothing failed."));
     }
     openModal(el.receiptOverlay, { initial: el.receiptClose });
-    /* LUMA quotes the receipt verbatim rather than paraphrasing it. */
-    luma.state("success", "Space reclaimed", receiptLabel);
-    setStatus("Removed", "is-ok");
+    /* LUMA quotes the receipt verbatim rather than paraphrasing it. */    setStatus("Removed", "is-ok");
     resetAfterReceipt();
   }
 
@@ -2100,9 +2036,7 @@
   function addToRoots(path) {
     if (state.extraRoots.some((p) => p.toLowerCase() === path.toLowerCase())) return;
     state.extraRoots.push(path);
-    renderRootChips();
-    luma.review(state.extraRoots.length, "Locations added to this scan");
-  }
+    renderRootChips();  }
 
   function renderRootChips() {
     if (!state.extraRoots.length) {
@@ -2218,13 +2152,13 @@
         if (el.mapTip) el.mapTip.classList.add("hidden");
       });
     }
-    ["sw-tab-map", "sw-tab-large", "sw-tab-dupes", "sw-tab-queue", "sw-tab-coverage"].forEach((id) => {
+    ["sw-tab-rescue", "sw-tab-map", "sw-tab-large", "sw-tab-dupes", "sw-tab-queue", "sw-tab-coverage"].forEach((id) => {
       const b = $(id);
       if (!b) return;
       b.addEventListener("click", () => setTab(b.id.replace("sw-tab-", "")));
     });
     /* Keyboard: arrows move between tabs, per the ARIA tabs pattern. */
-    const tabIds = ["sw-tab-map", "sw-tab-large", "sw-tab-dupes", "sw-tab-queue", "sw-tab-coverage"];
+    const tabIds = ["sw-tab-rescue", "sw-tab-map", "sw-tab-large", "sw-tab-dupes", "sw-tab-queue", "sw-tab-coverage"];
     tabIds.forEach((id) => {
       const b = $(id);
       if (!b) return;
@@ -2276,53 +2210,35 @@
         /* The duplicate pass reads every byte it is comparing. That is a
            genuine "working it out" moment, so the companion takes the
            thinking pose while it happens. */
-        if (p.phase === "hashing") {
-          luma.thinking("Verifying duplicates byte for byte");
-        } else if (p.phase === "walking" && !state.thinking) {
-          luma.scan("Walking the catalogue");
-        }
+        if (p.phase === "hashing") {        } else if (p.phase === "walking" && !state.thinking) {        }
         updateScanProgress(p);
         state.thinking = p.phase === "hashing";
       }).catch(() => {});
     }
 
     /* Opening the workstation performs no work, so LUMA holds a settled pose
-       here until a real measurement starts. */
-    luma.idle("Ready to measure");
-    resetToIdle();
+       here until a real measurement starts. */    resetToIdle();
     setTab("map");
   }
 
   window.CureStorageWorkstation = {
-    idle: function () {
-      luma.idle("Ready to measure");
-      resetToIdle();
+    idle: function () {      resetToIdle();
       setTab(state.tab);
     },
     /* Settle the companion without discarding the measurement. A queue the
        operator built is worth keeping across a trip to another screen. */
     settle: function () {
-      if (state.scan) {
-        luma.idle("Measurement kept");
-      } else {
-        luma.idle("Ready to measure");
-      }
+      if (state.scan) {      } else {      }
     },
     measuring: function () {
       setRunning(true);
-      setStatus("Scanning", "is-busy");
-      luma.scan("Measuring storage");
-    },
+      setStatus("Scanning", "is-busy");    },
     measured: function () {
       setRunning(false);
       setStatus("Measured", "is-ok");
     },
-    cleanup: function (stateName, title, detail) {
-      luma.state(stateName, title, detail);
-    },
-    review: function () {
-      luma.review(state.queue.size, "Queued for removal");
-    },
+    cleanup: function (stateName, title, detail) {    },
+    review: function () {    },
     redraw: drawTreemap,
     /* Detective Mode hands the same measurement here instead of making the
        operator wait through a second scan. */

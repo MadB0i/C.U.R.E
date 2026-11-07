@@ -11,8 +11,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "gui/dist/index.html"
 DST = ROOT / "gui/dist/index.dev.html"
 
-DEV_WORDMARK = '<div class="wordmark">C.U.R.E<span>Evidence Console · sample data</span></div>'
-PROD_WORDMARK = '<div class="wordmark">C.U.R.E<span>Evidence Console</span></div>'
+DEV_WORDMARK = '<div class="wordmark">C.U.R.E<span>· sample data</span></div>'
+PROD_WORDMARK = '<div class="wordmark">C.U.R.E</div>'
 MOCK = '<script src="mock-tauri.js"></script>'
 
 
@@ -22,7 +22,7 @@ def build(html: str) -> str:
     html = html.replace(PROD_WORDMARK, DEV_WORDMARK)
     if MOCK in html:
         raise SystemExit("index.html must never load the mock backend")
-    marker = '<script src="luma.js"></script>'
+    marker = '<script src="operator.js"></script>'
     if marker not in html:
         raise SystemExit("index.html script marker not found")
     html = html.replace(

@@ -1,16 +1,19 @@
 pub mod acl;
+pub mod agent;
 pub mod attack;
 pub mod baseline;
 pub mod canary;
 pub mod cleanup;
 pub mod elevation;
 pub mod entry_details;
+pub mod evidence;
 #[cfg(test)]
 pub mod fixtures;
 pub mod hash_intel;
 pub mod incident;
 pub mod lnk;
 pub mod model;
+pub mod operator;
 pub mod overlay;
 pub mod process_scan;
 pub mod quarantine;
@@ -20,4 +23,3 @@ pub mod risk;
 pub mod scanners;
 pub mod signature;
 pub mod storage;
-pub mod threat_intel;

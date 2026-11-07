@@ -17,7 +17,6 @@
     "playwright": "^1.62.1"
   },
   "devDependencies": {
-    "axe-core": "^4.13.0",
-    "prettier": "^3.9.9"
+    "axe-core": "^4.13.0"
   }
 }

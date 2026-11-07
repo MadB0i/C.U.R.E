@@ -108,8 +108,12 @@
             i,
           risk: "Safe",
           score: 0,
-          reasons: [
-            "-20 command path is a trusted install location (Program Files/System32)",
+          evidence: [
+            {
+              level: "Observed",
+              detail:
+                "-20 command path is a trusted install location (Program Files/System32)",
+            },
           ],
         });
       }
@@ -132,9 +136,16 @@
             location: STARTUP_DIR + base + ".bat",
             risk: "HighRisk",
             score: 55,
-            reasons: [
-              "+30 command path sits in a temp/downloads/public drop zone",
-              "+25 entry name looks randomly generated",
+            evidence: [
+              {
+                level: "Observed",
+                detail:
+                  "+30 command path sits in a temp/downloads/public drop zone",
+              },
+              {
+                level: "Observed",
+                detail: "+25 entry name looks randomly generated",
+              },
             ],
           };
           break;
@@ -149,8 +160,12 @@
               base,
             risk: "Safe",
             score: 0,
-            reasons: [
-              "-20 command path is a trusted install location (Program Files/System32)",
+            evidence: [
+              {
+                level: "Observed",
+                detail:
+                  "-20 command path is a trusted install location (Program Files/System32)",
+              },
             ],
           };
           break;
@@ -162,8 +177,11 @@
             location: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
             risk: "Safe",
             score: 10,
-            reasons: [
-              "+10 executable runs directly from a user profile folder",
+            evidence: [
+              {
+                level: "Observed",
+                detail: "+10 executable runs directly from a user profile folder",
+              },
             ],
           };
           break;
@@ -179,9 +197,13 @@
               "C:\\Windows\\System32\\Tasks\\EvilCorp\\" + base + "Persist.xml",
             risk: "HighRisk",
             score: 70,
-            reasons: [
-              "+30 command path sits in a temp/downloads/public drop zone",
-              "+40 Invalid Signature",
+            evidence: [
+              {
+                level: "Observed",
+                detail:
+                  "+30 command path sits in a temp/downloads/public drop zone",
+              },
+              { level: "Observed", detail: "+40 Invalid Signature" },
             ],
           };
           break;
@@ -196,8 +218,12 @@
             location: STARTUP_DIR + base + "Check.lnk",
             risk: "Suspicious",
             score: 30,
-            reasons: [
-              "+25 PowerShell invoked with encoded command or hidden window",
+            evidence: [
+              {
+                level: "Observed",
+                detail:
+                  "+25 PowerShell invoked with encoded command or hidden window",
+              },
             ],
           };
           break;
@@ -212,17 +238,25 @@
             location: "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
             risk: "HighRisk",
             score: 30,
-            reasons: [
-              "+30 command path sits in a temp/downloads/public drop zone",
-              "Known Malware Hash",
+            evidence: [
+              {
+                level: "Observed",
+                detail:
+                  "+30 command path sits in a temp/downloads/public drop zone",
+              },
+              { level: "Observed", detail: "Known Malware Hash" },
             ],
           };
       }
       if (window.__CURE_MOCK_ALL_SAFE) {
         item.risk = "Safe";
         item.score = 0;
-        item.reasons = [
-          "-20 command path is a trusted install location (Program Files/System32)",
+        item.evidence = [
+          {
+            level: "Observed",
+            detail:
+              "-20 command path is a trusted install location (Program Files/System32)",
+          },
         ];
       }
       item.id = "mock-item-" + i;
@@ -243,7 +277,12 @@
       },
       score: item.score,
       risk: item.risk,
-      reasons: item.reasons || [],
+      // __CURE_MOCK_LEGACY_EVIDENCE simulates a pre-evidence payload:
+      // findings carry no evidence list at all, so the UI must show its
+      // explicit "Legacy report: evidence not recorded" state.
+      evidence: window.__CURE_MOCK_LEGACY_EVIDENCE
+        ? []
+        : item.evidence || [],
       attack: MOCK_ATTACK[source] || { id: "", name: "" },
     };
   }
@@ -1469,14 +1508,25 @@
       ["wmi", "Querying WMI subscriptions"],
       ["ifeo", "Checking IFEO / AppInit"],
       ["com", "Inspecting COM registrations"],
+      ["bootlogon", "Checking Winlogon and Active Setup"],
     ]) {
       emit("scan-progress", { stage, message });
       await delay(120);
     }
     for (const row of window.__CURE_MOCK_COVERAGE || [
+      { area: "Startup folders", state: "Checked", detail: "1 entry" },
       { area: "Scheduled tasks", state: "Checked", detail: "8 files" },
       { area: "Services (auto-start)", state: "Checked", detail: "0 services" },
       { area: "WMI subscriptions", state: "Checked", detail: "0 entries" },
+      { area: "IFEO and AppInit", state: "Checked", detail: "0 entries" },
+      { area: "COM registrations", state: "Checked", detail: "0 entries" },
+      {
+        area: "Winlogon & Active Setup",
+        state: "Checked",
+        detail: "2 values",
+      },
+      { area: "Running processes", state: "Checked", detail: "15 enumerated" },
+      { area: "Ransom indicators", state: "Checked", detail: "4 folders, 0 findings" },
     ])
       emit("scan-progress", { stage: "source-state", ...row });
     const n = Math.max(1, Number(window.__CURE_MOCK_ITEM_COUNT) || 8);
@@ -1553,6 +1603,7 @@
       safe,
       source_states: [
         { area: "Registry autoruns", state: "Checked", detail: "3 values" },
+        { area: "Startup folders", state: "Checked", detail: "1 entry" },
         { area: "Scheduled tasks", state: "Checked", detail: "8 files" },
         {
           area: "Services (auto-start)",
@@ -1560,6 +1611,10 @@
           detail: "0 services",
         },
         { area: "WMI subscriptions", state: "Checked", detail: "0 entries" },
+        { area: "IFEO and AppInit", state: "Checked", detail: "0 entries" },
+        { area: "COM registrations", state: "Checked", detail: "0 entries" },
+        { area: "Running processes", state: "Checked", detail: "15 enumerated" },
+        { area: "Ransom indicators", state: "Checked", detail: "4 folders, 0 findings" },
       ],
       elevated: false,
     };
@@ -1575,7 +1630,10 @@
             "C:\\Users\\test\\AppData\\Local\\Temp\\suspicious_loader.exe",
           score: 62,
           risk: "HighRisk",
-          reasons: ["Unsigned binary", "Random name"],
+          evidence: [
+            { level: "Observed", detail: "Unsigned binary" },
+            { level: "Observed", detail: "Random name" },
+          ],
         },
         {
           name: "unknown_tool.exe",
@@ -1583,7 +1641,10 @@
           exe_path: "C:\\Users\\test\\Downloads\\unknown_tool.exe",
           score: 41,
           risk: "HighRisk",
-          reasons: ["Profile exe", "Unsigned Binary"],
+          evidence: [
+            { level: "Observed", detail: "Profile exe" },
+            { level: "Observed", detail: "Unsigned Binary" },
+          ],
         },
         {
           name: "helper.dll",
@@ -1591,7 +1652,7 @@
           exe_path: "C:\\ProgramData\\helper.dll",
           score: 22,
           risk: "Suspicious",
-          reasons: ["Unsigned Binary"],
+          evidence: [{ level: "Observed", detail: "Unsigned Binary" }],
         },
       ];
       var sweepRansom = [
@@ -1628,6 +1689,282 @@
     return result;
   }
 
+  const MOCK_AGENT_WORKSPACE = "C:\\Projects\\cure-demo-app";
+
+  function mockAgentSession() {
+    const now = Math.floor(Date.now() / 1000);
+    const events = [
+      {
+        seq: 1,
+        at_unix: now - 84,
+        kind: "created",
+        path: "src/lib/agent-radar.ts",
+        from_path: null,
+        size_before: null,
+        size_after: 4820,
+        source: "directory_watcher",
+        confidence: "correlated",
+        agents: ["opencode"],
+        note: "Filesystem change observed while a supported agent process was present. Correlation is not attribution.",
+      },
+      {
+        seq: 2,
+        at_unix: now - 67,
+        kind: "modified",
+        path: "src/App.tsx",
+        from_path: null,
+        size_before: 6144,
+        size_after: 7188,
+        source: "directory_watcher",
+        confidence: "correlated",
+        agents: ["opencode"],
+        note: "Filesystem change observed while a supported agent process was present. Correlation is not attribution.",
+      },
+      {
+        seq: 3,
+        at_unix: now - 51,
+        kind: "modified",
+        path: "package.json",
+        from_path: null,
+        size_before: 1890,
+        size_after: 1962,
+        source: "directory_watcher",
+        confidence: "correlated",
+        agents: ["opencode"],
+        note: "Filesystem change observed while a supported agent process was present. Correlation is not attribution.",
+      },
+      {
+        seq: 4,
+        at_unix: now - 38,
+        kind: "renamed",
+        path: "docs/agent-notes.md",
+        from_path: "docs/notes.md",
+        size_before: 2048,
+        size_after: 2048,
+        source: "directory_watcher",
+        confidence: "correlated",
+        agents: ["opencode"],
+        note: "Rename was observed from the watcher's old/new pair. Correlation is not attribution.",
+      },
+      {
+        seq: 5,
+        at_unix: now - 24,
+        kind: "removed",
+        path: "src/legacy/panel.tsx",
+        from_path: null,
+        size_before: 3911,
+        size_after: null,
+        source: "directory_watcher",
+        confidence: "observed",
+        agents: [],
+        note: "Filesystem change observed after the agent process sample no longer contained a supported agent.",
+      },
+      {
+        seq: 6,
+        at_unix: now - 9,
+        kind: "modified",
+        path: ".gitignore",
+        from_path: null,
+        size_before: 410,
+        size_after: 438,
+        source: "snapshot_reconciliation",
+        confidence: "correlated",
+        agents: ["opencode"],
+        note: "Change recovered by final snapshot reconciliation. Correlation is not attribution.",
+      },
+    ];
+    return {
+      id: "session-demo-1",
+      workspace: MOCK_AGENT_WORKSPACE,
+      started_unix: now - 96,
+      ended_unix: null,
+      active: true,
+      files_at_start: 284,
+      events: events,
+      agents_seen: ["opencode"],
+      coverage: {
+        baseline_captured: true,
+        baseline_truncated: false,
+        baseline_files: 284,
+        unreadable_dirs: 0,
+        skipped_links: 0,
+        watcher_started: true,
+        overflow_batches: 0,
+        dropped_events: 0,
+        snapshot_reconciled: false,
+        complete: true,
+        note: "",
+      },
+    };
+  }
+
+  const mockAgent = {
+    session: null,
+    last: null,
+    windows: null,
+    snapshotAt: null,
+    snapshotEntries: 0,
+  };
+
+  /* The real backend recovers the newest saved flight session from disk on
+     launch; the mock mirrors that with sessionStorage so a reload behaves
+     like an application restart (stopped session restored as history). */
+  const MOCK_FLIGHT_KEY = "cure-mock-flight";
+  function persistMockFlight() {
+    try {
+      sessionStorage.setItem(MOCK_FLIGHT_KEY, JSON.stringify(mockAgent.last));
+    } catch (_) {}
+  }
+  try {
+    const savedFlight = sessionStorage.getItem(MOCK_FLIGHT_KEY);
+    if (savedFlight) {
+      const restored = JSON.parse(savedFlight);
+      if (restored && !restored.active) mockAgent.last = restored;
+    }
+  } catch (_) {}
+
+  function mockAgentRadar() {
+    const opencodeProcess = {
+      pid: 6214,
+      name: "opencode.exe",
+      exe_path: "C:\\Users\\demo\\AppData\\Local\\Programs\\opencode\\opencode.exe",
+      started_unix: Math.floor(Date.now() / 1000) - 420,
+      memory_usage_bytes: 431229312,
+      has_windows: true,
+      identity: "Verified",
+      identity_label: "verified tool identity (canonical path / verified signer)",
+    };
+    const active = mockAgent.session && mockAgent.session.active;
+    return {
+      generated_unix: Math.floor(Date.now() / 1000),
+      detected_count: 1,
+      model_server_count: 0,
+      supported_agents: [
+        {
+          id: "opencode",
+          label: "OpenCode",
+          detected: true,
+          process_count: 1,
+          category: "Agent",
+          state: active ? "session_connected" : "idle",
+          state_label: active ? "Present during session" : "Present / idle",
+          state_note: active
+            ? "The process was present in the latest sample. Presence does not prove code generation."
+            : "The process is present but has not been correlated with a recorded change in this session.",
+          integration_note:
+            "Supported local integration: process image name and metadata. No cloud or session API consumed.",
+          processes: [opencodeProcess],
+          is_model_server: false,
+        },
+        {
+          id: "codex_cli",
+          label: "Codex CLI",
+          detected: false,
+          process_count: 0,
+          category: "Agent",
+          state: "not_detected",
+          state_label: "Not detected",
+          state_note: "No process with a documented Codex CLI image name appeared in this sample.",
+          integration_note:
+            "Supported local integration: process image name and metadata. No cloud or session API consumed.",
+          processes: [],
+          is_model_server: false,
+        },
+      ],
+      processes: [opencodeProcess],
+      monitoring: active ? mockAgent.session : null,
+      windows: mockAgent.windows,
+      workspace: active ? MOCK_AGENT_WORKSPACE : mockAgent.last ? mockAgent.last.workspace : null,
+      notes: [
+        "A running process does not prove that an agent is generating code or executing tasks.",
+        "Synthetic demo data. No process on this machine is inspected.",
+      ],
+    };
+  }
+
+  function mockAgentCaseFile(summary, includeSummary) {
+    const session = mockAgent.last || mockAgent.session;
+    if (!session) throw new Error("Run and stop a monitoring session before building a case file.");
+    /* The demo note is intentionally plain: a note with path-like or
+       credential-like text is withheld by the real sanitizer, and this
+       sample only mirrors that boundary when it is obvious. */
+    const looksPrivate = /(?:[A-Za-z]:\\|\\Users\\|@|token|password|secret)/i.test(summary || "");
+    const note = includeSummary && summary && !looksPrivate ? String(summary).slice(0, 160) : null;
+    const ends = session.ended_unix || Math.floor(Date.now() / 1000);
+    const counts = session.events.reduce(
+      function (acc, e) {
+        acc.total += 1;
+        acc[e.kind] = (acc[e.kind] || 0) + 1;
+        return acc;
+      },
+      { total: 0 },
+    );
+    return {
+      case_id: "8f2a1c7d",
+      kind: "agent_session",
+      title: "AGENT SESSION CASE",
+      generated_unix: ends,
+      agent_label: "OpenCode",
+      agent_presence: "A supported agent process was observed during the session.",
+      observation_seconds: Math.max(1, ends - session.started_unix),
+      observation_label: Math.max(1, ends - session.started_unix) + "s",
+      changes_total: counts.total,
+      created: counts.created || 0,
+      modified: counts.modified || 0,
+      removed: counts.removed || 0,
+      renamed: counts.renamed || 0,
+      storage_delta_bytes: 4097,
+      storage_delta_label: "+4.0 KB",
+      storage_note: "Net metadata size change across observed events, not verified free space.",
+      confidence_label: "Correlated, not attributed",
+      confidence_note:
+        "Changes happened while a supported agent process was present. Presence does not establish causation.",
+      completeness: session.coverage.complete
+        ? "Complete within recorder limits"
+        : "Incomplete coverage",
+      coverage_note: session.coverage.complete
+        ? "Baseline and watcher coverage were complete within the recorder's documented limits."
+        : session.coverage.note,
+      observed_events: 1,
+      correlated_events: 5,
+      unknown_events: 0,
+      windows_added: mockAgent.windows ? (mockAgent.windows.added || []).length : 0,
+      windows_removed: mockAgent.windows ? (mockAgent.windows.removed || []).length : 0,
+      windows_changed: mockAgent.windows ? (mockAgent.windows.changed || []).length : 0,
+      windows_note: mockAgent.windows
+        ? "Windows persistence differences are review leads, not malware verdicts."
+        : "No Windows persistence comparison was included.",
+      reconciliation_used: true,
+      summary: note,
+      summary_withheld: !!(includeSummary && summary && looksPrivate),
+      demo: true,
+    };
+  }
+
+  function mockWindowsItem(status, name, source, hint) {
+    return {
+      status: status,
+      source: source,
+      source_label:
+        source === "registry_run"
+          ? "Registry Run key"
+          : source === "startup_folder"
+            ? "Startup folder"
+            : source === "scheduled_task"
+              ? "Scheduled task"
+              : "Windows service",
+      name: name,
+      location_before: null,
+      location_after: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+      command_before: null,
+      command_after: "C:\\Projects\\cure-demo-app\\tools\\preview.exe --agent-demo",
+      review_hints: [hint],
+      evidence: "Observed in the supported persistence inventory. This is a review lead.",
+    };
+  }
+
+
+  
   window.__TAURI__ = {
     core: {
       invoke(command, args) {
@@ -1903,6 +2240,529 @@
                 selectable: true,
               },
             ]);
+          case "storage_rescue_status": {
+            const GB = 1024 * 1024 * 1024;
+            const src = (args && args.source_drive) || "C:";
+            const tgt = (args && args.target_drive) || "D:";
+            return Promise.resolve({
+              drives: [
+                {
+                  drive_letter: "C:",
+                  volume_label: "System NVMe",
+                  total_bytes: Math.round(256 * GB),
+                  free_bytes: Math.round(18.2 * GB),
+                  used_bytes: Math.round(237.8 * GB),
+                  pressure_pct: 92.9,
+                  is_system: true,
+                  is_congested: true,
+                },
+                {
+                  drive_letter: "D:",
+                  volume_label: "Fast Workspace",
+                  total_bytes: Math.round(1000 * GB),
+                  free_bytes: Math.round(680.4 * GB),
+                  used_bytes: Math.round(319.6 * GB),
+                  pressure_pct: 32.0,
+                  is_system: false,
+                  is_congested: false,
+                },
+              ],
+              system_drive: "C:",
+              recommended_target_drive: "D:",
+              candidates: [
+                {
+                  id: "downloads",
+                  name: "Downloads Library",
+                  source_path: "C:\\Users\\Operator\\Downloads",
+                  suggested_target_path: `${tgt}\\CURE_Relocated\\Downloads`,
+                  size_bytes: Math.round(42.4 * GB),
+                  allocated_bytes: Math.round(42.4 * GB),
+                  file_count: 842,
+                  safety: "safe",
+                  category: "Personal Files",
+                  why_candidate: "Standalone downloaded installers, media, and zip archives. Safest high-yield candidate.",
+                  reconfiguration_advice: null,
+                },
+                {
+                  id: "videos",
+                  name: "Videos & Screen Captures",
+                  source_path: "C:\\Users\\Operator\\Videos",
+                  suggested_target_path: `${tgt}\\CURE_Relocated\\Videos`,
+                  size_bytes: Math.round(68.2 * GB),
+                  allocated_bytes: Math.round(68.2 * GB),
+                  file_count: 126,
+                  safety: "safe",
+                  category: "Media Library",
+                  why_candidate: "Recorded desktop clips, game footage, and stream archives. Zero executable dependencies.",
+                  reconfiguration_advice: null,
+                },
+                {
+                  id: "pictures",
+                  name: "Pictures & Wallpapers",
+                  source_path: "C:\\Users\\Operator\\Pictures",
+                  suggested_target_path: `${tgt}\\CURE_Relocated\\Pictures`,
+                  size_bytes: Math.round(18.5 * GB),
+                  allocated_bytes: Math.round(18.5 * GB),
+                  file_count: 2410,
+                  safety: "safe",
+                  category: "Media Library",
+                  why_candidate: "User photo collections, screenshots, and wallpapers.",
+                  reconfiguration_advice: null,
+                },
+                {
+                  id: "cargo_cache",
+                  name: "Cargo Crates Cache",
+                  source_path: "C:\\Users\\Operator\\.cargo\\registry",
+                  suggested_target_path: `${tgt}\\CURE_Relocated\\CargoRegistry`,
+                  size_bytes: Math.round(14.8 * GB),
+                  allocated_bytes: Math.round(14.8 * GB),
+                  file_count: 12800,
+                  safety: "caution",
+                  category: "Developer Toolchain",
+                  why_candidate: "Cached Rust crate index and tarball sources.",
+                  reconfiguration_advice: "Set CARGO_HOME environment variable to the new destination.",
+                },
+                {
+                  id: "npm_cache",
+                  name: "Node.js npm Cache",
+                  source_path: "C:\\Users\\Operator\\AppData\\Local\\npm-cache",
+                  suggested_target_path: `${tgt}\\CURE_Relocated\\npm-cache`,
+                  size_bytes: Math.round(8.6 * GB),
+                  allocated_bytes: Math.round(8.6 * GB),
+                  file_count: 6420,
+                  safety: "caution",
+                  category: "Developer Toolchain",
+                  why_candidate: "Cached npm package tarballs.",
+                  reconfiguration_advice: "Run 'npm config set cache <new_path>' after relocation.",
+                },
+                {
+                  id: "workspace_projects",
+                  name: "Local Projects Folder",
+                  source_path: "C:\\Projects",
+                  suggested_target_path: `${tgt}\\Projects`,
+                  size_bytes: Math.round(24.1 * GB),
+                  allocated_bytes: Math.round(24.1 * GB),
+                  file_count: 18900,
+                  safety: "caution",
+                  category: "Project Repositories",
+                  why_candidate: "Local git repositories and working workspaces.",
+                  reconfiguration_advice: "Update IDE workspace bookmarks and git remotes if paths change.",
+                },
+              ],
+              total_safe_relief_bytes: Math.round(129.1 * GB),
+              total_caution_relief_bytes: Math.round(47.5 * GB),
+            });
+          }
+          case "storage_rescue_plan": {
+            const GB = 1024 * 1024 * 1024;
+            const selectedIds = (args && args.selected_ids) || [];
+            const src = (args && args.source_drive) || "C:";
+            const tgt = (args && args.target_drive) || "D:";
+
+            const sampleCandidates = [
+              { id: "downloads", name: "Downloads Library", size: 42.4 * GB, files: 842, safety: "safe" },
+              { id: "videos", name: "Videos & Screen Captures", size: 68.2 * GB, files: 126, safety: "safe" },
+              { id: "pictures", name: "Pictures & Wallpapers", size: 18.5 * GB, files: 2410, safety: "safe" },
+              { id: "cargo_cache", name: "Cargo Crates Cache", size: 14.8 * GB, files: 12800, safety: "caution", advice: "Set CARGO_HOME environment variable to the new destination." },
+              { id: "npm_cache", name: "Node.js npm Cache", size: 8.6 * GB, files: 6420, safety: "caution", advice: "Run 'npm config set cache <new_path>' after relocation." },
+              { id: "workspace_projects", name: "Local Projects Folder", size: 24.1 * GB, files: 18900, safety: "caution", advice: "Update IDE workspace bookmarks if paths change." },
+            ];
+
+            const active = sampleCandidates.filter(c => selectedIds.includes(c.id));
+            const totalBytes = active.reduce((acc, c) => acc + c.size, 0);
+            const totalFiles = active.reduce((acc, c) => acc + c.files, 0);
+            const headroom = totalBytes * 0.10;
+            const targetFree = 680.4 * GB;
+            const sourceFree = 18.2 * GB;
+
+            const preflightWarnings = [];
+            for (const c of active) {
+              if (c.safety === "caution") {
+                preflightWarnings.push(`${c.name} is a caution candidate: ${c.advice || "Requires tool reconfiguration."}`);
+              }
+            }
+
+            return Promise.resolve({
+              source_drive: src,
+              target_drive: tgt,
+              selected_candidates: active.map(c => ({
+                id: c.id,
+                name: c.name,
+                source_path: `C:\\Users\\Operator\\${c.id}`,
+                suggested_target_path: `${tgt}\\CURE_Relocated\\${c.id}`,
+                size_bytes: Math.round(c.size),
+                allocated_bytes: Math.round(c.size),
+                file_count: c.files,
+                safety: c.safety,
+                category: "User Media",
+                why_candidate: "Selected for relocation",
+                reconfiguration_advice: c.advice || null,
+              })),
+              total_bytes_to_relocate: Math.round(totalBytes),
+              total_files_to_relocate: totalFiles,
+              target_current_free_bytes: Math.round(targetFree),
+              target_projected_free_bytes: Math.round(targetFree - totalBytes),
+              source_current_free_bytes: Math.round(sourceFree),
+              source_projected_free_bytes: Math.round(sourceFree + totalBytes),
+              has_sufficient_space: (targetFree >= (totalBytes + headroom)),
+              required_headroom_bytes: Math.round(headroom),
+              preflight_errors: [],
+              preflight_warnings: preflightWarnings,
+            });
+          }
+          case "storage_rescue_execute": {
+            /* Test hook: a labelled failure the UI-09 bot-flow harness uses
+               to prove the bot stops safely when the engine fails. */
+            if (window.__CURE_MOCK_FAIL_RESCUE) {
+              return Promise.reject(
+                new Error(String(window.__CURE_MOCK_FAIL_RESCUE)),
+              );
+            }
+            const candId = (args && args.candidate_id) || "downloads";
+            const srcPath = (args && args.source_path) || "C:\\Users\\Operator\\Downloads";
+            const tgtPath = (args && args.target_path) || "D:\\CURE_Relocated\\Downloads";
+            const srcDrive = (args && args.source_drive) || "C:";
+            const tgtDrive = (args && args.target_drive) || "D:";
+
+            const totalFiles = 842;
+            const totalBytes = 42.4 * 1024 * 1024 * 1024;
+            const emitP = (files, pct, phase, curr) => {
+              if (window.__CURE_MOCK_EMIT) {
+                window.__CURE_MOCK_EMIT("rescue-migration-progress", {
+                  candidate_id: candId,
+                  phase,
+                  current_file: curr,
+                  files_copied: files,
+                  total_files: totalFiles,
+                  bytes_copied: Math.round((pct / 100) * totalBytes),
+                  total_bytes: totalBytes,
+                  percent: pct,
+                });
+              }
+            };
+
+            emitP(120, 15.0, "copying", "installer_setup.exe");
+            setTimeout(() => emitP(450, 52.0, "copying", "archive_2026.zip"), 250);
+            setTimeout(() => emitP(842, 100.0, "verifying", "Verifying checksums and counts..."), 500);
+
+            return new Promise((resolve) => {
+              setTimeout(() => {
+                resolve({
+                  receipt_id: `RECEIPT-RESCUE-${Date.now()}`,
+                  timestamp_utc: new Date().toISOString(),
+                  source_drive: srcDrive,
+                  target_drive: tgtDrive,
+                  total_bytes_copied: totalBytes,
+                  total_files_copied: totalFiles,
+                  source_preserved: true,
+                  items: [
+                    {
+                      candidate_id: candId,
+                      source_path: srcPath,
+                      target_path: tgtPath,
+                      source_files: totalFiles,
+                      target_files: totalFiles,
+                      source_bytes: totalBytes,
+                      target_bytes: totalBytes,
+                      files_match: true,
+                      bytes_match: true,
+                      sample_hashes_checked: 7,
+                      sample_hashes_matched: 7,
+                      is_verified: true,
+                      error: null,
+                    },
+                  ],
+                  recovery_notes: [
+                    `Data was safely copied from ${srcPath} to ${tgtPath}.`,
+                    "SOURCE DATA REMAINS 100% INTACT. C.U.R.E did not delete any source files.",
+                    "To revert this relocation, simply continue using the original folder and remove the new folder.",
+                    "To finalize and recover space on C:, verify your files in the destination folder, then delete the original source folder manually.",
+                  ],
+                  manual_cleanup_hint: `rd /s /q "${srcPath}"`,
+                });
+              }, 600);
+            });
+          }
+          case "storage_rescue_finalize": {
+            const candId = (args && args.candidate_id) || "downloads";
+            const tgtPath = (args && args.target_path) || "D:\\CURE_Relocated\\Downloads";
+            const isKnown = ["downloads", "documents", "pictures", "videos", "desktop"].includes(candId);
+            return Promise.resolve({
+              candidate_id: candId,
+              target_path: tgtPath,
+              is_known_folder: isKnown,
+              known_folder_name: isKnown ? candId.charAt(0).toUpperCase() + candId.slice(1) : null,
+              registry_updated: isKnown,
+              configuration_action: isKnown 
+                ? `Windows Known Folder '${candId}' repointed to '${tgtPath}'. Shell notification broadcasted.`
+                : `Set toolchain configuration: CARGO_HOME / PIP_CACHE_DIR -> ${tgtPath}`,
+              shell_notification_broadcast: isKnown,
+            });
+          }
+          case "storage_rescue_activate": {
+            const candId = (args && (args.candidate_id || args.candidateId)) || "downloads";
+            const tgtPath = (args && (args.target_path || args.targetPath)) || "D:\\CURE_Relocated\\Downloads";
+            const isKnown = ["downloads", "documents", "pictures", "videos", "desktop"].includes(candId.toLowerCase());
+            const nonce = "b7e419a2e3f1c508d92a47b610c3e5a7";
+            return Promise.resolve({
+              candidate_id: candId,
+              target_path: tgtPath,
+              previous_path: `C:\\Users\\Operator\\${candId}`,
+              configuration_action: isKnown
+                ? `Windows Known Folder '${candId}' updated to '${tgtPath}'. Shell change notified.`
+                : `Set user environment variable CARGO_HOME / PIP_CACHE_DIR to '${tgtPath}'. Broadcasted WM_SETTINGCHANGE.`,
+              env_var_updated: isKnown ? null : "CARGO_HOME",
+              known_folder_updated: isKnown ? candId : null,
+              application_validation_passed: true,
+              activation_succeeded: true,
+              cleanup_unlocked: true,
+              cleanup_nonce: nonce,
+              required_cleanup_token: `CONFIRM_CLEANUP_${candId}_${nonce}`,
+              notes: [
+                "Target path verified accessible and writable.",
+                "Destination filesystem write/read probe validated.",
+                "Configuration repointed successfully.",
+                "Application validation confirmed: path resolves to relocated destination.",
+                "Source cleanup gate unlocked with 128-bit dynamic verification token.",
+              ],
+            });
+          }
+          case "storage_rescue_rollback": {
+            const candId = (args && (args.candidate_id || args.candidateId)) || "downloads";
+            const origPath = (args && (args.original_path || args.originalPath)) || `C:\\Users\\Operator\\${candId}`;
+            return Promise.resolve({
+              candidate_id: candId,
+              restored_path: origPath,
+              rollback_action: `Configuration restored to original source '${origPath}'. Shell notification broadcasted.`,
+              rollback_succeeded: true,
+              notes: [
+                "Restored registry / environment variable to original path.",
+                "Application resolution verified against original path.",
+                "Relocation status cleared and issued nonces revoked.",
+              ],
+            });
+          }
+          case "storage_rescue_cleanup_source": {
+            const candId = (args && (args.candidate_id || args.candidateId)) || "downloads";
+            const srcPath = (args && (args.source_path || args.sourcePath)) || "C:\\Users\\Operator\\Downloads";
+            const token = (args && (args.confirmation_token || args.confirmationToken)) || "";
+            const expectedNonce = (args && (args.expected_nonce || args.expectedNonce)) || "b7e419a2e3f1c508d92a47b610c3e5a7";
+            if (token !== `CONFIRM_CLEANUP_${candId}_${expectedNonce}`) {
+              return Promise.reject(new Error(`Invalid confirmation token. Expected 'CONFIRM_CLEANUP_${candId}_${expectedNonce}'`));
+            }
+            return Promise.resolve({
+              candidate_id: candId,
+              source_path: srcPath,
+              c_free_before_bytes: 18.2 * 1024 * 1024 * 1024,
+              c_free_after_bytes: 42.8 * 1024 * 1024 * 1024,
+              actual_bytes_freed: 24.6 * 1024 * 1024 * 1024,
+              cleanup_status: "Source cleaned up successfully. C: drive freed 24.6 GB.",
+            });
+          }
+          case "operator_status": {
+            return Promise.resolve({
+              timestamp_unix: Math.floor(Date.now() / 1000),
+              highest_threat_level: "level_2_action_recommended",
+              c_drive_congested: true,
+              c_drive_pressure_pct: 92.9,
+              c_drive_free_bytes: 18.2 * 1024 * 1024 * 1024,
+              recommended_storage_relief_bytes: 55.4 * 1024 * 1024 * 1024,
+              active_agent_count: 2,
+              unverified_agent_count: 1,
+              threat_findings: [
+                {
+                  id: "THREAT-1",
+                  level: "level_2_action_recommended",
+                  category: "process_masquerade",
+                  title: "Unverified Process Claiming Agent Identity",
+                  details: "Process 'opencode.exe' (PID 1600) lacks Authenticode signature and was spawned from AppData\Local\Temp.",
+                  target_path: "C:\\Users\\Operator\\AppData\\Local\\Temp\\opencode.exe",
+                  target_pid: 1600,
+                  expected_exe: "opencode.exe",
+                  timestamp_unix: Math.floor(Date.now() / 1000) - 120,
+                }
+              ],
+              recommendations: [
+                {
+                  id: "rec_drive_pressure",
+                  level: "level_2_action_recommended",
+                  title: "C: Drive Pressure Relief Available",
+                  description: "System drive C: is 92.9% full (18.2 GB remaining). Relocating Downloads & Media to D: will recover 55.4 GB safely.",
+                  risk_assessment: "Non-destructive. Dual-copy verification guaranteed before source retirement.",
+                  action_type: "storage_rescue",
+                  action_label: "Open Storage Rescue",
+                  target: "C:",
+                  required_confirmation_token: null,
+                },
+                {
+                  id: "rec_orphan_worker",
+                  level: "level_1_review",
+                  title: "Orphaned AI Worker Detected (PID 1600)",
+                  description: "Worker process 'opencode.exe' survived parent IDE termination and is holding background CPU.",
+                  risk_assessment: "Non-critical toolchain process. Safe to end session gracefully.",
+                  action_type: "agent_session",
+                  action_label: "Inspect Session",
+                  target: "1600",
+                  required_confirmation_token: "TERMINATE_1600",
+                }
+              ]
+            });
+          }
+          case "operator_agent_sessions": {
+            return Promise.resolve([
+              {
+                pid: 6214,
+                parent_pid: 840,
+                kind: "opencode",
+                category: "agent",
+                name: "opencode.exe",
+                exe_path: "C:\\Users\\demo\\AppData\\Local\\Programs\\opencode\\opencode.exe",
+                started_unix: Math.floor(Date.now() / 1000) - 420,
+                uptime_seconds: 420,
+                state: "verified",
+                is_orphan: false,
+                child_pids: [1604, 1608],
+                evidence_summary: "Process PID 6214 matches the OpenCode image name and a verified signer. 2 child worker processes active.",
+                limitations: "Process query metadata only. Private prompts and conversation transcripts are never inspected.",
+                recovery: {
+                  supported: true,
+                  status: "ACTIVE SESSION ARTIFACTS",
+                  state_kind: "active_session",
+                  session_count: 3,
+                  storage_path: "C:\\Users\\demo\\AppData\\Roaming\\ai.opencode.desktop\\sessions",
+                  latest_session_utc: new Date(Date.now() - 240000).toISOString(),
+                  latest_activity_unix: Math.floor(Date.now() / 1000) - 240,
+                  details: "OpenCode desktop session history database found with 3 recorded sessions; the newest store was modified 4 minutes ago. Artifacts are never modified by C.U.R.E.",
+                },
+              },
+              {
+                pid: 4120,
+                parent_pid: 1100,
+                kind: "ollama",
+                category: "model_server",
+                name: "ollama.exe",
+                exe_path: "C:\\Program Files\\Ollama\\ollama.exe",
+                started_unix: Math.floor(Date.now() / 1000) - 7200,
+                uptime_seconds: 7200,
+                state: "verified",
+                is_orphan: false,
+                child_pids: [],
+                evidence_summary: "Local Model Server PID 4120 running normally with verified Authenticode signature.",
+                limitations: "Model server process. Not an autonomous agent.",
+                recovery: {
+                  supported: false,
+                  status: "RECOVERY UNSUPPORTED",
+                  state_kind: "unsupported_session_format",
+                  session_count: 0,
+                  storage_path: null,
+                  latest_session_utc: null,
+                  latest_activity_unix: null,
+                  details: "Model servers expose no parseable conversation store; recovery is not offered.",
+                },
+              }
+            ]);
+          }
+          case "operator_agent_graceful_shutdown": {
+            return Promise.resolve(true);
+          }
+          case "operator_agent_terminate": {
+            const pid = (args && args.pid) || 0;
+            const exe = (args && args.expected_exe) || "process.exe";
+            const token = (args && args.confirmation_token) || "";
+            if (token !== `TERMINATE_${pid}`) {
+              return Promise.reject(new Error(`Invalid confirmation token. Expected 'TERMINATE_${pid}'`));
+            }
+            return Promise.resolve({
+              target_pid: pid,
+              target_exe: exe,
+              pids_terminated: [pid, pid + 4],
+              pids_failed: [],
+              outcome: `Successfully terminated target PID ${pid} and 1 child process`,
+              verified_stopped: true,
+              method: "forced",
+            });
+          }
+          case "operator_agent_end_process": {
+            const pid = (args && args.pid) || 0;
+            const name = String((args && (args.expected_name || args.expectedName)) || "");
+            const started = args && (args.expected_started_unix ?? args.expectedStartedUnix);
+            const token = (args && (args.confirmation_token || args.confirmationToken)) || "";
+            if (token !== `END_${pid}`) {
+              return Promise.reject(new Error(`Invalid confirmation token. Expected 'END_${pid}'`));
+            }
+            // Mirror the real backend's scope guard: the target must exist in
+            // the current snapshot with matching name and start time.
+            const radar = mockAgentRadar();
+            const live = (radar.processes || []).find(function (p) { return p.pid === pid; });
+            if (!live) {
+              return Promise.reject(new Error(
+                `PID ${pid} is not a currently detected supported agent process. Refresh the radar and retry.`));
+            }
+            if (name && live.name.toLowerCase() !== name.toLowerCase()) {
+              return Promise.reject(new Error(
+                "The selected snapshot does not match the live process. Refresh the radar and retry."));
+            }
+            if (started && live.started_unix && Math.abs(live.started_unix - started) > 2) {
+              return Promise.reject(new Error(
+                "The selected snapshot is stale: the process start time no longer matches. Refresh the radar and retry."));
+            }
+            return Promise.resolve({
+              target_pid: pid,
+              target_exe: live.name,
+              pids_terminated: [pid],
+              pids_failed: [],
+              outcome: `PID ${pid} ${live.has_windows ? "closed gracefully (WM_CLOSE)" : "force-stopped (TerminateProcess)"}.`,
+              verified_stopped: true,
+              method: live.has_windows ? "graceful" : "forced",
+            });
+          }
+          case "operator_defender_scan": {
+            const p = (args && (args.file_path || args.filePath)) || "C:\\test.exe";
+            const isThreat = p.toLowerCase().includes("threat") || p.toLowerCase().includes("malware");
+            return Promise.resolve({
+              target_path: p,
+              outcome: isThreat ? "threat_detected_audit" : "clean_no_threats",
+              status: isThreat
+                ? "Threat detected by Defender signatures (-DisableRemediation was active; file remains untouched)."
+                : "Clean: Windows Defender scanned the file and detected no threats.",
+              return_code: isThreat ? 2 : 0,
+              threat_detected: isThreat,
+              detected_threats: isThreat ? ["Trojan:Win32/SampleMasquerade.A"] : [],
+              raw_output: isThreat
+                ? "Scan starting...\nLIST OF DETECTED THREATS\nThreat : Trojan:Win32/SampleMasquerade.A\nResources : " + p + "\nScan finished."
+                : "Scan starting...\nScan finished.\nScanning " + p + " found no threats.",
+            });
+          }
+          case "operator_defender_contain": {
+            const p = (args && (args.file_path || args.filePath)) || "C:\\test.exe";
+            return Promise.resolve({
+              target_path: p,
+              outcome: "threat_remediated",
+              status: "Threat remediated: Target file quarantined by Windows Defender.",
+              return_code: 0,
+              threat_detected: true,
+              detected_threats: ["Trojan:Win32/SampleMasquerade.A"],
+              raw_output: "Scan starting...\nLIST OF DETECTED THREATS\nThreat : Trojan:Win32/SampleMasquerade.A\nRemediation successful.\nScan finished.",
+            });
+          }
+          case "operator_verify_audit_journal": {
+            return Promise.resolve(42);
+          }
+          case "operator_audit_log": {
+            return Promise.resolve([
+              {
+                id: "OP-LOG-1",
+                timestamp_iso: new Date().toISOString(),
+                timestamp_unix: Math.floor(Date.now() / 1000),
+                action_type: "SystemAssessment",
+                target: "HostTelemetry",
+                approval_token: null,
+                status: "success",
+                details: { status: "Active" },
+                error: null,
+              }
+            ]);
+          }
           case "storage_scan":
             if (window.__CURE_MOCK_STORAGE_ERROR)
               return Promise.reject(
@@ -1975,6 +2835,19 @@
             return Promise.resolve(
               "C:\\mock\\case-files\\" + String((args && args.name) || "case") + ".png",
             );
+          case "share_card_png":
+            /* Same structural boundary: the demo previews the aggregate-only
+               card and never writes it. */
+            if (window.__CURE_FORCE_MOCK) {
+              return Promise.reject(
+                new Error(
+                  "This is the public demo. The share card is preview-only and is never written.",
+                ),
+              );
+            }
+            return Promise.resolve(
+              "C:\\mock\\case-files\\" + String((args && args.name) || "share") + ".png",
+            );
           case "kill_high_risk_processes":
             return delay(350).then(function () {
               var procs = (args && args.processes) || [];
@@ -1990,7 +2863,7 @@
                     exe_path: "",
                     score: 0,
                     risk: "HighRisk",
-                    reasons: [],
+                    evidence: [],
                   });
                 }
               });
@@ -2019,6 +2892,133 @@
           case "canary_status":
             return delay(20).then(function () {
               return { active: false, alert_count: 0 };
+            });
+          case "agent_radar":
+            return delay(120).then(function () {
+              return mockAgentRadar();
+            });
+          case "flight_start": {
+            const requested = String((args && args.workspace) || "").trim();
+            if (!requested) {
+              return Promise.reject(new Error("Choose an existing workspace directory to monitor."));
+            }
+            if (mockAgent.session && mockAgent.session.active) {
+              return Promise.reject(
+                new Error("A monitoring session is already active. Stop it before starting another."),
+              );
+            }
+            const session = mockAgentSession();
+            session.workspace = requested;
+            mockAgent.session = session;
+            mockAgent.last = session;
+            persistMockFlight();
+            setTimeout(function () {
+              emit("flight-update", {});
+            }, 250);
+            return delay(320).then(function () {
+              return session;
+            });
+          }
+          case "flight_status":
+            return delay(40).then(function () {
+              return mockAgent.session || mockAgent.last;
+            });
+          case "flight_stop": {
+            const session = mockAgent.session || mockAgent.last;
+            if (!session) {
+              return Promise.reject(new Error("No monitoring session is active."));
+            }
+            const ended = Math.floor(Date.now() / 1000);
+            session.active = false;
+            session.ended_unix = Math.max(ended, session.started_unix + 1);
+            session.coverage.snapshot_reconciled = true;
+            mockAgent.session = null;
+            mockAgent.last = session;
+            persistMockFlight();
+            setTimeout(function () {
+              emit("flight-update", {});
+            }, 60);
+            return delay(260).then(function () {
+              return session;
+            });
+          }
+          case "windows_change_capture": {
+            const prior = mockAgent.snapshotAt;
+            mockAgent.snapshotAt = Math.floor(Date.now() / 1000);
+            mockAgent.snapshotEntries = 128;
+            mockAgent.windows = null;
+            return delay(280).then(function () {
+              return {
+                saved_at_unix: mockAgent.snapshotAt,
+                entry_count: mockAgent.snapshotEntries,
+                previous_saved_at_unix: prior,
+                path: "C:\\mock\\data\\agents\\windows-snapshot.json",
+                note: prior
+                  ? "Trusted snapshot replaced. Future comparisons use this timestamp."
+                  : "First trusted snapshot captured. Future comparisons use this timestamp.",
+              };
+            });
+          }
+          case "windows_change_compare": {
+            if (!mockAgent.snapshotAt) {
+              const empty = {
+                compared_unix: Math.floor(Date.now() / 1000),
+                snapshot_saved_at_unix: null,
+                entries_before: 0,
+                entries_after: 128,
+                added: [],
+                removed: [],
+                changed: [],
+                complete: false,
+                note: "No trusted snapshot is stored. Capture a snapshot before making changes.",
+              };
+              mockAgent.windows = empty;
+              return delay(160).then(function () {
+                return empty;
+              });
+            }
+            const added = [
+              mockWindowsItem(
+                "added",
+                "CureDemoPreview",
+                "registry_run",
+                "New Run entry references a path outside Program Files. Review the executable before trusting it.",
+              ),
+            ];
+            const changed = [
+              mockWindowsItem(
+                "changed",
+                "AcmeAgentHelper",
+                "startup_folder",
+                "The launcher command changed. Verify the new target; a change alone is not a verdict.",
+              ),
+            ];
+            const result = {
+              compared_unix: Math.floor(Date.now() / 1000),
+              snapshot_saved_at_unix: mockAgent.snapshotAt,
+              entries_before: mockAgent.snapshotEntries,
+              entries_after: 130,
+              added: added,
+              removed: [],
+              changed: changed,
+              complete: true,
+              note: "Differences are review leads, not malware verdicts.",
+            };
+            mockAgent.windows = result;
+            return delay(240).then(function () {
+              return result;
+            });
+          }
+          case "agent_case_file":
+            return delay(120).then(function () {
+              return mockAgentCaseFile(
+                String((args && args.summary) || ""),
+                !!(args && args.includeSummary),
+              );
+            });
+                    case "export_agent_case_file":
+            return delay(50).then(function () {
+              return "C:\\Users\\demo\\.cure\\exports\\case-demo." + (args && args.format || "md");
             });
           default:
             return Promise.reject(

@@ -89,7 +89,8 @@
   --display: 2.074rem;
   --hero: 2.9rem;
 
-  /* Stepped type scale used by the Storage Workstation and the companion.
+  /* Stepped type scale used by the Storage Workstation and the operator
+   console.
      These names are the ones those modules were written against; without a
      definition every `font-size: var(--t-*)` declaration is dropped by the
      CSS parser and the element silently inherits its parent's size. */
@@ -122,6 +123,116 @@
   --slow: 320ms;
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* Depth ramp — crisp light slate. */
+  --ink-000: #ffffff;
+  --ink-050: #f8fafc;
+  --ink-100: #f1f5f9;
+  --ink-150: #e2e8f0;
+  --ink-200: #cbd5e1;
+  --ink-250: #94a3b8;
+  --ink-300: #64748b;
+  --ink-350: #475569;
+
+  /* Surfaces used by the shell. */
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --surface-3: #e2e8f0;
+  --surface-sunken: #edf2f7;
+  --surface-raised: #ffffff;
+
+  /* Hairlines: crisp slate borders for light mode. */
+  --hair: rgba(15, 23, 42, 0.09);
+  --hair-soft: rgba(15, 23, 42, 0.05);
+  --hair-strong: rgba(15, 23, 42, 0.18);
+  --edge-light: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --edge-dark: inset 0 -1px 0 rgba(15, 23, 42, 0.06);
+
+  /* Text. High-contrast slate typography. */
+  --text: #0f172a;
+  --text-2: #334155;
+  --text-muted: var(--text-2);
+  --text-3: #475569;
+  --dim: var(--text-3);
+
+  /* C.U.R.E identity accent for light mode. */
+  --cure-300: #5b21b6;
+  --cure-400: #6d28d9;
+  --cure-500: #7c3aed;
+  --cure-600: #8b5cf6;
+  --cure-tint: rgba(124, 58, 237, 0.1);
+  --cure-tint-soft: rgba(124, 58, 237, 0.05);
+  --cure-line: rgba(124, 58, 237, 0.28);
+  --accent: var(--cure-500);
+  --accent-ink: var(--cure-300);
+  --accent-dim: var(--cure-tint);
+
+  /* Semantic for light mode. */
+  --ok: #065f46;
+  --ok-tint: rgba(6, 95, 70, 0.12);
+  --warning: #92400e;
+  --warning-tint: rgba(217, 119, 6, 0.12);
+  --danger: #b91c1c;
+  --danger-tint: rgba(220, 38, 38, 0.12);
+  --safe: var(--ok);
+
+  /* Shadows for light mode. */
+  --shadow-1: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-2: 0 4px 6px -1px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+  --shadow-3: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.04);
+
+  --ambient-cool: radial-gradient(
+    120% 90% at 18% 0%,
+    rgba(99, 102, 241, 0.06),
+    transparent 62%
+  );
+  --ambient-warm: radial-gradient(
+    90% 70% at 100% 100%,
+    rgba(245, 158, 11, 0.04),
+    transparent 60%
+  );
+}
+
+:root[data-theme="light"] .btn-primary {
+  color: #ffffff;
+  border-color: rgba(109, 40, 217, 0.45);
+}
+
+:root[data-theme="light"] .sidebar {
+  background: #f1f5f9;
+  border-right: 1px solid var(--hair-strong);
+}
+
+:root[data-theme="light"] .topbar {
+  background: #ffffff;
+  border-bottom: 1px solid var(--hair-strong);
+}
+
+:root[data-theme="light"] .nav-item[aria-current="true"] {
+  background: var(--surface-3);
+  color: var(--accent);
+}
+
+:root[data-theme="light"] .pill {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+:root[data-theme="light"] .ov-chip.tone-ok {
+  border-color: rgba(6, 95, 70, 0.3);
+}
+
+:root[data-theme="light"] .ov-chip.tone-warn {
+  border-color: rgba(146, 64, 14, 0.34);
+  background: linear-gradient(180deg, var(--warning-tint), transparent);
+}
+
+:root[data-theme="light"] .ov-rec {
+  border-left-color: var(--warning);
 }
 
 * {
@@ -220,7 +331,6 @@ h4 {
 h3,
 .section-title,
 .eyebrow,
-.feed-title,
 .modal-kicker {
   font-size: var(--t-2xs);
   font-weight: 650;
@@ -507,25 +617,42 @@ code,
   white-space: nowrap;
 }
 
-/* The session context names the kind of scan it is reporting, so it can
-   carry two clauses when the operator has run both kinds. It is the one
-   part of the bar that may be clipped: the page title and the clock must
-   never wrap because a second scan was added to the line. */
-.session-meta {
+/* The shell header is deliberately sparse: page context on the left, the
+   PC's live clock, the theme control and the session pill on the right.
+   Scan detail lives on the pages that produce it, never in the shell. */
+.topbar-clock {
   margin-left: auto;
   font: var(--t-2xs) var(--font-mono);
   letter-spacing: 0.04em;
   color: var(--text-3);
   white-space: nowrap;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
 }
 
-.topbar-clock {
-  font: var(--t-2xs) var(--font-mono);
-  color: var(--text-3);
-  white-space: nowrap;
+.btn-theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: var(--r2);
+  border: 1px solid var(--hair);
+  background: var(--surface-2);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all var(--fast) var(--ease);
+  flex: 0 0 auto;
+}
+
+.btn-theme-toggle:hover {
+  border-color: var(--hair-strong);
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+.btn-theme-toggle svg {
+  fill: currentColor;
 }
 
 .pill {
@@ -631,11 +758,11 @@ code,
 }
 
 /* Evidence is read, not scanned: keep a measured column so a finding's
-   evidence, verdict and action stay in one glance. */
-#results-view .results-stack,
-#view-audit .results-stack,
-#view-processes .results-stack,
-#view-incident .results-stack {
+   evidence, verdict and action stay in one glance. (The view-audit /
+   view-processes / view-incident selectors died with the Stage UI-06
+   dead-section removal — those views are Investigate lenses and the
+   Monitor workstations now.) */
+#results-view .results-stack {
   max-width: 1200px;
 }
 
@@ -1241,17 +1368,6 @@ code,
    Live collection log
    ========================================================================== */
 
-.feed-card {
-  min-width: 0;
-}
-
-.feed-head {
-  display: flex;
-  align-items: center;
-  gap: var(--s3);
-  margin-bottom: var(--s3);
-}
-
 .feed-count {
   margin-left: auto;
   font: var(--t-2xs) var(--font-mono);
@@ -1675,12 +1791,6 @@ code,
   box-shadow: var(--edge-light), var(--shadow-2);
 }
 
-/* When the companion is hidden the hero closes the column she left, rather
-   than keeping an empty space open beside the content. */
-.ov-hero[data-companion-hidden="true"] {
-  grid-template-columns: 124px minmax(0, 1fr);
-}
-
 .ov-dial-wrap {
   position: relative;
   width: 124px;
@@ -1788,6 +1898,27 @@ code,
   box-shadow: 0 0 12px rgba(228, 112, 106, 0.55);
 }
 
+/* A scan in flight pulses only while it is actually running. */
+.ov-beacon.scan {
+  background: var(--cure-400);
+  box-shadow: 0 0 12px rgba(139, 111, 240, 0.6);
+  animation: ov-beacon-pulse 1.6s var(--ease) infinite;
+}
+
+@keyframes ov-beacon-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 4px rgba(139, 111, 240, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 14px rgba(139, 111, 240, 0.7);
+  }
+}
+
+.ov-hero .headline.is-scan {
+  color: var(--accent-ink);
+}
+
 .ov-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1795,18 +1926,141 @@ code,
   margin-top: var(--s4);
 }
 
-/* The companion lives in a column of its own, separated by a hairline, so
-   she reads as part of the workstation rather than a widget floating in the
-   corner. */
-.ov-hero-figure {
+.ov-actions .btn-primary {
+  min-height: 40px;
+  padding: 0 var(--s6);
+  font-weight: 620;
+}
+
+/* The hero aside carries verified context chips: real measurements only.
+   A chip that has no measurement behind it is not rendered. */
+.ov-hero-aside {
   align-self: stretch;
   border-left: 1px solid var(--hair-soft);
   display: flex;
   flex-direction: column;
-  align-items: center;
   justify-content: center;
+  gap: var(--s3);
   min-width: 0;
   padding-left: var(--s6);
+}
+
+.ov-chip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  grid-template-areas:
+    "label value"
+    "detail detail";
+  column-gap: var(--s3);
+  align-items: baseline;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  background: var(--surface-sunken);
+}
+
+.ov-chip-label {
+  grid-area: label;
+  font-size: var(--t-2xs);
+  font-weight: 620;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ov-chip-value {
+  grid-area: value;
+  font: 600 var(--sm) var(--font-mono);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ov-chip-detail {
+  grid-area: detail;
+  margin-top: 2px;
+  font-size: var(--t-2xs);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ov-chip.tone-ok {
+  border-color: rgba(99, 199, 154, 0.25);
+}
+
+.ov-chip.tone-ok .ov-chip-value {
+  color: var(--ok);
+}
+
+.ov-chip.tone-warn {
+  border-color: rgba(224, 164, 88, 0.3);
+  background: linear-gradient(180deg, var(--warning-tint), transparent);
+}
+
+.ov-chip.tone-warn .ov-chip-value {
+  color: var(--warning);
+}
+
+/* Compact contextual recommendation. One measured condition, one action —
+   never a full-width banner. */
+.ov-rec {
+  border-left: 3px solid var(--warning);
+  background:
+    linear-gradient(90deg, var(--warning-tint), transparent 72%),
+    var(--surface);
+}
+
+.ov-rec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+
+.ov-rec-kicker {
+  font-size: var(--t-2xs);
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--warning);
+}
+
+.ov-rec-level {
+  font-size: var(--t-2xs);
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.ov-rec-title {
+  margin-top: var(--s2);
+  font-size: var(--base);
+  font-weight: 640;
+  color: var(--text);
+}
+
+.ov-rec-desc {
+  margin-top: var(--s1);
+  font-size: var(--t-sm);
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.ov-rec-meta {
+  margin-top: var(--s2);
+  font: var(--t-2xs) var(--font-mono);
+  letter-spacing: 0.02em;
+  color: var(--text-3);
+}
+
+.ov-rec .ov-rec-btn {
+  margin-top: var(--s3);
 }
 
 .ov-readouts {
@@ -1850,357 +2104,6 @@ code,
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
   gap: var(--s10);
-}
-
-/* Supporting state only, and only when collection produced nothing to review.
-   Evidence views stay technical; Luma never crowds the inspector. */
-.result-companion {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s4);
-  width: fit-content;
-  max-width: 100%;
-  margin-bottom: var(--s6);
-  padding: var(--s2) var(--s4) var(--s2) var(--s2);
-  border: 1px solid var(--hair);
-  border-radius: var(--r2);
-  background: linear-gradient(
-      90deg,
-      rgba(139, 111, 240, 0.07),
-      transparent 70%
-    ),
-    var(--ink-150);
-  box-shadow: var(--edge-light);
-}
-
-.result-companion .companion-figure {
-  flex: 0 0 auto;
-}
-
-.result-companion .companion-kind {
-  font-size: var(--t-2xs);
-}
-
-.result-companion .companion-copy {
-  text-align: left;
-  flex: 0 1 auto;
-}
-
-.result-companion .companion-title {
-  margin-top: var(--s1);
-  font-size: var(--sm);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.result-companion .companion-detail {
-  display: block;
-  font-size: var(--xs);
-  white-space: nowrap;
-}
-
-.result-companion .companion-motion {
-  align-self: center;
-  margin-top: 0;
-  margin-left: var(--s2);
-}
-
-/* ==========================================================================
-   Disk cleanup
-   ========================================================================== */
-
-.cleanup-cols {
-  display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
-  gap: var(--s10);
-}
-
-.cleanup-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--s3);
-  margin-block: var(--s5);
-}
-
-.cleanup-cat {
-  display: block;
-  width: 100%;
-  padding: var(--s4);
-  background: linear-gradient(180deg, var(--ink-200), var(--ink-150));
-  border: 1px solid var(--hair);
-  border-radius: var(--r2);
-  box-shadow: var(--edge-light);
-  color: var(--text);
-  text-align: left;
-  transition:
-    border-color var(--fast) var(--ease),
-    background var(--fast) var(--ease),
-    transform var(--fast) var(--ease);
-}
-
-.cleanup-cat:hover:not(:disabled) {
-  border-color: var(--hair-strong);
-  transform: translateY(-1px);
-}
-
-.cleanup-cat.on {
-  border-color: var(--cure-line);
-  background: linear-gradient(
-    180deg,
-    rgba(139, 111, 240, 0.13),
-    rgba(139, 111, 240, 0.03)
-  );
-}
-
-.cc-top {
-  display: flex;
-  gap: var(--s2);
-  align-items: center;
-}
-
-.cc-name {
-  font-weight: 600;
-}
-
-.cc-state {
-  margin-left: auto;
-  font: var(--t-2xs) var(--font-mono);
-  color: var(--text-3);
-}
-
-.cleanup-cat.on .cc-state {
-  color: var(--cure-300);
-}
-
-.cc-size {
-  display: block;
-  margin-top: var(--s3);
-  font: 600 var(--lg) var(--font-mono);
-  letter-spacing: -0.02em;
-}
-
-.cc-count,
-.cleanup-note {
-  color: var(--text-2);
-  font-size: var(--xs);
-}
-
-.cc-bar {
-  display: block;
-  height: 3px;
-  margin-top: var(--s3);
-  background: rgba(255, 255, 255, 0.07);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.cc-bar i {
-  display: block;
-  height: 100%;
-  background: linear-gradient(90deg, var(--cure-500), var(--cure-400));
-}
-
-.cleanup-cat:not(.on) .cc-bar i {
-  background: var(--text-3);
-}
-
-.dl-item {
-  display: flex;
-  align-items: center;
-  gap: var(--s3);
-  flex-wrap: wrap;
-}
-
-.dl-meta {
-  font: var(--xs) var(--font-mono);
-  color: var(--text-3);
-}
-
-.cleanup-note strong {
-  display: block;
-  margin-top: var(--s4);
-}
-
-.cleanup-summary {
-  position: sticky;
-  top: 0;
-  align-self: start;
-}
-
-.cleanup-summary dl > div {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--s3);
-  padding-block: var(--s2);
-  border-bottom: 1px solid var(--hair-soft);
-}
-
-.cleanup-summary dt {
-  color: var(--text-3);
-  font-size: var(--xs);
-}
-
-.cleanup-summary dd {
-  font: var(--xs) var(--font-mono);
-  text-align: right;
-}
-
-.sum-check,
-.sum-skip {
-  margin-top: var(--s5);
-  font-size: var(--xs);
-  color: var(--text-2);
-}
-
-.sum-check h4 {
-  margin-bottom: var(--s2);
-  color: var(--text);
-}
-
-.sum-check li,
-.sum-skip li {
-  margin-top: var(--s1);
-}
-
-.important-box {
-  margin-top: var(--s6);
-  padding: var(--s4);
-  border: 1px solid rgba(224, 164, 88, 0.28);
-  border-radius: var(--r2);
-  background: var(--warning-tint);
-  font-size: var(--xs);
-  color: var(--text-2);
-}
-
-.important-box strong {
-  display: block;
-  margin-bottom: var(--s1);
-  color: var(--warning);
-  font-size: var(--t-2xs);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.cleanup-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s4);
-  margin-top: var(--s5);
-}
-
-.cleanup-total {
-  font-size: var(--lg);
-  font-weight: 550;
-}
-
-.cleanup-total b {
-  font-family: var(--font-mono);
-  font-size: var(--display);
-  font-weight: 620;
-  letter-spacing: -0.03em;
-  color: var(--text);
-}
-
-.dl-list li {
-  padding: var(--s3) 0;
-  border-bottom: 1px solid var(--hair-soft);
-  overflow-wrap: anywhere;
-}
-
-.steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s4);
-  margin-bottom: var(--s6);
-  padding-block: var(--s4);
-  border-block: 1px solid var(--hair);
-}
-
-.step {
-  display: flex;
-  gap: var(--s2);
-  color: var(--text-3);
-  font-size: var(--xs);
-}
-
-.step.current {
-  color: var(--text);
-}
-
-.step-n {
-  color: var(--text-3);
-  font-family: var(--font-mono);
-}
-
-.step.current .step-n {
-  color: var(--cure-300);
-}
-
-.step.done .step-n {
-  color: var(--ok);
-}
-
-.step-arrow {
-  color: var(--ink-350);
-}
-
-.cleanup-result {
-  margin-top: var(--s5);
-  padding: var(--s4);
-  border-radius: var(--r2);
-  border: 1px solid var(--hair);
-  background: var(--surface-sunken);
-  font-size: var(--sm);
-}
-
-.cleanup-ok {
-  color: var(--ok);
-  border-color: rgba(99, 199, 154, 0.3);
-  background: linear-gradient(90deg, var(--ok-tint), transparent);
-}
-
-.cleanup-fail {
-  color: var(--warning);
-  border-color: rgba(224, 164, 88, 0.3);
-  background: linear-gradient(90deg, var(--warning-tint), transparent);
-}
-
-.cleanup-busy {
-  color: var(--text-2);
-  font-size: var(--xs);
-}
-
-.cleanup-failures {
-  margin-top: var(--s4);
-  font-size: var(--xs);
-}
-
-.cf-card {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--s1) var(--s3);
-  padding: var(--s3) 0;
-  border-bottom: 1px solid var(--hair-soft);
-}
-
-.cf-badge {
-  grid-row: span 2;
-  align-self: start;
-  padding: 2px 7px;
-  border-radius: 3px;
-  background: var(--warning-tint);
-  color: var(--warning);
-  font: 600 var(--t-2xs) var(--font-mono);
-  white-space: nowrap;
-}
-
-.cf-path {
-  font-family: var(--font-mono);
-}
-
-.cf-reason {
-  color: var(--text-3);
 }
 
 /* ==========================================================================
@@ -2263,6 +2166,9 @@ code,
   .stage {
     padding: var(--s8);
   }
+  .ov-readouts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
   .overview-columns,
   .rescue-preflight,
   .cleanup-cols {
@@ -2274,15 +2180,12 @@ code,
   .app {
     grid-template-columns: 204px minmax(0, 1fr);
   }
-  .session-meta {
-    display: none;
-  }
   .pill {
     margin-left: auto;
     max-width: 46%;
   }
   .ov-hero {
-    grid-template-columns: 118px minmax(0, 1fr) 136px;
+    grid-template-columns: 118px minmax(0, 1fr) 150px;
     gap: var(--s5);
     padding: var(--s5) var(--s6);
   }
@@ -2290,13 +2193,11 @@ code,
     width: 118px;
     height: 118px;
   }
-  .overview-companion .companion-detail {
-    display: none;
+  .ov-hero-aside {
+    padding-left: var(--s5);
   }
-  .overview-companion .companion-motion {
-    font-size: 12px;
-    min-height: 24px;
-    padding: 0 var(--s2);
+  .ov-chip-detail {
+    display: none;
   }
   .ov-readouts {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2315,12 +2216,8 @@ code,
 
 @media (max-width: 1000px) {
   .overview-columns,
-  .rescue-preflight,
-  .cleanup-cols {
+  .rescue-preflight {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .cleanup-summary {
-    position: static;
   }
   .metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2468,7 +2365,6 @@ code,
   .modal-overlay {
     padding: var(--s3);
   }
-  .cleanup-grid,
   .source-index {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -2514,4 +2410,245 @@ code,
   height: 15px;
   margin: 0;
   cursor: pointer;
+}
+
+
+/* ==========================================================================
+   FUTURISTIC UI POLISH & COMPONENT HARMONIZATION
+   ========================================================================== */
+
+/* Standardize card radius to 14px */
+.panel, .card, .ov-hero, .ar-radar-card, .ar-flight-card {
+  border-radius: 14px !important;
+}
+
+/* Secure Vault Enclave Empty State */
+.vault-empty-state {
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  padding: 36px 24px !important;
+  text-align: center;
+}
+.vault-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 620px;
+  margin-bottom: 28px;
+}
+.vault-svg {
+  filter: drop-shadow(0 0 16px rgba(139, 111, 240, 0.25));
+}
+.vault-title {
+  font: 700 18px/1.3 Inter, system-ui, sans-serif;
+  color: var(--text);
+  margin: 0;
+}
+.vault-subline {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin: 0;
+}
+.vault-subline code {
+  color: var(--cure-cyan);
+  background: rgba(34, 211, 238, 0.08);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+}
+.vault-pillars {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  max-width: 860px;
+  width: 100%;
+  text-align: left;
+}
+@media (max-width: 680px) {
+  .vault-pillars {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+.vault-pillar {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--hair);
+  border-radius: 10px;
+}
+[data-theme="light"] .vault-pillar {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+.pillar-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+.pillar-body strong {
+  display: block;
+  font: 600 13px/1.3 Inter, system-ui, sans-serif;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.pillar-body span {
+  display: block;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+/* Investigation Dossier Card */
+.dossier-empty-card {
+  padding: 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.dossier-badge {
+  font: 700 10px/1 monospace;
+  letter-spacing: 0.1em;
+  color: var(--cure-cyan);
+  background: rgba(34, 211, 238, 0.12);
+  border: 1px solid rgba(34, 211, 238, 0.28);
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
+  margin-bottom: 6px;
+}
+.dossier-title {
+  font: 600 16px/1.3 Inter, system-ui, sans-serif;
+  color: var(--text);
+  margin: 0 0 6px 0;
+}
+.dossier-vectors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  max-width: 580px;
+}
+.d-chip {
+  font: 500 11px/1.3 monospace;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--hair);
+  border-radius: 6px;
+  color: var(--text-dim);
+}
+[data-theme="light"] .d-chip {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+/* Evidence Drawer Two-Column Tabular Formatting */
+.evidence-section {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--hair);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+[data-theme="light"] .evidence-section {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+.evidence-section h3 {
+  font: 600 11px/1.2 Inter, system-ui, sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 0 0 8px 0;
+}
+.evidence-section p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  word-break: break-all;
+}
+.evidence-section p code {
+  font-family: monospace;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* ---------- Share result card preview (MVP2 TASK 8) ---------------------- */
+.share-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 7, 10, 0.72);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s6);
+  animation: shareFadeIn 140ms ease;
+}
+
+.share-overlay.hidden {
+  display: none !important;
+}
+
+.share-panel {
+  width: min(860px, 94vw);
+  max-height: 92vh;
+  overflow-y: auto;
+  background: var(--ink-100);
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--r3);
+  box-shadow: var(--shadow-3);
+  padding: var(--s6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+
+.share-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s4);
+}
+
+.share-head .section-title {
+  margin: 0 0 4px;
+}
+
+.share-preview {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  display: block;
+  background: var(--ink-000);
+}
+
+.share-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+
+@keyframes shareFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+[data-theme="light"] .share-panel {
+  background: #ffffff;
+  border-color: #e2e8f0;
 }

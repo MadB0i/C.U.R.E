@@ -1,0 +1,65 @@
+{
+  "generated_at": "2026-01-15T10:30:00+00:00",
+  "cure_version": "0.1.0",
+  "windows_version": "CURE-SYNTH Windows (fixture)",
+  "coverage": [
+    { "area": "Startup folder", "state": "Checked", "detail": "3 entries" },
+    { "area": "Scheduled tasks", "state": { "Partial": { "skipped": 2 } }, "detail": "8 files (2 unreadable)" },
+    { "area": "WMI subscriptions", "state": "Unavailable", "detail": "WMI unavailable" }
+  ],
+  "findings": [
+    {
+      "kind": "persistence",
+      "name": "CURE-SYNTH-SyncHelper.exe",
+      "source": "startup-folder",
+      "command": "C:\\Users\\CURE-SYNTH\\AppData\\Local\\Temp\\CURE-SYNTH-SyncHelper.exe -q",
+      "location": "C:\\Users\\CURE-SYNTH\\AppData\\Local\\Temp\\CURE-SYNTH-SyncHelper.exe",
+      "score": 55,
+      "risk": "HighRisk",
+      "reasons": [
+        "+30 command path sits in a temp/downloads/public drop zone",
+        "+25 entry name looks randomly generated"
+      ],
+      "attack_id": "T1547.001",
+      "attack_name": "Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder",
+      "signature": "UNSIGNED",
+      "publisher": null,
+      "sha256": null,
+      "recommended_action": "Quarantine for review, then investigate before any deletion."
+    }
+  ],
+  "safe_persistence": 2,
+  "safe_processes": 87,
+  "intel_provider": "DEMO",
+  "redacted": false,
+  "incident": {
+    "investigation_id": "INC-1768480200-4242",
+    "started_at": "2026-01-15T10:30:00Z",
+    "duration_secs": 30,
+    "elevated": false,
+    "verdict": "STRONG CORRELATION",
+    "verdict_explanation": "A startup entry matches an observed launch by path or command.",
+    "process_observation": "Available",
+    "window_observation": "Available",
+    "process_count": 1,
+    "window_count": 1,
+    "transient_count": 1,
+    "correlations": [
+      {
+        "pid": 8412,
+        "process": "CURE-SYNTH-updater.exe",
+        "finding": "CURE-SYNTH-SyncHelper.exe",
+        "source": "startup-folder",
+        "level": "DIRECT",
+        "evidence": [
+          "startup entry references this exact executable path",
+          "observed launch at pid 8412"
+        ]
+      }
+    ],
+    "timeline": [
+      { "t_ms": 0, "wall_time": "10:30:00.000", "kind": "ObservationStarted", "text": "Login observation started" },
+      { "t_ms": 2421, "wall_time": "10:30:02.421", "kind": "ProcessCreated", "text": "Process created: CURE-SYNTH-updater.exe (pid 8412)" }
+    ]
+  }
+}

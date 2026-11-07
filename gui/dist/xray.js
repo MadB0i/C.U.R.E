@@ -1,31 +1,109 @@
 /* ==========================================================================
-   SYSTEM X-RAY — signature scan visualization.
-   Replaces the circular source radar. A sectioned machine chassis with a
-   travelling inspection beam, live collector traces and resolved evidence
-   nodes. Every pixel of state here comes from a real scan-progress event or
-   a real scan summary. Nothing animates that no collector is driving, and no
-   count, risk or coverage value is invented.
-   Offline, canvas 2D, no external assets.
+   C.U.R.E SYSTEM X-RAY — persistence radar
+   Collector layers painted from the backend's own event stream
+   (`scan-progress`), never from a timer and never from a guess.
+
+   Each layer carries exactly one *outcome* at a time:
+     pending    - the collector has not reported yet
+     running    - the backend named this collector as active
+     checked    - the backend reported a complete coverage row
+     partial    - the backend reported a coverage row with skips
+     denied     - the backend reported an access-denied coverage row
+     failed     - the backend reported a failed check
+     unreported - the collector ran but the backend sends no per-area
+                  coverage row for it, so it is NOT counted as checked
+
+   Findings are tracked separately from coverage: a layer can be fully
+   checked and still carry entries that need review. Nothing here invents
+   progress, detections or a health score.
    ========================================================================== */
 (function () {
   "use strict";
 
-  /* ---------- the nine persistence layers -------------------------------- */
-  /* `area` matches the backend coverage row label exactly. */
-  /* `label` is the compact plate name; `full` is the precise collector name
-     used in the accessible ledger beneath the field. */
+  /* ---------- The inspection layers -------------------------------------- */
   const LAYERS = [
-    { id: "registry", label: "Registry", full: "Registry autoruns", area: "Registry autoruns" },
-    { id: "startup", label: "Startup", full: "Startup folders", area: null },
-    { id: "tasks", label: "Tasks", full: "Scheduled tasks", area: "Scheduled tasks" },
-    { id: "services", label: "Services", full: "Auto-start services", area: "Services (auto-start)" },
-    { id: "wmi", label: "WMI", full: "WMI subscriptions", area: "WMI subscriptions" },
-    { id: "ifeo", label: "IFEO / AppInit", full: "IFEO debuggers and AppInit DLLs", area: null },
-    { id: "com", label: "COM", full: "COM registrations", area: null },
-    { id: "processes", label: "Processes", full: "Running processes", area: null },
-    { id: "ransom", label: "Ransom", full: "Ransom indicators", area: null },
+    {
+      id: "registry",
+      label: "Registry",
+      full: "Registry autoruns",
+      areas: ["Registry autoruns"],
+      note: "HKCU / HKLM Run and RunOnce values",
+    },
+    {
+      id: "startup",
+      label: "Startup",
+      full: "Startup folders",
+      areas: ["Startup folders", "Startup folder"],
+      note: "per-user and machine-wide Startup folders",
+    },
+    {
+      id: "tasks",
+      label: "Tasks",
+      full: "Scheduled tasks",
+      areas: ["Scheduled tasks"],
+      note: "task XML definitions",
+    },
+    {
+      id: "services",
+      label: "Services",
+      full: "Auto-start services",
+      areas: ["Services (auto-start)", "Services"],
+      note: "service control manager start types",
+    },
+    {
+      id: "wmi",
+      label: "WMI",
+      full: "WMI subscriptions",
+      areas: ["WMI subscriptions"],
+      note: "event consumer bindings",
+    },
+    {
+      id: "ifeo",
+      label: "IFEO",
+      full: "IFEO and AppInit",
+      areas: ["IFEO and AppInit", "IFEO debuggers", "AppInit DLLs", "IFEO / AppInit"],
+      note: "debugger hooks and AppInit DLLs",
+    },
+    {
+      id: "com",
+      label: "COM",
+      full: "COM registrations",
+      areas: ["COM registrations", "COM hijacks (HKCU)"],
+      note: "per-user InprocServer32 / TreatAs",
+    },
+    {
+      id: "bootlogon",
+      label: "Boot logon",
+      full: "Winlogon & Active Setup",
+      areas: ["Winlogon & Active Setup"],
+      note: "session-start values and per-user StubPaths",
+    },
+    {
+      id: "processes",
+      label: "Processes",
+      full: "Running processes",
+      areas: ["Running processes", "Processes"],
+      note: "live process signatures and hashes",
+    },
+    {
+      id: "ransom",
+      label: "Ransom",
+      full: "Ransom indicators",
+      areas: ["Ransom indicators"],
+      note: "ransom notes and bulk encryption",
+    },
   ];
 
+  function layerMatchesArea(L, areaName) {
+    if (!areaName || !L) return false;
+    if (L.areas && L.areas.includes(areaName)) return true;
+    if (L.area && L.area === areaName) return true;
+    if (L.full === areaName || L.label === areaName || L.id === areaName) return true;
+    return false;
+  }
+
+  /* Stage names the backend emits -> layer id. `startup-common` belongs to
+     the same layer as `startup`; process and ransom stages name their own. */
   const STAGE_ALIAS = {
     "startup-common": "startup",
     "process-scan": "processes",
@@ -34,6 +112,7 @@
     "ransom-detect": "ransom",
   };
 
+  /* Entry source tags (core PersistenceSource::tag) -> layer id. */
   const ITEM_SOURCE = {
     "registry-run": "registry",
     "startup-folder": "startup",
@@ -45,89 +124,117 @@
     "com-hijack": "com",
   };
 
-  /* Real coverage states, mapped without softening any of them. */
-  function coverageTone(raw) {
+  const OUTCOME_TEXT = {
+    pending: "Not started",
+    running: "Running",
+    checked: "Checked",
+    partial: "Partial",
+    denied: "Access denied",
+    failed: "Failed",
+    unsupported: "Not supported",
+    unreported: "Coverage not reported",
+  };
+
+  /* Backend CoverageState -> outcome. Real Tauri serialises "Checked" /
+     "NotChecked" / "Unavailable" / "AccessDenied" / "CheckFailed" or
+     {"Partial": {"skipped": N}}; the labelled mock also emits "Available". */
+  function outcomeFromCoverage(raw) {
     const key =
       typeof raw === "string" ? raw : Object.keys(raw || {})[0] || "NotChecked";
     if (key === "Checked" || key === "Available") return "checked";
-    if (key === "CheckFailed") return "bad";
-    if (key === "AccessDenied") return "warn";
     if (key === "Partial") return "partial";
-    return "idle";
+    if (key === "AccessDenied") return "denied";
+    if (key === "CheckFailed") return "failed";
+    if (key === "Unavailable") return "unsupported";
+    if (key === "NotChecked") return "pending";
+    return "pending";
   }
 
-  function coverageText(raw) {
-    const key =
-      typeof raw === "string" ? raw : Object.keys(raw || {})[0] || "NotChecked";
-    if (key === "Checked") return "Checked";
-    if (key === "Available") return "Available";
-    if (key === "AccessDenied") return "Access denied";
-    if (key === "CheckFailed") return "Check failed";
-    if (key === "Partial") return "Partial";
-    if (key === "Unavailable") return "Unavailable";
-    if (key === "NotChecked") return "Not checked";
-    return "Not checked";
+  function skippedCount(raw, detail) {
+    if (raw && typeof raw === "object" && raw.Partial) {
+      const n = Number(raw.Partial.skipped);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    const m = String(detail || "").match(/(\d+)\s+skipped/i);
+    return m ? Number(m[1]) : 0;
   }
 
-  /* ---------- DOM --------------------------------------------------------- */
-
+  /* ---------- DOM ------------------------------------------------------- */
   const canvas = document.getElementById("xray-canvas");
   const field = document.getElementById("xray-field");
-  const sourceList = document.getElementById("sweep-sources");
+  const layerList = document.getElementById("sweep-sources");
   const itemsEl = document.getElementById("sweep-items");
   const currentEl = document.getElementById("sweep-current");
   const coreReadout = document.getElementById("xray-core-readout");
   const phaseEl = document.getElementById("xray-phase");
+  const phaseLabelEl = document.getElementById("xray-phase-label");
   const coverageEl = document.getElementById("xray-coverage");
+  const matrixCoverEl = document.getElementById("xray-matrix-cover");
   const inspectedEl = document.getElementById("xray-inspected");
   const findingsEl = document.getElementById("xray-findings");
-  const elapsedEl = document.getElementById("scan-elapsed");
+  const liveEl = document.getElementById("xray-live");
   const motionBtn = document.getElementById("xray-motion");
+
+  const hudBadge = document.getElementById("xray-hud-badge");
+  const hudName = document.getElementById("xray-hud-name");
+  const hudDetail = document.getElementById("xray-hud-detail");
+  const hudInspected = document.getElementById("xray-hud-inspected");
+  const hudCoverage = document.getElementById("xray-hud-coverage");
+  const hudFindings = document.getElementById("xray-hud-findings");
+  const hudUnavailable = document.getElementById("xray-hud-unavailable");
 
   const reducedMedia = matchMedia("(prefers-reduced-motion: reduce)");
 
-  function store(key, value) {
-    try {
-      localStorage.setItem(key, value);
-    } catch (_) {
-      /* optional */
-    }
-  }
-  function readStore(key) {
-    try {
-      return localStorage.getItem(key);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  let motionPaused = readStore("cure-motion-paused") === "true";
-
-  function motionOff() {
-    return motionPaused || reducedMedia.matches || document.hidden;
-  }
-
-  /* ---------- state ------------------------------------------------------- */
-
+  /* ---------- State ----------------------------------------------------- */
   const state = {
-    layers: LAYERS.map(function (layer) {
-      return {
-        id: layer.id,
-        label: layer.label,
-        full: layer.full,
-        tone: "pending",
-        text: "Pending",
-        count: 0,
-        risk: 0,
-        detail: "",
-      };
-    }),
-    active: null,
-    items: 0,
-    findings: 0,
+    phase: "idle", // idle | preparing | scanning | complete | failed
     running: false,
-    trails: [],
-    activity: 0,
+    active: null,
+    entries: 0,
+    findings: 0,
+    lastMessage: "",
+    ambientAngle: 0,
+    sweepAngle: -Math.PI / 2,
+    hoveredLayer: null,
+    expanded: {},
+    ripples: [],
+    layers: LAYERS.map(function (L) {
+      const obj = {
+        id: L.id,
+        label: L.label,
+        full: L.full,
+        areas: L.areas || (L.area ? [L.area] : []),
+        area: L.area || (L.areas && L.areas[0]) || null,
+        note: L.note,
+        outcome: "pending",
+        ran: false,
+        count: 0,
+        flagged: 0,
+        detail: "",
+        beacons: [],
+      };
+      Object.defineProperty(obj, "tone", {
+        get() {
+          return this.outcome;
+        },
+        set(v) {
+          this.outcome = v;
+        },
+        configurable: true,
+        enumerable: true,
+      });
+      Object.defineProperty(obj, "text", {
+        get() {
+          return OUTCOME_TEXT[this.outcome] || this.outcome;
+        },
+        set(v) {
+          /* allow assignment */
+        },
+        configurable: true,
+        enumerable: true,
+      });
+      return obj;
+    }),
   };
 
   function layerById(id) {
@@ -137,921 +244,1021 @@
     return null;
   }
 
-  function indexOfActive() {
+  /* Coverage is counted only from outcomes the backend actually reported. */
+  function counts() {
+    let covered = 0;
+    let partial = 0;
+    let denied = 0;
+    let failed = 0;
+    let unsupported = 0;
+    let unreported = 0;
     for (let i = 0; i < state.layers.length; i += 1) {
-      if (state.layers[i].id === state.active) return i;
+      const o = state.layers[i].outcome;
+      if (o === "checked") covered += 1;
+      else if (o === "partial") {
+        covered += 1;
+        partial += 1;
+      } else if (o === "denied") denied += 1;
+      else if (o === "failed") failed += 1;
+      else if (o === "unsupported") unsupported += 1;
+      else if (o === "unreported") unreported += 1;
     }
-    return -1;
+    return {
+      covered: covered,
+      partial: partial,
+      denied: denied,
+      failed: failed,
+      unsupported: unsupported,
+      unreported: unreported,
+      unreadable: denied + failed,
+      total: state.layers.length,
+    };
   }
 
-  /* ---------- palette (read from the console tokens) ---------------------- */
-
-  const css = getComputedStyle(document.documentElement);
-  const token = (name, fallback) => {
-    const value = css.getPropertyValue(name);
-    return (value || "").trim() || fallback;
-  };
-
-  const C = {
-    key: token("--cure-400", "#a78bfa"),
-    keyLit: token("--cure-300", "#c4b1ff"),
-    keyDeep: token("--cure-600", "#6d55d8"),
-    ok: token("--ok", "#63c79a"),
-    warn: token("--warning", "#e0a458"),
-    bad: token("--danger", "#e4706a"),
-    text: token("--text", "#e9ecf1"),
-    text2: token("--text-2", "#a9b1bd"),
-    text3: token("--text-3", "#767f8c"),
-    hair: "rgba(255,255,255,0.075)",
-    hairSoft: "rgba(255,255,255,0.04)",
-    ink0: token("--ink-000", "#06070a"),
-    ink1: token("--ink-100", "#0f1216"),
-    ink2: token("--ink-200", "#191e25"),
-  };
-
-  function toneColor(tone) {
-    if (tone === "active") return C.keyLit;
-    if (tone === "checked") return C.ok;
-    if (tone === "partial" || tone === "warn") return C.warn;
-    if (tone === "bad") return C.bad;
-    if (tone === "review" || tone === "risk") return C.warn;
-    if (tone === "highrisk") return C.bad;
-    return C.text3;
+  /* Honest verdict: the radar, the badge and the readouts all render this
+     one object, so no two panels can disagree about the same scan. */
+  function getVerdict() {
+    const c = counts();
+    const complete = c.covered === c.total && c.partial === 0 && c.denied === 0 && c.failed === 0;
+    let tone = "idle";
+    let headline = "Awaiting operator";
+    let detail = "No collection has run in this session";
+    if (state.phase === "preparing") {
+      tone = "running";
+      headline = "Preparing collection";
+      detail = "Reviewing overlay windows before the scan";
+    } else if (state.running) {
+      tone = "running";
+      headline = state.active
+        ? (layerById(state.active) || {}).full || "Collecting"
+        : "Collecting persistence layers";
+      detail = state.lastMessage || "Collecting persistence layers";
+    } else if (state.phase === "failed") {
+      tone = "failed";
+      headline = "Collection failed";
+      detail = state.lastMessage || "The scan did not finish";
+    } else if (state.phase === "complete") {
+      if (c.failed > 0) {
+        tone = "failed";
+        headline = "Collection incomplete";
+        detail = c.failed + " collector(s) could not run";
+      } else if (state.findings > 0) {
+        tone = complete ? "attention" : "attention";
+        headline =
+          state.findings +
+          (state.findings === 1 ? " finding for review" : " findings for review");
+        detail = complete
+          ? "Every reported layer was checked"
+          : c.covered + " of " + c.total + " layers report coverage";
+      } else if (!complete) {
+        tone = "partial";
+        const gaps = [];
+        if (c.denied > 0) gaps.push(c.denied + " unreadable (access denied)");
+        if (c.partial > 0) gaps.push(c.partial + " partially enumerated");
+        if (c.unreported > 0)
+          gaps.push(c.unreported + " ran without a coverage report");
+        headline =
+          c.denied > 0
+            ? "No findings observed · coverage incomplete"
+            : "No findings observed";
+        detail =
+          c.covered +
+          " of " +
+          c.total +
+          " layers report coverage (" +
+          gaps.join(", ") +
+          ") — this is not an all-clear";
+      } else {
+        tone = "clean";
+        headline = "No findings observed";
+        detail = "All " + c.total + " layers reported coverage";
+      }
+    }
+    return {
+      phase: state.phase,
+      tone: tone,
+      headline: headline,
+      detail: detail,
+      running: state.running,
+      active: state.active,
+      entries: state.entries,
+      findings: state.findings,
+      complete: complete,
+      covered: c.covered,
+      total: c.total,
+      partial: c.partial,
+      denied: c.denied,
+      failed: c.failed,
+      unreported: c.unreported,
+      unreadable: c.unreadable,
+      layers: state.layers.map(function (L) {
+        return {
+          id: L.id,
+          label: L.label,
+          full: L.full,
+          outcome: L.outcome,
+          text: OUTCOME_TEXT[L.outcome] || L.outcome,
+          count: L.count,
+          flagged: L.flagged,
+          detail: L.detail,
+        };
+      }),
+    };
   }
 
-  /* ---------- geometry ---------------------------------------------------- */
-
-  const geo = { w: 0, h: 0, rail: 0, plates: [], die: null, dpr: 1 };
-  let beamY = 0;
-  let beamTarget = 0;
-  let dashPhase = 0;
+  /* ---------- Motion ---------------------------------------------------- */
+  let motionPaused = reducedMedia.matches;
   let rafId = null;
-  let lastFrame = 0;
+  let lastTime = performance.now();
 
-  function roundRect(ctx, x, y, w, h, r) {
-    const radius = Math.min(r, w / 2, h / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + radius, y);
-    ctx.arcTo(x + w, y, x + w, y + h, radius);
-    ctx.arcTo(x + w, y + h, x, y + h, radius);
-    ctx.arcTo(x, y + h, x, y, radius);
-    ctx.arcTo(x, y, x + w, y, radius);
-    ctx.closePath();
+  function prefersMotion() {
+    return !motionPaused && !reducedMedia.matches;
   }
+
+  /* ---------- Geometry -------------------------------------------------- */
+  const geo = {
+    w: 800,
+    h: 460,
+    cx: 400,
+    cy: 230,
+    dpr: 1,
+    innerR: 56,
+    outerR: 215,
+    ringStep: 18,
+    orbitAngles: LAYERS.map(function (_, i) {
+      return i * ((Math.PI * 2) / 9) - Math.PI / 2;
+    }),
+  };
 
   function layout() {
+    if (!field || !canvas) return;
     const rect = field.getBoundingClientRect();
-    /* A hidden view reports a zero box. Drawing nothing is correct; drawing
-       negative geometry is not. */
     if (rect.width < 2 || rect.height < 2) return;
+
     geo.w = Math.round(rect.width);
     geo.h = Math.round(rect.height);
     geo.dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = Math.round(geo.w * geo.dpr);
     canvas.height = Math.round(geo.h * geo.dpr);
 
-    /* Bands reserved for the corner tags so they never sit on a layer. */
-    geo.padTop = 26;
-    geo.padBottom = 30;
-    const usableTop = geo.padTop;
-    const usableBottom = geo.h - geo.padBottom;
-    const usableH = Math.max(120, usableBottom - usableTop);
+    geo.cx = Math.round(geo.w * 0.5);
+    geo.cy = Math.round(geo.h * 0.5);
 
-    geo.rail = Math.round(
-      Math.min(252, Math.max(168, Math.min(geo.w * 0.32, geo.w - 132))),
-    );
+    const maxR = Math.min(geo.w * 0.46, geo.h * 0.47);
+    geo.outerR = Math.max(150, Math.round(maxR * 0.97));
+    geo.innerR = Math.max(50, Math.round(geo.outerR * 0.28));
+    geo.ringStep = (geo.outerR - geo.innerR) / 9;
 
-    const gapY = Math.max(4, Math.min(11, usableH * 0.022));
-    const plateH = Math.round(
-      Math.max(15, Math.min(27, (usableH - 8 * gapY) / 9)),
-    );
-    const span = 9 * plateH + 8 * gapY;
-    const firstTop = usableTop + (usableH - span) / 2;
-    geo.plates = state.layers.map(function (layer, i) {
-      const y = firstTop + i * (plateH + gapY);
-      return { id: layer.id, x: 0, y: y, w: geo.rail, h: plateH, index: i };
-    });
-    geo.plateH = plateH;
-
-    const areaX = geo.rail + 16;
-    const areaW = Math.max(60, geo.w - areaX);
-    const dieSize = Math.round(
-      Math.max(56, Math.min(usableH * 0.82, areaW * 0.52, 360)),
-    );
-    const cy = usableTop + usableH / 2;
-    geo.die = {
-      cx: areaX + areaW / 2,
-      cy: cy,
-      size: dieSize,
-      left: areaX + areaW / 2 - dieSize / 2,
-      top: cy - dieSize / 2,
-    };
-    /* The board wraps the core with a working margin rather than filling the
-       remaining width, so the composition reads as a machine, not a void. */
-    const boardW = Math.min(areaW - 4, dieSize * 1.82);
-    geo.board = {
-      x: areaX + (areaW - boardW) / 2,
-      y: usableTop - 6,
-      w: boardW,
-      h: Math.min(usableH + 12, dieSize * 1.5),
-    };
-    geo.board.y = cy - geo.board.h / 2;
-    geo.midY = cy;
-
-    /* The live readout is DOM so it stays selectable and announced; keep it
-       aligned just under the die's own label. */
     if (coreReadout) {
-      coreReadout.style.left = geo.die.cx + "px";
-      coreReadout.style.top = geo.die.cy + geo.die.size * 0.29 + "px";
-      coreReadout.style.width = Math.max(110, geo.die.size * 0.84) + "px";
-      coreReadout.style.fontSize = Math.max(8, Math.round(geo.die.size * 0.045)) + "px";
+      coreReadout.style.left = geo.cx + "px";
+      coreReadout.style.top =
+        Math.min(geo.h - 18, Math.round(geo.cy + geo.outerR + 15)) + "px";
     }
-
-    beamTarget = plateCenterY(state.active);
-    if (!state.running) beamY = beamTarget;
     draw();
   }
 
-  function plateCenterY(id) {
-    for (let i = 0; i < geo.plates.length; i += 1) {
-      if (geo.plates[i].id === id) {
-        return geo.plates[i].y + geo.plates[i].h / 2;
-      }
-    }
-    return geo.die ? geo.die.cy : 0;
-  }
-
-  function maxIndexFor(id) {
-    let max = 0;
-    for (let i = 0; i < state.layers.length; i += 1) {
-      if (state.layers[i].count > max) max = state.layers[i].count;
-    }
-    return Math.max(1, max);
-  }
-
-  /* Deterministic orthogonal route from a layer plate into the core. No
-     randomness: the same collector always enters through the same pin. */
-  function routeFor(index, plate) {
-    const die = geo.die;
-    if (!die) return null;
-    const startX = plate.x + plate.w;
-    const pinY = die.top + die.size * (0.14 + index * 0.09);
-    const elbow = Math.min(
-      die.left - 10,
-      startX + 16 + ((index % 3) * 10),
-    );
-    return [
-      { x: startX, y: plate.y + plate.h / 2 },
-      { x: elbow, y: plate.y + plate.h / 2 },
-      { x: elbow, y: pinY },
-      { x: die.left, y: pinY },
-    ];
-  }
-
-  function strokeRoute(ctx, points) {
-    ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    for (let p = 1; p < points.length; p += 1) {
-      ctx.lineTo(points[p].x, points[p].y);
-    }
-    ctx.stroke();
-  }
-
-  function ellipsize(ctx, text, maxWidth) {
-    if (ctx.measureText(text).width <= maxWidth) return text;
-    let cut = text;
-    while (cut.length > 3 && ctx.measureText(cut + "…").width > maxWidth) {
-      cut = cut.slice(0, -1);
-    }
-    return cut + "…";
-  }
-
-  /* ---------- painting ---------------------------------------------------- */
-
-  function drawChassis(ctx) {
-    const die = geo.die;
-    const board = geo.board;
-    if (!die || !board) return;
-
-    /* the board: the machine being inspected */
-    ctx.fillStyle = "rgba(255,255,255,0.016)";
-    roundRect(ctx, board.x, board.y, board.w, board.h, 14);
-    ctx.fill();
-    ctx.strokeStyle = C.hair;
-    ctx.lineWidth = 1;
-    roundRect(ctx, board.x, board.y, board.w, board.h, 14);
-    ctx.stroke();
-    ctx.strokeStyle = C.hairSoft;
-    const nb = 12;
-    const bn = [
-      [board.x, board.y, 1, 1],
-      [board.x + board.w, board.y, -1, 1],
-      [board.x, board.y + board.h, 1, -1],
-      [board.x + board.w, board.y + board.h, -1, -1],
-    ];
-    for (let c = 0; c < bn.length; c += 1) {
-      const cx = bn[c][0];
-      const cy2 = bn[c][1];
-      ctx.beginPath();
-      ctx.moveTo(cx + bn[c][2] * nb, cy2);
-      ctx.lineTo(cx, cy2);
-      ctx.lineTo(cx, cy2 + bn[c][3] * nb);
-      ctx.stroke();
-    }
-
-    /* inner shells read as the die's casing, exploded a little */
-    const shells = [1.24, 1.44];
-    for (let s = 0; s < shells.length; s += 1) {
-      const size = die.size * shells[s];
-      ctx.strokeStyle = s === 0 ? C.hair : C.hairSoft;
-      ctx.lineWidth = 1;
-      roundRect(
-        ctx,
-        die.cx - size / 2,
-        die.cy - size / 2,
-        size,
-        size,
-        size * 0.17,
-      );
-      ctx.stroke();
-    }
-
-    /* Deterministic etched routing: the board is populated, and the pattern is
-       identical on every run. Nothing here is random decoration. */
-    const seed = 0x9e3779b9;
-    let s0 = seed;
-    const rand = function () {
-      s0 = (s0 + 0x6d2b79f5) | 0;
-      let t = s0;
-      t = Math.imul(t ^ (t >>> 15), t | 1);
-      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  /* ---------- Palette ---------------------------------------------------
+     Stage UI-10: the radar wore the pre-workstation cyan "holographic"
+     identity. The console grammar is graphite + scarce violet: violet is
+     C.U.R.E acting (the sweep, the active layer), the info blue reports
+     checked layers, amber/red stay strictly semantic. */
+  function getPalette() {
+    const isLight = document.documentElement.getAttribute("data-theme") === "light";
+    return {
+      isLight: isLight,
+      ringBase: isLight ? "rgba(71, 85, 105, 0.18)" : "rgba(148, 163, 184, 0.15)",
+      ringActive: isLight ? "#7c3aed" : "#a78bfa",
+      ringCyan: isLight ? "#0891b2" : "#38bdf8",
+      ringAmber: isLight ? "#d97706" : "#e0a458",
+      ringRed: isLight ? "#dc2626" : "#e4706a",
+      ringDim: isLight ? "rgba(100, 116, 139, 0.45)" : "rgba(148, 163, 184, 0.42)",
+      sweepFill: isLight ? "rgba(124, 58, 237, 0.15)" : "rgba(139, 111, 240, 0.20)",
+      sweepLine: isLight ? "#7c3aed" : "#c4b1ff",
+      hubBody: isLight ? "#ffffff" : "#0c101a",
+      hubBorder: isLight ? "rgba(124, 58, 237, 0.4)" : "rgba(139, 111, 240, 0.4)",
+      textPrimary: isLight ? "#0f172a" : "#f1f5f9",
+      textDim: isLight ? "#64748b" : "#94a3b8",
+      glowCyan: isLight ? "rgba(124, 58, 237, 0.22)" : "rgba(139, 111, 240, 0.4)",
     };
-    ctx.strokeStyle = "rgba(255,255,255,0.055)";
-    ctx.lineWidth = 1;
-    for (let n = 0; n < 54; n += 1) {
-      const px = board.x + 10 + rand() * (board.w - 20);
-      const py = board.y + 10 + rand() * (board.h - 20);
-      if (
-        px > die.left - 14 &&
-        px < die.left + die.size + 14 &&
-        py > die.top - 14 &&
-        py < die.top + die.size + 14
-      ) {
-        continue;
-      }
-      const len = 12 + rand() * 34;
-      const horiz = rand() > 0.5;
-      ctx.beginPath();
-      ctx.moveTo(px, py);
-      if (horiz) ctx.lineTo(px + len, py);
-      else ctx.lineTo(px, py + len);
-      ctx.stroke();
-      if (rand() > 0.55) {
-        ctx.fillStyle = "rgba(255,255,255,0.13)";
-        ctx.fillRect(horiz ? px + len - 2 : px - 1.5, horiz ? py - 1.5 : py + len - 2, 3, 3);
-      }
-    }
   }
 
-  function drawDie(ctx) {
-    const die = geo.die;
-    const board = geo.board;
-    if (!die || !board) return;
-    const { left, top, size } = die;
-
-    /* local illumination: violet only while a collector is genuinely running */
-    if (state.activity > 0.01) {
-      const glow = ctx.createRadialGradient(
-        die.cx,
-        die.cy,
-        size * 0.12,
-        die.cx,
-        die.cy,
-        size * 1.45,
-      );
-      glow.addColorStop(
-        0,
-        "rgba(139,111,240," + (0.16 * state.activity).toFixed(3) + ")",
-      );
-      glow.addColorStop(1, "rgba(139,111,240,0)");
-      ctx.fillStyle = glow;
-      ctx.fillRect(left - size, top - size, size * 3, size * 3);
-    }
-
-    const body = ctx.createLinearGradient(left, top, left, top + size);
-    body.addColorStop(0, "#1a202a");
-    body.addColorStop(1, "#0c0f15");
-    ctx.fillStyle = body;
-    roundRect(ctx, left, top, size, size, size * 0.11);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.13)";
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(255,255,255,0.05)";
-    roundRect(ctx, left + 7, top + 7, size - 14, size - 14, size * 0.08);
-    ctx.stroke();
-
-    /* etched C.U.R.E mark */
-    const unit = size * 0.1;
-    const gx = die.cx - unit * 1.1;
-    const gy = die.cy - unit * 1.95;
-    ctx.fillStyle = "rgba(255,255,255,0.06)";
-    for (let q = 0; q < 4; q += 1) {
-      roundRect(
-        ctx,
-        gx + (q % 2) * (unit * 1.1),
-        gy + Math.floor(q / 2) * (unit * 1.1),
-        unit * 0.92,
-        unit * 0.92,
-        4,
-      );
-      ctx.fill();
-    }
-
-    /* border pins */
-    ctx.fillStyle = "rgba(255,255,255,0.17)";
-    const pin = 7;
-    for (let i = 0; i < 12; i += 1) {
-      const t = (i + 0.5) / 12;
-      ctx.fillRect(left + t * size - pin / 2, top - 6, pin, 4);
-      ctx.fillRect(left + t * size - pin / 2, top + size + 2, pin, 4);
-      ctx.fillRect(left - 6, top + t * size - pin / 2, 4, pin);
-      ctx.fillRect(left + size + 2, top + t * size - pin / 2, 4, pin);
-    }
-
-    /* die label */
-    ctx.textAlign = "center";
-    ctx.textBaseline = "alphabetic";
-    ctx.fillStyle = C.text;
-    ctx.font =
-      '620 ' +
-      Math.max(11, Math.round(size * 0.082)).toFixed(0) +
-      'px "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif';
-    ctx.fillText("C.U.R.E", die.cx, die.cy + size * 0.1);
-    if ("letterSpacing" in ctx) ctx.letterSpacing = "0.2em";
-    ctx.fillStyle = C.text3;
-    ctx.font =
-      '650 ' +
-      Math.max(8, Math.round(size * 0.038)).toFixed(0) +
-      'px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif';
-    ctx.fillText("SYSTEM CORE", die.cx, die.cy + size * 0.2);
-    if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
-
-    /* Two honest callouts: what the routes are, in the machine's own language */
-    if (geo.board && geo.board.w > 220) {
-      ctx.textAlign = "left";
-      ctx.font =
-        '650 ' + Math.max(8, Math.round(size * 0.036)).toFixed(0) +
-        'px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif';
-      if ("letterSpacing" in ctx) ctx.letterSpacing = "0.16em";
-      ctx.fillStyle = "rgba(255,255,255,0.24)";
-      ctx.fillText("PERSISTENCE BUS", board.x + 14, board.y + board.h - 16);
-      ctx.textAlign = "right";
-      ctx.fillText(
-        state.findings > 0 ? "EVIDENCE IN · " + state.findings : "EVIDENCE IN",
-        board.x + board.w - 14,
-        board.y + 20,
-      );
-      if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
-    }
+  function toneColor(tone, P) {
+    if (tone === "checked") return P.ringCyan;
+    if (tone === "partial") return P.ringAmber;
+    if (tone === "denied") return P.ringAmber;
+    if (tone === "failed") return P.ringRed;
+    if (tone === "active") return P.ringActive;
+    if (tone === "unreported") return P.ringDim;
+    return P.ringBase;
   }
 
-  function drawTraces(ctx, now) {
-    const die = geo.die;
-    if (!die) return;
-    for (let i = 0; i < geo.plates.length; i += 1) {
-      const plate = geo.plates[i];
-      const layer = state.layers[i];
-      const points = routeFor(i, plate);
-      if (!points) continue;
-      const live = layer.id === state.active && state.running;
-      ctx.strokeStyle = live ? "rgba(167,139,250,0.62)" : C.hair;
-      ctx.lineWidth = live ? 1.3 : 1;
-      strokeRoute(ctx, points);
-      /* dash flow runs only while this collector is actually running */
-      if (live) {
-        ctx.save();
-        ctx.setLineDash([4, 10]);
-        ctx.lineDashOffset = -(now * 0.045) % 14;
-        ctx.strokeStyle = "rgba(214,203,255,0.9)";
-        ctx.lineWidth = 1.5;
-        strokeRoute(ctx, points);
-        ctx.restore();
-      }
-      /* via at the elbow, pin terminus at the die: the bus is a circuit */
-      ctx.fillStyle = live ? "rgba(196,177,255,0.9)" : "rgba(255,255,255,0.18)";
-      ctx.beginPath();
-      ctx.arc(points[1].x, points[1].y, live ? 2 : 1.4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = live ? C.keyLit : "rgba(255,255,255,0.16)";
-      ctx.beginPath();
-      ctx.arc(die.left, points[3].y, live ? 2.6 : 1.8, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  /* A resolved entry travels its layer's route into the core. Routes are
-     orthogonal, so trails never cross the layer labels. */
-  function drawTrails(ctx) {
-    const now = performance.now();
-    for (let t = 0; t < state.trails.length; t += 1) {
-      const trail = state.trails[t];
-      const plate = null;
-      const points = trail.points;
-      if (!points) continue;
-      const age = Math.min(1, (now - trail.at) / 480);
-      const settled = Math.min(1, (now - trail.at) / 700);
-      const base =
-        trail.risk === "HighRisk"
-          ? "228,112,106"
-          : trail.risk === "Suspicious"
-            ? "224,164,88"
-            : "167,139,250";
-      ctx.strokeStyle = "rgba(" + base + "," + (0.5 * settled).toFixed(3) + ")";
-      ctx.lineWidth = 1.2;
-      ctx.save();
-      ctx.beginPath();
-      const total = points.length - 1;
-      const upto = Math.max(1, Math.ceil(age * total));
-      ctx.moveTo(points[0].x, points[0].y);
-      for (let p = 1; p <= upto && p < points.length; p += 1) {
-        if (p === upto && age < 1) {
-          const a = points[p - 1];
-          const b = points[p];
-          ctx.lineTo(a.x + (b.x - a.x) * (age * total - (p - 1)), a.y + (b.y - a.y) * (age * total - (p - 1)));
-        } else {
-          ctx.lineTo(points[p].x, points[p].y);
-        }
-      }
-      ctx.stroke();
-      if (age < 1) {
-        const head = points[Math.min(total, upto - 1)];
-        ctx.fillStyle = "rgba(" + base + ",0.85)";
-        ctx.beginPath();
-        ctx.arc(head.x, head.y, 2.2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.restore();
-      void plate;
-    }
-  }
-
-  function drawPlates(ctx) {
-    const maxCount = maxIndexFor(null);
-    for (let i = 0; i < geo.plates.length; i += 1) {
-      const plate = geo.plates[i];
-      const layer = state.layers[i];
-      const active = layer.id === state.active && state.running;
-      const color = toneColor(active ? "active" : layer.tone);
-
-      ctx.fillStyle = active
-        ? "rgba(139,111,240,0.14)"
-        : "rgba(255,255,255,0.026)";
-      roundRect(ctx, plate.x, plate.y, plate.w, plate.h, 4);
-      ctx.fill();
-
-      ctx.fillStyle = color;
-      ctx.globalAlpha = active ? 1 : 0.8;
-      roundRect(ctx, plate.x, plate.y, 2.5, plate.h, 1.2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-
-      ctx.strokeStyle = active ? "rgba(167,139,250,0.42)" : C.hairSoft;
-      ctx.lineWidth = 1;
-      roundRect(ctx, plate.x, plate.y, plate.w, plate.h, 4);
-      ctx.stroke();
-
-      const labelSize = Math.max(8.5, Math.min(11, plate.h * 0.44));
-      /* the value column shrinks with the plate so names stay readable */
-      const valueWidth = Math.max(44, Math.min(96, plate.w * 0.38));
-      const mid = plate.y + plate.h / 2;
-
-      ctx.textAlign = "left";
-      ctx.textBaseline = "middle";
-      if ("letterSpacing" in ctx) ctx.letterSpacing = "0.06em";
-      ctx.font =
-        '600 ' +
-        labelSize.toFixed(1) +
-        'px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif';
-      ctx.fillStyle = active ? C.text : C.text2;
-      ctx.fillText(
-        ellipsize(ctx, layer.label.toUpperCase(), plate.w - valueWidth - 26),
-        plate.x + 14,
-        mid + 0.5,
-      );
-      if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
-
-      /* the real value, right-aligned in a reserved column */
-      const monoSize = Math.max(8, labelSize - 1.2);
-      ctx.font = monoSize.toFixed(1) + 'px "Cascadia Code", Consolas, monospace';
-      ctx.textAlign = "right";
-      if (layer.count > 0) {
-        const risky = layer.risk > 0;
-        const riskColor = risky
-          ? toneColor(layer.tone === "highrisk" ? "highrisk" : "review")
-          : C.text3;
-        const countText = String(layer.count);
-        const right = plate.x + plate.w - 13;
-        ctx.fillStyle = risky ? riskColor : C.text3;
-        ctx.fillText(countText, right, mid + 0.5);
-        if (risky) {
-          /* a risk marker sits beside the count, never merged into it */
-          const cw = ctx.measureText(countText).width;
-          const mx = right - cw - 9;
-          ctx.fillStyle = riskColor;
-          ctx.beginPath();
-          ctx.moveTo(mx, mid - 3);
-          ctx.lineTo(mx + 3, mid + 2.4);
-          ctx.lineTo(mx - 3, mid + 2.4);
-          ctx.closePath();
-          ctx.fill();
-        }
-      } else {
-        ctx.fillStyle = layer.tone === "pending" ? C.text3 : color;
-        ctx.fillText(
-          ellipsize(ctx, layer.text, valueWidth - 18),
-          plate.x + plate.w - 13,
-          mid + 0.5,
-        );
-      }
-
-      /* resolved density: how much of this layer was actually inspected */
-      if (layer.count > 0) {
-        const barW = Math.max(3, (layer.count / maxCount) * (plate.w - 26));
-        ctx.fillStyle =
-          layer.risk > 0 ? toneColor("review") : "rgba(167,139,250,0.5)";
-        roundRect(ctx, plate.x + 14, plate.y + plate.h - 3.5, barW, 1.6, 0.8);
-        ctx.fill();
-      }
-    }
-  }
-
-  function drawBeam(ctx) {
-    /* Light, not paint: a faint travelling sheet with a crisp leading edge,
-       contained by the board so it never reads as a selection rectangle. */
-    const board = geo.board;
-    if (!board) return;
-    const left = 0;
-    const right = board.x + board.w;
-    const height = 58;
-    const top = Math.max(0, beamY - height);
-    ctx.save();
-    ctx.globalCompositeOperation = "lighter";
-    const band = ctx.createLinearGradient(0, top, 0, beamY);
-    band.addColorStop(0, "rgba(139,111,240,0)");
-    band.addColorStop(0.72, "rgba(139,111,240,0.03)");
-    band.addColorStop(1, "rgba(167,139,250,0.075)");
-    ctx.fillStyle = band;
-    ctx.fillRect(left, top, right - left, height);
-    ctx.fillStyle = "rgba(206,194,255,0.42)";
-    ctx.fillRect(left, beamY - 0.75, right - left, 1.5);
-    ctx.fillStyle = "rgba(167,139,250,0.13)";
-    ctx.fillRect(left, beamY - 19, right - left, 1);
-    ctx.fillStyle = "rgba(167,139,250,0.06)";
-    ctx.fillRect(left, beamY - 36, right - left, 1);
-    ctx.restore();
+  /* ---------- Canvas ---------------------------------------------------- */
+  function triggerShockwave(color) {
+    if (!prefersMotion()) return;
+    state.ripples.push({
+      r: geo.innerR + 4,
+      maxR: geo.outerR + 25,
+      color: color || "#a78bfa",
+      alpha: 0.8,
+    });
+    if (state.ripples.length > 4) state.ripples.shift();
   }
 
   function draw() {
-    if (!canvas || !geo.die || geo.die.size <= 0) return;
+    if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.setTransform(geo.dpr, 0, 0, geo.dpr, 0, 0);
+
+    ctx.save();
+    ctx.scale(geo.dpr, geo.dpr);
     ctx.clearRect(0, 0, geo.w, geo.h);
-    const now = performance.now();
-    drawChassis(ctx);
-    drawDie(ctx);
-    drawTraces(ctx, now);
-    drawTrails(ctx);
-    drawPlates(ctx);
-    if (state.running) drawBeam(ctx);
-  }
-  function frame(now) {
-    rafId = null;
-    const dt = Math.min(64, now - (lastFrame || now));
-    lastFrame = now;
-    dashPhase += dt;
-    const target = plateCenterY(state.active);
-    beamTarget = target;
-    const distance = Math.abs(target - beamY);
-    /* settle fast onto a real collector change, then hold — no idle spinning */
-    const ease = distance < 0.6 ? 0.5 : 0.14;
-    beamY += (target - beamY) * ease;
-    if (state.running) state.activity += (1 - state.activity) * 0.08;
-    else state.activity += (0 - state.activity) * 0.12;
-    if (state.trails.length) state.trails = state.trails.filter(function (t) {
-      return now - t.at < 60000;
-    });
-    draw();
-    schedule();
+
+    const P = getPalette();
+    const cx = geo.cx;
+    const cy = geo.cy;
+
+    /* 1. Tactical crosshairs, coordinate grid and polar degree markers. */
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = P.ringBase;
+    ctx.setLineDash([3, 5]);
+    ctx.beginPath();
+    ctx.moveTo(cx - geo.outerR - 24, cy);
+    ctx.lineTo(cx + geo.outerR + 24, cy);
+    ctx.moveTo(cx, cy - geo.outerR - 24);
+    ctx.lineTo(cx, cy + geo.outerR + 24);
+    ctx.stroke();
+
+    const dLen = geo.outerR + 14;
+    const dCos = Math.cos(Math.PI / 4) * dLen;
+    ctx.beginPath();
+    ctx.moveTo(cx - dCos, cy - dCos);
+    ctx.lineTo(cx + dCos, cy + dCos);
+    ctx.moveTo(cx - dCos, cy + dCos);
+    ctx.lineTo(cx + dCos, cy - dCos);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.font = "600 8.5px monospace";
+    ctx.fillStyle = P.textDim;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("000\u00B0", cx, cy - geo.outerR - 16);
+    ctx.fillText("090\u00B0", cx + geo.outerR + 18, cy);
+    ctx.fillText("180\u00B0", cx, cy + geo.outerR + 16);
+    ctx.fillText("270\u00B0", cx - geo.outerR - 18, cy);
+
+    /* Calibrated tick ring: a background instrument, not a progress meter. */
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(state.ambientAngle);
+    ctx.strokeStyle = P.isLight
+      ? "rgba(8, 145, 178, 0.28)"
+      : "rgba(34, 211, 238, 0.32)";
+    ctx.lineWidth = 1;
+    const outerTickR = geo.outerR + 10;
+    for (let t = 0; t < 24; t += 1) {
+      const a = (t * Math.PI) / 12;
+      const tLen = t % 6 === 0 ? 6 : 3.5;
+      ctx.beginPath();
+      ctx.moveTo(
+        Math.cos(a) * (outerTickR - tLen),
+        Math.sin(a) * (outerTickR - tLen)
+      );
+      ctx.lineTo(Math.cos(a) * outerTickR, Math.sin(a) * outerTickR);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    /* 2. One segmented orbital track per layer, coloured by its outcome. */
+    const segmentsPerTrack = 8;
+    const segAngle = (Math.PI * 2) / segmentsPerTrack;
+    const gapAngle = 0.04;
+
+    for (let i = 0; i < 9; i += 1) {
+      const r = geo.innerR + (i + 1) * geo.ringStep;
+      const layer = state.layers[i];
+      const isActive = state.active === layer.id;
+      const isHovered = state.hoveredLayer === layer.id;
+
+      let strokeColor = toneColor(layer.outcome, P);
+      let strokeWidth = 1.4;
+      let lineDash = [];
+
+      if (layer.outcome === "checked") {
+        strokeWidth = isActive ? 2.6 : 2.0;
+      } else if (layer.outcome === "partial" || layer.outcome === "denied") {
+        strokeWidth = 2.0;
+        lineDash = [10, 4, 3, 4];
+      } else if (layer.outcome === "failed") {
+        strokeWidth = 2.2;
+        lineDash = [5, 4];
+      } else if (layer.outcome === "unreported") {
+        strokeWidth = 1.6;
+        lineDash = [2, 5];
+      } else if (isActive) {
+        strokeColor = P.ringActive;
+        strokeWidth = 2.8;
+      } else if (isHovered) {
+        strokeColor = P.ringCyan;
+        strokeWidth = 2.0;
+      }
+
+      ctx.save();
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = strokeWidth;
+      if (lineDash.length > 0) ctx.setLineDash(lineDash);
+      for (let s = 0; s < segmentsPerTrack; s += 1) {
+        ctx.beginPath();
+        ctx.arc(
+          cx,
+          cy,
+          r,
+          s * segAngle + gapAngle,
+          (s + 1) * segAngle - gapAngle
+        );
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      /* Travelling bead only on the collector the backend named. */
+      if (isActive && prefersMotion()) {
+        const beadAngle = (state.ambientAngle * (3.8 + i * 0.3)) % (Math.PI * 2);
+        const bx = cx + Math.cos(beadAngle) * r;
+        const by = cy + Math.sin(beadAngle) * r;
+        ctx.beginPath();
+        ctx.arc(bx, by, 7.5, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(167, 139, 250, 0.4)";
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(bx, by, 3.4, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+      }
+
+      /* Layer node at the orbit angle. */
+      const angle = geo.orbitAngles[i];
+      const nx = cx + Math.cos(angle) * r;
+      const ny = cy + Math.sin(angle) * r;
+      ctx.beginPath();
+      ctx.arc(nx, ny, isActive ? 4.8 : isHovered ? 4.2 : 3.0, 0, Math.PI * 2);
+      ctx.fillStyle = isActive ? P.ringActive : toneColor(layer.outcome, P);
+      ctx.fill();
+      if (isActive || isHovered) {
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+      }
+    }
+
+    /* 3. Sweep beam: an activity indicator while a collection is running. */
+    if (state.running && prefersMotion()) {
+      const sweepAngle = state.sweepAngle;
+      const sweepSpan = Math.PI / 3.6;
+      const grad = ctx.createRadialGradient(
+        cx,
+        cy,
+        geo.innerR,
+        cx,
+        cy,
+        geo.outerR + 14
+      );
+      grad.addColorStop(0, P.sweepFill);
+      grad.addColorStop(0.7, "rgba(34, 211, 238, 0.09)");
+      grad.addColorStop(1, "rgba(34, 211, 238, 0)");
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, geo.outerR + 14, sweepAngle - sweepSpan, sweepAngle, false);
+      ctx.closePath();
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(
+        cx + Math.cos(sweepAngle) * (geo.outerR + 16),
+        cy + Math.sin(sweepAngle) * (geo.outerR + 16)
+      );
+      ctx.strokeStyle = P.sweepLine;
+      ctx.lineWidth = 2.4;
+      ctx.shadowColor = P.sweepLine;
+      ctx.shadowBlur = 10;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    /* 4. Shockwave ripples fired by real collector transitions. */
+    if (state.ripples.length > 0 && prefersMotion()) {
+      for (let rp = 0; rp < state.ripples.length; rp += 1) {
+        const ripple = state.ripples[rp];
+        ctx.beginPath();
+        ctx.arc(cx, cy, ripple.r, 0, Math.PI * 2);
+        ctx.strokeStyle = ripple.color;
+        ctx.globalAlpha = Math.max(0, ripple.alpha);
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+        ctx.globalAlpha = 1.0;
+      }
+    }
+
+    /* 5. Evidence beacons: one diamond per entry that needs review. */
+    for (let i = 0; i < state.layers.length; i += 1) {
+      const layer = state.layers[i];
+      if (!layer.beacons || layer.beacons.length === 0) continue;
+      const r = geo.innerR + (i + 1) * geo.ringStep;
+      for (let b = 0; b < layer.beacons.length; b += 1) {
+        const beacon = layer.beacons[b];
+        const bx = cx + Math.cos(beacon.angle) * r;
+        const by = cy + Math.sin(beacon.angle) * r;
+
+        if (prefersMotion() && beacon.radius > 0) {
+          ctx.beginPath();
+          ctx.arc(bx, by, beacon.radius, 0, Math.PI * 2);
+          ctx.strokeStyle =
+            beacon.risk === "HighRisk"
+              ? "rgba(239, 68, 68, 0.48)"
+              : "rgba(245, 158, 11, 0.48)";
+          ctx.lineWidth = 1.3;
+          ctx.stroke();
+        }
+
+        const isHigh = beacon.risk === "HighRisk";
+        ctx.save();
+        ctx.translate(bx, by);
+        ctx.beginPath();
+        ctx.moveTo(0, -5.5);
+        ctx.lineTo(5.5, 0);
+        ctx.lineTo(0, 5.5);
+        ctx.lineTo(-5.5, 0);
+        ctx.closePath();
+        ctx.fillStyle = isHigh ? P.ringRed : P.ringAmber;
+        ctx.fill();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(0, 0, 2.0, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    /* 6. Central hub: one outcome tick per layer around the live readout. */
+    const hubR = geo.innerR;
+    const verdict = getVerdict();
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    if (state.running) {
+      const glow = ctx.createRadialGradient(0, 0, hubR * 0.2, 0, 0, hubR * 1.6);
+      glow.addColorStop(0, P.glowCyan);
+      glow.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(0, 0, hubR * 1.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    const tickArc = (Math.PI * 2) / state.layers.length;
+    for (let k = 0; k < state.layers.length; k += 1) {
+      const tickColor = toneColor(state.layers[k].outcome, P);
+      const sAngle = k * tickArc - Math.PI / 2 + 0.05;
+      const eAngle = (k + 1) * tickArc - Math.PI / 2 - 0.05;
+      ctx.beginPath();
+      ctx.arc(0, 0, hubR, sAngle, eAngle);
+      ctx.strokeStyle = tickColor;
+      ctx.lineWidth = 3.4;
+      ctx.stroke();
+      const midA = (sAngle + eAngle) / 2;
+      ctx.beginPath();
+      ctx.arc(
+        Math.cos(midA) * (hubR + 4),
+        Math.sin(midA) * (hubR + 4),
+        1.6,
+        0,
+        Math.PI * 2
+      );
+      ctx.fillStyle = tickColor;
+      ctx.fill();
+    }
+
+    ctx.save();
+    ctx.rotate(-state.ambientAngle * 1.4);
+    ctx.beginPath();
+    ctx.arc(0, 0, hubR * 0.82, 0, Math.PI * 2);
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = P.isLight
+      ? "rgba(8, 145, 178, 0.42)"
+      : "rgba(34, 211, 238, 0.48)";
+    ctx.lineWidth = 1.3;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    ctx.beginPath();
+    ctx.arc(0, 0, hubR * 0.74, 0, Math.PI * 2);
+    ctx.fillStyle = P.hubBody;
+    ctx.fill();
+    ctx.strokeStyle = P.hubBorder;
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    if (state.phase === "idle") {
+      ctx.font = "800 11.5px Inter, system-ui, sans-serif";
+      ctx.fillStyle = P.textPrimary;
+      ctx.fillText("C.U.R.E", 0, -6);
+      ctx.font = "700 9px monospace";
+      ctx.fillStyle = P.ringCyan;
+      ctx.fillText("READY", 0, 7);
+    } else if (state.running) {
+      ctx.font = "800 13.5px 'Cascadia Code', Consolas, monospace";
+      ctx.fillStyle = P.ringCyan;
+      ctx.fillText(verdict.covered + " / " + verdict.total, 0, -7);
+      ctx.font = "700 8.5px monospace";
+      ctx.fillStyle = P.textDim;
+      ctx.fillText("CHECKED", 0, 6);
+      if (state.active) {
+        const act = layerById(state.active);
+        ctx.font = "600 7.5px monospace";
+        ctx.fillStyle = P.ringActive;
+        ctx.fillText(act ? act.label.toUpperCase() : "SCAN", 0, 16);
+      }
+    } else if (state.phase === "failed") {
+      ctx.font = "800 10.5px 'Cascadia Code', Consolas, monospace";
+      ctx.fillStyle = P.ringRed;
+      ctx.fillText("FAILED", 0, -6);
+      ctx.font = "700 8px monospace";
+      ctx.fillStyle = P.textDim;
+      ctx.fillText("NO RESULT", 0, 7);
+    } else {
+      /* Completed: state the count of findings, never a health score. */
+      if (state.findings > 0) {
+        ctx.font = "800 12.5px 'Cascadia Code', Consolas, monospace";
+        ctx.fillStyle = P.ringAmber;
+        ctx.fillText(String(state.findings), 0, -6);
+        ctx.font = "700 8px monospace";
+        ctx.fillStyle = P.ringAmber;
+        ctx.fillText("TO REVIEW", 0, 7);
+      } else {
+        ctx.font = "800 12.5px 'Cascadia Code', Consolas, monospace";
+        ctx.fillStyle = verdict.complete ? P.ringCyan : P.ringAmber;
+        ctx.fillText(verdict.covered + " / " + verdict.total, 0, -6);
+        ctx.font = "700 8px monospace";
+        ctx.fillStyle = verdict.complete ? P.ringCyan : P.ringAmber;
+        ctx.fillText(verdict.complete ? "CLEARED" : "PARTIAL", 0, 7);
+      }
+    }
+    ctx.restore();
+
+    /* 7. Tactical callout for the hovered or active layer. */
+    const inspectedLayer = state.hoveredLayer
+      ? layerById(state.hoveredLayer)
+      : state.active
+        ? layerById(state.active)
+        : null;
+    if (inspectedLayer && geo.w > 640) {
+      drawTacticalCallout(ctx, inspectedLayer, P);
+    }
+
+    ctx.restore();
   }
 
-  function schedule() {
-    if (rafId !== null) return;
-    rafId = requestAnimationFrame(frame);
+  function drawTacticalCallout(ctx, layer, P) {
+    const cardW = 210;
+    const cardH = 78;
+    const cardX = geo.w - cardW - 14;
+    const cardY = 14;
+    const tone = toneColor(layer.outcome, P);
+
+    ctx.fillStyle = P.isLight
+      ? "rgba(255, 255, 255, 0.95)"
+      : "rgba(15, 23, 42, 0.95)";
+    ctx.strokeStyle = tone;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.roundRect(cardX, cardY, cardW, cardH, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.font = "700 11.5px Inter, system-ui, sans-serif";
+    ctx.fillStyle = P.textPrimary;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(layer.full, cardX + 12, cardY + 20);
+
+    ctx.font = "700 9.5px monospace";
+    ctx.fillStyle = tone;
+    ctx.fillText(
+      "STATUS: " + (OUTCOME_TEXT[layer.outcome] || layer.outcome).toUpperCase(),
+      cardX + 12,
+      cardY + 39
+    );
+
+    ctx.font = "500 10px Inter, system-ui, sans-serif";
+    ctx.fillStyle = P.textDim;
+    ctx.fillText(
+      "Inspected: " +
+        layer.count +
+        " \u00B7 Flagged: " +
+        layer.flagged,
+      cardX + 12,
+      cardY + 58
+    );
+  }
+
+  /* ---------- Animation loop ------------------------------------------- */
+  function frame(now) {
+    const dt = Math.min(0.1, (now - lastTime) / 1000);
+    lastTime = now;
+
+    if (prefersMotion()) {
+      state.ambientAngle = (state.ambientAngle + dt * 0.24) % (Math.PI * 2);
+      if (state.running) {
+        state.sweepAngle = (state.sweepAngle + dt * 2.8) % (Math.PI * 2);
+      }
+      for (let i = 0; i < state.layers.length; i += 1) {
+        const beacons = state.layers[i].beacons;
+        for (let b = 0; b < beacons.length; b += 1) {
+          beacons[b].radius += dt * (state.running ? 16 : 6);
+          if (beacons[b].radius > 18) beacons[b].radius = 1;
+        }
+      }
+      for (let r = state.ripples.length - 1; r >= 0; r -= 1) {
+        const rip = state.ripples[r];
+        rip.r += dt * 175;
+        rip.alpha -= dt * 0.9;
+        if (rip.r >= rip.maxR || rip.alpha <= 0) state.ripples.splice(r, 1);
+      }
+    }
+
+    draw();
+
+    if (
+      prefersMotion() &&
+      !document.hidden &&
+      field &&
+      field.offsetParent !== null
+    ) {
+      rafId = requestAnimationFrame(frame);
+    } else {
+      rafId = null;
+    }
   }
 
   function startLoop() {
-    if (motionOff()) {
-      beamY = beamTarget = plateCenterY(state.active);
-      state.activity = state.running ? 1 : 0;
-      draw();
-      return;
-    }
-    if (rafId === null) {
-      lastFrame = performance.now();
-      schedule();
+    if (rafId === null && prefersMotion()) {
+      lastTime = performance.now();
+      rafId = requestAnimationFrame(frame);
     }
   }
 
   function stopLoop() {
-    if (rafId !== null) cancelAnimationFrame(rafId);
-    rafId = null;
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
   }
 
-  /* ---------- DOM ledger (the accessible, precise layer list) ------------ */
+  /* ---------- DOM: layer matrix ---------------------------------------- */
+  const rowRefs = {};
 
-  function paintLedger() {
-    if (!sourceList) return;
-    sourceList.replaceChildren();
+  function buildLayers() {
+    if (!layerList) return;
+    layerList.innerHTML = "";
     for (let i = 0; i < state.layers.length; i += 1) {
-      const layer = state.layers[i];
-      const active = layer.id === state.active && state.running;
+      const L = state.layers[i];
       const li = document.createElement("li");
-      li.className = active ? "active" : layer.tone;
-      li.dataset.source = layer.id;
-      const dot = document.createElement("span");
-      dot.className = "cov-dot " +
-        (active ? "" : layer.tone === "checked" ? "ok" : layer.tone === "partial" || layer.tone === "warn" || layer.tone === "review" || layer.tone === "risk" ? "warn" : layer.tone === "bad" || layer.tone === "highrisk" ? "bad" : "");
+      li.className = "xr-layer";
+      li.setAttribute("data-layer-id", L.id);
+
+      const mark = document.createElement("span");
+      mark.className = "xr-layer-mark";
+      mark.setAttribute("aria-hidden", "true");
+
       const name = document.createElement("span");
-      name.className = "cov-name";
-      name.textContent = layer.full;
+      name.className = "xr-layer-name";
+      name.textContent = L.full;
+
       const status = document.createElement("span");
-      status.className = "cov-detail source-state";
-      const parts = [];
-      if (active) parts.push("Inspecting");
-      else parts.push(layer.text);
-      if (layer.count > 0) parts.push(layer.count + " inspected");
-      if (layer.risk > 0)
-        parts.push(layer.risk + (layer.tone === "highrisk" ? " high risk" : " to review"));
-      if (layer.detail) parts.push(layer.detail);
-      status.textContent = parts.join(" · ");
-      li.append(dot, name, status);
-      sourceList.appendChild(li);
-    }
-    if (itemsEl) {
-      itemsEl.textContent =
-        state.items + (state.items === 1 ? " entry inspected" : " entries inspected");
-    }
-    if (inspectedEl) inspectedEl.textContent = String(state.items);
-    if (findingsEl) {
-      findingsEl.textContent = String(state.findings);
-      findingsEl.className = "ins-value" + (state.findings ? " is-warn" : "");
-    }
-    if (phaseEl) {
-      const activeLayer = layerById(state.active);
-      phaseEl.textContent = activeLayer
-        ? activeLayer.label
-        : state.running
-          ? "Preparing collection"
-          : "Awaiting collection";
-    }
-    if (coverageEl) {
-      const reported = state.layers.filter(function (l) {
-        return l.tone !== "pending" && l.tone !== "idle";
-      });
-      if (!state.running && reported.length === 0) coverageEl.textContent = "—";
-      else {
-        const checked = state.layers.filter(function (l) {
-          return l.tone === "checked";
-        }).length;
-        const limited = state.layers.length - checked;
-        coverageEl.textContent =
-          checked + "/" + state.layers.length +
-          (limited > 0 && !state.running ? " · " + limited + " limited" : "");
-      }
-    }
-  }
+      status.className = "xr-layer-status";
 
-  function completeActive() {
-    if (!state.active) return;
-    const layer = layerById(state.active);
-    if (layer && layer.tone === "active") {
-      layer.tone = "checked";
-      layer.text = "Collected";
-    }
-  }
+      const count = document.createElement("span");
+      count.className = "xr-layer-count";
 
-  function pushTrail(id, risk) {
-    for (let i = 0; i < geo.plates.length; i += 1) {
-      if (geo.plates[i].id !== id) continue;
-      const points = routeFor(geo.plates[i].index, geo.plates[i]);
-      if (!points) return;
-      state.trails.push({
-        points: points.map(function (p) { return { x: p.x, y: p.y }; }),
-        at: performance.now(),
-        risk: risk || null,
-      });
-      if (state.trails.length > 18) state.trails.shift();
-      return;
-    }
-  }
+      const toggle = document.createElement("button");
+      toggle.className = "xr-layer-more";
+      toggle.type = "button";
+      toggle.setAttribute("aria-expanded", "false");
+      const detailId = "xr-layer-detail-" + L.id;
+      toggle.setAttribute("aria-controls", detailId);
+      toggle.textContent = "Why";
 
-  /* ---------- public API (unchanged call sites) -------------------------- */
+      const detail = document.createElement("p");
+      detail.className = "xr-layer-detail";
+      detail.id = detailId;
+      detail.hidden = true;
 
-  window.CureSweep = {
-    start() {
-      /* Rescuing reviews overlay candidates before the real scan starts, so
-         start() can be called twice for one session. Only a genuinely new
-         session rotates the companion variant. */
-      const newSession = !state.running;
-      state.active = null;
-      state.items = 0;
-      state.findings = 0;
-      state.trails = [];
-      state.running = true;
-      state.activity = 0;
-      for (let i = 0; i < state.layers.length; i += 1) {
-        state.layers[i].tone = "pending";
-        state.layers[i].text = "Pending";
-        state.layers[i].count = 0;
-        state.layers[i].risk = 0;
-        state.layers[i].detail = "";
-      }
-      if (newSession && window.CureCompanion) window.CureCompanion.scan("scan", "Collection started");
-      if (currentEl) currentEl.textContent = "Awaiting collection";
-      if (coreReadout) coreReadout.textContent = "Awaiting collection";
-      paintLedger();
-      layout();
-      startLoop();
-    },
+      li.append(mark, name, status, count, toggle, detail);
+      layerList.appendChild(li);
 
-    progress(p) {
-      if (p.stage === "source-state") {
-        for (let i = 0; i < LAYERS.length; i += 1) {
-          if (LAYERS[i].area !== p.area) continue;
-          const layer = layerById(LAYERS[i].id);
-          if (!layer) break;
-          layer.tone = coverageTone(p.state);
-          layer.text = coverageText(p.state);
-          layer.detail = p.detail ? String(p.detail) : "";
-        }
-        paintLedger();
+      rowRefs[L.id] = {
+        row: li,
+        status: status,
+        count: count,
+        toggle: toggle,
+        detail: detail,
+      };
+
+      toggle.addEventListener("click", function () {
+        const open = state.expanded[L.id] !== true;
+        state.expanded[L.id] = open;
+        toggle.setAttribute("aria-expanded", String(open));
+        detail.hidden = !open;
+        toggle.textContent = open ? "Hide" : "Why";
         draw();
-        return;
-      }
+      });
+      li.addEventListener("mouseenter", function () {
+        state.hoveredLayer = L.id;
+        draw();
+      });
+      li.addEventListener("mouseleave", function () {
+        if (state.hoveredLayer === L.id) {
+          state.hoveredLayer = null;
+          draw();
+        }
+      });
+    }
+  }
 
-      const stage = STAGE_ALIAS[p.stage] || p.stage;
-      const known = layerById(stage);
-      if (known) {
-        if (state.active !== stage) completeActive();
-        state.active = stage;
-        known.tone = "active";
-        known.text = "Inspecting";
-      }
+  function countText(L) {
+    if (L.id === "processes") {
+      return L.flagged > 0 ? L.flagged + " flagged" : "";
+    }
+    if (L.id === "ransom") {
+      return L.flagged > 0 ? L.flagged + " flagged" : "";
+    }
+    return L.count > 0 ? L.count + (L.flagged > 0 ? " \u00B7 " + L.flagged + "!" : "") : "";
+  }
 
-      if (["scoring", "item-scan", "done"].indexOf(p.stage) !== -1) {
-        completeActive();
-        state.active = null;
-      }
+  function detailText(L) {
+    if (L.detail) return L.detail;
+    if (L.outcome === "pending") return "This collector has not reported yet.";
+    if (L.outcome === "running") return L.note + " — collecting now.";
+    if (L.outcome === "unreported")
+      return (
+        "This collector ran and inspected " +
+        L.count +
+        " entr" +
+        (L.count === 1 ? "y" : "ies") +
+        ", but the backend sends no per-area coverage row for it, so it is " +
+        "listed without a coverage claim."
+      );
+    if (L.outcome === "checked")
+      return "Fully enumerated: " + L.count + " entries inspected.";
+    return L.note;
+  }
 
-      if (p.stage === "item-scanned") {
-        completeActive();
-        const id = ITEM_SOURCE[p.source] || null;
-        state.active = id;
-        const layer = id ? layerById(id) : null;
+  function paintLayers() {
+    for (let i = 0; i < state.layers.length; i += 1) {
+      const L = state.layers[i];
+      const ref = rowRefs[L.id];
+      if (!ref) continue;
+      ref.row.setAttribute("data-outcome", L.outcome);
+      ref.row.classList.toggle("is-active", state.active === L.id);
+      ref.row.classList.toggle("has-findings", L.flagged > 0);
+      ref.status.textContent = OUTCOME_TEXT[L.outcome] || L.outcome;
+      const ct = countText(L);
+      ref.count.textContent = ct;
+      ref.count.hidden = ct === "";
+      ref.detail.textContent = detailText(L);
+      ref.detail.hidden = state.expanded[L.id] !== true;
+      ref.toggle.setAttribute(
+        "aria-expanded",
+        String(state.expanded[L.id] === true)
+      );
+      ref.toggle.textContent = state.expanded[L.id] === true ? "Hide" : "Why";
+    }
+  }
+
+  /* ---------- DOM: readouts -------------------------------------------- */
+  function setFieldState() {
+    if (!field) return;
+    field.setAttribute("data-running", state.running ? "true" : "false");
+    let value = "idle";
+    if (state.phase === "preparing") value = "preparing";
+    else if (state.running) value = "scanning";
+    else if (state.phase === "failed") value = "failed";
+    else if (state.phase === "complete") {
+      const v = getVerdict();
+      value = v.findings > 0 ? "findings" : v.complete ? "complete" : "partial";
+    }
+    field.setAttribute("data-state", value);
+  }
+
+  function paintReadouts() {
+    const v = getVerdict();
+    const c = counts();
+
+    if (itemsEl) itemsEl.textContent = state.entries + " entries inspected";
+    if (inspectedEl) inspectedEl.textContent = String(state.entries);
+    if (findingsEl) findingsEl.textContent = String(state.findings);
+    if (coverageEl) coverageEl.textContent = c.covered + " / " + c.total;
+    if (matrixCoverEl) {
+      matrixCoverEl.textContent = c.covered + " / " + c.total + " checked";
+    }
+    if (currentEl) {
+      currentEl.textContent = state.running
+        ? state.lastMessage || "Collecting"
+        : v.headline;
+    }
+
+    if (liveEl) {
+      if (state.running) liveEl.textContent = "Collecting";
+      else if (state.phase === "preparing") liveEl.textContent = "Preparing";
+      else if (state.phase === "failed") liveEl.textContent = "Collection failed";
+      else if (state.phase === "complete")
+        liveEl.textContent = v.complete ? "Scan complete" : "Coverage incomplete";
+      else liveEl.textContent = "Radar standby";
+    }
+
+    if (phaseEl) {
+      if (state.running) {
+        const act = state.active ? layerById(state.active) : null;
+        phaseEl.textContent = act ? act.full : "Collecting persistence layers";
+      } else if (state.phase === "failed") {
+        phaseEl.textContent = "Collection failed";
+      } else if (state.phase === "complete") {
+        phaseEl.textContent = v.complete
+          ? "All reported layers checked"
+          : c.covered + " / " + c.total + " layers report coverage";
+      } else {
+        phaseEl.textContent = "Idle";
+      }
+    }
+    if (phaseLabelEl) {
+      phaseLabelEl.textContent =
+        state.phase === "complete" ? "Scan result" : "Current collector";
+    }
+
+    if (coreReadout) {
+      if (state.phase === "failed") {
+        coreReadout.textContent = "COLLECTION FAILED";
+      } else if (state.running) {
+        coreReadout.textContent =
+          "SCANNING // " +
+          (state.active
+            ? ((layerById(state.active) || {}).label || "COLLECTING").toUpperCase()
+            : "COLLECTING");
+      } else if (state.phase === "complete") {
+        const findings = state.findings;
+        const findingsWord = findings === 1 ? "FINDING" : "FINDINGS";
+        if (v.complete) {
+          coreReadout.textContent =
+            findings > 0
+              ? findings + " " + findingsWord + " DETECTED"
+              : "ALL " + state.layers.length + " LAYERS CLEAN";
+        } else {
+          coreReadout.textContent =
+            findings > 0
+              ? findings + " " + findingsWord + " · INCOMPLETE"
+              : "INCOMPLETE · NO FINDINGS";
+        }
+      } else {
+        coreReadout.textContent = "READY // STANDBY";
+      }
+    }
+
+    if (hudInspected) hudInspected.textContent = String(state.entries);
+    if (hudCoverage) hudCoverage.textContent = c.covered + " / " + c.total;
+    if (hudFindings) hudFindings.textContent = String(state.findings);
+    if (hudUnavailable)
+      hudUnavailable.textContent = String(c.unreadable + c.unreported);
+
+    if (hudBadge) {
+      hudBadge.textContent = hudBadgeText(v);
+      hudBadge.className = "xray-hud-badge " + hudBadgeClass(v);
+    }
+    if (hudName) hudName.textContent = v.headline;
+    if (hudDetail) hudDetail.textContent = v.detail;
+
+    setFieldState();
+  }
+
+  function hudBadgeText(v) {
+    if (state.phase === "failed") return "FAILED";
+    if (state.running) return state.active ? "COLLECTING" : "SCANNING";
+    if (state.phase !== "complete") return "STANDBY";
+    if (v.findings > 0) return "REVIEW";
+    if (v.complete) return "COMPLETE";
+    return "PARTIAL";
+  }
+
+  function hudBadgeClass(v) {
+    if (state.phase === "failed" || v.findings > 0) return "is-risk";
+    if (state.running) return "is-active";
+    if (state.phase === "complete" && v.complete) return "is-clean";
+    if (state.phase === "complete") return "is-warn";
+    return "";
+  }
+
+  function render() {
+    paintLayers();
+    paintReadouts();
+    draw();
+  }
+
+  /* ---------- Legacy support: mark the previously active collector ----- */
+  function settleActive(next) {
+    if (!state.active || state.active === next) return;
+    const layer = layerById(state.active);
+    if (layer && layer.outcome === "running") {
+      /* The backend moved on. That is not evidence the layer was checked:
+         without a coverage row it is only known to have run. */
+      layer.outcome = "unreported";
+      triggerShockwave("#a78bfa");
+    }
+    state.active = null;
+  }
+
+  function pushBeacon(layerId, risk) {
+    const layer = layerById(layerId);
+    if (!layer) return;
+    layer.beacons.push({
+      angle: Math.random() * Math.PI * 2,
+      risk: risk || "Normal",
+      radius: 1,
+    });
+    if (layer.beacons.length > 5) layer.beacons.shift();
+    triggerShockwave(risk === "HighRisk" ? "#ef4444" : "#f59e0b");
+  }
+
+  /* ---------- Resize / hover / visibility ------------------------------ */
+  if (window.ResizeObserver && field) {
+    const ro = new ResizeObserver(function () {
+      layout();
+    });
+    ro.observe(field);
+  } else {
+    window.addEventListener("resize", layout);
+  }
+
+  if (canvas) {
+    canvas.addEventListener("mousemove", function (ev) {
+      const rect = canvas.getBoundingClientRect();
+      const dx = ev.clientX - rect.left - geo.cx;
+      const dy = ev.clientY - rect.top - geo.cy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist >= geo.innerR && dist <= geo.outerR + 10) {
+        const ringIdx = Math.min(
+          8,
+          Math.floor((dist - geo.innerR) / geo.ringStep)
+        );
+        if (state.layers[ringIdx]) {
+          state.hoveredLayer = state.layers[ringIdx].id;
+          draw();
+          return;
+        }
+      }
+      if (state.hoveredLayer !== null) {
+        state.hoveredLayer = null;
+        draw();
+      }
+    });
+
+    canvas.addEventListener("click", function (ev) {
+      const rect = canvas.getBoundingClientRect();
+      const dx = ev.clientX - rect.left - geo.cx;
+      const dy = ev.clientY - rect.top - geo.cy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist >= geo.innerR && dist <= geo.outerR + 10) {
+        const ringIdx = Math.min(
+          8,
+          Math.floor((dist - geo.innerR) / geo.ringStep)
+        );
+        const layer = state.layers[ringIdx];
         if (layer) {
-          layer.tone = "active";
-          layer.text = "Inspecting entry";
-          layer.count += 1;
-          if (p.risk && p.risk !== "Safe") {
-            layer.risk += 1;
-            state.findings += 1;
-            if (p.risk === "HighRisk") layer.tone = "highrisk";
-            else if (layer.tone !== "highrisk") layer.tone = "review";
-            pushTrail(layer.id, p.risk);
+          state.hoveredLayer = layer.id;
+          draw();
+          const el =
+            layerList &&
+            layerList.querySelector('[data-layer-id="' + layer.id + '"]');
+          if (el && el.scrollIntoView) {
+            el.scrollIntoView({ behavior: "smooth", block: "nearest" });
           }
         }
-        state.items += 1;
       }
-      if (p.stage === "process-flagged") {
-        state.items += 1;
-        const layer = layerById("processes");
-        if (layer) {
-          layer.count += 1;
-          layer.risk += 1;
-          layer.tone = "review";
-          pushTrail("processes", p.risk);
-        }
-      }
-      if (p.stage === "ransom-found") {
-        state.items += 1;
-        state.findings += 1;
-        const layer = layerById("ransom");
-        if (layer) {
-          layer.count += 1;
-          layer.risk += 1;
-          layer.tone = "highrisk";
-          pushTrail("ransom", "HighRisk");
-        }
-      }
+    });
 
-      const message =
-        p.message ||
-        (p.stage === "item-scanned" ? "Inspecting: " + p.name : "Collecting evidence");
-      if (currentEl) currentEl.textContent = message;
-      if (coreReadout) coreReadout.textContent = message;
-      const activeLayer = layerById(state.active);
-      // LUMA leans toward the collector that is actually active. The lean is
-      // derived from real progress, not a timer, so it never implies work
-      // that is not happening.
-      if (window.CureCompanion) {
-        window.CureCompanion.scan("scan", message, Math.max(0, indexOfActive()));
-      }
-      paintLedger();
-      if (rafId === null) startLoop();
-    },
-
-    finish(summary) {
-      completeActive();
-      state.active = null;
-      state.running = false;
-      const rows = (summary && summary.source_states) || [];
-      for (let i = 0; i < LAYERS.length; i += 1) {
-        const layer = state.layers[i];
-        if (layer.tone === "pending") {
-          layer.tone = "idle";
-          layer.text = "Coverage unreported";
-        }
-        if (!LAYERS[i].area) continue;
-        const row = rows.find(function (r) {
-          return r.area === LAYERS[i].area;
-        });
-        if (!row) continue;
-        layer.tone = coverageTone(row.state);
-        layer.text = coverageText(row.state);
-        layer.detail = row.detail ? String(row.detail) : "";
-      }
-      if (currentEl) currentEl.textContent = "Collection ended";
-      if (coreReadout) coreReadout.textContent = "Collection ended";
-      // A real finding count decides the reaction. Zero findings is a genuine
-      // "all clear", so LUMA returns to idle rather than performing relief.
-      if (window.CureCompanion) {
-        window.CureCompanion.discovering(
-          state.findings,
-          state.findings > 0 ? "Collection ended" : "Collection ended - nothing flagged",
-        );
-      }
-      paintLedger();
-      beamY = beamTarget = geo.die ? geo.die.cy : beamY;
-      draw();
-      stopLoop();
-    },
-
-    fail() {
-      if (state.active) {
-        const layer = layerById(state.active);
-        if (layer) {
-          layer.tone = "bad";
-          layer.text = "Interrupted";
-        }
-      }
-      state.active = null;
-      state.running = false;
-      if (currentEl)
-        currentEl.textContent = "Collection interrupted — retry available";
-      if (coreReadout) coreReadout.textContent = "Interrupted";
-      if (window.CureCompanion) {
-        window.CureCompanion.failed("Collection interrupted - retry available");
-      }
-      paintLedger();
-      stopLoop();
-      draw();
-    },
-
-    motion: function (paused) {
-      motionPaused = !!paused;
-      store("cure-motion-paused", String(motionPaused));
-      if (motionBtn) {
-        motionBtn.textContent = motionPaused ? "Resume field motion" : "Pause field motion";
-        motionBtn.setAttribute("aria-pressed", String(motionPaused));
-      }
-      if (motionOff()) {
-        stopLoop();
-        beamY = beamTarget = plateCenterY(state.active);
+    canvas.addEventListener("mouseleave", function () {
+      if (state.hoveredLayer !== null) {
+        state.hoveredLayer = null;
         draw();
-      } else {
-        startLoop();
       }
-    },
-    motionPaused: function () {
-      return motionPaused;
-    },
-    redraw: draw,
-  };
-
-  /* ---------- wiring ------------------------------------------------------ */
+    });
+  }
 
   if (motionBtn) {
     motionBtn.addEventListener("click", function () {
@@ -1061,33 +1268,284 @@
     motionBtn.setAttribute("aria-pressed", String(motionPaused));
   }
 
-  if (field && "ResizeObserver" in window) {
-    let queued = false;
-    new ResizeObserver(function () {
-      if (queued) return;
-      queued = true;
-      requestAnimationFrame(function () {
-        queued = false;
-        layout();
-      });
-    }).observe(field);
-  } else {
-    window.addEventListener("resize", layout);
-  }
-
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) stopLoop();
     else if (state.running) startLoop();
+    else draw();
   });
 
-  reducedMedia.addEventListener("change", function () {
-    if (motionOff()) {
+  /* ---------- Public API ------------------------------------------------ */
+  window.CureSweep = {
+    start: function () {
+      state.phase = "scanning";
+      state.active = null;
+      state.entries = 0;
+      state.findings = 0;
+      state.lastMessage = "";
+      state.running = true;
+      state.hoveredLayer = null;
+      state.expanded = {};
+      state.ripples = [];
+
+      for (let i = 0; i < state.layers.length; i += 1) {
+        const L = state.layers[i];
+        L.outcome = "pending";
+        L.ran = false;
+        L.count = 0;
+        L.flagged = 0;
+        L.detail = "";
+        L.beacons = [];
+      }
+
+      render();
+      layout();
+      startLoop();
+    },
+
+    /* Preparing is a real phase: the overlay review runs before collection.
+       It is not scanning yet, and nothing claims it is. */
+    preparing: function () {
+      state.phase = "preparing";
+      state.running = false;
+      state.active = null;
+      state.lastMessage = "";
+      for (let i = 0; i < state.layers.length; i += 1) {
+        const L = state.layers[i];
+        L.outcome = "pending";
+        L.ran = false;
+        L.count = 0;
+        L.flagged = 0;
+        L.detail = "";
+        L.beacons = [];
+      }
+      state.entries = 0;
+      state.findings = 0;
+      render();
+    },
+
+    progress: function (p) {
+      if (!p || !p.stage) return;
+
+      if (p.stage === "source-state") {
+        for (let i = 0; i < state.layers.length; i += 1) {
+          const L = state.layers[i];
+          if (!layerMatchesArea(L, p.area)) continue;
+          settleActive(null);
+          L.outcome = outcomeFromCoverage(p.state);
+          L.detail = p.detail ? String(p.detail) : "";
+          const skipped = skippedCount(p.state, p.detail);
+          if (L.outcome === "partial" && skipped > 0 && !/skipped/i.test(L.detail)) {
+            L.detail = skipped + " item(s) skipped · " + L.detail;
+          }
+          if (
+            L.outcome === "checked" ||
+            L.outcome === "partial" ||
+            L.outcome === "denied" ||
+            L.outcome === "failed"
+          ) {
+            L.ran = true;
+          }
+          if (L.outcome === "partial") triggerShockwave("#e0a458");
+          else if (L.outcome === "denied" || L.outcome === "failed")
+            triggerShockwave("#e4706a");
+          else triggerShockwave("#38bdf8");
+        }
+        state.lastMessage = p.area + " · " + (OUTCOME_TEXT[outcomeFromCoverage(p.state)] || "");
+        render();
+        return;
+      }
+
+      const stageId = STAGE_ALIAS[p.stage] || p.stage;
+      const layer = layerById(stageId);
+
+      if (p.stage === "scoring") {
+        settleActive(null);
+        if (p.message) state.lastMessage = p.message;
+        render();
+        return;
+      }
+
+      if (layer) {
+        settleActive(layer.id);
+        state.active = layer.id;
+        layer.ran = true;
+        /* Never repaint a layer the backend already resolved. */
+        if (layer.outcome === "pending" || layer.outcome === "running") {
+          layer.outcome = "running";
+        }
+      }
+
+      if (p.stage === "item-scanned") {
+        const id = ITEM_SOURCE[p.source] || null;
+        const source = id ? layerById(id) : null;
+        state.entries += 1;
+        if (source) {
+          settleActive(source.id);
+          state.active = source.id;
+          source.count += 1;
+          if (p.risk && p.risk !== "Safe") {
+            source.flagged += 1;
+            state.findings += 1;
+            pushBeacon(source.id, p.risk);
+          }
+        }
+        if (p.name) {
+          state.lastMessage =
+            "Inspecting " + p.name + (source ? " · " + source.label : "");
+        }
+      } else if (p.stage === "process-flagged") {
+        const proc = layerById("processes");
+        if (proc) {
+          proc.flagged += 1;
+          state.findings += 1;
+          pushBeacon("processes", p.risk);
+        }
+        state.lastMessage =
+          "Process flagged: " + (p.name || "unknown") + " (" + (p.risk || "") + ")";
+      } else if (p.stage === "ransom-found") {
+        const ransom = layerById("ransom");
+        if (ransom) {
+          ransom.flagged += 1;
+          state.findings += 1;
+          pushBeacon("ransom", "HighRisk");
+        }
+        state.lastMessage =
+          "Ransom indicator: " + (p.finding_type || "unknown");
+      } else if (p.message) {
+        state.lastMessage = p.message;
+      }
+
+      render();
+      if (rafId === null) startLoop();
+    },
+
+    finish: function (summary) {
+      settleActive(null);
+      state.active = null;
+      state.running = false;
+      state.phase = "complete";
+
+      /* The summary is authoritative for the entry count. */
+      const total =
+        summary && Number.isFinite(Number(summary.total))
+          ? Number(summary.total)
+          : state.entries;
+      state.entries = total;
+
+      /* Findings come from the summary too, so a dropped UI event cannot
+         leave the readout lower than the backend's own result. */
+      if (summary) {
+        const review = (summary.suspicious_for_review || []).length;
+        const procs = (summary.process_findings || []).length;
+        const ransom = (summary.ransom_findings || []).length;
+        if (review + procs + ransom > 0) {
+          state.findings = review + procs + ransom;
+        }
+      }
+
+      /* Reconcile every layer with the backend's coverage rows. */
+      const rows = (summary && summary.source_states) || [];
+      for (let i = 0; i < state.layers.length; i += 1) {
+        const L = state.layers[i];
+        const row = rows.find(function (r) {
+          return r && layerMatchesArea(L, r.area);
+        });
+        if (row) {
+          L.outcome = outcomeFromCoverage(row.state);
+          L.detail = row.detail ? String(row.detail) : "";
+          if (L.outcome === "pending") {
+            /* Backend reported the row but with no usable state. */
+            L.detail =
+              L.detail || "backend reported no coverage state for this area";
+          }
+        } else {
+          // If already resolved (e.g. by prior event or test fixture), preserve it!
+          if (
+            L.outcome === "checked" ||
+            L.outcome === "partial" ||
+            L.outcome === "denied" ||
+            L.outcome === "failed" ||
+            L.outcome === "unsupported"
+          ) {
+            // Keep resolved outcome
+          } else if (L.ran || L.count > 0) {
+            L.outcome = "unreported";
+            L.detail =
+              "This collector ran and inspected " +
+              L.count +
+              " entr" +
+              (L.count === 1 ? "y" : "ies") +
+              ", but the backend sent no per-area coverage row for it.";
+          } else {
+            L.outcome = "unreported";
+            L.detail = "The backend sent no coverage row for this layer.";
+          }
+        }
+      }
+
+      state.lastMessage = state.entries + " entries inspected";
+      render();
+      if (prefersMotion()) startLoop();
+    },
+
+    fail: function (reason) {
+      settleActive(null);
+      state.active = null;
+      state.running = false;
+      state.phase = "failed";
+      state.lastMessage = reason ? String(reason) : "The scan did not finish.";
+      /* A failed run leaves no per-layer claim behind. */
+      for (let i = 0; i < state.layers.length; i += 1) {
+        const L = state.layers[i];
+        if (L.outcome === "running" || L.outcome === "pending") {
+          L.outcome = "failed";
+          L.detail = "Collection stopped before this layer reported.";
+        }
+      }
+      render();
       stopLoop();
-      beamY = beamTarget = plateCenterY(state.active);
-      draw();
-    } else if (state.running) startLoop();
-  });
+    },
 
-  if (field) layout();
-  paintLedger();
+    motion: function (paused) {
+      motionPaused = !!paused;
+      try {
+        localStorage.setItem("cure-motion-paused", String(motionPaused));
+      } catch (_) {
+        /* storage may be unavailable; the toggle still works this session */
+      }
+      if (motionBtn) {
+        motionBtn.textContent = motionPaused
+          ? "Resume field motion"
+          : "Pause field motion";
+        motionBtn.setAttribute("aria-pressed", String(motionPaused));
+      }
+      if (motionPaused || reducedMedia.matches || document.hidden) {
+        stopLoop();
+        draw();
+      } else {
+        startLoop();
+      }
+    },
+
+    motionPaused: function () {
+      return motionPaused;
+    },
+
+    layout: function () {
+      layout();
+      startLoop();
+    },
+
+    /* State model access for testing and verification harnesses. */
+    getState: function () {
+      return state;
+    },
+
+    getVerdict: getVerdict,
+  };
+
+  buildLayers();
+  render();
+  layout();
+  if (prefersMotion()) startLoop();
 })();

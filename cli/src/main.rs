@@ -114,6 +114,86 @@ enum Command {
         #[command(subcommand)]
         action: StorageAction,
     },
+    /// Discover AI coding agents and local LLM processes (read-only, secrets masked).
+    Agents {
+        #[arg(long, help = "output JSON instead of human-readable text")]
+        json: bool,
+    },
+    /// Snapshot and compare filesystem workspace state (Change Radar).
+    Change {
+        #[command(subcommand)]
+        action: ChangeAction,
+    },
+    /// Opt-in activity recorder for workspace modifications (Flight Recorder).
+    Recorder {
+        #[command(subcommand)]
+        action: RecorderAction,
+    },
+    /// Export evidence and session investigation dossier (Case File).
+    Casefile {
+        #[command(subcommand)]
+        action: CasefileAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ChangeAction {
+    /// Take a metadata snapshot of a folder (max 50,000 files).
+    Snapshot {
+        /// Target folder to snapshot
+        folder: PathBuf,
+        #[arg(long, help = "optional snapshot label/name")]
+        name: Option<String>,
+    },
+    /// List recorded snapshots under --data-dir.
+    List,
+    /// Diff two snapshots or folders (added, modified, removed, renamed).
+    Diff {
+        /// First snapshot JSON or folder path
+        a: PathBuf,
+        /// Second snapshot JSON or folder path
+        b: PathBuf,
+        #[arg(long, help = "output JSON instead of human-readable text")]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum RecorderAction {
+    /// Start recording filesystem changes under target folder.
+    Start {
+        /// Folder to monitor
+        folder: PathBuf,
+    },
+    /// Stop active recording session and finalize flight events.
+    Stop,
+    /// Report status of current or most recent recording session.
+    Status {
+        #[arg(long, help = "output JSON instead of human-readable text")]
+        json: bool,
+    },
+    /// Clear all session logs under --data-dir/agent-sessions.
+    Clear,
+}
+
+#[derive(Subcommand)]
+enum CasefileAction {
+    /// Export evidence dossier to HTML or JSON.
+    Export {
+        #[arg(
+            long,
+            value_name = "PATH",
+            help = "output file path (e.g. dossier.html or dossier.json)"
+        )]
+        out: PathBuf,
+        #[arg(long, help = "output JSON format regardless of extension")]
+        json: bool,
+        #[arg(
+            long,
+            help = "output self-contained HTML format regardless of extension"
+        )]
+        html: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -263,6 +343,10 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
                 copies,
             } => cmd_storage_bench(*files, *size, *copies),
         },
+        Command::Agents { json } => cmd_agents(*json),
+        Command::Change { action } => cmd_change(&paths, action),
+        Command::Recorder { action } => cmd_recorder(&paths, action),
+        Command::Casefile { action } => cmd_casefile(&paths, action),
     }
 }
 
@@ -310,6 +394,34 @@ fn collect(paths: &ResolvedPaths) -> CollectOutput {
     );
     entries.extend(reg_entries);
     source_states.push(reg_row);
+    #[cfg(windows)]
+    let boot_row = {
+        // Detection Engine v2: Winlogon session-start values and Active
+        // Setup StubPaths — persistence spots Defender never surfaces.
+        let wl = scanners::bootlogon::scan_winlogon_report();
+        let aset = scanners::bootlogon::scan_active_setup_report();
+        let mut report = scanners::bootlogon::BootLogonReport {
+            entries: Vec::new(),
+            values_read: wl.values_read + aset.values_read,
+            skipped_keys: wl.skipped_keys + aset.skipped_keys,
+        };
+        report.entries.extend(wl.entries);
+        report.entries.extend(aset.entries);
+        let row = source_state_row(
+            "Winlogon & Active Setup",
+            &report.status(),
+            format!("{} values", report.values_read),
+        );
+        entries.extend(report.entries);
+        row
+    };
+    #[cfg(windows)]
+    source_states.push(boot_row);
+    #[cfg(not(windows))]
+    source_states.push(cure_core::report::CoverageRow::unavailable(
+        "Winlogon & Active Setup",
+        "Windows-only source",
+    ));
     let svc_report = scanners::services::scan_report();
     let svc_skipped = svc_report.skipped_config;
     source_states.push(source_state_row(
@@ -430,6 +542,9 @@ fn print_report(scored: &[ScoredEntry], data_dir: &Path) {
             s.entry.id
         );
         println!("             cmd: {}", s.entry.command);
+        if let Some(args) = &s.entry.arguments {
+            println!("             arg: {}", args);
+        }
         if s.entry.location != s.entry.command {
             println!("             loc: {}", s.entry.location);
         }
@@ -461,8 +576,12 @@ fn print_report(scored: &[ScoredEntry], data_dir: &Path) {
                 None => println!("             lnk→: (unparseable shortcut)"),
             }
         }
-        for reason in &s.reasons {
-            println!("             why: {reason}");
+        for ev in &s.evidence {
+            println!(
+                "             why [{}]: {}",
+                ev.level().label().to_lowercase(),
+                ev.detail()
+            );
         }
         if quarantine::is_quarantined(data_dir, &s.entry.id) {
             println!(
@@ -1726,6 +1845,504 @@ fn truncate_tail(text: &str, max_chars: usize) -> String {
     format!("…{cut}")
 }
 
+fn cmd_agents(json: bool) -> Result<(), Box<dyn Error>> {
+    let procs = cure_core::agent::enumerate_agent_processes();
+    if json {
+        let json_out = serde_json::to_string_pretty(&procs)?;
+        println!("{json_out}");
+        return Ok(());
+    }
+
+    println!("=== C.U.R.E · AI Agent Radar ===");
+    println!("Observed active agent processes: {}", procs.len());
+    println!();
+
+    if procs.is_empty() {
+        println!("No running AI coding agent processes detected.");
+        return Ok(());
+    }
+
+    for p in &procs {
+        println!(
+            "[{}] PID: {} · Category: {:?} · Identity: {:?}",
+            p.kind.id(),
+            p.pid,
+            p.category,
+            p.identity,
+        );
+        if !p.exe_path.is_empty() {
+            println!("  Executable: {}", p.exe_path);
+        }
+        if let Some(cmd) = &p.command_line {
+            if !cmd.is_empty() {
+                println!("  Command line: {}", cmd);
+            }
+        }
+        if let Some(mem) = p.memory_usage_bytes {
+            println!("  Working set: {:.1} MB", mem as f64 / (1024.0 * 1024.0));
+        }
+        println!();
+    }
+    Ok(())
+}
+
+fn load_or_capture_snapshot(
+    path: &Path,
+) -> Result<cure_core::agent::WorkspaceSnapshot, Box<dyn Error>> {
+    if path.is_file() {
+        let raw = fs::read_to_string(path)?;
+        let snap: cure_core::agent::WorkspaceSnapshot = serde_json::from_str(&raw)?;
+        Ok(snap)
+    } else if path.is_dir() {
+        Ok(cure_core::agent::capture_workspace(
+            path,
+            cure_core::agent::recorder::MAX_BASELINE_FILES,
+        )?)
+    } else {
+        Err(format!(
+            "Path not found or not a valid snapshot file or directory: {}",
+            path.display()
+        )
+        .into())
+    }
+}
+
+fn cmd_change(paths: &ResolvedPaths, action: &ChangeAction) -> Result<(), Box<dyn Error>> {
+    let snaps_dir = paths.data_dir.join("snapshots");
+    match action {
+        ChangeAction::Snapshot { folder, name } => {
+            if !folder.is_dir() {
+                return Err(format!("Not a directory: {}", folder.display()).into());
+            }
+            let snap = cure_core::agent::capture_workspace(
+                folder,
+                cure_core::agent::recorder::MAX_BASELINE_FILES,
+            )?;
+            fs::create_dir_all(&snaps_dir)?;
+            let filename = match name {
+                Some(n) => {
+                    if n.ends_with(".json") {
+                        n.clone()
+                    } else {
+                        format!("{n}.json")
+                    }
+                }
+                None => format!("snapshot-{}.json", snap.captured_unix),
+            };
+            let out_path = snaps_dir.join(&filename);
+            let json = serde_json::to_string_pretty(&snap)?;
+            fs::write(&out_path, json)?;
+            println!("Snapshot captured for: {}", folder.display());
+            println!(
+                "Files: {}, Unreadable dirs: {}, Skipped symlinks: {}, Truncated: {}",
+                snap.files.len(),
+                snap.unreadable_dirs,
+                snap.skipped_links,
+                snap.truncated
+            );
+            println!("Saved to: {}", out_path.display());
+            Ok(())
+        }
+        ChangeAction::List => {
+            if !snaps_dir.exists() {
+                println!(
+                    "No snapshots found (directory does not exist: {}).",
+                    snaps_dir.display()
+                );
+                return Ok(());
+            }
+            let mut found = 0;
+            println!(
+                "=== Recorded Workspace Snapshots ({}) ===",
+                snaps_dir.display()
+            );
+            if let Ok(entries) = fs::read_dir(&snaps_dir) {
+                let mut list: Vec<_> = entries.flatten().collect();
+                list.sort_by_key(|e| e.file_name());
+                for entry in list {
+                    let p = entry.path();
+                    if p.extension().and_then(|s| s.to_str()) == Some("json") {
+                        if let Ok(raw) = fs::read_to_string(&p) {
+                            if let Ok(snap) =
+                                serde_json::from_str::<cure_core::agent::WorkspaceSnapshot>(&raw)
+                            {
+                                found += 1;
+                                println!(
+                                    "  {} · Files: {} · Captured unix: {}{}",
+                                    p.file_name().unwrap_or_default().to_string_lossy(),
+                                    snap.files.len(),
+                                    snap.captured_unix,
+                                    if snap.truncated { " (TRUNCATED)" } else { "" }
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            if found == 0 {
+                println!("No valid snapshot files recorded.");
+            }
+            Ok(())
+        }
+        ChangeAction::Diff { a, b, json } => {
+            let path_a = if a.exists() {
+                a.clone()
+            } else {
+                snaps_dir.join(a)
+            };
+            let path_b = if b.exists() {
+                b.clone()
+            } else {
+                snaps_dir.join(b)
+            };
+
+            let snap_a = load_or_capture_snapshot(&path_a)?;
+            let snap_b = load_or_capture_snapshot(&path_b)?;
+
+            let events = cure_core::agent::recorder::diff_snapshots(
+                &snap_a,
+                &snap_b,
+                cure_core::agent::now_unix(),
+                cure_core::agent::ObservationSource::SnapshotReconciliation,
+                &[],
+                false,
+            );
+
+            if *json {
+                let json_out = serde_json::to_string_pretty(&events)?;
+                println!("{json_out}");
+                return Ok(());
+            }
+
+            println!("=== Workspace Change Diff ===");
+            println!(
+                "Baseline (A): {} files ({})",
+                snap_a.files.len(),
+                path_a.display()
+            );
+            println!(
+                "Target   (B): {} files ({})",
+                snap_b.files.len(),
+                path_b.display()
+            );
+            println!("Observed differences: {}", events.len());
+            println!();
+
+            if events.is_empty() {
+                println!("No changes observed between the two snapshots.");
+                return Ok(());
+            }
+
+            for ev in &events {
+                println!(
+                    "[{}] {} ({} bytes, confidence: {:?})",
+                    ev.kind.label(),
+                    ev.path,
+                    ev.size_after.unwrap_or(0),
+                    ev.confidence
+                );
+            }
+            Ok(())
+        }
+    }
+}
+
+fn cmd_recorder(paths: &ResolvedPaths, action: &RecorderAction) -> Result<(), Box<dyn Error>> {
+    let sdir = cure_core::agent::recorder::session_dir(&paths.data_dir);
+    fs::create_dir_all(&sdir)?;
+
+    match action {
+        RecorderAction::Start { folder } => {
+            if !folder.is_dir() {
+                return Err(format!("Not a directory: {}", folder.display()).into());
+            }
+
+            if let Ok(entries) = fs::read_dir(&sdir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.extension().and_then(|s| s.to_str()) == Some("json")
+                        && !p
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .contains("-baseline")
+                    {
+                        if let Ok(s) = cure_core::agent::recorder::load_session(&p) {
+                            if s.active {
+                                return Err(format!(
+                                    "A recording session '{}' is already active for '{}'. Run 'cure recorder stop' first.",
+                                    s.id, s.workspace
+                                ).into());
+                            }
+                        }
+                    }
+                }
+            }
+
+            let id = format!("session-{}", cure_core::agent::now_unix());
+            let base = cure_core::agent::capture_workspace(
+                folder,
+                cure_core::agent::recorder::MAX_BASELINE_FILES,
+            )?;
+            let running_agents: Vec<_> = cure_core::agent::enumerate_agent_processes()
+                .into_iter()
+                .map(|p| p.kind)
+                .collect();
+            let session = cure_core::agent::FlightSession::new(
+                &id,
+                folder.display().to_string(),
+                &base,
+                running_agents,
+                false,
+            );
+
+            cure_core::agent::recorder::save_session(&paths.data_dir, &session)?;
+            let base_path = sdir.join(format!("{}-baseline.json", id));
+            let base_json = serde_json::to_string_pretty(&base)?;
+            fs::write(&base_path, base_json)?;
+
+            println!("Flight recorder session started: {}", id);
+            println!("Monitoring workspace: {}", folder.display());
+            println!("Baseline captured: {} files", base.files.len());
+            Ok(())
+        }
+        RecorderAction::Stop => {
+            let mut target_session: Option<(PathBuf, cure_core::agent::FlightSession)> = None;
+            if let Ok(entries) = fs::read_dir(&sdir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.extension().and_then(|s| s.to_str()) == Some("json")
+                        && !p
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .contains("-baseline")
+                    {
+                        if let Ok(s) = cure_core::agent::recorder::load_session(&p) {
+                            if s.active {
+                                target_session = Some((p, s));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            let (_session_path, mut session) = match target_session {
+                Some(pair) => pair,
+                None => {
+                    println!("No active recording session found.");
+                    return Ok(());
+                }
+            };
+
+            let base_path = sdir.join(format!("{}-baseline.json", session.id));
+            if base_path.exists() {
+                if let Ok(raw_base) = fs::read_to_string(&base_path) {
+                    if let Ok(base) =
+                        serde_json::from_str::<cure_core::agent::WorkspaceSnapshot>(&raw_base)
+                    {
+                        let ws_dir = PathBuf::from(&session.workspace);
+                        if ws_dir.is_dir() {
+                            let current = cure_core::agent::capture_workspace(
+                                &ws_dir,
+                                cure_core::agent::recorder::MAX_BASELINE_FILES,
+                            )?;
+                            let running_agents: Vec<_> =
+                                cure_core::agent::enumerate_agent_processes()
+                                    .into_iter()
+                                    .map(|p| p.kind)
+                                    .collect();
+                            let events = cure_core::agent::recorder::diff_snapshots(
+                                &base,
+                                &current,
+                                cure_core::agent::now_unix(),
+                                cure_core::agent::ObservationSource::SnapshotReconciliation,
+                                &running_agents,
+                                false,
+                            );
+                            for ev in events {
+                                session.record_event(ev);
+                            }
+                        }
+                    }
+                }
+            }
+
+            let now = cure_core::agent::now_unix();
+            session.active = false;
+            session.ended_unix = Some(now);
+            cure_core::agent::recorder::save_session(&paths.data_dir, &session)?;
+
+            let duration = now.saturating_sub(session.started_unix);
+            println!("Flight recorder session stopped: {}", session.id);
+            println!("Duration: {} seconds", duration);
+            println!("Events recorded: {}", session.events.len());
+            Ok(())
+        }
+        RecorderAction::Status { json } => {
+            let mut newest: Option<cure_core::agent::FlightSession> = None;
+            if let Ok(entries) = fs::read_dir(&sdir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.extension().and_then(|s| s.to_str()) == Some("json")
+                        && !p
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .contains("-baseline")
+                    {
+                        if let Ok(s) = cure_core::agent::recorder::load_session(&p) {
+                            if s.active
+                                || newest
+                                    .as_ref()
+                                    .is_none_or(|n| s.started_unix > n.started_unix)
+                            {
+                                newest = Some(s);
+                            }
+                        }
+                    }
+                }
+            }
+
+            let session = match newest {
+                Some(s) => s,
+                None => {
+                    println!("No flight recorder sessions found.");
+                    return Ok(());
+                }
+            };
+
+            if *json {
+                let json_out = serde_json::to_string_pretty(&session)?;
+                println!("{json_out}");
+                return Ok(());
+            }
+
+            println!("=== Flight Recorder Status ===");
+            println!("Session ID: {}", session.id);
+            println!("Workspace: {}", session.workspace);
+            println!(
+                "Status: {}",
+                if session.active {
+                    "ACTIVE (recording)"
+                } else {
+                    "STOPPED"
+                }
+            );
+            println!("Started: {} (Unix)", session.started_unix);
+            if let Some(ended) = session.ended_unix {
+                println!(
+                    "Ended: {} (Unix, duration: {}s)",
+                    ended,
+                    ended.saturating_sub(session.started_unix)
+                );
+            }
+            println!("Events recorded: {}", session.events.len());
+            Ok(())
+        }
+        RecorderAction::Clear => {
+            let mut removed = 0;
+            if let Ok(entries) = fs::read_dir(&sdir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.extension().and_then(|s| s.to_str()) == Some("json")
+                        && fs::remove_file(&p).is_ok()
+                    {
+                        removed += 1;
+                    }
+                }
+            }
+            println!("Cleared {} flight recorder session file(s).", removed);
+            Ok(())
+        }
+    }
+}
+
+fn cmd_casefile(paths: &ResolvedPaths, action: &CasefileAction) -> Result<(), Box<dyn Error>> {
+    match action {
+        CasefileAction::Export { out, json, html } => {
+            let sdir = cure_core::agent::recorder::session_dir(&paths.data_dir);
+            let mut newest: Option<cure_core::agent::FlightSession> = None;
+            if let Ok(entries) = fs::read_dir(&sdir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.extension().and_then(|s| s.to_str()) == Some("json")
+                        && !p
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .contains("-baseline")
+                    {
+                        if let Ok(s) = cure_core::agent::recorder::load_session(&p) {
+                            if newest
+                                .as_ref()
+                                .is_none_or(|n| s.started_unix > n.started_unix)
+                            {
+                                newest = Some(s);
+                            }
+                        }
+                    }
+                }
+            }
+
+            let session = match newest {
+                Some(s) => s,
+                None => {
+                    let id = format!("adhoc-{}", cure_core::agent::now_unix());
+                    let empty_snap = cure_core::agent::WorkspaceSnapshot {
+                        captured_unix: cure_core::agent::now_unix(),
+                        files: Vec::new(),
+                        truncated: false,
+                        unreadable_dirs: 0,
+                        skipped_links: 0,
+                        max_entries: 100,
+                    };
+                    let mut s = cure_core::agent::FlightSession::new(
+                        &id,
+                        paths.data_dir.display().to_string(),
+                        &empty_snap,
+                        Vec::new(),
+                        false,
+                    );
+                    s.active = false;
+                    s.ended_unix = Some(cure_core::agent::now_unix());
+                    s
+                }
+            };
+
+            let case = cure_core::agent::casefile::build(&session, None, None, false, false);
+            let out_str = out.to_string_lossy().to_lowercase();
+            let is_json = *json || (!*html && out_str.ends_with(".json"));
+
+            if let Some(parent) = out.parent() {
+                if !parent.as_os_str().is_empty() {
+                    fs::create_dir_all(parent)?;
+                }
+            }
+
+            if is_json {
+                let content = case.to_json()?;
+                fs::write(out, &content)?;
+                println!(
+                    "Case file exported to: {} (JSON, {} bytes)",
+                    out.display(),
+                    content.len()
+                );
+            } else {
+                let content = case.to_html();
+                fs::write(out, &content)?;
+                println!(
+                    "Case file exported to: {} (HTML, {} bytes)",
+                    out.display(),
+                    content.len()
+                );
+            }
+            Ok(())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1764,5 +2381,140 @@ mod tests {
         for no in ["", "n", "no", "ye", "yess", "abort", "1", "ok"] {
             assert!(!parse_confirmation(no), "accepted: {no:?}");
         }
+    }
+
+    #[test]
+    fn test_cli_agents_command() {
+        assert!(cmd_agents(true).is_ok());
+        assert!(cmd_agents(false).is_ok());
+    }
+
+    #[test]
+    fn test_cli_change_snapshot_list_diff() {
+        let temp =
+            std::env::temp_dir().join(format!("cure_test_change_{}", cure_core::agent::now_unix()));
+        fs::create_dir_all(&temp).unwrap();
+        let paths = ResolvedPaths {
+            data_dir: temp.join("data"),
+            startup_root: temp.join("startup"),
+            tasks_root: temp.join("tasks"),
+        };
+        fs::create_dir_all(&paths.data_dir).unwrap();
+
+        let ws = temp.join("ws");
+        fs::create_dir_all(&ws).unwrap();
+        fs::write(ws.join("file1.txt"), "hello").unwrap();
+
+        // 1. Snapshot
+        let snap_res = cmd_change(
+            &paths,
+            &ChangeAction::Snapshot {
+                folder: ws.clone(),
+                name: Some("test-snap-1".into()),
+            },
+        );
+        assert!(snap_res.is_ok());
+
+        // 2. List
+        let list_res = cmd_change(&paths, &ChangeAction::List);
+        assert!(list_res.is_ok());
+
+        // 3. Modify and Snapshot 2
+        fs::write(ws.join("file2.txt"), "world").unwrap();
+        let snap2_res = cmd_change(
+            &paths,
+            &ChangeAction::Snapshot {
+                folder: ws.clone(),
+                name: Some("test-snap-2".into()),
+            },
+        );
+        assert!(snap2_res.is_ok());
+
+        // 4. Diff
+        let diff_res = cmd_change(
+            &paths,
+            &ChangeAction::Diff {
+                a: paths.data_dir.join("snapshots").join("test-snap-1.json"),
+                b: paths.data_dir.join("snapshots").join("test-snap-2.json"),
+                json: false,
+            },
+        );
+        assert!(diff_res.is_ok());
+
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn test_cli_recorder_lifecycle() {
+        let temp =
+            std::env::temp_dir().join(format!("cure_test_rec_{}", cure_core::agent::now_unix()));
+        fs::create_dir_all(&temp).unwrap();
+        let paths = ResolvedPaths {
+            data_dir: temp.join("data"),
+            startup_root: temp.join("startup"),
+            tasks_root: temp.join("tasks"),
+        };
+        fs::create_dir_all(&paths.data_dir).unwrap();
+
+        let ws = temp.join("ws");
+        fs::create_dir_all(&ws).unwrap();
+        fs::write(ws.join("tracked.txt"), "initial").unwrap();
+
+        // Start
+        assert!(cmd_recorder(&paths, &RecorderAction::Start { folder: ws.clone() }).is_ok());
+
+        // Status active
+        assert!(cmd_recorder(&paths, &RecorderAction::Status { json: false }).is_ok());
+
+        // Make change
+        fs::write(ws.join("tracked.txt"), "modified content").unwrap();
+
+        // Stop
+        assert!(cmd_recorder(&paths, &RecorderAction::Stop).is_ok());
+
+        // Clear
+        assert!(cmd_recorder(&paths, &RecorderAction::Clear).is_ok());
+
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn test_cli_casefile_export() {
+        let temp =
+            std::env::temp_dir().join(format!("cure_test_case_{}", cure_core::agent::now_unix()));
+        fs::create_dir_all(&temp).unwrap();
+        let paths = ResolvedPaths {
+            data_dir: temp.join("data"),
+            startup_root: temp.join("startup"),
+            tasks_root: temp.join("tasks"),
+        };
+        fs::create_dir_all(&paths.data_dir).unwrap();
+
+        let out_html = temp.join("report.html");
+        let out_json = temp.join("report.json");
+
+        assert!(cmd_casefile(
+            &paths,
+            &CasefileAction::Export {
+                out: out_html.clone(),
+                json: false,
+                html: true,
+            }
+        )
+        .is_ok());
+        assert!(out_html.exists());
+
+        assert!(cmd_casefile(
+            &paths,
+            &CasefileAction::Export {
+                out: out_json.clone(),
+                json: true,
+                html: false,
+            }
+        )
+        .is_ok());
+        assert!(out_json.exists());
+
+        let _ = fs::remove_dir_all(&temp);
     }
 }

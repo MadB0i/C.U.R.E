@@ -49,40 +49,18 @@ DEFAULT_EXE = REPO / "gui" / "src-tauri" / "target" / "release" / "cure-gui.exe"
 
 FIXTURE_BYTES = 64 * 1024 * 1024  # 64 MiB: above the large-file threshold
 
+# Process ownership: cleanup is strictly scoped to processes this harness
+# launched (see testing/native/process_ownership.py). Name-based killing is
+# forbidden by core/tests/qa_process_safety.rs and is not done here.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from process_ownership import (  # noqa: E402
+    OwnershipLease,
+    ProcessSafetyError,
+    pre_launch_cleanup,
+    query_processes,
+)
 
-def _kill_lingering_webview2() -> None:
-    """Kill any lingering msedgewebview2.exe processes from prior runs.
-
-    The native smoke test (and previous e2e runs) often leaves child
-    WebView2 processes alive after the parent cure-gui.exe is killed.
-    Those zombies hold file locks on the default WebView2 profile and
-    can occupy the DevTools port, causing the next run to fail with a
-    timeout or port-collision error.
-    """
-    import platform
-
-    if platform.system() != "Windows":
-        return
-    try:
-        import psutil
-    except ImportError:
-        # Fallback to WMIC if psutil is unavailable (e.g. in a minimal env).
-        subprocess.run(
-            ["taskkill", "/F", "/IM", "msedgewebview2.exe"],
-            capture_output=True,
-            timeout=10,
-        )
-        return
-    gone = 0
-    for proc in psutil.process_iter(["pid", "name"]):
-        if proc.info["name"] and "msedgewebview2" in proc.info["name"].lower():
-            try:
-                proc.kill()
-                gone += 1
-            except psutil.NoSuchProcess:
-                pass
-    if gone:
-        print(f"  killed {gone} lingering msedgewebview2 process(es)", flush=True)
+LEASE_PATH = Path(__file__).resolve().parent / ".process-lease-native-e2e.json"
 
 
 class Failure(Exception):
@@ -175,15 +153,30 @@ class Runner:
             except Exception:
                 return False
 
-        # Kill any lingering WebView2 processes from prior runs (e.g. the
-        # smoke test) before we claim the port. This prevents port collisions
-        # and profile locks from previous invocations.
-        _kill_lingering_webview2()
+        # Release whatever a previous run recorded (identity-verified: a
+        # stale or recycled PID is skipped, never killed), then insist on a
+        # free port — a foreign holder FAILS the run with diagnostics
+        # instead of being terminated.
+        self.lease = OwnershipLease(LEASE_PATH)
+        cleanup = pre_launch_cleanup(self.lease, self.port)
+        if cleanup["skipped_stale"]:
+            print(
+                "  ownership cleanup skipped stale entries (identity mismatch, "
+                "not killed): "
+                + json.dumps([s["recorded"] for s in cleanup["skipped_stale"]]),
+                flush=True,
+            )
+        if cleanup["killed"]:
+            print(
+                f"  ownership cleanup terminated {len(cleanup['killed'])} "
+                "previously recorded own process(es)",
+                flush=True,
+            )
 
         if check_port(self.port):
             raise Failure(
                 f"port {self.port} is already in use before application launch "
-                "(possible port collision or zombie WebView2 process from prior run)"
+                "(possible port collision or zombie process from prior run)"
             )
 
         env = dict(os.environ)
@@ -221,6 +214,10 @@ class Runner:
             stdout=open(self._stdout_path, "wb", buffering=0),
             stderr=open(self._stderr_path, "wb", buffering=0),
         )
+        self.lease.record(self.process.pid, self.exe.name)
+        self.lease.user_data_dir = str(webview_data)
+        self.lease.port = self.port
+        self.lease.save()
         deadline = time.time() + 60
         last_error = None
         while time.time() < deadline:
@@ -340,28 +337,21 @@ class Runner:
                 self.process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self.process.kill()
-            # WebView2 spawns child processes that do NOT die with the parent.
-            # Kill them explicitly so their file locks are released and the
-            # fixture directory can be cleaned up on the next run.
-            try:
-                import psutil
-                parent = psutil.Process(self.process.pid)
-                for child in parent.children(recursive=True):
-                    try:
-                        child.kill()
-                    except psutil.NoSuchProcess:
-                        pass
-                _, alive = psutil.wait_procs(
-                    [psutil.Process(c.pid) for c in parent.children(recursive=True)],
-                    timeout=5,
+            # WebView2 spawns child processes that do NOT die with the
+            # parent. They are owned by this run's user-data folder, so
+            # they are located by that exact command-line evidence — never
+            # by image name.
+            for row in query_processes(
+                name="msedgewebview2.exe",
+                cmdline_contains=str(self.fixture / "webview-data"),
+            ):
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(row["pid"])],
+                    capture_output=True,
+                    timeout=15,
                 )
-                for p in alive:
-                    try:
-                        p.kill()
-                    except psutil.NoSuchProcess:
-                        pass
-            except Exception:
-                pass
+        if getattr(self, "lease", None) is not None:
+            self.lease.clear()
 
     def connect(self):
         from playwright.sync_api import sync_playwright
@@ -404,8 +394,14 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
             "the real Tauri bridge is present (this is not the mock shell)",
         )
         runner.check(
-            page.evaluate("() => typeof window.CureCompanion === 'object'"),
-            "the companion is mounted in the native window",
+            page.evaluate("() => typeof window.CureCompanion === 'undefined'"),
+            "no mascot companion is mounted in the native window",
+        )
+        runner.check(
+            page.evaluate(
+                "() => document.querySelectorAll('.operator-node').length > 0"
+            ),
+            "the operator console is present in the native window",
         )
         runner.shot(page, "overview")
 
@@ -517,15 +513,15 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
                 total: (document.getElementById('dt-map-total') || {}).innerText || '',
                 leads: document.querySelectorAll('#dt-leads .dt-lead').length,
                 arcs: document.querySelectorAll('#dt-map .dt-arc').length,
-                state: (document.querySelector('[data-companion="detective"]') || {}).dataset.state || '',
+                operator: document.querySelectorAll('[data-companion="detective"] .operator-node').length,
             })"""
         )
         runner.check(board["total"] not in ("", "—"),
                      f"the board leads with the measured total ({board['total']!r})")
         runner.check(board["leads"] > 0, f"the board lists real leads ({board['leads']})")
         runner.check(board["arcs"] > 0, "the map draws real category arcs")
-        runner.check(board["state"] in ("major", "discovering", "curious", "thinking"),
-                     f"the companion reacts to the investigation ({board['state']!r})")
+        runner.check(board["operator"] > 0,
+                     "the detective view mounts the operator console")
         runner.shot(page, "detective-board")
 
         page.evaluate("""() => document.getElementById('dt-case-preview').click()""")
@@ -699,35 +695,22 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
         else:
             print("  (the scan finished before it could be cancelled)", flush=True)
 
-        runner.step("companion states")
-        states = page.evaluate(
-            """() => {
-                const names = ['idle','scan','discovering','review','curious','thinking',
-                               'quarantine','success','failure','cancelled','sleeping','major'];
-                const out = [];
-                for (const n of names) {
-                    const api = window.CureCompanion;
-                    if (n === 'idle') api.idle('probe');
-                    else if (n === 'scan') api.scan('scan', 'probe');
-                    else if (n === 'discovering') api.discovering(3, 'probe');
-                    else if (n === 'review') api.review(2, 'probe');
-                    else if (n === 'curious') api.curious('probe');
-                    else if (n === 'thinking') api.thinking('probe');
-                    else if (n === 'quarantine') api.seal('probe');
-                    else if (n === 'success') api.cleanup('success', 'probe', 'probe');
-                    else if (n === 'failure') api.failed('probe');
-                    else if (n === 'cancelled') api.cancelled('probe');
-                    else if (n === 'sleeping') api.sleep();
-                    else if (n === 'major') api.major('probe');
-                    out.push(document.querySelector('[data-companion="overview"]')
-                               .getAttribute('data-state'));
-                }
-                return out;
-            }"""
+        runner.step("mascot removal")
+        mascot = page.evaluate(
+            """() => ({
+                companion: typeof window.CureCompanion,
+                lumaGlobal: typeof window.luma,
+                svgs: document.querySelectorAll('.luma-svg, .luma-stage, .luma-host').length,
+                scripts: [...document.querySelectorAll('script[src]')]
+                    .map((s) => s.getAttribute('src')).filter((s) => s.includes('luma')).length,
+            })"""
         )
         runner.check(
-            len(set(states)) >= 12,
-            f"the companion reaches every state the interface can ask for ({states})",
+            mascot["companion"] == "undefined"
+                and mascot["lumaGlobal"] == "undefined"
+                and mascot["svgs"] == 0
+                and mascot["scripts"] == 0,
+            f"the mascot is fully removed from the running application ({mascot})",
         )
 
         runner.step("reduced motion")
@@ -735,15 +718,19 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
         time.sleep(1.0)
         reduced = page.evaluate(
             """() => ({
-                paused: document.documentElement.getAttribute('data-paused'),
+                mediaSeen: matchMedia('(prefers-reduced-motion: reduce)').matches,
                 running: document.getAnimations()
                     .filter((a) => a.animationName && a.animationName.indexOf('lm-') === 0)
                     .length,
+                mascot: document.querySelectorAll('.luma-svg').length,
             })"""
         )
+        page.emulate_media(reduced_motion="no-preference")
         runner.check(
-            reduced["paused"] == "true" and reduced["running"] == 0,
-            f"reduced motion stops every companion animation ({reduced})",
+            reduced["mediaSeen"] is True
+                and reduced["running"] == 0
+                and reduced["mascot"] == 0,
+            f"reduced-motion preference reaches the app; no mascot animations exist ({reduced})",
         )
         page.emulate_media(reduced_motion="no-preference")
         time.sleep(0.5)

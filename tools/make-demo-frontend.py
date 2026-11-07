@@ -18,9 +18,9 @@ DIST = ROOT / "gui" / "dist"
 OUT = ROOT / "gui" / "dist-demo"
 
 DEMO_WORDMARK = (
-    '<div class="wordmark">C.U.R.E<span>Evidence Console · public demo</span></div>'
+    '<div class="wordmark">C.U.R.E<span>· public demo</span></div>'
 )
-PROD_WORDMARK = '<div class="wordmark">C.U.R.E<span>Evidence Console</span></div>'
+PROD_WORDMARK = '<div class="wordmark">C.U.R.E</div>'
 
 # The demo banner. It is deliberately impossible to mistake for a real
 # finding: it is present for the whole recording.
@@ -47,6 +47,13 @@ STORAGE_ANCHOR = (
     '                  <h1 class="headline">Storage Workstation</h1>'
 )
 
+# The Rescue view now reports its assessment inline instead of jumping to
+# the findings view, so it needs the long banner too — otherwise a demo
+# recording would show sample scan results without the disclaimer on screen.
+RESCUE_ANCHOR = (
+    'id="scan-view"\n          >\n            <div class="rescue-head">'
+)
+
 
 def main() -> None:
     if OUT.exists():
@@ -58,7 +65,7 @@ def main() -> None:
         raise SystemExit("index.html wordmark marker not found")
     html = html.replace(PROD_WORDMARK, DEMO_WORDMARK)
 
-    marker = '<script src="luma.js"></script>'
+    marker = '<script src="operator.js"></script>'
     if marker not in html:
         raise SystemExit("index.html script marker not found")
     # The demo replaces the Tauri API with the deterministic sample backend.
@@ -74,7 +81,7 @@ def main() -> None:
     )
 
     # A chip in the top bar, on every screen of the recording.
-    chip_anchor = '<div class="session-meta" id="session-meta">'
+    chip_anchor = '<span\n            class="topbar-clock"'
     if chip_anchor not in html:
         raise SystemExit("index.html topbar anchor not found")
     html = html.replace(chip_anchor, CHIP + chip_anchor, 1)
@@ -125,17 +132,35 @@ def main() -> None:
         1,
     )
 
+    # And into Rescue, which now carries its own scan assessment inline.
+    if RESCUE_ANCHOR not in html:
+        raise SystemExit("index.html rescue anchor not found")
+    html = html.replace(
+        RESCUE_ANCHOR,
+        'id="scan-view"\n          >\n            ' + BANNER + "\n"
+        '            <div class="rescue-head">',
+        1,
+    )
+
     for name in (
         "style.css",
+        "operator.css",
         "xray.css",
-        "luma.css",
+        "investigate.css",
+        "quarantine.css",
+        "monitor.css",
         "storage-workstation.css",
+        "storage-rescue.css",
         "detective.css",
-        "luma.js",
+        "agent.css",
+        "operator.js",
         "xray.js",
         "storage-workstation.js",
+        "storage-rescue.js",
+        "move-bot.js",
         "casefile.js",
         "detective.js",
+        "agent-radar.js",
         "app.js",
         "mock-tauri.js",
     ):
