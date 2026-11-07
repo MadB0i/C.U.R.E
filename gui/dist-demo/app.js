@@ -62,6 +62,9 @@
   }
 
   function setPill(state, text) {
+    /* The topbar session pill was removed in the de-clutter pass; every
+       caller keeps working against a no-op so the one-writer model stays. */
+    if (!statusPill || !statusText) return;
     statusPill.className = "pill " + state;
     statusText.textContent = text;
     /* UI-03: the X-Ray corner tag and field state are owned by CureSweep's
@@ -2438,9 +2441,7 @@
     const beacon = document.getElementById("ov-beacon");
     if (beacon) beacon.className = "ov-beacon";
     const subline = document.getElementById("ov-subline");
-    if (subline)
-      subline.textContent =
-        "Run a System Scan to establish the evidence available on this system.";
+    if (subline) subline.textContent = "";
     const scope = document.getElementById("ov-scope");
     if (scope) scope.textContent = "No scan has run this session.";
     setOvDial(null, "Layers checked", null);

@@ -382,17 +382,13 @@
     clear(els.blips);
     if (els.detected) els.detected.textContent = "—";
     if (els.radarLabel) els.radarLabel.textContent = "not scanned";
-    if (els.radarNote)
-      els.radarNote.textContent =
-        "Not scanned this session. Run a scan to enumerate supported agent processes.";
+    if (els.radarNote) els.radarNote.textContent = "";
     if (els.scanAt) els.scanAt.textContent = "Not scanned this session";
     clear(els.agentList);
     els.agentList.classList.add("hidden");
     els.agentsEmpty.classList.remove("hidden");
     if (els.emptyTitle) els.emptyTitle.textContent = "Not scanned this session";
-    if (els.emptyLead)
-      els.emptyLead.textContent =
-        "Scan Agents reads the local process table once and reports what it saw. Nothing is watched, started or stopped.";
+    if (els.emptyLead) els.emptyLead.textContent = "";
     syncPhase();
   }
 
