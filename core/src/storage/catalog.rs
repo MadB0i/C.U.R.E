@@ -431,14 +431,29 @@ pub fn drop_nested_roots(roots: &mut Vec<ScanRoot>) -> usize {
     let mut keep: Vec<ScanRoot> = Vec::new();
     let mut dropped = 0usize;
     for candidate in roots.drain(..) {
+        // 1. Is candidate equal to or nested under an existing root in keep?
         let nested = keep
             .iter()
-            .any(|k| k.path != candidate.path && super::tiers::is_under(&candidate.path, &k.path));
+            .any(|k| k.path == candidate.path || super::tiers::is_under(&candidate.path, &k.path));
         if nested {
             dropped += 1;
-        } else {
-            keep.push(candidate);
+            continue;
         }
+
+        // 2. Are there existing roots in keep that are nested under candidate?
+        // E.g. keep contains C:\Users\bob\Temp, and candidate is C:\
+        // Candidate is broader, so the prior narrower sub-roots are redundant and must be pruned.
+        let mut i = 0;
+        while i < keep.len() {
+            if super::tiers::is_under(&keep[i].path, &candidate.path) {
+                keep.swap_remove(i);
+                dropped += 1;
+            } else {
+                i += 1;
+            }
+        }
+
+        keep.push(candidate);
     }
     *roots = keep;
     dropped

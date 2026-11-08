@@ -618,9 +618,23 @@
       let roots = state.extraRoots.slice();
       try {
         const options = await invoke("storage_available_roots", {});
+        // First add drives (C:, D:, USB)
         for (const o of options || []) {
-          if (o.exists && o.path && !roots.some((r) => r.toLowerCase() === o.path.toLowerCase())) {
+          if (o.exists && o.path && o.is_drive && !roots.some((r) => r.toLowerCase() === o.path.toLowerCase())) {
             roots.push(o.path);
+          }
+        }
+        // Then add specific folders only if their parent drive is not already included
+        for (const o of options || []) {
+          if (o.exists && o.path && !o.is_drive) {
+            const pLower = o.path.toLowerCase().replace(/\\/g, "/");
+            const alreadyCovered = roots.some((r) => {
+              const rLower = r.toLowerCase().replace(/\\/g, "/").replace(/\/+$/, "");
+              return pLower === rLower || pLower.startsWith(rLower + "/");
+            });
+            if (!alreadyCovered) {
+              roots.push(o.path);
+            }
           }
         }
       } catch (_) {
@@ -769,6 +783,35 @@
     }
   }
 
+  function isDangerousContainer(path) {
+    if (!path) return true;
+    const p = path.toLowerCase().replace(/\\/g, "/").replace(/\/+$/, "");
+    if (/^[a-z]:$/i.test(p)) return true;
+    const forbidden = [
+      "c:/users",
+      "c:/windows",
+      "c:/windows/system32",
+      "c:/windows/syswow64",
+      "c:/program files",
+      "c:/program files (x86)",
+      "c:/programdata",
+      "c:/programdata/microsoft",
+      "c:/programdata/microsoft/windows",
+    ];
+    if (forbidden.includes(p)) return true;
+    const parts = p.split("/");
+    if (parts.length === 3 && parts[0].endsWith(":") && parts[1] === "users") {
+      return true; // c:/users/<username>
+    }
+    if (parts.length >= 4 && parts[1] === "users") {
+      if (parts[3] === "appdata" && parts.length <= 5) return true; // c:/users/<user>/appdata or /local or /roaming
+      if (parts[3] === "appdata" && parts[4] === "local" && (parts[5] === "packages" || parts[5] === "microsoft") && parts.length === 6) {
+        return true; // bare packages or microsoft container
+      }
+    }
+    return false;
+  }
+
   function renderFolders() {
     if (!el.foldersBody || !state.scan) return;
     el.foldersBody.replaceChildren();
@@ -823,7 +866,13 @@
       tr.appendChild(sizeCell);
 
       const actionCell = node("td");
-      if (prefix && (protectedCount > 0 || unknownCount > 0)) {
+      const isDangerous = isDangerousContainer(f.path);
+      const isTierProtected = f.tier === "protected" || f.tier === "unknown";
+      if (isDangerous) {
+        const mark = node("span", "sw-folder-protected", "PROTECTED CONTAINER");
+        mark.title = "System or profile container directory — cannot be queued for removal.";
+        actionCell.appendChild(mark);
+      } else if (isTierProtected || (prefix && (protectedCount > 0 || unknownCount > 0))) {
         const mark = node("span", "sw-folder-protected", "PROTECTED");
         mark.title =
           "This folder holds " +
@@ -942,16 +991,20 @@
 
   function visibleFiles() {
     if (!state.scan) return [];
-    let files = state.scan.files;
-    if (state.tierFilter !== "all") {
-      files = files.filter((f) => f.tier === state.tierFilter);
-    }
-    /* A folder drill narrows the files table to that folder's contents. */
+    let files = [];
     if (state.drill && state.drill.path) {
       const prefix = state.drill.path.toLowerCase();
-      files = files.filter((f) =>
+      files = (state.scan.files || []).filter((f) =>
         (f.path || "").toLowerCase().startsWith(prefix),
       );
+    } else {
+      // Wire directly to large_files (the true largest files on the system), falling back to scan.files
+      files = (state.scan.large_files && state.scan.large_files.length > 0)
+        ? state.scan.large_files
+        : (state.scan.files || []);
+    }
+    if (state.tierFilter !== "all") {
+      files = files.filter((f) => f.tier === state.tierFilter);
     }
     return files;
   }

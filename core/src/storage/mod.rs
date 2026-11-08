@@ -265,30 +265,54 @@ pub fn scan(
     }
 
     // ---- large files ----------------------------------------------------
-    let mut large_files: Vec<FileRecord> = sink
-        .files
-        .iter()
-        .filter(|f| f.size_allocated.unwrap_or(f.size_logical) >= options.large_file_threshold)
-        .cloned()
-        .collect();
+    let mut large_files: Vec<FileRecord> = sink.files.clone();
     large_files.sort_by(|a, b| {
         b.size_allocated
             .unwrap_or(b.size_logical)
             .cmp(&a.size_allocated.unwrap_or(a.size_logical))
             .then_with(|| a.path.cmp(&b.path))
     });
-    large_files.truncate(options.large_file_limit);
+    large_files.truncate(options.large_file_limit.max(500));
 
     // ---- large folders ---------------------------------------------------
-    // Roll up subtree sizes so parent folders reflect their total recursive size and file count
+    // 1. Deduplicate folder records by path (in case multiple scan paths touched the same directory)
+    let mut unique_folders: std::collections::HashMap<PathBuf, types::FolderRecord> =
+        std::collections::HashMap::with_capacity(sink.folders.len());
+    for f in sink.folders.drain(..) {
+        use std::collections::hash_map::Entry;
+        match unique_folders.entry(f.path.clone()) {
+            Entry::Vacant(v) => {
+                v.insert(f);
+            }
+            Entry::Occupied(mut o) => {
+                let rec = o.get_mut();
+                rec.size_logical = rec.size_logical.saturating_add(f.size_logical);
+                rec.size_allocated = rec.size_allocated.saturating_add(f.size_allocated);
+                rec.file_count = rec.file_count.saturating_add(f.file_count);
+                rec.dir_count = rec.dir_count.saturating_add(f.dir_count);
+                if f.incomplete {
+                    rec.incomplete = true;
+                }
+            }
+        }
+    }
+    sink.folders = unique_folders.into_values().collect();
+
+    // 2. Roll up subtree sizes so parent folders reflect their total recursive size and file count
     // instead of merely counting the files sitting directly in their root.
     rollup_folder_sizes(&mut sink.folders);
 
-    // Every folder is measured; only the biggest are carried forward. The
-    // UI shows a treemap and a ranked list, and neither needs the two
-    // hundred thousand empty directories in between.
-    let mut large_folders: Vec<types::FolderRecord> = sink.folders.clone();
-    large_folders.retain(|f| f.size_allocated > 0);
+    // 3. Exclude structural container roots (drive roots, Users, AppData container wrappers, Windows, Program Files)
+    let mut large_folders: Vec<types::FolderRecord> = sink
+        .folders
+        .clone()
+        .into_iter()
+        .filter(|f| f.size_allocated > 0 && !is_structural_container(&f.path))
+        .collect();
+
+    // 4. Deduplicate parent-child wrapper redundancy (keep specific actionable folder if child >= 85% of parent)
+    deduplicate_parent_wrapper_folders(&mut large_folders);
+
     large_folders.sort_by(|a, b| {
         b.size_allocated
             .cmp(&a.size_allocated)
@@ -468,6 +492,142 @@ pub fn rollup_folder_sizes(folders: &mut [types::FolderRecord]) {
             }
         }
     }
+}
+
+/// True if `path` is an OS or profile container directory that must not be ranked
+/// as a standalone cleanable folder in `large_folders`.
+pub fn is_structural_container(path: &Path) -> bool {
+    let norm = tiers::normalize(path);
+    if norm.is_empty() {
+        return true;
+    }
+    let trimmed = norm.trim_end_matches('/');
+    // Drive roots (e.g., "c:", "c:/", "d:")
+    if (trimmed.len() <= 2 && trimmed.ends_with(':'))
+        || path.parent().is_none()
+        || path.components().count() <= 1
+    {
+        return true;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+
+    // OS, Windows, and Program containers
+    if lower == "c:/windows"
+        || lower == "c:/windows/system32"
+        || lower == "c:/windows/syswow64"
+        || lower == "c:/program files"
+        || lower == "c:/program files (x86)"
+        || lower == "c:/programdata"
+        || lower == "c:/programdata/microsoft"
+        || lower == "c:/programdata/microsoft/windows"
+        || lower == "c:/users"
+    {
+        return true;
+    }
+
+    // User profile structural containers:
+    // C:/Users/<user>
+    // C:/Users/<user>/AppData
+    // C:/Users/<user>/AppData/Local
+    // C:/Users/<user>/AppData/Roaming
+    // C:/Users/<user>/AppData/LocalLow
+    // C:/Users/<user>/AppData/Local/Packages (bare container; package subfolders like Claude_... are kept)
+    // C:/Users/<user>/AppData/Local/Microsoft (bare container)
+    if lower.starts_with("c:/users/") {
+        let parts: Vec<&str> = lower.split('/').collect();
+        if parts.len() == 3 {
+            return true;
+        }
+        if parts.len() == 4 && parts[3] == "appdata" {
+            return true;
+        }
+        if parts.len() == 5
+            && parts[3] == "appdata"
+            && (parts[4] == "local" || parts[4] == "roaming" || parts[4] == "locallow")
+        {
+            return true;
+        }
+        if parts.len() == 6
+            && parts[3] == "appdata"
+            && parts[4] == "local"
+            && (parts[5] == "packages" || parts[5] == "microsoft")
+        {
+            return true;
+        }
+    }
+
+    // Dynamic USERPROFILE match if machine is on another drive
+    if let Ok(profile) = std::env::var("USERPROFILE") {
+        let p_norm = tiers::normalize(Path::new(&profile)).to_ascii_lowercase();
+        let p_trim = p_norm.trim_end_matches('/');
+        if lower == p_trim
+            || lower == format!("{p_trim}/appdata")
+            || lower == format!("{p_trim}/appdata/local")
+            || lower == format!("{p_trim}/appdata/roaming")
+            || lower == format!("{p_trim}/appdata/locallow")
+            || lower == format!("{p_trim}/appdata/local/packages")
+            || lower == format!("{p_trim}/appdata/local/microsoft")
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Deduplicate direct parent-child wrapper redundancy in `large_folders`.
+///
+/// If folder `P` has a child `C` where `C.size_allocated >= 85%` of `P.size_allocated`,
+/// `P` is a redundant wrapper that merely duplicates `C`.
+/// Top-level user profile items (e.g. `.codex`, `.gradle`, `Downloads`) are actionable roots
+/// and are never suppressed.
+pub fn deduplicate_parent_wrapper_folders(folders: &mut Vec<types::FolderRecord>) {
+    let user_profile = std::env::var("USERPROFILE").unwrap_or_default();
+    let up_norm = tiers::normalize(Path::new(&user_profile)).to_ascii_lowercase();
+    let up_trim = up_norm.trim_end_matches('/');
+
+    let mut suppress = std::collections::HashSet::new();
+    for i in 0..folders.len() {
+        let p_path = &folders[i].path;
+        let p_norm = tiers::normalize(p_path).to_ascii_lowercase();
+        let p_trim = p_norm.trim_end_matches('/');
+
+        // If P is a top-level directory directly under %USERPROFILE% (e.g. .codex, .gradle, Downloads),
+        // keep it as the primary actionable folder.
+        if !up_trim.is_empty() && p_trim.starts_with(up_trim) {
+            let rel = p_trim
+                .strip_prefix(up_trim)
+                .unwrap_or("")
+                .trim_start_matches('/');
+            if !rel.contains('/') && !rel.is_empty() {
+                continue;
+            }
+        }
+
+        let p_size = folders[i].size_allocated;
+        if p_size == 0 {
+            continue;
+        }
+        let threshold = (p_size as u128 * 85 / 100) as u64;
+
+        for (j, c_folder) in folders.iter().enumerate() {
+            if i == j {
+                continue;
+            }
+            if c_folder.size_allocated >= threshold && tiers::is_under(&c_folder.path, p_path) {
+                suppress.insert(i);
+                break;
+            }
+        }
+    }
+
+    let mut idx = 0;
+    folders.retain(|_| {
+        let keep = !suppress.contains(&idx);
+        idx += 1;
+        keep
+    });
 }
 
 fn eta_for(root_ms: &[u128], remaining: usize) -> Option<u64> {

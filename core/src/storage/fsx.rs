@@ -162,7 +162,9 @@ pub fn allocated_size(path: &Path, logical: u64) -> AllocatedSize {
     {
         use std::os::windows::ffi::OsStrExt;
         use windows::core::PCWSTR;
+        use windows::Win32::Foundation::{GetLastError, NO_ERROR};
         use windows::Win32::Storage::FileSystem::GetCompressedFileSizeW;
+
         let wide: Vec<u16> = path
             .as_os_str()
             .encode_wide()
@@ -171,17 +173,37 @@ pub fn allocated_size(path: &Path, logical: u64) -> AllocatedSize {
         let mut high: u32 = 0;
         // SAFETY: `wide` is NUL-terminated and `high` is a valid out-pointer.
         let low = unsafe { GetCompressedFileSizeW(PCWSTR(wide.as_ptr()), Some(&mut high)) };
-        if low == 0 || high == 0xFFFF_FFFF {
+        if low == 0 && high == 0 {
             return AllocatedSize {
-                bytes: logical,
-                exact: false,
+                bytes: 0,
+                exact: true,
             };
         }
-        let on_disk = ((high as u64) << 32) | low as u64;
-        AllocatedSize {
-            bytes: on_disk.max(logical.min(on_disk)),
-            exact: true,
+        if low == 0xFFFF_FFFF {
+            let err = unsafe { GetLastError() };
+            if err != NO_ERROR {
+                return AllocatedSize {
+                    bytes: logical,
+                    exact: false,
+                };
+            }
         }
+        let on_disk = ((high as u64) << 32) | (low as u64);
+
+        // Safeguard against phantom allocations:
+        // On NTFS, allocated size is rounded up to cluster boundaries (typically 4 KB - 64 KB).
+        // It cannot legitimately be gigabytes larger than logical unless it's an error.
+        // Virtualized MSIX/AppX packages or sparse error codes returning on_disk >= 0xFFFF_0000
+        // while logical is much smaller are clamped to logical.
+        let bytes = if (on_disk >= 0xFFFF_0000 || on_disk > logical.saturating_add(1024 * 1024))
+            && on_disk > logical.saturating_mul(2)
+        {
+            logical
+        } else {
+            on_disk
+        };
+
+        AllocatedSize { bytes, exact: true }
     }
     #[cfg(not(windows))]
     {

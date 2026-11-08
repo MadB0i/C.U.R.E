@@ -2366,12 +2366,20 @@ fn storage_scan_dto(scan: &storage::StorageScan) -> StorageScanDto {
         gain: the interface only ever shows the largest ones. The count
         that was measured travels with the list so nothing is implied
         that did not happen. */
-        files: scan
-            .files
-            .iter()
-            .take(MAX_FILES_TO_UI)
-            .map(storage_file_dto)
-            .collect(),
+        files: {
+            let mut sorted: Vec<&storage::FileRecord> = scan.files.iter().collect();
+            sorted.sort_by(|a, b| {
+                b.size_allocated
+                    .unwrap_or(b.size_logical)
+                    .cmp(&a.size_allocated.unwrap_or(a.size_logical))
+                    .then_with(|| a.path.cmp(&b.path))
+            });
+            sorted
+                .into_iter()
+                .take(MAX_FILES_TO_UI)
+                .map(storage_file_dto)
+                .collect()
+        },
         files_total: scan.distinct_file_count,
         tier_counts: StorageTierCountsDto {
             safe_to_review: scan.safe_file_count,
