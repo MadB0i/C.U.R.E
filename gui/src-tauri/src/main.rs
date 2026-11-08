@@ -280,7 +280,15 @@ fn scan_heuristic_dir(
         *scanned_count += 1;
         let file_name = entry.file_name().to_string_lossy().to_string();
 
-        if (*scanned_count).is_multiple_of(15) {
+        // Skip C.U.R.E system binaries and standard desktop.ini
+        if cure_core::risk::is_cure_binary_name(&file_name) {
+            continue;
+        }
+        if file_name.eq_ignore_ascii_case("desktop.ini") && cure_core::scanners::startup::is_standard_desktop_ini(&path) {
+            continue;
+        }
+
+        if (*scanned_count).is_multiple_of(5) {
             let _ = app.emit("scan-progress", serde_json::json!({
                 "stage": "progress-counter",
                 "count": *scanned_count,
@@ -381,6 +389,9 @@ async fn delete_threat_entry(
         if !file_path.trim().is_empty() {
             let path = PathBuf::from(&file_path);
             if path.exists() {
+                if cure_core::risk::is_cure_binary_name(&file_path) {
+                    return Err("Refused to delete C.U.R.E system binary (self-protection)".to_string());
+                }
                 let lower = file_path.to_ascii_lowercase();
                 if lower.contains("windows\\system32")
                     || lower.contains("windows\\syswow64")
@@ -448,6 +459,11 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         record_source_state(&app, &mut source_states, registry_state_row(&reg));
         scanned_count += reg.entries.len();
         entries.extend(reg.entries);
+        let _ = app.emit("scan-progress", serde_json::json!({
+            "stage": "progress-counter",
+            "count": scanned_count,
+            "message": "Reading Run / RunOnce autoruns"
+        }));
     }
     #[cfg(not(windows))]
     source_states.push(cure_core::report::CoverageRow::unavailable(
@@ -478,11 +494,21 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     entries.extend(startup_user);
     entries.extend(startup_common);
     scanned_count += startup_total;
+    let _ = app.emit("scan-progress", serde_json::json!({
+        "stage": "progress-counter",
+        "count": scanned_count,
+        "message": "Inspecting Startup folders"
+    }));
     emit_stage(&app, "tasks", "Parsing scheduled task definitions");
     let task_report = scanners::scheduled_tasks::scan_report(&tasks_root());
     record_source_state(&app, &mut source_states, tasks_state_row(&task_report));
     scanned_count += task_report.entries.len();
     entries.extend(task_report.entries);
+    let _ = app.emit("scan-progress", serde_json::json!({
+        "stage": "progress-counter",
+        "count": scanned_count,
+        "message": "Parsing scheduled task definitions"
+    }));
     emit_stage(&app, "services", "Enumerating auto-start services");
     let service_report = scanners::services::scan_report();
     record_source_state(
@@ -493,6 +519,11 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     let service_records = service_report.records;
     entries.extend(service_records.iter().map(|r| r.entry.clone()));
     scanned_count += service_records.len();
+    let _ = app.emit("scan-progress", serde_json::json!({
+        "stage": "progress-counter",
+        "count": scanned_count,
+        "message": "Enumerating auto-start services"
+    }));
     #[cfg(windows)]
     {
         emit_stage(&app, "wmi", "Querying WMI event subscriptions");
@@ -552,6 +583,11 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         );
         scanned_count += ifeo_total + com_len + boot_len;
         entries.extend(boot_entries);
+        let _ = app.emit("scan-progress", serde_json::json!({
+            "stage": "progress-counter",
+            "count": scanned_count,
+            "message": "Checking IFEO, COM and Winlogon"
+        }));
     }
     #[cfg(not(windows))]
     {
@@ -652,7 +688,9 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     let high_risk_cleaned = Vec::new();
     let mut suspicious_for_review = Vec::new();
     let mut safe = 0usize;
-    for s in scored.iter() {
+    let base_scanned = scanned_count;
+    for (idx, s) in scored.iter().enumerate() {
+        let current_count = base_scanned + idx + 1;
         let _ = app.emit(
             "scan-progress",
             ItemScannedEvent {
@@ -668,7 +706,7 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
             "scan-progress",
             serde_json::json!({
                 "stage": "progress-counter",
-                "count": scanned_count,
+                "count": current_count,
                 "message": format!("Inspecting {}", s.entry.name)
             }),
         );
@@ -1510,6 +1548,10 @@ async fn kill_high_risk_processes(processes: Vec<(String, u32)>) -> Result<KillR
             .map(|p| (p.pid, p.name))
             .collect();
         for (name, pid) in processes {
+            if cure_core::risk::is_cure_binary_name(&name) {
+                failed.push(format!("{name} (pid {pid}): refused to kill C.U.R.E system process"));
+                continue;
+            }
             if let Err(reason) = pid_still_matches(pid, &name, &live) {
                 failed.push(reason);
                 continue;

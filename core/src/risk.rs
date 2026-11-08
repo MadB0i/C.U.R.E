@@ -72,6 +72,27 @@ fn is_lolbin_program(program: &str) -> bool {
     LOLBIN_NAMES.contains(&file)
 }
 
+/// True if the given file name or path matches a C.U.R.E system binary.
+pub fn is_cure_binary_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    let file = lower.rsplit(['/', '\\']).next().unwrap_or(&lower);
+    matches!(
+        file,
+        "cure-watch.exe" | "cure.exe" | "cure_gui.exe" | "cure-gui.exe" | "cure-cli.exe"
+    )
+}
+
+fn is_pe_file(path: &Path) -> bool {
+    if let Ok(mut f) = std::fs::File::open(path) {
+        use std::io::Read;
+        let mut magic = [0u8; 2];
+        if f.read_exact(&mut magic).is_ok() {
+            return &magic == b"MZ";
+        }
+    }
+    false
+}
+
 pub fn extract_program_path(command: &str) -> &str {
     let trimmed = command.trim();
     if let Some(unquoted) = trimmed.strip_prefix('"') {
@@ -354,6 +375,68 @@ fn score_with_expander(
     // program name. `IEX`/`DownloadString`/encoded payloads inside an
     // autorun argument are hostile regardless of how signed the host is.
     let cradle = CRADLE_TOKENS.iter().any(|t| command_norm.contains(t));
+
+    // Self-protection: C.U.R.E's own background daemons and binaries are trusted
+    // components and must never be penalized by location heuristics (like sitting
+    // in Roaming/Startup) unless spoofed by an invalid signature, known-bad hash,
+    // or non-PE script payload.
+    let is_cure = is_cure_binary_name(&program_norm) || is_cure_binary_name(&entry.name);
+    if is_cure
+        && !cradle
+        && !sneaky_powershell
+        && hash_match.is_none()
+        && signature != SignatureStatus::Invalid
+    {
+        let raw_path = extract_program_path(&expanded_command);
+        let p = Path::new(raw_path);
+        let spoofed = if p.is_file() { !is_pe_file(p) } else { false };
+        if !spoofed {
+            evidence.push(Evidence::observed(
+                "C.U.R.E system binary (self-protection allowlist)",
+            ));
+            return ScoredEntry {
+                entry: entry.clone(),
+                score: 0,
+                risk: RiskLevel::Safe,
+                evidence,
+                attack: AttackInfo {
+                    id: String::new(),
+                    name: String::new(),
+                },
+            };
+        }
+    }
+
+    // Standard Windows desktop.ini in Startup folders
+    if (entry.name.eq_ignore_ascii_case("desktop.ini") || program_norm.ends_with("/desktop.ini"))
+        && !cradle
+        && !sneaky_powershell
+        && hash_match.is_none()
+        && signature != SignatureStatus::Invalid
+    {
+        let raw_path = extract_program_path(&expanded_command);
+        let p = Path::new(raw_path);
+        let malicious = if p.is_file() {
+            !crate::scanners::startup::is_standard_desktop_ini(p)
+        } else {
+            false
+        };
+        if !malicious {
+            evidence.push(Evidence::observed(
+                "Standard Windows desktop configuration file (desktop.ini)",
+            ));
+            return ScoredEntry {
+                entry: entry.clone(),
+                score: 0,
+                risk: RiskLevel::Safe,
+                evidence,
+                attack: AttackInfo {
+                    id: String::new(),
+                    name: String::new(),
+                },
+            };
+        }
+    }
 
     // F-LOLBIN-1: a LOLBin pulling a remote payload (URL arg or UNC path)
     // scores at least Suspicious on its own (+25 clears the threshold even
@@ -716,6 +799,42 @@ mod tests {
     }
 
     // ---- heuristic behaviour, unchanged from v1 (Unknown / no hash) ----
+
+    #[test]
+    fn cure_watch_in_roaming_startup_is_safe() {
+        let scored = score_with_signals(
+            &entry(
+                "cure-watch.exe",
+                r"C:\Users\tester\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\cure-watch.exe",
+            ),
+            SignatureStatus::Unknown,
+            None,
+        );
+        assert_eq!(scored.risk, RiskLevel::Safe);
+        assert_eq!(scored.score, 0);
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|e| e.detail().contains("self-protection allowlist")));
+    }
+
+    #[test]
+    fn standard_desktop_ini_in_startup_is_safe() {
+        let scored = score_with_signals(
+            &entry(
+                "desktop.ini",
+                r"C:\Users\tester\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\desktop.ini",
+            ),
+            SignatureStatus::Unknown,
+            None,
+        );
+        assert_eq!(scored.risk, RiskLevel::Safe);
+        assert_eq!(scored.score, 0);
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|e| e.detail().contains("desktop.ini")));
+    }
 
     #[test]
     fn trusted_binary_is_safe() {

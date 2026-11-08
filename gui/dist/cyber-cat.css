@@ -110,11 +110,6 @@
   animation: catEarTwitch 1.6s ease-in-out infinite;
 }
 
-.cyber-cat.cat-scanning .cat-laser {
-  opacity: 1;
-  animation: catLaserSweep 1.2s ease-in-out infinite alternate;
-}
-
 /* --------------------------------------------------------------------------
    State 3: THREAT-FOUND (Alert Mode + Crimson Eyes + Exclamation Badge)
    -------------------------------------------------------------------------- */
@@ -201,12 +196,6 @@
   0%, 80%, 100% { transform: rotate(0deg); }
   85% { transform: rotate(-4deg); }
   90% { transform: rotate(4deg); }
-}
-
-@keyframes catLaserSweep {
-  0% { transform: rotate(-8deg); opacity: 0.6; }
-  50% { transform: rotate(8deg); opacity: 1; }
-  100% { transform: rotate(-8deg); opacity: 0.6; }
 }
 
 @keyframes catAlertArch {

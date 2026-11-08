@@ -16,10 +16,6 @@
           <feGaussianBlur stdDeviation="1.5" result="blur" />
           <feComposite in="SourceGraphic" in2="blur" operator="over" />
         </filter>
-        <filter id="laserGlow" x="-20%" y="-20%" width="140%" height="140%">
-          <feGaussianBlur stdDeviation="2.2" result="blur" />
-          <feComposite in="SourceGraphic" in2="blur" operator="over" />
-        </filter>
         <linearGradient id="shieldGrad" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#10b981" stop-opacity="0.35" />
           <stop offset="100%" stop-color="#047857" stop-opacity="0.1" />
@@ -70,9 +66,6 @@
         <ellipse class="cat-paw-back" cx="35" cy="54" rx="4.5" ry="3.2" fill="#1e293b" stroke="#38bdf8" stroke-width="1" />
         <ellipse class="cat-paw-front" cx="53" cy="54" rx="5" ry="3.5" fill="#1e293b" stroke="#00f0ff" stroke-width="1.3" />
       </g>
-
-      <!-- Hunter Laser Sweep Ray -->
-      <line class="cat-laser" x1="58" y1="20" x2="88" y2="40" stroke="#00f0ff" stroke-width="2" stroke-linecap="round" stroke-dasharray="4,3" filter="url(#laserGlow)" />
 
       <!-- Threat Alert Badge (!) -->
       <g class="cat-alert-badge">

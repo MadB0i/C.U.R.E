@@ -89,6 +89,40 @@ pub fn score_process(
     let mut score: i32 = 0;
     let mut evidence: Vec<crate::evidence::Evidence> = Vec::new();
 
+    // Self-protection: C.U.R.E's own background components are trusted
+    if (crate::risk::is_cure_binary_name(&info.name)
+        || crate::risk::is_cure_binary_name(&info.exe_path))
+        && hash_match.is_none()
+        && *signature != SignatureStatus::Invalid
+    {
+        let p = std::path::Path::new(&info.exe_path);
+        let spoofed = if p.is_file() {
+            if let Ok(mut f) = std::fs::File::open(p) {
+                use std::io::Read;
+                let mut magic = [0u8; 2];
+                if f.read_exact(&mut magic).is_ok() {
+                    &magic != b"MZ"
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if !spoofed {
+            evidence.push(crate::evidence::Evidence::observed(
+                "C.U.R.E system process (self-protection allowlist)",
+            ));
+            return ProcessScore {
+                score: 0,
+                risk: RiskLevel::Safe,
+                evidence,
+            };
+        }
+    }
+
     // location heuristic
     if in_drop_zone(&info.exe_path) {
         score += UNSIGNED_FROM_DROP_ZONE;
@@ -348,6 +382,19 @@ mod tests {
             has_visible_window: true,
             from_user_profile: false,
         }
+    }
+
+    #[test]
+    fn cure_watch_process_is_safe() {
+        let mut i = info(
+            "cure-watch.exe",
+            r"C:\Users\Bob\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\cure-watch.exe",
+        );
+        i.from_user_profile = true;
+        i.has_visible_window = false;
+        let ps = score_process(&i, &SignatureStatus::Unsigned, None);
+        assert_eq!(ps.risk, RiskLevel::Safe);
+        assert_eq!(ps.score, 0);
     }
 
     #[test]

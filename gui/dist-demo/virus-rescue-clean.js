@@ -21,6 +21,7 @@
   let isScanning = false;
   let elapsedTimer = null;
   let scanStartTime = 0;
+  let liveScannedCount = 0;
 
   function cacheEls() {
     els.startBtn = document.getElementById("xray-start-btn");
@@ -140,6 +141,7 @@
 
   function startScanUi() {
     isScanning = true;
+    liveScannedCount = 0;
     cacheEls();
     setCatState("scanning");
 
@@ -168,11 +170,14 @@
     if (!payload) return;
     cacheEls();
 
-    // 1. Dynamic live counter increment
+    // 1. Dynamic live counter increment from second 0.1s
     if (typeof payload.count === "number") {
-      if (els.inspectedVal) {
-        els.inspectedVal.textContent = formatCount(payload.count);
-      }
+      liveScannedCount = Math.max(liveScannedCount, payload.count);
+    } else if (payload.stage === "item-scanned") {
+      liveScannedCount++;
+    }
+    if (els.inspectedVal) {
+      els.inspectedVal.textContent = formatCount(liveScannedCount);
     }
 
     // 2. Stage-based ticker and smooth progress bar
@@ -216,9 +221,29 @@
 
     currentThreats = [];
 
+    function isSafeItem(name, path) {
+      const s = ((name || "") + " " + (path || "")).toLowerCase();
+      if (
+        s.includes("cure-watch.exe") ||
+        s.includes("cure.exe") ||
+        s.includes("cure_gui.exe") ||
+        s.includes("cure-gui.exe") ||
+        s.includes("cure-cli.exe")
+      ) {
+        return true;
+      }
+      if (name && name.toLowerCase() === "desktop.ini") {
+        return true;
+      }
+      return false;
+    }
+
     // Map persistence and heuristic findings
     for (const r of review) {
       const entry = r.entry || {};
+      if (isSafeItem(entry.name, entry.command || entry.location)) {
+        continue;
+      }
       const ev = (r.evidence && r.evidence[0] && r.evidence[0].detail) || "Persistence hook flagged for review";
       currentThreats.push({
         id: entry.id || ("threat-" + Math.random().toString(36).substring(2)),
@@ -233,6 +258,9 @@
 
     // Map process findings
     for (const p of procs) {
+      if (isSafeItem(p.name, p.exe_path)) {
+        continue;
+      }
       const ev = (p.evidence && p.evidence[0] && p.evidence[0].detail) || "Suspicious or unsigned running process";
       currentThreats.push({
         id: "proc-" + p.pid,
