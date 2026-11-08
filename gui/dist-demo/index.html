@@ -496,102 +496,123 @@
             class="view"
             id="scan-view"
           >
-            <div class="vr-hero">
-              <div class="vr-hero-text">
-                <div class="eyebrow">DEEP VIRUS & PERSISTENCE SCANNER</div>
-                <h1 class="headline">Virus Rescue</h1>
-                <p class="vr-hero-sub">Scans every system file and startup vector for hidden rootkits, defender-bypass threats, and silent trojans.</p>
+            <div class="vr-container">
+              <!-- Top Hero Card with Cyber-Cat Stage -->
+              <div class="vr-hero-card">
+                <div class="vr-cat-stage" id="vr-cat-stage">
+                  <div class="vr-cat-box" id="vr-cat-companion"></div>
+                </div>
+                <div class="vr-hero-content">
+                  <div class="vr-hero-header">
+                    <div class="eyebrow">DEEP VIRUS & HEURISTIC ENGINE</div>
+                    <h1 class="headline">Virus Rescue</h1>
+                    <p class="vr-hero-desc">
+                      Real-time heuristic sweeps for stealth threats Windows Defender misses: obfuscated scripts, LOLBins, RTLO spoofing, system masquerades, and malicious startup persistence.
+                    </p>
+                  </div>
+                  <div class="vr-actions-row">
+                    <button class="vr-primary-scan-btn" id="xray-start-btn" type="button">
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                      </svg>
+                      <span id="vr-scan-btn-text">Scan System for Threats</span>
+                    </button>
+                    <button class="vr-test-threat-btn" id="vr-drop-test-btn" type="button" title="Generates a harmless test script in %TEMP% flagged by heuristics to test detection and Cat swat deletion">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                      </svg>
+                      <span>Drop Safe Test Threat</span>
+                    </button>
+                    <button class="btn xr-secondary hidden" id="scan-retry" type="button">Retry scan</button>
+                  </div>
+                  <div class="vr-progress-section">
+                    <div class="vr-progress-track">
+                      <div class="vr-progress-bar" id="vr-progress-bar" style="width: 0%;"></div>
+                    </div>
+                    <div class="vr-phase-ticker" id="vr-phase-ticker">Ready to scan — click "Scan System for Threats" to begin</div>
+                  </div>
+                </div>
               </div>
-            </div>
 
-            <!-- Stage A: Top Scan Stage with Cyber-Cat & 1 Big Button -->
-            <div class="vr-scan-card">
-              <div class="vr-scan-topbar">
-                <div class="vr-scan-action-wrap">
-                  <button class="btn btn-primary vr-big-scan-btn" id="xray-start-btn" type="button">
-                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <!-- 3 Styled Telemetry KPI Cards -->
+              <div class="vr-kpi-grid">
+                <div class="vr-kpi-card">
+                  <span class="vr-kpi-label">Files & Hooks Scanned</span>
+                  <span class="vr-kpi-val" id="xray-inspected">0</span>
+                </div>
+                <div class="vr-kpi-card">
+                  <span class="vr-kpi-label">Elapsed Time</span>
+                  <span class="vr-kpi-val" id="scan-elapsed">0.0s</span>
+                </div>
+                <div class="vr-kpi-card vr-kpi-threats" id="vr-kpi-threats-card">
+                  <span class="vr-kpi-label">Threats Detected</span>
+                  <span class="vr-kpi-val" id="xray-findings">0</span>
+                </div>
+              </div>
+
+              <!-- Findings & Results Section -->
+              <section class="vr-findings-section" id="rescue-results">
+                <!-- Idle State Card -->
+                <div class="vr-idle-card" id="vr-idle-card">
+                  <div class="vr-idle-shield">🛡️</div>
+                  <h3>Ready to Inspect Your System</h3>
+                  <p>Click "Scan System for Threats" to run deep heuristics across Temp, Startup, Downloads, registry autoruns, and active non-system processes.</p>
+                </div>
+
+                <!-- Clean State Card -->
+                <div class="vr-clean-card hidden" id="vr-clean-card">
+                  <div class="vr-clean-icon-wrap">
+                    <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="20 6 9 17 4 12"/>
                     </svg>
-                    <span>Scan System for Threats</span>
-                  </button>
-                  <button class="btn xr-secondary hidden" id="scan-retry" type="button">Retry scan</button>
+                  </div>
+                  <div class="vr-clean-info">
+                    <h2 class="vr-clean-title">System Clean — No Hidden Threats Found</h2>
+                    <p class="vr-clean-sub">All critical system layers, background persistence entries, and high-risk user locations passed inspection. Zero rootkits, masquerades, or Defender-bypass scripts detected.</p>
+                  </div>
                 </div>
-                <div class="vr-cat-box" id="vr-cat-companion"></div>
-              </div>
 
-              <!-- Progress Bar Track -->
-              <div class="vr-track-wrap">
-                <div class="vr-progress-track">
-                  <div class="vr-progress-bar" id="vr-progress-bar" style="width: 0%;"></div>
+                <!-- Threats Detected Card -->
+                <div class="vr-threats-card vr-threats-container hidden" id="vr-threats-container">
+                  <div class="vr-threats-header">
+                    <div class="vr-threats-title-group">
+                      <h2 class="vr-threats-title">Detected Threats for Review</h2>
+                      <span class="vr-threats-badge" id="vr-threats-badge">0 threats</span>
+                    </div>
+                    <button class="vr-delete-all-btn" id="vr-delete-all-btn" type="button">Eliminate All Threats</button>
+                  </div>
+                  <div class="vr-threats-list" id="xr-result-findings"></div>
                 </div>
-                <div class="vr-stage-label" id="xray-phase">Ready to scan</div>
-              </div>
 
-              <!-- Live Counters -->
-              <div class="vr-counters-grid">
-                <div class="vr-counter-card">
-                  <span class="vr-counter-label">SCANNED FILES</span>
-                  <span class="vr-counter-val" id="xray-inspected">0</span>
+                <!-- Hidden compatibility anchors for legacy event hooks -->
+                <div class="hidden" aria-hidden="true" style="display: none !important;">
+                  <span id="xray-phase"></span>
+                  <div id="vr-clean-cat"></div>
+                  <canvas id="xray-canvas"></canvas>
+                  <span id="xray-hud-inspected">0</span>
+                  <span id="xray-hud-coverage">0/10</span>
+                  <span id="xray-hud-findings">0</span>
+                  <span id="xray-hud-unavailable">0</span>
+                  <span id="xray-coverage">0/10</span>
+                  <span id="xray-matrix-cover">0/10</span>
+                  <ul id="sweep-sources"></ul>
+                  <span id="sweep-current"></span>
+                  <span id="sweep-items"></span>
+                  <p id="xr-actions-note"></p>
+                  <h2 id="xr-results-title"></h2>
+                  <p id="xr-result-sub"></p>
+                  <ul id="xr-result-stats"></ul>
+                  <ul id="xr-result-notes"></ul>
+                  <p id="xr-result-empty"></p>
+                  <ul id="log"></ul>
+                  <span id="feed-count"></span>
+                  <button id="xray-investigate-btn"></button>
+                  <button id="xr-result-open"></button>
                 </div>
-                <div class="vr-counter-card">
-                  <span class="vr-counter-label">ELAPSED TIME</span>
-                  <span class="vr-counter-val" id="scan-elapsed">0.0s</span>
-                </div>
-                <div class="vr-counter-card vr-counter-threats">
-                  <span class="vr-counter-label">THREATS FOUND</span>
-                  <span class="vr-counter-val" id="xray-findings">0</span>
-                </div>
-              </div>
+              </section>
             </div>
-
-            <!-- Stage B: Clean Findings List / Results -->
-            <section class="vr-results-stage" id="rescue-results">
-              <div class="vr-clean-card hidden" id="vr-clean-card">
-                <div class="vr-clean-cat" id="vr-clean-cat"></div>
-                <div class="vr-clean-info">
-                  <h2 class="vr-clean-title">System Clean — No Hidden Threats Found</h2>
-                  <p class="vr-clean-sub">All critical system layers, background persistence entries, and memory modules passed inspection. Zero rootkits or Defender-bypasses detected.</p>
-                </div>
-              </div>
-
-              <div class="vr-threats-container hidden" id="vr-threats-container">
-                <div class="vr-threats-head">
-                  <h2 class="vr-threats-title">Detected Threats for Review</h2>
-                  <span class="vr-threats-count-badge" id="vr-threats-badge">0 threats</span>
-                </div>
-                <ul class="vr-threats-list" id="xr-result-findings"></ul>
-              </div>
-
-              <div class="vr-idle-card" id="vr-idle-card">
-                <div class="vr-idle-icon">🛡️</div>
-                <h3>Ready to Protect Your PC</h3>
-                <p>Click "Scan System for Threats" to run a deep scan across all boot sectors, registry autoruns, scheduled tasks, and memory processes.</p>
-              </div>
-
-              <!-- Hidden telemetry for core event hooks -->
-              <div class="hidden" aria-hidden="true" style="display: none;">
-                <canvas id="xray-canvas"></canvas>
-                <span id="xray-hud-inspected">0</span>
-                <span id="xray-hud-coverage">0/10</span>
-                <span id="xray-hud-findings">0</span>
-                <span id="xray-hud-unavailable">0</span>
-                <span id="xray-coverage">0/10</span>
-                <span id="xray-matrix-cover">0/10</span>
-                <ul id="sweep-sources"></ul>
-                <span id="sweep-current"></span>
-                <span id="sweep-items"></span>
-                <p id="xr-actions-note"></p>
-                <h2 id="xr-results-title"></h2>
-                <p id="xr-result-sub"></p>
-                <ul id="xr-result-stats"></ul>
-                <ul id="xr-result-notes"></ul>
-                <p id="xr-result-empty"></p>
-                <ul id="log"></ul>
-                <span id="feed-count"></span>
-                <button id="xray-investigate-btn"></button>
-                <button id="xr-result-open"></button>
-              </div>
-            </section>
           </section>
 
           <!-- ============================================================

@@ -202,8 +202,237 @@ struct RansomFoundEvent {
     path: String,
     detail: String,
 }
+
+fn read_head_bytes(p: &Path, max_bytes: usize) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(p)?;
+    let mut buf = vec![0u8; max_bytes];
+    let n = file.read(&mut buf)?;
+    buf.truncate(n);
+    Ok(buf)
+}
+
+fn run_heuristic_file_sweep(
+    app: &AppHandle,
+    scanned_count: &mut usize,
+) -> Vec<ScoredEntry> {
+    let mut findings: Vec<ScoredEntry> = Vec::new();
+    let mut target_dirs: Vec<PathBuf> = Vec::new();
+
+    target_dirs.push(std::env::temp_dir());
+
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        let local_temp = PathBuf::from(local).join("Temp");
+        if local_temp.exists() && !target_dirs.contains(&local_temp) {
+            target_dirs.push(local_temp);
+        }
+    }
+
+    if let Ok(home) = std::env::var("USERPROFILE") {
+        let home_p = PathBuf::from(home);
+        let downloads = home_p.join("Downloads");
+        if downloads.exists() {
+            target_dirs.push(downloads);
+        }
+        let appdata_roaming = home_p.join("AppData").join("Roaming");
+        if appdata_roaming.exists() {
+            target_dirs.push(appdata_roaming);
+        }
+    }
+
+    for dir in target_dirs {
+        scan_heuristic_dir(app, &dir, 0, 1, scanned_count, &mut findings);
+    }
+
+    findings
+}
+
+fn scan_heuristic_dir(
+    app: &AppHandle,
+    dir: &Path,
+    current_depth: usize,
+    max_depth: usize,
+    scanned_count: &mut usize,
+    findings: &mut Vec<ScoredEntry>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return; };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let file_type = match entry.file_type() {
+            Ok(ft) => ft,
+            Err(_) => continue,
+        };
+
+        if file_type.is_dir() {
+            if current_depth < max_depth {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if !name.starts_with('.') && name != "node_modules" && name != "WindowsApps" {
+                    scan_heuristic_dir(app, &path, current_depth + 1, max_depth, scanned_count, findings);
+                }
+            }
+            continue;
+        }
+
+        if !file_type.is_file() {
+            continue;
+        }
+
+        *scanned_count += 1;
+        let file_name = entry.file_name().to_string_lossy().to_string();
+
+        if (*scanned_count).is_multiple_of(15) {
+            let _ = app.emit("scan-progress", serde_json::json!({
+                "stage": "progress-counter",
+                "count": *scanned_count,
+                "message": format!("Inspecting {}", file_name)
+            }));
+        }
+
+        // 1. Filename spoofing (double extensions / RTLO)
+        if let Some(reason) = cure_core::scanners::heuristics::check_filename_spoofing(&file_name) {
+            let p_entry = PersistenceEntry::new(PersistenceSource::StartupFolder, file_name.clone(), path.to_string_lossy().to_string(), dir.to_string_lossy().to_string());
+            findings.push(ScoredEntry {
+                entry: p_entry,
+                score: 95,
+                risk: RiskLevel::HighRisk,
+                evidence: vec![cure_core::evidence::Evidence::observed(format!(
+                    "Double-extension / spoofed file: {reason}"
+                ))],
+                attack: cure_core::model::AttackInfo { id: "T1036.007".to_string(), name: "Heuristic Detection".to_string() },
+            });
+            continue;
+        }
+
+        // 2. System binary masquerading
+        if let Some(reason) = cure_core::scanners::heuristics::check_system_masquerade(&file_name, &path) {
+            let p_entry = PersistenceEntry::new(PersistenceSource::StartupFolder, file_name.clone(), path.to_string_lossy().to_string(), dir.to_string_lossy().to_string());
+            findings.push(ScoredEntry {
+                entry: p_entry,
+                score: 95,
+                risk: RiskLevel::HighRisk,
+                evidence: vec![cure_core::evidence::Evidence::observed(format!(
+                    "System binary masquerading: {reason}"
+                ))],
+                attack: cure_core::model::AttackInfo { id: "T1036.005".to_string(), name: "Heuristic Detection".to_string() },
+            });
+            continue;
+        }
+
+        // 3. Script obfuscation / LOLBins (ps1, bat, cmd, vbs, hta, wsf)
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+        if cure_core::scanners::heuristics::SCRIPT_EXTENSIONS.contains(&ext.as_str()) {
+            if let Ok(bytes) = read_head_bytes(&path, 65536) {
+                let content = String::from_utf8_lossy(&bytes);
+                if let Some(reason) = cure_core::scanners::heuristics::check_script_content(&content) {
+                    let p_entry = PersistenceEntry::new(PersistenceSource::StartupFolder, file_name.clone(), path.to_string_lossy().to_string(), dir.to_string_lossy().to_string());
+                    findings.push(ScoredEntry {
+                        entry: p_entry,
+                        score: 95,
+                        risk: RiskLevel::HighRisk,
+                        evidence: vec![cure_core::evidence::Evidence::observed(format!(
+                            "Obfuscated script dropper: {reason}"
+                        ))],
+                        attack: cure_core::model::AttackInfo { id: "T1059".to_string(), name: "Heuristic Detection".to_string() },
+                    });
+                }
+            }
+            continue;
+        }
+
+        // 4. High-entropy packed binaries in Temp/Startup
+        if ext == "exe" || ext == "dll" {
+            if let Ok(bytes) = read_head_bytes(&path, 262144) {
+                if let Some(entropy) = cure_core::scanners::heuristics::check_high_entropy(&bytes) {
+                    let sig = cure_core::signature::check_signature(&path);
+                    if sig != SignatureStatus::ValidSigned {
+                        let p_entry = PersistenceEntry::new(PersistenceSource::StartupFolder, file_name.clone(), path.to_string_lossy().to_string(), dir.to_string_lossy().to_string());
+                        findings.push(ScoredEntry {
+                            entry: p_entry,
+                            score: 90,
+                            risk: RiskLevel::HighRisk,
+                            evidence: vec![cure_core::evidence::Evidence::observed(format!(
+                                "High-entropy packed/encrypted binary (entropy: {:.2}): unsigned dropper payload",
+                                entropy
+                            ))],
+                            attack: cure_core::model::AttackInfo { id: "T1027.002".to_string(), name: "Heuristic Detection".to_string() },
+                        });
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[tauri::command]
+async fn delete_threat_entry(
+    id: String,
+    file_path: String,
+    pid: Option<u32>,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        // 1. Terminate process if PID provided
+        if let Some(p) = pid {
+            if p > 4 {
+                let _ = kill_process_by_pid(p);
+            }
+        }
+
+        // 2. Permanently delete file from disk
+        if !file_path.trim().is_empty() {
+            let path = PathBuf::from(&file_path);
+            if path.exists() {
+                let lower = file_path.to_ascii_lowercase();
+                if lower.contains("windows\\system32")
+                    || lower.contains("windows\\syswow64")
+                    || lower == "c:\\windows"
+                    || lower == "c:\\"
+                {
+                    return Err("Refused to delete protected Windows system path".to_string());
+                }
+
+                // Clear read-only permissions if needed
+                if let Ok(metadata) = std::fs::metadata(&path) {
+                    let mut perms = metadata.permissions();
+                    #[allow(clippy::permissions_set_readonly_false)]
+                    perms.set_readonly(false);
+                    let _ = std::fs::set_permissions(&path, perms);
+                }
+
+                std::fs::remove_file(&path)
+                    .map_err(|e| format!("Failed to delete threat file {}: {e}", file_path))?;
+            }
+        }
+
+        Ok(format!("Successfully deleted threat {id}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn spawn_test_stealth_threat() -> Result<String, String> {
+    tokio::task::spawn_blocking(|| {
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("cure_defender_bypass_test.bat");
+        let content = concat!(
+            "@echo off\r\n",
+            "REM CURE-SAFE-TEST-PAYLOAD - Harmless verification file for C.U.R.E detection testing\r\n",
+            "REM This file tests detection of obfuscated stealth droppers that bypass Defender signatures.\r\n",
+            "powershell -WindowStyle Hidden -EncodedCommand SGVsbG8gV29ybGQ=\r\n",
+            "REM [System.Convert]::FromBase64String(\"SGVsbG8=\")\r\n",
+            "exit /b 0\r\n"
+        );
+        std::fs::write(&test_file, content)
+            .map_err(|e| format!("Failed to write test file: {e}"))?;
+        Ok(test_file.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
+    let mut scanned_count: usize = 0;
     let data_dir = resolve_data_dir();
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("cannot create data dir: {e}"))?;
     emit_stage(&app, "registry", "Reading Run / RunOnce autoruns");
@@ -217,6 +446,7 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     {
         let reg = scanners::registry::scan_report();
         record_source_state(&app, &mut source_states, registry_state_row(&reg));
+        scanned_count += reg.entries.len();
         entries.extend(reg.entries);
     }
     #[cfg(not(windows))]
@@ -247,9 +477,11 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     );
     entries.extend(startup_user);
     entries.extend(startup_common);
+    scanned_count += startup_total;
     emit_stage(&app, "tasks", "Parsing scheduled task definitions");
     let task_report = scanners::scheduled_tasks::scan_report(&tasks_root());
     record_source_state(&app, &mut source_states, tasks_state_row(&task_report));
+    scanned_count += task_report.entries.len();
     entries.extend(task_report.entries);
     emit_stage(&app, "services", "Enumerating auto-start services");
     let service_report = scanners::services::scan_report();
@@ -260,6 +492,7 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     );
     let service_records = service_report.records;
     entries.extend(service_records.iter().map(|r| r.entry.clone()));
+    scanned_count += service_records.len();
     #[cfg(windows)]
     {
         emit_stage(&app, "wmi", "Querying WMI event subscriptions");
@@ -298,11 +531,13 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
                 ),
             ),
         );
+        let com_len = com_entries.len();
         entries.extend(com_entries);
         // Detection Engine v2: Winlogon session-start values and Active
         // Setup StubPaths — boot/logon persistence Defender never surfaces.
         emit_stage(&app, "bootlogon", "Checking Winlogon and Active Setup");
         let boot_entries = scanners::bootlogon::scan().unwrap_or_default();
+        let boot_len = boot_entries.len();
         record_source_state(
             &app,
             &mut source_states,
@@ -310,11 +545,12 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
                 "Winlogon & Active Setup",
                 format!(
                     "{} entr{}",
-                    boot_entries.len(),
-                    if boot_entries.len() == 1 { "y" } else { "ies" }
+                    boot_len,
+                    if boot_len == 1 { "y" } else { "ies" }
                 ),
             ),
         );
+        scanned_count += ifeo_total + com_len + boot_len;
         entries.extend(boot_entries);
     }
     #[cfg(not(windows))]
@@ -428,6 +664,14 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
                 score: s.score,
             },
         );
+        let _ = app.emit(
+            "scan-progress",
+            serde_json::json!({
+                "stage": "progress-counter",
+                "count": scanned_count,
+                "message": format!("Inspecting {}", s.entry.name)
+            }),
+        );
         tokio::time::sleep(std::time::Duration::from_millis(per_item_ms)).await;
         // NO automatic remediation here: even HighRisk findings only land in
         // the review queue. Relocation happens exclusively through the
@@ -444,6 +688,7 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     // ── live process scan ──────────────────────────────────────────────
     emit_stage(&app, "process-scan", "Enumerating running processes");
     let processes = process_scan::enumerate_processes();
+    scanned_count += processes.len();
     let mut process_findings: Vec<ProcessFinding> = Vec::new();
     if !processes.is_empty() {
         emit_stage(
@@ -597,10 +842,28 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         )
     };
     record_source_state(&app, &mut source_states, ransom_row);
+    // ── heuristic file sweep (Temp, Downloads, AppData droppers & LOLBins) ─
+    emit_stage(&app, "heuristic-sweep", "Heuristic sweep: inspecting %TEMP%, droppers & stealth scripts");
+    let heuristic_threats = run_heuristic_file_sweep(&app, &mut scanned_count);
+    for h in heuristic_threats {
+        suspicious_for_review.push(h);
+    }
+
     emit_stage(&app, "done", "Saving baseline");
     baseline::save_baseline(&data_dir.join("baseline.json"), &entries)
         .map_err(|e| format!("cannot write baseline: {e}"))?;
-    let total = high_risk_cleaned.len() + suspicious_for_review.len() + safe;
+    let total = scanned_count;
+    if safe < scanned_count {
+        safe = scanned_count.saturating_sub(suspicious_for_review.len() + process_findings.len());
+    }
+    let _ = app.emit(
+        "scan-progress",
+        serde_json::json!({
+            "stage": "progress-counter",
+            "count": total,
+            "message": "Scan complete"
+        }),
+    );
     Ok(ScanSummary {
         total,
         high_risk_cleaned,
@@ -3034,6 +3297,8 @@ fn main() {
     } else {
         builder.invoke_handler(tauri::generate_handler![
             run_auto_scan,
+            delete_threat_entry,
+            spawn_test_stealth_threat,
             list_overlay_candidates,
             close_overlay_window,
             allowlist_overlay,
@@ -5087,5 +5352,43 @@ mod leftover_tests {
             let is_child = leftover.starts_with(&base) && leftover != base;
             assert!(is_child);
         }
+    }
+}
+
+#[cfg(test)]
+mod threat_tests {
+    use super::*;
+
+    #[test]
+    fn test_spawn_and_delete_stealth_threat() {
+        tauri::async_runtime::block_on(async {
+            let spawn_res = spawn_test_stealth_threat().await;
+            assert!(spawn_res.is_ok(), "Failed to spawn test threat: {:?}", spawn_res);
+            let file_path = spawn_res.unwrap();
+            assert!(Path::new(&file_path).exists(), "Spawned file must exist");
+
+            // Verify heuristic scanner catches it
+            let content = std::fs::read_to_string(&file_path).unwrap();
+            let heuristic_reason = cure_core::scanners::heuristics::check_script_content(&content);
+            assert!(heuristic_reason.is_some(), "Heuristic scanner must catch test payload");
+
+            // Verify deletion
+            let del_res = delete_threat_entry("test-id-1".to_string(), file_path.clone(), None).await;
+            assert!(del_res.is_ok(), "Delete threat entry should succeed: {:?}", del_res);
+            assert!(!Path::new(&file_path).exists(), "File should be deleted");
+        });
+    }
+
+    #[test]
+    fn test_delete_threat_refuses_system32() {
+        tauri::async_runtime::block_on(async {
+            let del_res = delete_threat_entry(
+                "bad-id".to_string(),
+                "C:\\Windows\\System32\\cmd.exe".to_string(),
+                None,
+            )
+            .await;
+            assert!(del_res.is_err(), "Must refuse to delete protected system file");
+        });
     }
 }

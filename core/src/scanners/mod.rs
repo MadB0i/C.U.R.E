@@ -2,6 +2,7 @@ pub mod appinit;
 #[cfg(windows)]
 pub mod bootlogon;
 pub mod com;
+pub mod heuristics;
 pub mod ifeo;
 #[cfg(windows)]
 pub mod registry;

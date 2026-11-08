@@ -1075,8 +1075,8 @@
     const c = counts();
 
     if (itemsEl) itemsEl.textContent = state.entries + " entries inspected";
-    if (inspectedEl) inspectedEl.textContent = String(state.entries);
-    if (findingsEl) findingsEl.textContent = String(state.findings);
+    if (inspectedEl && !window.CureVirusRescueClean) inspectedEl.textContent = String(state.entries);
+    if (findingsEl && !window.CureVirusRescueClean) findingsEl.textContent = String(state.findings);
     if (coverageEl) coverageEl.textContent = c.covered + " / " + c.total;
     if (matrixCoverEl) {
       matrixCoverEl.textContent = c.covered + " / " + c.total + " checked";
