@@ -106,6 +106,93 @@ pub fn roots_with_report(depth: ScanDepth, extra: &[PathBuf]) -> (Vec<ScanRoot>,
         });
     };
 
+    // ---- developer & AI toolchain caches (priority scan on user profile) -
+    if !profile.as_os_str().is_empty() {
+        // 1. Dynamic discovery of top-level dot-directories under %USERPROFILE%
+        // E.g. .codex, .gradle, .android, .cache, .rustup, .lmstudio, .vscode, .cargo, .gemini, .npm, etc.
+        if let Ok(readers) = std::fs::read_dir(&profile) {
+            for entry in readers.flatten() {
+                let p = entry.path();
+                if p.is_dir() && !fsx_is_link(&p) {
+                    if let Some(name) = p
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|s| s.to_string())
+                    {
+                        if name.starts_with('.') && name.len() > 1 {
+                            push(
+                                &mut roots,
+                                &mut seen,
+                                p,
+                                StorageClass::DevCache,
+                                &format!("Developer cache ({name})"),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        // 2. Known dev cache directory names in profile root (including non-dot names like node_modules)
+        for name in super::tiers::DEV_CACHE_DIR_NAMES {
+            let p = profile.join(name);
+            if p.is_dir() {
+                push(
+                    &mut roots,
+                    &mut seen,
+                    p,
+                    StorageClass::DevCache,
+                    &format!("Developer cache ({name})"),
+                );
+            }
+        }
+    }
+
+    // Heavy developer tool caches under %LOCALAPPDATA%
+    if !local.as_os_str().is_empty() {
+        for (rel, label) in [
+            ("pip\\cache", "pip cache"),
+            ("npm-cache", "npm cache"),
+            ("Yarn\\Cache", "Yarn cache"),
+            ("pnpm\\store", "pnpm store"),
+            ("HuggingFace\\hub", "HuggingFace models"),
+            ("Ollama", "Ollama models"),
+            ("torch\\kernels", "PyTorch kernel cache"),
+            ("Caches", "cross-platform cache"),
+        ] {
+            let p = local.join(rel);
+            if p.is_dir() {
+                push(
+                    &mut roots,
+                    &mut seen,
+                    p,
+                    StorageClass::DevCache,
+                    &format!("Developer cache ({label})"),
+                );
+            }
+        }
+    }
+
+    // ---- user profile data directories -----------------------------------
+    push(
+        &mut roots,
+        &mut seen,
+        profile.join("Downloads"),
+        StorageClass::UserSelected,
+        "Downloads",
+    );
+    for user_sub in ["Videos", "Documents", "Desktop"] {
+        let p = profile.join(user_sub);
+        if p.is_dir() {
+            push(
+                &mut roots,
+                &mut seen,
+                p,
+                StorageClass::UserSelected,
+                user_sub,
+            );
+        }
+    }
+
     // ---- user temp -------------------------------------------------------
     if let Some(t) = env_path("TEMP").or_else(|| env_path("TMP")) {
         push(
@@ -259,96 +346,6 @@ pub fn roots_with_report(depth: ScanDepth, extra: &[PathBuf]) -> (Vec<ScanRoot>,
             StorageClass::DiagnosticLogs,
             "Internet cache",
         );
-    }
-
-    // ---- downloads -------------------------------------------------------
-    // Measured here so old installers and downloads appear in the inventory,
-    // but classified per-file by the caller: an `.msi` and a `.pdf` in the
-    // same folder are not the same proposition.
-    push(
-        &mut roots,
-        &mut seen,
-        profile.join("Downloads"),
-        StorageClass::UserSelected,
-        "Downloads",
-    );
-    for user_sub in ["Videos", "Documents", "Desktop"] {
-        let p = profile.join(user_sub);
-        if p.is_dir() {
-            push(
-                &mut roots,
-                &mut seen,
-                p,
-                StorageClass::UserSelected,
-                user_sub,
-            );
-        }
-    }
-
-    // ---- developer & AI toolchain caches (both Quick and Deep) -----------
-    if !profile.as_os_str().is_empty() {
-        // 1. Dynamic discovery of top-level dot-directories under %USERPROFILE%
-        // E.g. .codex, .gradle, .android, .cache, .rustup, .lmstudio, .vscode, .cargo, .gemini, .npm, etc.
-        if let Ok(readers) = std::fs::read_dir(&profile) {
-            for entry in readers.flatten() {
-                let p = entry.path();
-                if p.is_dir() && !fsx_is_link(&p) {
-                    if let Some(name) = p
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .map(|s| s.to_string())
-                    {
-                        if name.starts_with('.') && name.len() > 1 {
-                            push(
-                                &mut roots,
-                                &mut seen,
-                                p,
-                                StorageClass::DevCache,
-                                &format!("Developer cache ({name})"),
-                            );
-                        }
-                    }
-                }
-            }
-        }
-        // 2. Known dev cache directory names in profile root (including non-dot names like node_modules)
-        for name in super::tiers::DEV_CACHE_DIR_NAMES {
-            let p = profile.join(name);
-            if p.is_dir() {
-                push(
-                    &mut roots,
-                    &mut seen,
-                    p,
-                    StorageClass::DevCache,
-                    &format!("Developer cache ({name})"),
-                );
-            }
-        }
-    }
-
-    // Heavy developer tool caches under %LOCALAPPDATA%
-    if !local.as_os_str().is_empty() {
-        for (rel, label) in [
-            ("pip\\cache", "pip cache"),
-            ("npm-cache", "npm cache"),
-            ("Yarn\\Cache", "Yarn cache"),
-            ("pnpm\\store", "pnpm store"),
-            ("HuggingFace\\hub", "HuggingFace models"),
-            ("Ollama", "Ollama models"),
-            ("torch\\kernels", "PyTorch kernel cache"),
-            ("Caches", "cross-platform cache"),
-        ] {
-            let p = local.join(rel);
-            if p.is_dir() {
-                push(
-                    &mut roots,
-                    &mut seen,
-                    p,
-                    StorageClass::DevCache,
-                    &format!("Developer cache ({label})"),
-                );
-            }
-        }
     }
 
     // ---- deep scan extensions -------------------------------------------
@@ -558,8 +555,8 @@ pub fn limits_for(depth: ScanDepth) -> WalkLimits {
     match depth {
         ScanDepth::Quick => WalkLimits {
             max_depth: 16,
-            max_entries: 80_000,
-            max_duration_ms: 2_500,
+            max_entries: 30_000,
+            max_duration_ms: 800,
             min_item_size: 0,
             idle_days: 30,
             recent_file_seconds: 3600,

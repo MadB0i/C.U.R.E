@@ -3265,23 +3265,36 @@ fn storage_reveal(path: String) -> Result<String, String> {
 async fn storage_remove_leftover(path: String) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
         let p = PathBuf::from(&path);
-        if !p.exists() || !p.is_dir() {
-            return Err("Folder does not exist.".to_string());
-        }
-        let allowed = ["APPDATA", "LOCALAPPDATA", "ProgramData", "USERPROFILE"].iter().any(|var| {
-            if let Some(base) = std::env::var_os(var).map(PathBuf::from) {
-                p.starts_with(&base) && p != base
-            } else {
-                false
-            }
-        });
-        if !allowed {
-            return Err("Removal refused: folder is outside safe application data directories.".to_string());
+        if !p.exists() {
+            return Err("File or folder does not exist.".to_string());
         }
 
-        let lower = path.to_lowercase();
-        if lower.contains(r"\windows\\") || lower.contains(r"\system32") || lower.contains(r"\program files") {
-            return Err("Removal refused: protected system directory.".to_string());
+        // Never delete drive roots (e.g. C:\, D:\)
+        if p.parent().is_none() || p.components().count() <= 1 {
+            return Err("Removal refused: cannot delete drive root.".to_string());
+        }
+
+        let lower = path.to_lowercase().replace('/', "\\");
+        // Refuse protected system and OS containers
+        if lower.contains(r"\windows")
+            || lower.contains(r"\system32")
+            || lower.contains(r"\syswow64")
+            || lower.contains(r"\program files")
+            || lower == r"c:\users"
+            || lower == r"c:\programdata"
+            || lower == r"c:\windows"
+        {
+            return Err("Removal refused: protected system directory or root.".to_string());
+        }
+
+        // Safely strip read-only attributes so deletion proceeds cleanly
+        if let Ok(metadata) = std::fs::metadata(&p) {
+            let mut permissions = metadata.permissions();
+            if permissions.readonly() {
+                #[allow(clippy::permissions_set_readonly_false)]
+                permissions.set_readonly(false);
+                let _ = std::fs::set_permissions(&p, permissions);
+            }
         }
 
         #[cfg(windows)]

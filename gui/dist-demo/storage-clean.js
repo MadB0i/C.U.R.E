@@ -221,32 +221,45 @@
   function renderHighestConsumers(scan) {
     if (!scan) return;
 
-    const folders = (scan.large_folders || []).filter(function (f) {
+    const rawFolders = (scan.large_folders && scan.large_folders.length)
+      ? scan.large_folders
+      : (scan.folders || []);
+
+    const folders = rawFolders.filter(function (f) {
       const p = (f.path || "").toLowerCase().replace(/\\/g, "/");
       return !(p === "c:" || p === "c:/" || p === "d:" || p === "d:/" || p.endsWith("/windows") || p.endsWith("/system32"));
     });
 
     const files = (scan.large_files || scan.files || []).slice(0, 40);
 
+    const seenPaths = new Set();
     const items = [];
     folders.forEach(function (f) {
-      items.push({
-        isFolder: true,
-        id: f.id,
-        path: f.path,
-        name: f.name || f.path.split(/[\\/]/).pop(),
-        bytes: f.size_allocated || f.size_logical || 0,
-      });
+      const p = (f.path || "").toLowerCase();
+      if (!seenPaths.has(p)) {
+        seenPaths.add(p);
+        items.push({
+          isFolder: true,
+          id: f.id || f.path,
+          path: f.path,
+          name: f.name || f.path.split(/[\\/]/).pop(),
+          bytes: f.size_allocated || f.size_logical || 0,
+        });
+      }
     });
 
     files.forEach(function (fi) {
-      items.push({
-        isFolder: false,
-        id: fi.path,
-        path: fi.path,
-        name: fi.name || fi.path.split(/[\\/]/).pop(),
-        bytes: fi.size_allocated || fi.size_logical || 0,
-      });
+      const p = (fi.path || "").toLowerCase();
+      if (!seenPaths.has(p)) {
+        seenPaths.add(p);
+        items.push({
+          isFolder: false,
+          id: fi.path,
+          path: fi.path,
+          name: fi.name || fi.path.split(/[\\/]/).pop(),
+          bytes: fi.size_allocated || fi.size_logical || 0,
+        });
+      }
     });
 
     // Sort strictly descending by size

@@ -154,7 +154,7 @@ pub fn scan(
             any_cancelled = true;
             break;
         }
-        if options.depth == catalog::ScanDepth::Quick && started_at.elapsed().as_millis() > 8_000 {
+        if options.depth == catalog::ScanDepth::Quick && started_at.elapsed().as_millis() > 5_000 {
             break;
         }
 
@@ -458,13 +458,9 @@ pub fn rollup_folder_sizes(folders: &mut [types::FolderRecord]) {
         path_to_idx.insert(f.path.clone(), i);
     }
 
-    // Sort indices by path component count descending (deepest paths first)
+    // Sort indices by depth descending (deepest paths first)
     let mut order: Vec<usize> = (0..folders.len()).collect();
-    order.sort_by(|&a, &b| {
-        let da = folders[a].path.components().count();
-        let db = folders[b].path.components().count();
-        db.cmp(&da)
-    });
+    order.sort_unstable_by(|&a, &b| folders[b].depth.cmp(&folders[a].depth));
 
     for idx in order {
         let child_path = folders[idx].path.clone();
