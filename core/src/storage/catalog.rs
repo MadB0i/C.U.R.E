@@ -555,8 +555,8 @@ pub fn limits_for(depth: ScanDepth) -> WalkLimits {
     match depth {
         ScanDepth::Quick => WalkLimits {
             max_depth: 16,
-            max_entries: 30_000,
-            max_duration_ms: 800,
+            max_entries: 100_000,
+            max_duration_ms: 4_000,
             min_item_size: 0,
             idle_days: 30,
             recent_file_seconds: 3600,

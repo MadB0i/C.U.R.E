@@ -221,45 +221,78 @@
   function renderHighestConsumers(scan) {
     if (!scan) return;
 
+    function norm(p) {
+      return (p || "").toLowerCase().replace(/\\/g, "/").replace(/\/+$/, "");
+    }
+
     const rawFolders = (scan.large_folders && scan.large_folders.length)
       ? scan.large_folders
       : (scan.folders || []);
 
     const folders = rawFolders.filter(function (f) {
-      const p = (f.path || "").toLowerCase().replace(/\\/g, "/");
+      const p = norm(f.path);
       return !(p === "c:" || p === "c:/" || p === "d:" || p === "d:/" || p.endsWith("/windows") || p.endsWith("/system32"));
     });
 
-    const files = (scan.large_files || scan.files || []).slice(0, 40);
+    // 1. Sort candidate folders by size descending; if sizes equal, pick shallower path
+    const candidateFolders = folders.slice().sort(function (a, b) {
+      const bSize = b.size_allocated || b.size_logical || 0;
+      const aSize = a.size_allocated || a.size_logical || 0;
+      if (bSize !== aSize) return bSize - aSize;
+      return (a.path || "").length - (b.path || "").length;
+    });
 
-    const seenPaths = new Set();
-    const items = [];
-    folders.forEach(function (f) {
-      const p = (f.path || "").toLowerCase();
-      if (!seenPaths.has(p)) {
-        seenPaths.add(p);
-        items.push({
-          isFolder: true,
-          id: f.id || f.path,
-          path: f.path,
-          name: f.name || f.path.split(/[\\/]/).pop(),
-          bytes: f.size_allocated || f.size_logical || 0,
-        });
+    // 2. Select top-level folders: strictly filter out any folder that is inside an already accepted folder
+    const topLevelFolders = [];
+    const topLevelNorms = [];
+
+    candidateFolders.forEach(function (f) {
+      const np = norm(f.path);
+      if (!np) return;
+      const isNested = topLevelNorms.some(function (top) {
+        return np === top || np.startsWith(top + "/");
+      });
+      if (!isNested) {
+        topLevelFolders.push(f);
+        topLevelNorms.push(np);
       }
     });
 
-    files.forEach(function (fi) {
-      const p = (fi.path || "").toLowerCase();
-      if (!seenPaths.has(p)) {
-        seenPaths.add(p);
-        items.push({
-          isFolder: false,
-          id: fi.path,
-          path: fi.path,
-          name: fi.name || fi.path.split(/[\\/]/).pop(),
-          bytes: fi.size_allocated || fi.size_logical || 0,
-        });
+    // 3. Process candidate files: filter out any file sitting inside an already accepted folder
+    const candidateFiles = (scan.large_files || scan.files || []);
+    const topLevelFiles = [];
+
+    candidateFiles.forEach(function (fi) {
+      const np = norm(fi.path);
+      if (!np) return;
+      const isInsideFolder = topLevelNorms.some(function (top) {
+        return np.startsWith(top + "/");
+      });
+      if (!isInsideFolder) {
+        topLevelFiles.push(fi);
       }
+    });
+
+    // 4. Combine top-level folders & standalone files
+    const items = [];
+    topLevelFolders.forEach(function (f) {
+      items.push({
+        isFolder: true,
+        id: f.id || f.path,
+        path: f.path,
+        name: f.name || f.path.split(/[\\/]/).pop(),
+        bytes: f.size_allocated || f.size_logical || 0,
+      });
+    });
+
+    topLevelFiles.forEach(function (fi) {
+      items.push({
+        isFolder: false,
+        id: fi.path,
+        path: fi.path,
+        name: fi.name || fi.path.split(/[\\/]/).pop(),
+        bytes: fi.size_allocated || fi.size_logical || 0,
+      });
     });
 
     // Sort strictly descending by size

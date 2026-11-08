@@ -3366,9 +3366,6 @@ async fn list_uninstalled_leftovers() -> Result<Vec<StorageAbandonedDto>, String
         if let Some(r) = std::env::var_os("APPDATA").map(PathBuf::from) {
             bases.push(r);
         }
-        if let Some(pd) = std::env::var_os("ProgramData").map(PathBuf::from) {
-            bases.push(pd);
-        }
 
         // Always prioritize the safe test leftover if created
         if let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
@@ -3402,8 +3399,17 @@ async fn list_uninstalled_leftovers() -> Result<Vec<StorageAbandonedDto>, String
             .collect();
 
         let known_system = [
-            "microsoft", "windows", "packages", "temp", "system", "crashdumps",
-            "programs", "google", "mozilla", "bravesoftware", "cure", "elevateddiagnostics"
+            "microsoft", "windows", "packages", "temp", "tmp", "system", "crashdumps",
+            "programs", "google", "chrome", "mozilla", "firefox", "brave", "bravesoftware",
+            "cure", "cure_gui", "cure-watch", "cure-cli",
+            "antigravity", "gemini", "codex", "gradle", "android", "vscode", "code",
+            "npm", "cargo", "rustup", "pip", "yarn", "pnpm", "python", "node", "nodejs",
+            "nvidia", "intel", "amd", "realtek", "steam", "epic games", "git", "github",
+            "jetbrains", "docker", "ollama", "lmstudio", "virtualbox",
+            "elevateddiagnostics", "connecteddevicesplatform", "comms", "identityhx",
+            "locallow", "assembly", "diagnostics", "d3dscache", "iconcache",
+            "obsidian", "slack", "discord", "spotify", "notion", "telegram",
+            "whatsapp", "zoom", "dropbox", "onedrive", "adobe", "vlc", "7-zip"
         ];
 
         let now = std::time::SystemTime::now();
@@ -3415,11 +3421,20 @@ async fn list_uninstalled_leftovers() -> Result<Vec<StorageAbandonedDto>, String
                 if !p.is_dir() { continue };
                 let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
                 if name.is_empty() || name == "OldUninstalledGame_Leftover_Test" { continue };
-                let lower = name.to_lowercase();
-                if known_system.iter().any(|k| lower == *k || lower.starts_with(k)) {
+                // NEVER flag dot-directories (active developer environments like .codex, .gradle, .vscode)
+                if name.starts_with('.') {
                     continue;
                 }
-                let matches_installed = app_names.iter().any(|a| a.contains(&lower) || lower.contains(a.as_str()));
+                let lower = name.to_lowercase();
+                if known_system.iter().any(|k| lower == *k || lower.starts_with(k) || lower.contains(k)) {
+                    continue;
+                }
+                let matches_installed = app_names.iter().any(|a| {
+                    if a.is_empty() || a.len() < 3 {
+                        return false;
+                    }
+                    a.contains(&lower) || lower.contains(a.as_str())
+                });
                 if matches_installed {
                     continue;
                 }
@@ -3442,7 +3457,7 @@ async fn list_uninstalled_leftovers() -> Result<Vec<StorageAbandonedDto>, String
                     }
                 }
 
-                if size > 100_000 || days >= 14 {
+                if size >= 500_000 && days >= 30 {
                     out.push(StorageAbandonedDto {
                         path: p.to_string_lossy().into_owned(),
                         app_name: name,

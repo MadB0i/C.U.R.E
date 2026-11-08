@@ -154,7 +154,7 @@ pub fn scan(
             any_cancelled = true;
             break;
         }
-        if options.depth == catalog::ScanDepth::Quick && started_at.elapsed().as_millis() > 5_000 {
+        if options.depth == catalog::ScanDepth::Quick && started_at.elapsed().as_millis() > 15_000 {
             break;
         }
 
@@ -593,13 +593,18 @@ pub fn deduplicate_parent_wrapper_folders(folders: &mut Vec<types::FolderRecord>
         let p_trim = p_norm.trim_end_matches('/');
 
         // If P is a top-level directory directly under %USERPROFILE% (e.g. .codex, .gradle, Downloads),
-        // keep it as the primary actionable folder.
+        // keep it as the primary actionable folder and suppress all of its descendant subfolders.
         if !up_trim.is_empty() && p_trim.starts_with(up_trim) {
             let rel = p_trim
                 .strip_prefix(up_trim)
                 .unwrap_or("")
                 .trim_start_matches('/');
             if !rel.contains('/') && !rel.is_empty() {
+                for (j, c_folder) in folders.iter().enumerate() {
+                    if i != j && tiers::is_under(&c_folder.path, p_path) {
+                        suppress.insert(j);
+                    }
+                }
                 continue;
             }
         }
