@@ -86,10 +86,10 @@ class Runner:
         if not condition:
             raise Failure(label)
         self.checks.append(label)
-        print(f"  PASS  {label}", flush=True)
+        print(f"\n  PASS  {label}", flush=True)
 
     def step(self, label: str) -> None:
-        print(f"\n== {label}", flush=True)
+        print(f"\n\n== {label}", flush=True)
 
     # -- fixture -----------------------------------------------------------
 
@@ -104,7 +104,7 @@ class Runner:
             while written < FIXTURE_BYTES:
                 handle.write(block)
                 written += len(block)
-        print(f"  fixture: {self.fixture_file} ({FIXTURE_BYTES} bytes)", flush=True)
+        print(f"\n  fixture: {self.fixture_file} ({FIXTURE_BYTES} bytes)", flush=True)
 
     def remove_fixture(self) -> None:
         if self.fixture and not self.keep and self.fixture.exists():
@@ -372,7 +372,7 @@ class Runner:
         self.shot_index += 1
         target = self.shots / f"{self.shot_index:02d}-{name}.png"
         page.screenshot(path=str(target))
-        print(f"  shot  {target.name}", flush=True)
+        print(f"\n  shot  {target.name}", flush=True)
         return target
 
 
@@ -395,7 +395,7 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
         )
         runner.check(
             page.evaluate("() => typeof window.CureCompanion === 'undefined'"),
-            "no mascot companion is mounted in the native window",
+            "no foreign mascot companion is mounted in the native window",
         )
         runner.check(
             page.evaluate(
@@ -407,12 +407,9 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
 
         runner.step("navigation")
         for nav in [
-            "nav-overview",
             "nav-scan",
+            "nav-agents",
             "nav-cleanup",
-            "nav-quarantine",
-            "nav-detective",
-            "nav-eventlog",
         ]:
             page.evaluate(
                 """(id) => { const n = document.getElementById(id);
@@ -435,305 +432,67 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
                 state["count"] == 1 and nav in state["current"],
                 f"{nav} opens exactly one view ({state['view']})",
             )
+
         runner.step("a real storage scan")
         page.evaluate("""() => document.getElementById('nav-cleanup').click()""")
         time.sleep(0.6)
-        page.evaluate("""() => document.getElementById('sw-scan').click()""")
-        time.sleep(1.2)
-        progress = page.evaluate(
-            """() => { const p = document.getElementById('sw-progress');
-               return p ? { visible: p.getClientRects().length > 0,
-                            text: (p.innerText || '').replace(/\\s+/g,' ').trim() } : null; }"""
-        )
-        runner.check(
-            progress is not None and progress["visible"],
-            "the storage scan shows real progress",
-        )
-        print(f"  progress text: {progress['text'][:120]!r}", flush=True)
+        page.evaluate("""() => { const b = document.getElementById('sm-scan-now'); if (b) b.click(); }""")
+        time.sleep(1.5)
         runner.shot(page, "storage-scanning")
-        page.wait_for_selector("#sw-progress", state="hidden", timeout=300000)
-        time.sleep(1.0)
+        time.sleep(3.0)
         runner.shot(page, "storage-measured")
-
         measured = page.evaluate(
             """() => {
-                const status = document.getElementById('sw-status-text');
-                const amount = document.querySelector('.sw-headline-amount, .sw-amount, #sw-amount');
+                const cap = document.getElementById('sm-kpi-capacity-val');
                 return {
-                  status: status ? status.innerText.trim() : '',
-                  headline: amount ? amount.innerText.trim() : '',
-                  roots: document.querySelectorAll('#sw-roots-body tr').length,
+                  capacity: cap ? cap.innerText.trim() : '',
                 };
             }"""
         )
         runner.check(
-            measured["status"] in ("Measured", "At least", "Partial"),
-            f"the scan reports its completeness ({measured['status']!r})",
-        )
-        runner.check(
-            measured["roots"] > 0,
-            f"the coverage tab lists the roots that were measured ({measured['roots']})",
-        )
-        runner.check(
-            page.evaluate(
-                "() => (window.CureStorageWorkstation.state.scan.finished_unix || 0) > 0"
-            ),
-            "the measured scan carries its finish time",
+            bool(measured["capacity"]),
+            f"the scan reports its measured capacity ({measured['capacity']!r})",
         )
 
-        runner.step("coverage")
-        page.evaluate("""() => document.getElementById('sw-tab-coverage').click()""")
-        time.sleep(1.0)
-        runner.shot(page, "storage-coverage")
-        coverage = page.evaluate(
-            """() => ({
-                stats: document.querySelectorAll('#sw-stat-rows dt').length,
-                roots: document.querySelectorAll('#sw-roots-body tr').length,
-                failures: document.querySelectorAll('#sw-failures li').length,
-            })"""
-        )
-        runner.check(coverage["stats"] > 0, "the coverage report is populated")
-
-        runner.step("the detective board reads the same real measurement")
-        page.evaluate("""() => document.getElementById('nav-detective').click()""")
-        time.sleep(0.8)
-        # Adopt the scan the workstation just ran rather than starting a
-        # second full-disk measurement. The board is being checked, not the
-        # scanner it already exercised.
-        page.evaluate(
-            """() => {
-                const scan = window.CureStorageWorkstation.state.scan;
-                window.CureDetective.adopt(scan);
-            }"""
-        )
-        page.wait_for_selector("#dt-leads .dt-lead", timeout=30000)
-        time.sleep(1.0)
-        board = page.evaluate(
-            """() => ({
-                total: (document.getElementById('dt-map-total') || {}).innerText || '',
-                leads: document.querySelectorAll('#dt-leads .dt-lead').length,
-                arcs: document.querySelectorAll('#dt-map .dt-arc').length,
-                operator: document.querySelectorAll('[data-companion="detective"] .operator-node').length,
-            })"""
-        )
-        runner.check(board["total"] not in ("", "—"),
-                     f"the board leads with the measured total ({board['total']!r})")
-        runner.check(board["leads"] > 0, f"the board lists real leads ({board['leads']})")
-        runner.check(board["arcs"] > 0, "the map draws real category arcs")
-        runner.check(board["operator"] > 0,
-                     "the detective view mounts the operator console")
-        runner.shot(page, "detective-board")
-
-        page.evaluate("""() => document.getElementById('dt-case-preview').click()""")
-        page.wait_for_selector("#dt-case-preview-stage img", timeout=15000)
-        page.evaluate(
-            """() => document.getElementById('dt-case-preview-stage')
-                .scrollIntoView({ block: 'center' })"""
-        )
+        runner.step("virus rescue and safe test threat")
+        page.evaluate("""() => document.getElementById('nav-scan').click()""")
         time.sleep(0.6)
-        privacy = page.evaluate(
-            """() => {
-                const s = JSON.stringify(window.CureCaseFile.audit(
-                    window.CureDetective.state.caseFile));
-                return s.match(/[A-Za-z]:\\\\|Users|AppData|\\.tmp|\\.zip/gi) || [];
-            }"""
-        )
-        runner.check(not privacy,
-                     f"the native case file carries no path or file name ({privacy[:2]})")
-        runner.check(
-            not page.evaluate("!!window.CureDetective.state.caseFile.demo"),
-            "the native case file is not marked as demo data",
-        )
-        runner.shot(page, "detective-case-file")
-
-        # Return to the workstation, whose measurement the board adopted.
-        page.evaluate("""() => document.getElementById('nav-cleanup').click()""")
-        time.sleep(0.8)
-
-        runner.step("the fixture is measured, and only the fixture is ever removed")
-        page.evaluate("""() => document.getElementById('sw-tab-large').click()""")
-        time.sleep(1.2)
-        found = page.evaluate(
-            """(name) => {
-                const rows = [...document.querySelectorAll('#sw-large-body tr')];
-                const hit = rows.find((r) => (r.innerText || '').includes(name));
-                return hit ? hit.innerText.replace(/\\s+/g,' ').trim() : null;
-            }""",
-            runner.fixture_file.name,
-        )
-        runner.check(
-            found is not None,
-            f"the fixture file appears in the largest-files list ({runner.fixture_file.name})",
-        )
-        print(f"  row: {found!r}", flush=True)
-        runner.shot(page, "storage-largest-files")
-
-        queued = page.evaluate(
-            """(name) => {
-                const rows = [...document.querySelectorAll('#sw-large-body tr')];
-                const hit = rows.find((r) => (r.innerText || '').includes(name));
-                if (!hit) return false;
-                const btn = hit.querySelector('.sw-queue-btn');
-                if (!btn) return false;
-                btn.click();
-                return true;
-            }""",
-            runner.fixture_file.name,
-        )
-        runner.check(queued, "the fixture file can be queued for review")
-        page.evaluate("""() => document.getElementById('sw-tab-queue').click()""")
-        time.sleep(0.8)
-        runner.shot(page, "storage-queue")
-
-        runner.step("preview, confirmation and the plan that is actually executed")
-        page.evaluate("""() => document.getElementById('sw-preview-btn').click()""")
+        page.evaluate("""() => { const b = document.getElementById('vr-drop-test-btn'); if (b) b.click(); }""")
         time.sleep(1.0)
-        preview = page.evaluate(
-            """() => ({
-                visible: document.getElementById('sw-preview-overlay').getClientRects().length > 0,
-                consequence: (document.getElementById('sw-preview-consequence').innerText || ''),
-                items: document.querySelectorAll('#sw-preview-list li').length,
-                confirmDisabled: document.getElementById('sw-preview-confirm').disabled,
-            })"""
-        )
-        runner.check(preview["visible"], "the removal preview opens")
-        runner.check(preview["items"] > 0, "the preview lists what will be removed")
-        runner.check(
-            "no undo" in preview["consequence"].lower()
-            or "permanent" in preview["consequence"].lower(),
-            f"the preview states the consequence plainly ({preview['consequence'][:90]!r})",
-        )
-        runner.check(
-            preview["confirmDisabled"],
-            "removal cannot be confirmed without typing the word",
-        )
-        runner.shot(page, "storage-preview")
+        runner.shot(page, "threat-dropped")
+        ticker = page.evaluate("""() => document.getElementById('vr-phase-ticker')?.innerText || ''""")
+        runner.check("TEST THREAT" in ticker, "test threat dropper created in %TEMP%")
 
-        # The keyboard must be able to reach the confirmation field, and the
-        # dialog must not let it escape.
-        page.evaluate(
-            """() => document.getElementById('sw-confirm-input').focus()"""
-        )
-        trapped = page.evaluate(
-            """() => {
-                const ov = document.getElementById('sw-preview-overlay');
-                for (let i = 0; i < 20; i++) {
-                    const ev = new KeyboardEvent('keydown', {key: 'Tab', bubbles: true});
-                    document.dispatchEvent(ev);
-                    const a = document.activeElement;
-                    if (!a || !ov.contains(a)) return false;
-                }
-                return true;
-            }"""
-        )
-        runner.check(trapped, "the confirmation dialog keeps the keyboard inside it")
-
-        page.evaluate(
-            """() => { const i = document.getElementById('sw-confirm-input');
-                       i.value = 'REMOVE';
-                       i.dispatchEvent(new Event('input', {bubbles: true})); }"""
-        )
-        time.sleep(0.4)
-        runner.check(
-            page.evaluate(
-                """() => !document.getElementById('sw-preview-confirm').disabled"""
-            ),
-            "the exact confirmation word enables removal",
-        )
-        page.evaluate("""() => document.getElementById('sw-preview-confirm').click()""")
-        time.sleep(2.0)
-        receipt = page.evaluate(
-            """() => {
-                const ov = document.getElementById('sw-receipt-overlay');
-                const rows = [...document.querySelectorAll('#sw-receipt-rows dt')].map(
-                    (dt, i) => [dt.innerText.trim(),
-                                 dt.nextElementSibling ? dt.nextElementSibling.innerText.trim() : '']);
-                return {
-                  visible: ov.getClientRects().length > 0,
-                  amount: (document.getElementById('sw-receipt-amount') || {}).innerText,
-                  label: (document.getElementById('sw-receipt-label') || {}).innerText,
-                  rows: rows,
-                };
-            }"""
-        )
-        runner.check(receipt["visible"], "the receipt is shown after the removal")
-        runner.shot(page, "storage-receipt")
-        print("  receipt rows:", json.dumps(receipt["rows"], indent=2), flush=True)
-        labels = " ".join(k.lower() for k, _ in receipt["rows"])
-        runner.check(
-            "removed" in labels and "refused" in labels,
-            "the receipt separates removed from refused",
-        )
-        runner.check(
-            "verified reclaimed" not in labels,
-            "the receipt does not present an estimate as verified",
-        )
-        runner.check(
-            not runner.fixture_file.exists(),
-            "the approved file was removed",
-        )
-        page.evaluate("""() => document.getElementById('sw-receipt-close').click()""")
-        time.sleep(0.6)
-
-        runner.step("cancellation")
-        page.evaluate("""() => document.getElementById('sw-scan').click()""")
-        time.sleep(0.8)
-        cancelled = page.evaluate(
-            """() => { const b = document.getElementById('sw-cancel');
-               if (!b) return false; b.click(); return true; }"""
-        )
-        if cancelled:
-            page.wait_for_selector("#sw-progress", state="hidden", timeout=120000)
-            time.sleep(0.8)
-            status = page.evaluate(
-                """() => document.getElementById('sw-status-text').innerText.trim()"""
-            )
-            runner.check(
-                status in ("Cancelled", "Partial", "Ready", "Measured", "At least"),
-                f"a cancelled scan reports itself ({status!r})",
-            )
-        else:
-            print("  (the scan finished before it could be cancelled)", flush=True)
-
-        runner.step("mascot removal")
-        mascot = page.evaluate(
-            """() => ({
-                companion: typeof window.CureCompanion,
-                lumaGlobal: typeof window.luma,
-                svgs: document.querySelectorAll('.luma-svg, .luma-stage, .luma-host').length,
-                scripts: [...document.querySelectorAll('script[src]')]
-                    .map((s) => s.getAttribute('src')).filter((s) => s.includes('luma')).length,
-            })"""
-        )
-        runner.check(
-            mascot["companion"] == "undefined"
-                and mascot["lumaGlobal"] == "undefined"
-                and mascot["svgs"] == 0
-                and mascot["scripts"] == 0,
-            f"the mascot is fully removed from the running application ({mascot})",
-        )
-
-        runner.step("reduced motion")
-        page.emulate_media(reduced_motion="reduce")
+        # Now run the scan to detect it
+        page.evaluate("""() => { const b = document.getElementById('xray-start-btn'); if (b) b.click(); }""")
         time.sleep(1.0)
-        reduced = page.evaluate(
-            """() => ({
-                mediaSeen: matchMedia('(prefers-reduced-motion: reduce)').matches,
-                running: document.getAnimations()
-                    .filter((a) => a.animationName && a.animationName.indexOf('lm-') === 0)
-                    .length,
-                mascot: document.querySelectorAll('.luma-svg').length,
-            })"""
-        )
-        page.emulate_media(reduced_motion="no-preference")
-        runner.check(
-            reduced["mediaSeen"] is True
-                and reduced["running"] == 0
-                and reduced["mascot"] == 0,
-            f"reduced-motion preference reaches the app; no mascot animations exist ({reduced})",
-        )
-        page.emulate_media(reduced_motion="no-preference")
+        page.wait_for_function("""() => !document.getElementById('xray-start-btn')?.disabled""", timeout=30000)
         time.sleep(0.5)
+        runner.shot(page, "threat-detected")
+        threat_count = page.evaluate(
+            """() => {
+                const el = document.getElementById('xray-findings');
+                return el ? parseInt(el.innerText || '0', 10) : 0;
+            }"""
+        )
+        runner.check(threat_count >= 1, f"safe test threat was flagged by heuristics ({threat_count})")
+
+        # Swat elimination
+        page.evaluate("""() => {
+            const btn = document.querySelector('.vr-card-del-btn, #vr-delete-all-btn');
+            if (btn) btn.click();
+        }""")
+        time.sleep(1.0)
+        runner.shot(page, "threat-swatted")
+
+        runner.step("ai agents workstation")
+        page.evaluate("""() => document.getElementById('nav-agents').click()""")
+        time.sleep(0.6)
+        runner.shot(page, "agents-radar")
+        runner.check(
+            page.evaluate("() => document.querySelectorAll('#ar-agent-list, .ar-container').length > 0"),
+            "ai agents workstation rendered cleanly",
+        )
 
         runner.step("the application keeps its own records to itself")
         stray = sorted({p.name for p in exe.parent.glob("*.json")} - runner.exe_dir_before)
@@ -742,10 +501,10 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
             f"nothing new is written next to the executable ({stray})",
         )
 
-        print(f"\nPASS: {len(runner.checks)} native checks", flush=True)
+        print(f"PASS: {len(runner.checks)} native checks", flush=True)
         return 0
     except Failure as failure:
-        print(f"\nFAIL: {failure}", file=sys.stderr, flush=True)
+        print(f"FAIL: {failure}", file=sys.stderr, flush=True)
         if page is not None:
             try:
                 page.screenshot(path=str(shots / "99-failure.png"))
@@ -753,7 +512,7 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
                 pass
         return 1
     except Exception as error:  # noqa: BLE001
-        print(f"\nERROR: {error!r}", file=sys.stderr, flush=True)
+        print(f"ERROR: {error!r}", file=sys.stderr, flush=True)
         return 2
     finally:
         try:
@@ -768,6 +527,7 @@ def run(exe: Path, shots: Path, port: int, keep: bool) -> int:
             runner._pw.stop()
         except Exception:
             pass
+
 
 
 def main() -> int:

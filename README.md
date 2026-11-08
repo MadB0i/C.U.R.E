@@ -5,12 +5,12 @@
 > **100% Offline · Zero Telemetry · Local Heuristic Engine.**
 
 <p align="center">
-  <a href="https://github.com/rupjy/CURE"><img src="https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20x64-0078D6?style=for-the-badge&logo=windows" alt="Platform: Windows 10/11"></a>
-  <a href="https://github.com/rupjy/CURE"><img src="https://img.shields.io/badge/Rust-2021%20Edition-black?style=for-the-badge&logo=rust" alt="Rust 2021"></a>
-  <a href="https://github.com/rupjy/CURE"><img src="https://img.shields.io/badge/Tauri-v2%20Desktop-24C8D8?style=for-the-badge&logo=tauri" alt="Tauri v2"></a>
-  <a href="https://github.com/rupjy/CURE"><img src="https://img.shields.io/badge/Privacy-100%25%20Offline%20%C2%B7%20Zero%20Telemetry-10B981?style=for-the-badge" alt="Zero Telemetry"></a>
-  <a href="https://github.com/rupjy/CURE"><img src="https://img.shields.io/badge/Tests-620%2B%20Passing-success?style=for-the-badge" alt="620+ Tests Passing"></a>
-  <a href="https://github.com/rupjy/CURE"><img src="https://img.shields.io/badge/Standards-SARIF%20v2.1.0-8B5CF6?style=for-the-badge" alt="SARIF v2.1.0"></a>
+  <a href="https://github.com/MadB0i/C.U.R.E"><img src="https://img.shields.io/badge/Platform-Windows_10_%7C_11-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Platform: Windows 10/11"></a>
+  <a href="https://github.com/MadB0i/C.U.R.E"><img src="https://img.shields.io/badge/Rust-2021_Edition-DEA584?style=for-the-badge&logo=rust&logoColor=white" alt="Rust 2021"></a>
+  <a href="https://github.com/MadB0i/C.U.R.E"><img src="https://img.shields.io/badge/Tauri-v2_Desktop-24C8D8?style=for-the-badge&logo=tauri&logoColor=white" alt="Tauri v2"></a>
+  <a href="https://github.com/MadB0i/C.U.R.E"><img src="https://img.shields.io/badge/Privacy-Zero_Telemetry-10B981?style=for-the-badge" alt="Zero Telemetry"></a>
+  <a href="https://github.com/MadB0i/C.U.R.E"><img src="https://img.shields.io/badge/Tests-620+_Passing-success?style=for-the-badge" alt="620+ Tests Passing"></a>
+  <a href="https://github.com/MadB0i/C.U.R.E"><img src="https://img.shields.io/badge/SARIF-v2.1.0-8B5CF6?style=for-the-badge" alt="SARIF v2.1.0"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="MIT License"></a>
 </p>
 
@@ -69,7 +69,7 @@ For DevOps engineers, terminal enthusiasts, and CI/CD automated auditing:
 ```text
    /\_/\   C.U.R.E v0.2.0 [100% Offline · Zero Telemetry]
   ( o.o )  Evidence-First Windows Security & Fast Storage Rescue
-   > ^ <   https://github.com/rupjy/CURE
+   > ^ <   https://github.com/MadB0i/C.U.R.E
 
 startup root : C:\Users\user\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup
 common startup: C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup
@@ -154,7 +154,7 @@ Rules are hot-loaded on the next scan and flagged with `CUSTOM` ATT&CK designati
 ### Build & Run
 ```powershell
 # Clone the repository
-git clone https://github.com/rupjy/CURE.git
+git clone https://github.com/MadB0i/C.U.R.E.git
 cd CURE
 
 # Launch Desktop GUI (Tauri v2)
