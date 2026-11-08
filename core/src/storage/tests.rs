@@ -2121,3 +2121,66 @@ fn cancelling_from_another_thread_stops_a_walk_in_flight() {
         stats.files_seen
     );
 }
+
+#[test]
+fn rollup_folder_sizes_aggregates_nested_subdirectories() {
+    use super::types::FolderRecord;
+    use std::path::PathBuf;
+
+    let root = PathBuf::from(r"C:\Users\testuser\.codex");
+    let sub1 = root.join("models");
+    let sub2 = sub1.join("gemini");
+
+    let mut folders = vec![
+        FolderRecord {
+            path: root.clone(),
+            depth: 0,
+            size_logical: 1024,
+            size_allocated: 1024,
+            file_count: 1,
+            dir_count: 1,
+            class: StorageClass::DevCache,
+            tier: SafetyTier::SafeToReview,
+            incomplete: false,
+        },
+        FolderRecord {
+            path: sub1.clone(),
+            depth: 1,
+            size_logical: 2048,
+            size_allocated: 2048,
+            file_count: 2,
+            dir_count: 1,
+            class: StorageClass::DevCache,
+            tier: SafetyTier::SafeToReview,
+            incomplete: false,
+        },
+        FolderRecord {
+            path: sub2.clone(),
+            depth: 2,
+            size_logical: 50_000_000,
+            size_allocated: 50_000_000,
+            file_count: 10,
+            dir_count: 0,
+            class: StorageClass::DevCache,
+            tier: SafetyTier::SafeToReview,
+            incomplete: true,
+        },
+    ];
+
+    super::rollup_folder_sizes(&mut folders);
+
+    // sub2 (leaf) retains its original counts
+    assert_eq!(folders[2].size_logical, 50_000_000);
+    assert_eq!(folders[2].file_count, 10);
+    assert!(folders[2].incomplete);
+
+    // sub1 rolls up sub2
+    assert_eq!(folders[1].size_logical, 50_002_048);
+    assert_eq!(folders[1].file_count, 12);
+    assert!(folders[1].incomplete);
+
+    // root (.codex) rolls up sub1 (which includes sub2) plus its own direct files
+    assert_eq!(folders[0].size_logical, 50_003_072);
+    assert_eq!(folders[0].file_count, 13);
+    assert!(folders[0].incomplete);
+}

@@ -817,6 +817,168 @@ pub fn discover_migration_candidates(
             Some("Set GRADLE_USER_HOME environment variable to new destination.".into()),
             source_drive,
         );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "codex_cache",
+            "Codex & AI Workspace Cache",
+            &p.join(".codex"),
+            &target,
+            MigrationSafety::Caution,
+            "AI Toolchain",
+            "Local model context, indexes, and agent workspaces.",
+            Some("Set CODEX_HOME environment variable or link directory.".into()),
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "android_cache",
+            "Android SDK & Emulators",
+            &p.join(".android"),
+            &target,
+            MigrationSafety::Caution,
+            "Developer Toolchain",
+            "Android virtual device images (AVD) and emulator caches.",
+            Some("Set ANDROID_USER_HOME or ANDROID_AVD_HOME to new destination.".into()),
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "rustup_cache",
+            "Rustup Toolchains",
+            &p.join(".rustup"),
+            &target,
+            MigrationSafety::Caution,
+            "Developer Toolchain",
+            "Installed Rust toolchain binaries and target platforms.",
+            Some("Set RUSTUP_HOME environment variable to new destination.".into()),
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "lmstudio_models",
+            "LM Studio AI Models",
+            &p.join(".lmstudio"),
+            &target,
+            MigrationSafety::Caution,
+            "AI Toolchain",
+            "Local LLM model weights (GGUF, safetensors).",
+            Some("Configure LM Studio models directory to point to new location.".into()),
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "vscode_extensions",
+            "VS Code Extensions & Cache",
+            &p.join(".vscode"),
+            &target,
+            MigrationSafety::Caution,
+            "Developer Toolchain",
+            "Installed VS Code extensions and runtime dependencies.",
+            Some("Pass --extensions-dir or create directory symlink.".into()),
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "user_cache_dir",
+            "User Profile Generic Cache",
+            &p.join(".cache"),
+            &target,
+            MigrationSafety::Caution,
+            "Application Cache",
+            "Generic application and build cache files.",
+            None,
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "gemini_cache",
+            "Gemini CLI Cache",
+            &p.join(".gemini"),
+            &target,
+            MigrationSafety::Caution,
+            "AI Toolchain",
+            "Gemini local session logs, artifacts, and indexes.",
+            None,
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "pnpm_store",
+            "pnpm Store",
+            &p.join(".pnpm-store"),
+            &target,
+            MigrationSafety::Caution,
+            "Developer Toolchain",
+            "Content-addressable package store for pnpm.",
+            Some("Run `pnpm config set store-dir <new_path>`.".into()),
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "ollama_models",
+            "Ollama Models",
+            &p.join(".ollama"),
+            &target,
+            MigrationSafety::Caution,
+            "AI Toolchain",
+            "Local Ollama models and blobs.",
+            Some("Set OLLAMA_MODELS environment variable to new destination.".into()),
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "cursor_cache",
+            "Cursor Editor State",
+            &p.join(".cursor"),
+            &target,
+            MigrationSafety::Caution,
+            "Developer Toolchain",
+            "Cursor editor extensions and session data.",
+            None,
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "cargo_root",
+            "Cargo Root & Downloads",
+            &p.join(".cargo"),
+            &target,
+            MigrationSafety::Caution,
+            "Developer Toolchain",
+            "Rust crate source code, git checkouts, and binary cache.",
+            Some("Set CARGO_HOME environment variable to the new destination.".into()),
+            source_drive,
+        );
+        // Dynamically discover any other large dot-folders in %USERPROFILE%
+        if let Ok(readers) = std::fs::read_dir(p) {
+            for entry in readers.flatten() {
+                let ep = entry.path();
+                let is_reparse = fs::symlink_metadata(&ep)
+                    .map(|m| fsx::is_reparse_point(&m))
+                    .unwrap_or(true);
+                if ep.is_dir() && !is_reparse {
+                    if let Some(name) = ep.file_name().and_then(|n| n.to_str()) {
+                        if name.starts_with('.') && name.len() > 1 {
+                            let already = candidates.iter().any(|c| c.source_path == ep);
+                            if !already {
+                                add_candidate_if_on_drive(
+                                    &mut candidates,
+                                    &format!("user_dot_{}", name.trim_start_matches('.')),
+                                    &format!("User Folder {}", name),
+                                    &ep,
+                                    &target,
+                                    MigrationSafety::Caution,
+                                    "Developer Toolchain",
+                                    "User profile dot-directory discovered on drive.",
+                                    None,
+                                    source_drive,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     if !local_app_data.is_empty() {
@@ -966,8 +1128,8 @@ pub fn inspect_folder_quick(path: &Path) -> (u64, u64, usize) {
     let mut bytes = 0u64;
     let mut reparse_count = 0usize;
     let mut stack = vec![(path.to_path_buf(), 0usize)];
-    let max_files = 500;
-    let max_depth = 3;
+    let max_files = 100_000;
+    let max_depth = 24;
 
     while let Some((dir, depth)) = stack.pop() {
         if depth > max_depth {

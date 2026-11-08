@@ -273,21 +273,75 @@ pub fn roots_with_report(depth: ScanDepth, extra: &[PathBuf]) -> (Vec<ScanRoot>,
         "Downloads",
     );
 
-    // ---- developer caches (deep only) -----------------------------------
-    if depth == ScanDepth::Deep {
-        if !profile.as_os_str().is_empty() {
-            for name in super::tiers::DEV_CACHE_DIR_NAMES {
-                let p = profile.join(name);
-                if p.is_dir() {
-                    push(
-                        &mut roots,
-                        &mut seen,
-                        p,
-                        StorageClass::DevCache,
-                        &format!("Developer cache ({name})"),
-                    );
+    // ---- developer & AI toolchain caches (both Quick and Deep) -----------
+    if !profile.as_os_str().is_empty() {
+        // 1. Dynamic discovery of top-level dot-directories under %USERPROFILE%
+        // E.g. .codex, .gradle, .android, .cache, .rustup, .lmstudio, .vscode, .cargo, .gemini, .npm, etc.
+        if let Ok(readers) = std::fs::read_dir(&profile) {
+            for entry in readers.flatten() {
+                let p = entry.path();
+                if p.is_dir() && !fsx_is_link(&p) {
+                    if let Some(name) = p
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|s| s.to_string())
+                    {
+                        if name.starts_with('.') && name.len() > 1 {
+                            push(
+                                &mut roots,
+                                &mut seen,
+                                p,
+                                StorageClass::DevCache,
+                                &format!("Developer cache ({name})"),
+                            );
+                        }
+                    }
                 }
             }
+        }
+        // 2. Known dev cache directory names in profile root (including non-dot names like node_modules)
+        for name in super::tiers::DEV_CACHE_DIR_NAMES {
+            let p = profile.join(name);
+            if p.is_dir() {
+                push(
+                    &mut roots,
+                    &mut seen,
+                    p,
+                    StorageClass::DevCache,
+                    &format!("Developer cache ({name})"),
+                );
+            }
+        }
+    }
+
+    // Heavy developer tool caches under %LOCALAPPDATA%
+    if !local.as_os_str().is_empty() {
+        for (rel, label) in [
+            ("pip\\cache", "pip cache"),
+            ("npm-cache", "npm cache"),
+            ("Yarn\\Cache", "Yarn cache"),
+            ("pnpm\\store", "pnpm store"),
+            ("HuggingFace\\hub", "HuggingFace models"),
+            ("Ollama", "Ollama models"),
+            ("torch\\kernels", "PyTorch kernel cache"),
+            ("Caches", "cross-platform cache"),
+        ] {
+            let p = local.join(rel);
+            if p.is_dir() {
+                push(
+                    &mut roots,
+                    &mut seen,
+                    p,
+                    StorageClass::DevCache,
+                    &format!("Developer cache ({label})"),
+                );
+            }
+        }
+    }
+
+    // ---- deep scan extensions -------------------------------------------
+    if depth == ScanDepth::Deep {
+        if !profile.as_os_str().is_empty() {
             // Repository-shaped build output, one level down.
             if let Ok(readers) = std::fs::read_dir(&profile) {
                 for entry in readers.flatten() {
@@ -295,7 +349,15 @@ pub fn roots_with_report(depth: ScanDepth, extra: &[PathBuf]) -> (Vec<ScanRoot>,
                     if !repo.is_dir() || fsx_is_link(&repo) {
                         continue;
                     }
-                    for name in ["node_modules", "target", "bin", "obj", ".next", "build"] {
+                    for name in [
+                        "node_modules",
+                        "target",
+                        "bin",
+                        "obj",
+                        ".next",
+                        "build",
+                        "dist",
+                    ] {
                         let p = repo.join(name);
                         if p.is_dir() {
                             push(

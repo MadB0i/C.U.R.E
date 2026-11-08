@@ -188,6 +188,7 @@
     if (safeBody) safeBody.innerHTML = "";
     if (cautionBody) cautionBody.innerHTML = "";
 
+    const maxCandBytes = candidates.reduce((m, c) => Math.max(m, c.size_bytes || 0), 0) || 1;
     for (const c of candidates) {
       const isChecked = state.selectedIds.has(c.id);
       const tr = document.createElement("tr");
@@ -195,6 +196,8 @@
       const adviceHtml = c.reconfiguration_advice 
         ? `<div class="sr-item-advice">${c.reconfiguration_advice}</div>` 
         : "";
+
+      const candPct = Math.min(100, Math.max(1, (c.size_bytes / maxCandBytes) * 100));
 
       tr.innerHTML = `
         <td class="sr-col-check">
@@ -208,15 +211,18 @@
               </svg>
               ${c.name}
             </span>
-            <span class="sr-item-path">${c.source_path}</span>
+            <span class="sr-item-path" title="${c.source_path}">${c.source_path}</span>
             ${adviceHtml}
           </div>
         </td>
         <td>
-          <span class="sr-target-path">${c.suggested_target_path}</span>
+          <span class="sr-target-path" title="${c.suggested_target_path}">${c.suggested_target_path}</span>
         </td>
         <td class="sr-num">${c.file_count.toLocaleString()}</td>
-        <td class="sr-num sr-size-highlight">${formatBytes(c.size_bytes)}</td>
+        <td class="sr-num sr-size-highlight sr-capacity-cell">
+          <span class="sr-capacity-val">${formatBytes(c.size_bytes)}</span>
+          <div class="sr-capacity-track"><div class="sr-capacity-bar" style="width: ${candPct.toFixed(1)}%;"></div></div>
+        </td>
       `;
 
       const checkbox = tr.querySelector(".sr-checkbox");

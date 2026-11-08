@@ -553,7 +553,8 @@
     publishScanToTopbar(scan);
     renderBreadcrumbs();
     renderAll();
-    revealTreemap();    return true;
+    revealTreemap();
+    return true;
   }
 
   /* Focus a category without inventing a new measurement. Used by the
@@ -579,7 +580,8 @@
     state.running = true;
     state.cancelled = false;
     setRunning(true);
-    setStatus("Scanning", "is-busy");    if (el.subline) el.subline.textContent = "Walking the catalogue roots…";
+    setStatus("Scanning", "is-busy");
+    if (el.subline) el.subline.textContent = "Walking the catalogue roots…";
     /* The topbar says a storage measurement is in flight, so the kind of
        scan on screen is never ambiguous. */
     if (window.CureTopbar) window.CureTopbar.storageScanStarted();
@@ -646,7 +648,8 @@
         if (el.amountNote) {
           el.amountNote.textContent =
             "The scan was stopped before it finished, so these totals cover only the locations that were read. Nothing was removed.";
-        }      } else {
+        }
+      } else {
         setStatus("Measured", "is-ok");
         paintScanStages("final", null);
       }
@@ -661,7 +664,8 @@
       paintScanStages("final", "failed");
       if (el.progress) el.progress.setAttribute("data-failed", "1");
       if (el.progressPhase) el.progressPhase.textContent = "Failed";
-      if (el.progressDetail) el.progressDetail.textContent = clean(err);      if (el.subline) {
+      if (el.progressDetail) el.progressDetail.textContent = clean(err);
+      if (el.subline) {
         el.subline.textContent = "The scan did not complete: " + clean(err);
       }
       /* A failed scan leaves nothing measured. The summary must say so
@@ -799,12 +803,24 @@
         }
       }
       const name = node("td");
-      name.appendChild(node("span", "sw-file-name", f.name || f.path));
-      name.appendChild(node("span", "dim", f.path));
+      const nameSpan = node("span", "sw-file-name", f.name || f.path);
+      nameSpan.title = f.path;
+      const pathSpan = node("span", "dim sw-path-truncate", f.path);
+      pathSpan.title = f.path;
+      name.append(nameSpan, pathSpan);
       tr.appendChild(name);
       tr.appendChild(node("td", null, f.class || "other"));
       tr.appendChild(node("td", "num", (f.file_count || 0).toLocaleString()));
-      tr.appendChild(node("td", "num", fmtBytes(f.size_allocated || 0)));
+      const maxFSize = folders.reduce(function(m, x) { return Math.max(m, x.size_allocated || 0); }, 0) || 1;
+      const fPct = Math.min(100, Math.max(1, ((f.size_allocated || 0) / maxFSize) * 100));
+      const sizeCell = node("td", "num sw-num sw-capacity-cell");
+      const valSpan = node("span", "sw-capacity-val", fmtBytes(f.size_allocated || 0));
+      const track = node("div", "sw-capacity-track");
+      const bar = node("div", "sw-capacity-bar");
+      bar.style.width = fPct.toFixed(1) + "%";
+      track.appendChild(bar);
+      sizeCell.append(valSpan, track);
+      tr.appendChild(sizeCell);
 
       const actionCell = node("td");
       if (prefix && (protectedCount > 0 || unknownCount > 0)) {
@@ -1003,8 +1019,10 @@
       const nameCell = node("td");
       const nameBtn = node("button", "sw-file-name", f.name);
       nameBtn.type = "button";
+      nameBtn.title = f.path;
       nameBtn.addEventListener("click", () => openInspector(f));
-      const parent = node("span", "sw-file-parent", f.parent);
+      const parent = node("span", "sw-file-parent sw-path-truncate", f.parent);
+      parent.title = f.parent;
       nameCell.append(nameBtn, parent);
 
       const classCell = node("td", "sw-muted", f.class_label);
@@ -1015,7 +1033,15 @@
       const modCell = node("td", "sw-muted");
       modCell.textContent = days === null ? "unknown" : fmtDate(f.modified_unix) + " · " + days + "d ago";
 
-      const sizeCell = node("td", "num sw-num", fmtBytes(f.size_allocated));
+      const maxFileSize = files.reduce(function(m, x) { return Math.max(m, x.size_allocated || 0); }, 0) || 1;
+      const filePct = Math.min(100, Math.max(1, (f.size_allocated / maxFileSize) * 100));
+      const sizeCell = node("td", "num sw-num sw-capacity-cell");
+      const valSpan = node("span", "sw-capacity-val", fmtBytes(f.size_allocated));
+      const track = node("div", "sw-capacity-track");
+      const bar = node("div", "sw-capacity-bar");
+      bar.style.width = filePct.toFixed(1) + "%";
+      track.appendChild(bar);
+      sizeCell.append(valSpan, track);
 
       const actionCell = node("td");
       actionCell.appendChild(queueButton(f));
@@ -1052,7 +1078,8 @@
     renderQueue();
     renderLarge();
     renderFolders();
-    drawTreemap();  }
+    drawTreemap();
+  }
 
   function renderDuplicates() {
     if (!el.dupeList || !state.scan) return;
@@ -1873,7 +1900,8 @@
     if (tab === "coverage" && state.scan) {
       const c = state.scan.coverage || {};
       const unread = (c.permission_denied_dirs || 0) + (c.permission_denied_files || 0);
-      if (unread > 0) {      }
+      if (unread > 0) {
+      }
     }
   }
 
@@ -1918,7 +1946,8 @@
     el.previewConfirm.disabled = true;
     el.previewPhrase.textContent =
       "Type " + (plan.confirmation_phrase || "REMOVE") + " to approve this plan.";
-    openModal(el.previewOverlay, { initial: el.confirmInput });  }
+    openModal(el.previewOverlay, { initial: el.confirmInput });
+  }
 
   function planRow(item) {
     const li = node("li", "sw-plan-row");
@@ -1945,7 +1974,8 @@
     setStatus("Removing", "is-busy");
     /* The working pose is entered before the call, not after: while the
        engine is still running there are no bytes to report, and nothing on
-       screen may imply otherwise. */    try {
+       screen may imply otherwise. */
+    try {
       const receipt = await invoke("storage_execute", {
         planId: state.lastPlan.plan_id,
         confirmPhrase: el.confirmInput.value,
@@ -1954,7 +1984,8 @@
       state.queue.clear();
       showReceipt(receipt);
     } catch (err) {
-      setStatus("Removal stopped", "is-err");      el.previewConsequence.textContent = clean(err);
+      setStatus("Removal stopped", "is-err");
+      el.previewConsequence.textContent = clean(err);
     } finally {
       btn.disabled = true;
       btn.textContent = "Remove permanently";
@@ -2028,7 +2059,8 @@
       el.receiptNotes.appendChild(node("li", "sw-empty", "Nothing failed."));
     }
     openModal(el.receiptOverlay, { initial: el.receiptClose });
-    /* LUMA quotes the receipt verbatim rather than paraphrasing it. */    setStatus("Removed", "is-ok");
+    /* LUMA quotes the receipt verbatim rather than paraphrasing it. */
+    setStatus("Removed", "is-ok");
     resetAfterReceipt();
   }
 
@@ -2152,7 +2184,8 @@
   function addToRoots(path) {
     if (state.extraRoots.some((p) => p.toLowerCase() === path.toLowerCase())) return;
     state.extraRoots.push(path);
-    renderRootChips();  }
+    renderRootChips();
+  }
 
   function renderRootChips() {
     if (!state.extraRoots.length) {
@@ -2326,35 +2359,44 @@
         /* The duplicate pass reads every byte it is comparing. That is a
            genuine "working it out" moment, so the companion takes the
            thinking pose while it happens. */
-        if (p.phase === "hashing") {        } else if (p.phase === "walking" && !state.thinking) {        }
+        if (p.phase === "hashing") {
+        } else if (p.phase === "walking" && !state.thinking) {
+        }
         updateScanProgress(p);
         state.thinking = p.phase === "hashing";
       }).catch(() => {});
     }
 
     /* Opening the workstation performs no work, so LUMA holds a settled pose
-       here until a real measurement starts. */    resetToIdle();
+       here until a real measurement starts. */
+    resetToIdle();
     setTab("map");
   }
 
   window.CureStorageWorkstation = {
-    idle: function () {      resetToIdle();
+    idle: function () {
+      resetToIdle();
       setTab(state.tab);
     },
     /* Settle the companion without discarding the measurement. A queue the
        operator built is worth keeping across a trip to another screen. */
     settle: function () {
-      if (state.scan) {      } else {      }
+      if (state.scan) {
+      } else {
+      }
     },
     measuring: function () {
       setRunning(true);
-      setStatus("Scanning", "is-busy");    },
+      setStatus("Scanning", "is-busy");
+    },
     measured: function () {
       setRunning(false);
       setStatus("Measured", "is-ok");
     },
-    cleanup: function (stateName, title, detail) {    },
-    review: function () {    },
+    cleanup: function (stateName, title, detail) {
+    },
+    review: function () {
+    },
     redraw: drawTreemap,
     /* Detective Mode hands the same measurement here instead of making the
        operator wait through a second scan. */

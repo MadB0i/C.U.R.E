@@ -96,68 +96,104 @@
   align-items: center;
   display: grid;
   gap: var(--s6);
-  grid-template-columns: minmax(0, 200px) minmax(0, 1fr);
+  grid-template-columns: 96px minmax(0, 1fr);
 }
 
 .sw-scan-visual {
-  border: 1px solid var(--hair);
-  border-radius: var(--r2);
-  height: 92px;
+  width: 96px;
+  height: 96px;
+  min-width: 96px;
+  min-height: 96px;
+  aspect-ratio: 1 / 1;
+  flex-shrink: 0;
+  border-radius: 50% !important;
+  border: 1px solid rgba(139, 92, 246, 0.5) !important;
+  box-shadow: 0 0 28px rgba(139, 92, 246, 0.4), inset 0 0 18px rgba(6, 182, 212, 0.3) !important;
   overflow: hidden;
   position: relative;
-  background:
-    radial-gradient(120% 160% at 50% 120%, rgba(139, 111, 240, 0.22), transparent 70%),
-    var(--surface-sunken);
+  background: radial-gradient(circle at 50% 50%, rgba(139, 92, 246, 0.22) 0%, rgba(6, 182, 212, 0.12) 50%, #090c15 100%) !important;
 }
 
-/* Concentric rings: a platter seen from above. */
+/* Concentric rings & radar crosshairs */
 .sw-scan-platter {
   position: absolute;
-  inset: -40% -10%;
+  inset: 0;
   border-radius: 50%;
   background:
     repeating-radial-gradient(
       circle at 50% 50%,
-      rgba(255, 255, 255, 0.1) 0 1px,
-      transparent 1px 13px
+      transparent 0 12px,
+      rgba(6, 182, 212, 0.25) 12px 13px,
+      transparent 13px 25px,
+      rgba(139, 92, 246, 0.3) 25px 26px,
+      transparent 26px 37px,
+      rgba(6, 182, 212, 0.25) 37px 38px
     );
   opacity: 1;
-  animation: sw-platter 9s linear infinite;
+  animation: sw-platter 12s linear infinite;
 }
 
-/* The beam: a soft violet band travelling across the platter. */
-.sw-scan-beam {
+.sw-scan-platter::before {
+  content: "";
   position: absolute;
-  top: -30%;
-  bottom: -30%;
-  width: 34%;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(139, 111, 240, 0.5) 42%,
-    rgba(233, 236, 241, 0.32) 50%,
-    rgba(139, 111, 240, 0.5) 58%,
-    transparent
-  );
-  filter: blur(7px);
-  will-change: transform;
-  animation: sw-beam 2.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.45), transparent);
 }
 
-/* A thin leading edge, so the beam has a direction. */
-.sw-scan-sweep {
+.sw-scan-platter::after {
+  content: "";
   position: absolute;
+  left: 50%;
   top: 0;
   bottom: 0;
   width: 1px;
-  background: linear-gradient(
-    180deg,
-    transparent,
-    rgba(233, 236, 241, 0.75),
-    transparent
+  background: linear-gradient(180deg, transparent, rgba(6, 182, 212, 0.45), transparent);
+}
+
+/* Rotating conic-gradient sweep beam */
+.sw-scan-beam {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg at 50% 50%,
+    transparent 0deg,
+    transparent 260deg,
+    rgba(139, 92, 246, 0.2) 300deg,
+    rgba(6, 182, 212, 0.7) 360deg
   );
+  animation: sw-radar-sweep 2.2s linear infinite;
+  transform-origin: center center;
   will-change: transform;
-  animation: sw-sweep 2.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  pointer-events: none;
+}
+
+/* Center pulsing radar blip */
+.sw-scan-sweep {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: #06b6d4;
+  box-shadow: 0 0 10px #06b6d4, 0 0 20px #8b5cf6;
+  animation: sw-radar-blip 1.8s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes sw-radar-sweep {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes sw-radar-blip {
+  0%, 100% { transform: scale(0.9); opacity: 0.7; }
+  50% { transform: scale(1.6); opacity: 1; }
 }
 
 @keyframes sw-beam {
@@ -1433,4 +1469,68 @@
 @keyframes sw-flow-pulse {
   0% { background-position: 100% 0; }
   100% { background-position: -100% 0; }
+}
+
+/* Proportional capacity micro-bars and clean path truncation */
+.sw-capacity-cell {
+  min-width: 140px;
+}
+.sw-capacity-track {
+  display: block;
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.sw-capacity-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #8b5cf6, #06b6d4);
+  border-radius: 2px;
+  box-shadow: 0 0 6px rgba(6, 182, 212, 0.6);
+  transition: width 240ms ease;
+}
+.sw-capacity-val {
+  display: block;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--text);
+}
+.sw-path-truncate {
+  display: block;
+  max-width: 440px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--t-2xs);
+  color: var(--text-3);
+}
+.sr-capacity-cell {
+  min-width: 130px;
+}
+.sr-capacity-track {
+  display: block;
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.sr-capacity-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #8b5cf6, #06b6d4);
+  border-radius: 2px;
+  box-shadow: 0 0 6px rgba(6, 182, 212, 0.6);
+}
+.sr-capacity-val {
+  display: block;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--text);
 }

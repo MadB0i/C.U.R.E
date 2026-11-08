@@ -198,7 +198,7 @@
 
 .dt-board {
   display: grid;
-  grid-template-columns: minmax(280px, 0.86fr) minmax(340px, 1.14fr) minmax(300px, 0.9fr);
+  grid-template-columns: minmax(280px, 1.15fr) minmax(360px, 1.45fr) minmax(270px, 1.05fr);
   gap: var(--s4);
   align-items: start;
 }
@@ -898,4 +898,196 @@
   .dt-lead-button {
     transition: none !important;
   }
+}
+
+/* --- Detective Active Radar & Skeleton Animations -------------------- */
+
+.dt-radar-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s5) var(--s2);
+  min-height: 280px;
+  position: relative;
+  text-align: center;
+}
+
+.dt-radar-sphere {
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  position: relative;
+  border: 1px solid rgba(6, 182, 212, 0.45);
+  box-shadow: 0 0 32px rgba(6, 182, 212, 0.28), inset 0 0 20px rgba(139, 92, 246, 0.25);
+  background: radial-gradient(circle at 50% 50%, rgba(6, 182, 212, 0.16) 0%, rgba(139, 92, 246, 0.08) 50%, #080c14 100%);
+  overflow: hidden;
+  margin-bottom: var(--s4);
+  flex-shrink: 0;
+}
+
+.dt-radar-rings {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: repeating-radial-gradient(
+    circle at 50% 50%,
+    transparent 0 16px,
+    rgba(6, 182, 212, 0.22) 16px 17px,
+    transparent 17px 34px,
+    rgba(139, 92, 246, 0.25) 34px 35px,
+    transparent 35px 52px,
+    rgba(6, 182, 212, 0.22) 52px 53px
+  );
+}
+
+.dt-radar-rings::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.5), transparent);
+}
+
+.dt-radar-rings::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, rgba(6, 182, 212, 0.5), transparent);
+}
+
+.dt-radar-sweep-beam {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg at 50% 50%,
+    transparent 0deg,
+    transparent 260deg,
+    rgba(139, 92, 246, 0.25) 300deg,
+    rgba(6, 182, 212, 0.8) 360deg
+  );
+  animation: sw-radar-sweep 2.2s linear infinite;
+  transform-origin: center center;
+  pointer-events: none;
+}
+
+.dt-radar-center-blip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: #06b6d4;
+  box-shadow: 0 0 12px #06b6d4, 0 0 24px #8b5cf6;
+  animation: sw-radar-blip 1.6s ease-in-out infinite;
+}
+
+.dt-radar-headline {
+  font-size: var(--sm);
+  font-weight: 650;
+  color: #38bdf8;
+  text-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
+  margin-bottom: 4px;
+}
+
+.dt-radar-subtext {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  color: var(--text-3);
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Shimmer skeleton discovery rows */
+.dt-skeleton-card {
+  background: var(--surface);
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  padding: var(--s4);
+  margin-bottom: var(--s3);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.dt-skeleton-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  animation: dt-shimmer 1.8s infinite;
+}
+
+@keyframes dt-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.dt-skeleton-line {
+  height: 10px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.dt-stat-card.is-scanning {
+  border-color: rgba(6, 182, 212, 0.55) !important;
+  box-shadow: 0 0 16px rgba(6, 182, 212, 0.3) !important;
+  animation: dt-kpi-pulse 1.8s ease-in-out infinite alternate !important;
+}
+
+@keyframes dt-kpi-pulse {
+  0% { border-color: rgba(6, 182, 212, 0.35); }
+  100% { border-color: rgba(139, 92, 246, 0.65); box-shadow: 0 0 20px rgba(139, 92, 246, 0.4); }
+}
+
+.dt-timeline li.is-active-scan {
+  color: #38bdf8 !important;
+  background: linear-gradient(180deg, rgba(6, 182, 212, 0.16), transparent) !important;
+  animation: dt-step-pulse 1.6s infinite alternate !important;
+}
+
+.dt-timeline li.is-active-scan::before {
+  background: #06b6d4 !important;
+  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.3), 0 0 14px #06b6d4 !important;
+}
+
+@keyframes dt-step-pulse {
+  0% { opacity: 0.75; }
+  100% { opacity: 1; }
+}
+
+.dt-lead-capacity-track {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.dt-lead-capacity-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #8b5cf6, #06b6d4);
+  border-radius: 2px;
+  box-shadow: 0 0 6px rgba(6, 182, 212, 0.6);
+}
+
+.dt-lead-kind-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: middle;
 }

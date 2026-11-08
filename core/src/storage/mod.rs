@@ -280,6 +280,10 @@ pub fn scan(
     large_files.truncate(options.large_file_limit);
 
     // ---- large folders ---------------------------------------------------
+    // Roll up subtree sizes so parent folders reflect their total recursive size and file count
+    // instead of merely counting the files sitting directly in their root.
+    rollup_folder_sizes(&mut sink.folders);
+
     // Every folder is measured; only the biggest are carried forward. The
     // UI shows a treemap and a ranked list, and neither needs the two
     // hundred thousand empty directories in between.
@@ -411,6 +415,58 @@ pub fn scan(
         careful_file_count: accounting.careful_file_count,
         protected_file_count: accounting.protected_file_count,
         distinct_file_count: accounting.distinct_file_count,
+    }
+}
+
+/// Bottom-up aggregation of directory subtree sizes, counts, and completion status.
+///
+/// Ensures folders like `%USERPROFILE%\.codex` accurately report the total size
+/// of all their nested subdirectories, rather than merely counting the direct files
+/// sitting immediately in their root.
+pub fn rollup_folder_sizes(folders: &mut [types::FolderRecord]) {
+    use std::collections::HashMap;
+
+    let mut path_to_idx: HashMap<std::path::PathBuf, usize> = HashMap::with_capacity(folders.len());
+    for (i, f) in folders.iter().enumerate() {
+        path_to_idx.insert(f.path.clone(), i);
+    }
+
+    // Sort indices by path component count descending (deepest paths first)
+    let mut order: Vec<usize> = (0..folders.len()).collect();
+    order.sort_by(|&a, &b| {
+        let da = folders[a].path.components().count();
+        let db = folders[b].path.components().count();
+        db.cmp(&da)
+    });
+
+    for idx in order {
+        let child_path = folders[idx].path.clone();
+        let size_logical = folders[idx].size_logical;
+        let size_allocated = folders[idx].size_allocated;
+        let file_count = folders[idx].file_count;
+        let dir_count = folders[idx].dir_count;
+        let incomplete = folders[idx].incomplete;
+
+        if let Some(parent_path) = child_path.parent() {
+            if let Some(&parent_idx) = path_to_idx.get(parent_path) {
+                if parent_idx != idx {
+                    folders[parent_idx].size_logical = folders[parent_idx]
+                        .size_logical
+                        .saturating_add(size_logical);
+                    folders[parent_idx].size_allocated = folders[parent_idx]
+                        .size_allocated
+                        .saturating_add(size_allocated);
+                    folders[parent_idx].file_count =
+                        folders[parent_idx].file_count.saturating_add(file_count);
+                    folders[parent_idx].dir_count = folders[parent_idx]
+                        .dir_count
+                        .saturating_add(dir_count.saturating_add(1));
+                    if incomplete {
+                        folders[parent_idx].incomplete = true;
+                    }
+                }
+            }
+        }
     }
 }
 
