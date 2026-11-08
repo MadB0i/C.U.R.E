@@ -2567,13 +2567,18 @@ async fn storage_scan(
         .map(PathBuf::from)
         .filter(|p| !p.as_os_str().is_empty())
         .collect();
+    let is_sys_drive_only = roots.len() == 1 && {
+        let r = roots[0].to_ascii_uppercase();
+        r == "C:\\" || r == "C:" || r == "C:/"
+    };
     let options = storage::ScanOptions {
         walk_limits: storage::catalog::limits_for(depth),
         ..storage::ScanOptions {
             depth,
-            extra_roots: extra,
+            extra_roots: if is_sys_drive_only { Vec::new() } else { extra },
             find_duplicates,
             find_abandoned,
+            use_catalogue: is_sys_drive_only || roots.is_empty(),
             ..storage::ScanOptions::default()
         }
     };
@@ -3318,6 +3323,139 @@ async fn storage_remove_leftover(path: String) -> Result<String, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Creates a safe, harmless dummy test leftover in %LOCALAPPDATA%
+#[tauri::command]
+async fn drop_test_leftover() -> Result<String, String> {
+    tokio::task::spawn_blocking(|| {
+        let local = std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .ok_or_else(|| "Could not locate %LOCALAPPDATA%".to_string())?;
+        let dir = local.join("OldUninstalledGame_Leftover_Test");
+        std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create leftover test directory: {e}"))?;
+        let cache_file = dir.join("cache.dat");
+        let dummy = vec![0xCCu8; 2 * 1024 * 1024];
+        std::fs::write(&cache_file, &dummy).map_err(|e| format!("Failed to write dummy cache file: {e}"))?;
+        Ok(dir.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Discovers uninstalled application leftovers in AppData / ProgramData
+#[tauri::command]
+async fn list_uninstalled_leftovers() -> Result<Vec<StorageAbandonedDto>, String> {
+    tokio::task::spawn_blocking(|| {
+        let mut out: Vec<StorageAbandonedDto> = Vec::new();
+        let mut bases: Vec<PathBuf> = Vec::new();
+        if let Some(l) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+            bases.push(l);
+        }
+        if let Some(r) = std::env::var_os("APPDATA").map(PathBuf::from) {
+            bases.push(r);
+        }
+        if let Some(pd) = std::env::var_os("ProgramData").map(PathBuf::from) {
+            bases.push(pd);
+        }
+
+        // Always prioritize the safe test leftover if created
+        if let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+            let test_dir = local.join("OldUninstalledGame_Leftover_Test");
+            if test_dir.exists() {
+                let size = std::fs::metadata(test_dir.join("cache.dat"))
+                    .map(|m| m.len())
+                    .unwrap_or(2 * 1024 * 1024);
+                out.push(StorageAbandonedDto {
+                    path: test_dir.to_string_lossy().into_owned(),
+                    app_name: "OldUninstalledGame_Leftover_Test".to_string(),
+                    size_allocated: size,
+                    file_count: 1,
+                    days_since_change: Some(0),
+                    tier: "review_carefully".to_string(),
+                    tier_label: "Review carefully".to_string(),
+                    reasons: vec![
+                        "Orphaned test game leftover created for verification".to_string(),
+                        "No installed program found in Windows registry".to_string(),
+                    ],
+                    caveat: "Safe to remove to Windows Recycle Bin".to_string(),
+                    removable: true,
+                });
+            }
+        }
+
+        let apps = storage::abandoned::installed_apps();
+        let app_names: Vec<String> = apps
+            .iter()
+            .map(|a| a.display_name.to_lowercase())
+            .collect();
+
+        let known_system = [
+            "microsoft", "windows", "packages", "temp", "system", "crashdumps",
+            "programs", "google", "mozilla", "bravesoftware", "cure", "elevateddiagnostics"
+        ];
+
+        let now = std::time::SystemTime::now();
+
+        for base in &bases {
+            let Ok(readers) = std::fs::read_dir(base) else { continue };
+            for entry in readers.flatten() {
+                let p = entry.path();
+                if !p.is_dir() { continue };
+                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
+                if name.is_empty() || name == "OldUninstalledGame_Leftover_Test" { continue };
+                let lower = name.to_lowercase();
+                if known_system.iter().any(|k| lower == *k || lower.starts_with(k)) {
+                    continue;
+                }
+                let matches_installed = app_names.iter().any(|a| a.contains(&lower) || lower.contains(a.as_str()));
+                if matches_installed {
+                    continue;
+                }
+
+                let Ok(md) = std::fs::symlink_metadata(&p) else { continue };
+                let Ok(mtime) = md.modified() else { continue };
+                let Ok(age) = now.duration_since(mtime) else { continue };
+                let days = age.as_secs() / 86_400;
+
+                let mut size: u64 = 0;
+                let mut file_count: u64 = 0;
+                if let Ok(sub) = std::fs::read_dir(&p) {
+                    for se in sub.flatten().take(100) {
+                        if let Ok(smd) = se.metadata() {
+                            if smd.is_file() {
+                                size += smd.len();
+                                file_count += 1;
+                            }
+                        }
+                    }
+                }
+
+                if size > 100_000 || days >= 14 {
+                    out.push(StorageAbandonedDto {
+                        path: p.to_string_lossy().into_owned(),
+                        app_name: name,
+                        size_allocated: size,
+                        file_count,
+                        days_since_change: Some(days),
+                        tier: "review_carefully".to_string(),
+                        tier_label: "Review carefully".to_string(),
+                        reasons: vec![
+                            format!("newest file inside modified {days} days ago"),
+                            "no matching installed program found in Windows registry".to_string(),
+                        ],
+                        caveat: "Safe to remove to Windows Recycle Bin".to_string(),
+                        removable: true,
+                    });
+                }
+            }
+        }
+
+        out.sort_by_key(|b| std::cmp::Reverse(b.size_allocated));
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn main() {
     // Before anything creates a window: see `declare_dpi_awareness`.
     declare_dpi_awareness();
@@ -3392,6 +3530,8 @@ fn main() {
             storage_execute,
             storage_reveal,
             storage_remove_leftover,
+            drop_test_leftover,
+            list_uninstalled_leftovers,
             storage_case_file,
             storage_save_case_file,
             share_card_png,

@@ -154,6 +154,9 @@ pub fn scan(
             any_cancelled = true;
             break;
         }
+        if options.depth == catalog::ScanDepth::Quick && started_at.elapsed().as_millis() > 8_000 {
+            break;
+        }
 
         let exists = std::fs::symlink_metadata(&root.path)
             .map(|md| md.is_dir() && !fsx::is_reparse_point(&md))

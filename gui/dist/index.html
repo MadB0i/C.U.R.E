@@ -869,101 +869,139 @@
             class="view hidden"
             id="cleanup-view"
           >
-            <div class="sm-hero">
-              <div class="sm-hero-text">
-                <div class="eyebrow">ONE-CLICK STORAGE OPTIMIZATION</div>
-                <h1 class="headline">Storage & Move</h1>
-                <p class="sm-hero-sub">Select any drive to uncover space hogs, move heavy folders to another drive in seconds, or clean uninstalled app leftovers.</p>
-              </div>
-            </div>
-
-            <!-- Block A: Drive Selector & 1-Click Scan Bar (Top) -->
-            <div class="sm-block sm-block-drives">
-              <div class="sm-drives-header">
-                <span class="sm-section-label">SELECT DRIVE TO SCAN</span>
-                <span class="sm-drives-hint">Click a drive to scan its storage</span>
-              </div>
-              <div class="sm-drives-grid" id="sm-drives-grid">
-                <!-- Populated dynamically via storage_available_roots -->
-              </div>
-
-              <div class="sm-scan-action-row">
-                <button class="btn btn-primary sm-scan-btn" id="sw-scan" type="button">
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="11" cy="11" r="8"></circle>
-                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                  </svg>
-                  <span id="sm-scan-btn-text">Scan Selected Drive (C:\)</span>
-                </button>
-                <button class="btn btn-danger hidden" id="sw-cancel" type="button">Cancel scan</button>
-                <div class="sm-cat-companion" id="sm-cat-companion"></div>
-              </div>
-
-              <!-- Smooth Progress Bar with Cyber-Cat -->
-              <div class="sm-scan-progress-wrap hidden" id="sw-progress">
-                <div class="sm-scan-bar-track">
-                  <div class="sm-scan-bar-fill" id="sm-scan-bar-fill" style="width: 0%;"></div>
+            <div class="sm-container">
+              <!-- Block 1: Top Hero Card with Cyber-Cat Stage & Drive Selector -->
+              <div class="sm-hero-card">
+                <div class="sm-cat-stage" id="sm-cat-stage">
+                  <div class="sm-cat-box" id="sm-cat-companion"></div>
                 </div>
-                <div class="sm-scan-status-row">
-                  <span class="sm-scan-phase-text" id="sw-progress-phase">Scanning files…</span>
-                  <span class="sm-scan-detail-text" id="sw-progress-detail"></span>
-                  <span class="dim" id="sw-count-bytes">0 B</span>
-                </div>
-              </div>
-            </div>
+                <div class="sm-hero-content">
+                  <div class="sm-hero-header">
+                    <div class="eyebrow">ONE-CLICK STORAGE OPTIMIZATION</div>
+                    <h1 class="headline">Storage & Move</h1>
+                    <p class="sm-hero-desc">
+                      Select any drive to uncover its biggest space hogs, move heavy folders to another drive at full speed, or delete junk in one click.
+                    </p>
+                  </div>
 
-            <!-- Block B: Highest Space Consumers — Direct Move or Delete (Main List) -->
-            <div class="sm-block sm-block-main">
-              <div class="sm-block-head">
-                <div>
-                  <h2 class="sm-block-title">Highest Space Consumers</h2>
-                  <p class="sm-block-sub" id="sm-highest-sub">Folders and large files taking the most gigabytes on this drive.</p>
-                </div>
-                <div class="sm-count-badge" id="sm-consumers-badge">0 items</div>
-              </div>
+                  <!-- Interactive Drive Selector Grid -->
+                  <div class="sm-drives-section">
+                    <div class="sm-drives-title">SELECT DRIVE TO SCAN</div>
+                    <div class="sm-drives-grid" id="sm-drives-grid">
+                      <!-- Populated dynamically via storage_available_roots -->
+                    </div>
+                  </div>
 
-              <div class="sm-consumers-table-wrap">
-                <table class="sm-consumers-table" id="sm-consumers-table">
-                  <thead>
-                    <tr>
-                      <th style="width: 44%;">NAME & LOCATION</th>
-                      <th style="width: 28%;">SPACE OCCUPIED</th>
-                      <th style="width: 28%; text-align: right;">QUICK ACTIONS</th>
-                    </tr>
-                  </thead>
-                  <tbody id="sm-consumers-body">
-                    <tr>
-                      <td colspan="3" class="sm-empty-cell">
-                        Click "Scan Selected Drive" above to view largest folders and files.
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                  <div class="sm-actions-row">
+                    <button class="sm-primary-scan-btn" id="sm-scan-now" type="button">
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="22" y1="12" x2="2" y2="12"></line>
+                        <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
+                        <line x1="6" y1="16" x2="6.01" y2="16"></line>
+                        <line x1="10" y1="16" x2="10.01" y2="16"></line>
+                      </svg>
+                      <span id="sm-scan-btn-text">Scan Selected Drive (C:\)</span>
+                    </button>
+                    <button class="btn btn-danger hidden" id="sm-scan-cancel" type="button">Cancel scan</button>
+                  </div>
 
-            <!-- Block C: Bottom Compact Row — "Uninstalled App Leftovers (Ghost Files)" -->
-            <div class="sm-block sm-block-leftovers">
-              <div class="sm-block-head">
-                <div>
-                  <div class="sm-badge-ghost">GHOST FILES</div>
-                  <h2 class="sm-block-title">Uninstalled App Leftovers</h2>
-                  <p class="sm-block-sub">Folders belonging to programs no longer installed on this PC.</p>
-                </div>
-                <button class="btn btn-ghost sm-rescan-leftovers-btn" id="sm-rescan-leftovers" type="button">
-                  Refresh Leftovers
-                </button>
-              </div>
-
-              <div class="sm-leftovers-list" id="sm-leftovers-list">
-                <div class="sm-leftovers-empty">
-                  No leftovers found or scan pending.
+                  <!-- Smooth Progress Bar with Live Ticker -->
+                  <div class="sm-progress-section">
+                    <div class="sm-progress-track">
+                      <div class="sm-progress-bar" id="sm-progress-bar" style="width: 0%;"></div>
+                    </div>
+                    <div class="sm-phase-ticker" id="sm-phase-ticker">Ready to scan — select a drive and click "Scan Selected Drive"</div>
+                  </div>
                 </div>
               </div>
+
+              <!-- Block 2: 3-Column KPI Grid -->
+              <div class="sm-kpi-grid">
+                <div class="sm-kpi-card" id="sm-kpi-capacity-card">
+                  <span class="sm-kpi-label">Selected Drive Capacity</span>
+                  <span class="sm-kpi-val" id="sm-kpi-capacity-val">C:\ · —</span>
+                  <span class="sm-kpi-sub" id="sm-kpi-capacity-sub">Measuring volume...</span>
+                </div>
+                <div class="sm-kpi-card" id="sm-kpi-consumers-card">
+                  <span class="sm-kpi-label">Highest Space Consumers</span>
+                  <span class="sm-kpi-val" id="sm-kpi-consumers-val">0 GB</span>
+                  <span class="sm-kpi-sub" id="sm-kpi-consumers-sub">0 heavy items</span>
+                </div>
+                <div class="sm-kpi-card sm-kpi-leftovers" id="sm-kpi-leftovers-card">
+                  <span class="sm-kpi-label">Uninstalled App Leftovers</span>
+                  <span class="sm-kpi-val" id="sm-kpi-leftovers-val">0 folders</span>
+                  <span class="sm-kpi-sub" id="sm-kpi-leftovers-sub">0 MB reclaimable</span>
+                </div>
+              </div>
+
+              <!-- Block 3: Highest Space Consumers (Folders & Large Files) -->
+              <section class="sm-consumers-section" id="sm-consumers-section">
+                <div class="sm-consumers-card">
+                  <div class="sm-consumers-header">
+                    <div class="sm-title-group">
+                      <h2 class="sm-section-title">Highest Space Consumers (Folders & Large Files)</h2>
+                      <span class="sm-section-subtitle">Folders and heavy files taking the most gigabytes on this drive</span>
+                    </div>
+                    <div class="sm-count-badge" id="sm-consumers-badge">0 items</div>
+                  </div>
+
+                  <!-- Idle State Card -->
+                  <div class="sm-idle-card" id="sm-consumers-idle">
+                    <div class="sm-idle-icon">💾</div>
+                    <h3>Ready to Discover Large Folders & Files</h3>
+                    <p>Click "Scan Selected Drive" above to uncover multi-gigabyte developer caches (.codex, .gradle, .android), heavy downloads, and large files.</p>
+                  </div>
+
+                  <!-- Populated Consumers List -->
+                  <div class="sm-consumers-list hidden" id="sm-consumers-list">
+                    <!-- Populated dynamically via storage-clean.js -->
+                  </div>
+                </div>
+              </section>
+
+              <!-- Block 4: Bottom Section — Uninstalled App Leftovers (Ghost Files) -->
+              <section class="sm-leftovers-section" id="sm-leftovers-section">
+                <div class="sm-leftovers-card">
+                  <div class="sm-leftovers-header">
+                    <div class="sm-title-group">
+                      <div class="sm-ghost-badge">GHOST FILES</div>
+                      <h2 class="sm-section-title">Uninstalled App Leftovers</h2>
+                      <span class="sm-section-subtitle">Folders belonging to programs no longer installed on this PC</span>
+                    </div>
+                    <div class="sm-leftovers-actions">
+                      <button class="sm-btn-test-leftover" id="sm-drop-test-leftover" type="button" title="Creates a harmless dummy folder (%LOCALAPPDATA%\OldUninstalledGame_Leftover_Test) with 2 MB cache to verify detection and Cat swat deletion">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M10 2v7.31L4.69 18.5a2 2 0 0 0 1.71 2.5h15.2a2 2 0 0 0 1.71-2.5L14 9.31V2"></path>
+                          <line x1="8.5" y1="2" x2="15.5" y2="2"></line>
+                        </svg>
+                        <span>Drop Safe Test Leftover</span>
+                      </button>
+                      <button class="sm-btn-rescan-leftovers" id="sm-rescan-leftovers" type="button">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M23 4v6h-6"></path>
+                          <path d="M1 20v-6h6"></path>
+                          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                        </svg>
+                        <span>Refresh Leftovers</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="sm-leftovers-list" id="sm-leftovers-list">
+                    <div class="sm-leftovers-empty">
+                      No uninstalled app leftovers detected on this PC. System is clean!
+                    </div>
+                  </div>
+                </div>
+              </section>
             </div>
 
             <!-- Hidden compatibility anchors for existing workstation elements -->
             <div class="hidden" aria-hidden="true" style="display: none;">
+              <button id="sw-scan"></button>
+              <button id="sw-cancel"></button>
+              <div id="sw-progress"><div id="sm-scan-bar-fill"></div><span id="sw-progress-phase"></span><span id="sw-progress-detail"></span><span id="sw-count-bytes"></span></div>
+              <div id="sm-consumers-body"></div>
               <div id="sw-status-pill"><span id="sw-status-text"></span></div>
               <div id="sw-roots-bar"></div>
               <div id="sw-depth-note"></div>

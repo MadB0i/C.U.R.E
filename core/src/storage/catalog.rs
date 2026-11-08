@@ -272,6 +272,18 @@ pub fn roots_with_report(depth: ScanDepth, extra: &[PathBuf]) -> (Vec<ScanRoot>,
         StorageClass::UserSelected,
         "Downloads",
     );
+    for user_sub in ["Videos", "Documents", "Desktop"] {
+        let p = profile.join(user_sub);
+        if p.is_dir() {
+            push(
+                &mut roots,
+                &mut seen,
+                p,
+                StorageClass::UserSelected,
+                user_sub,
+            );
+        }
+    }
 
     // ---- developer & AI toolchain caches (both Quick and Deep) -----------
     if !profile.as_os_str().is_empty() {
@@ -441,7 +453,7 @@ pub fn drop_nested_roots(roots: &mut Vec<ScanRoot>) -> usize {
         }
 
         // 2. Are there existing roots in keep that are nested under candidate?
-        // E.g. keep contains C:\Users\bob\Temp, and candidate is C:\
+        // E.g. keep contains C:\Users\bob\Temp, and candidate is C:\Users\bob
         // Candidate is broader, so the prior narrower sub-roots are redundant and must be pruned.
         let mut i = 0;
         while i < keep.len() {
@@ -545,9 +557,9 @@ fn volume_or_folder_label(path: &Path) -> String {
 pub fn limits_for(depth: ScanDepth) -> WalkLimits {
     match depth {
         ScanDepth::Quick => WalkLimits {
-            max_depth: 48,
-            max_entries: 1_500_000,
-            max_duration_ms: 90_000,
+            max_depth: 16,
+            max_entries: 80_000,
+            max_duration_ms: 2_500,
             min_item_size: 0,
             idle_days: 30,
             recent_file_seconds: 3600,
