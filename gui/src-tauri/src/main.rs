@@ -2411,6 +2411,36 @@ fn operator_agent_end_process(
     )
 }
 
+/// Stop a list of agent PIDs requested by the operator from AI Agent Scanner.
+#[tauri::command]
+async fn stop_agent_pids(pids: Vec<u32>) -> Result<usize, String> {
+    tokio::task::spawn_blocking(move || {
+        let current_pid = std::process::id();
+        let live_procs: std::collections::HashMap<u32, String> =
+            cure_core::process_scan::enumerate_processes()
+                .into_iter()
+                .map(|p| (p.pid, p.name))
+                .collect();
+        let mut stopped = 0;
+        for pid in pids {
+            if pid <= 4 || pid == current_pid {
+                continue;
+            }
+            if let Some(name) = live_procs.get(&pid) {
+                if cure_core::risk::is_cure_binary_name(name) {
+                    continue;
+                }
+            }
+            if kill_process_by_pid(pid).is_ok() {
+                stopped += 1;
+            }
+        }
+        Ok(stopped)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Scan a specific file with native Windows Defender without shell expansion.
 #[tauri::command]
 async fn operator_defender_scan(
@@ -3388,6 +3418,7 @@ fn main() {
             stop_canary_guard,
             canary_status,
             agent_radar,
+            stop_agent_pids,
             flight_start,
             flight_status,
             flight_stop,
@@ -5431,6 +5462,17 @@ mod threat_tests {
             )
             .await;
             assert!(del_res.is_err(), "Must refuse to delete protected system file");
+        });
+    }
+
+    #[test]
+    fn test_stop_agent_pids_ignores_system_and_self_pid() {
+        tauri::async_runtime::block_on(async {
+            let self_pid = std::process::id();
+            let pids = vec![0, 1, 4, self_pid];
+            let res = stop_agent_pids(pids).await;
+            assert!(res.is_ok(), "Command should succeed");
+            assert_eq!(res.unwrap(), 0, "System and self PIDs must be skipped");
         });
     }
 }

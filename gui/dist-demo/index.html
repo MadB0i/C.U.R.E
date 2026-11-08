@@ -119,374 +119,92 @@
                AI AGENT RADAR · monitored workspace + flight recorder
                ============================================================ -->
           <section
-            aria-label="AI Agent Radar"
+            aria-label="AI Agent & Bot Scanner"
             class="view hidden"
             id="view-agents"
           >
-            <div class="ar-demo-banner hidden" id="ar-demo-banner" role="status">
-              <strong>SYNTHETIC DEMO</strong>
-              <span
-                >Every process, change and Windows item on this screen is
-                deterministic sample data. Nothing on this machine is read,
-                watched or written.</span
-              >
-            </div>
-
-            <div class="ar-head">
-              <div class="ar-head-copy">
-                <div class="eyebrow">AI AGENT & BOT DETECTION</div>
-                <h1 class="headline">AI Agent & Bot Scanner</h1>
-              </div>
-              <div class="ar-head-actions">
-                <span
-                  class="ar-scan-at"
-                  id="ar-scan-at"
-                  title="When the current process snapshot was taken"
-                  >Not scanned this session</span
-                >
-                <div class="ar-cat-companion" id="ar-cat-companion"></div>
-                <button class="btn btn-primary" id="ar-scan-now" type="button">
-                  Scan Active Agents
-                </button>
-              </div>
-            </div>
-
-            <p
-              class="ar-action-status"
-              id="ar-action-status"
-              role="status"
-            ></p>
-
-            <div class="ar-layout">
-              <section class="ar-panel ar-radar-panel">
-                <div class="ar-radar-row">
-                  <div
-                    class="ar-radar"
-                    data-phase="idle"
-                    data-signal="none"
-                    id="ar-radar"
-                  >
-                    <svg
-                      aria-hidden="true"
-                      class="ar-radar-svg"
-                      viewBox="0 0 200 200"
-                    >
-                      <defs>
-                        <radialGradient
-                          cx="50%"
-                          cy="50%"
-                          id="ar-sweep-grad"
-                          r="50%"
-                        >
-                          <stop
-                            offset="0%"
-                            stop-color="rgba(34, 211, 238, 0.5)"
-                          ></stop>
-                          <stop
-                            offset="70%"
-                            stop-color="rgba(34, 211, 238, 0.14)"
-                          ></stop>
-                          <stop
-                            offset="100%"
-                            stop-color="rgba(34, 211, 238, 0)"
-                          ></stop>
-                        </radialGradient>
-                      </defs>
-                      <circle
-                        cx="100"
-                        cy="100"
-                        r="88"
-                        fill="none"
-                        stroke="var(--hair)"
-                        stroke-width="1"
-                      ></circle>
-                      <circle
-                        class="ar-ring"
-                        cx="100"
-                        cy="100"
-                        r="66"
-                        fill="none"
-                        stroke="rgba(34, 211, 238, 0.16)"
-                        stroke-width="1"
-                      ></circle>
-                      <circle
-                        class="ar-ring"
-                        cx="100"
-                        cy="100"
-                        r="44"
-                        fill="none"
-                        stroke="rgba(34, 211, 238, 0.12)"
-                        stroke-width="1"
-                      ></circle>
-                      <circle
-                        class="ar-ring"
-                        cx="100"
-                        cy="100"
-                        r="22"
-                        fill="none"
-                        stroke="rgba(139, 111, 240, 0.2)"
-                        stroke-width="1"
-                      ></circle>
-                      <line
-                        stroke="var(--hair)"
-                        stroke-width="1"
-                        x1="12"
-                        x2="188"
-                        y1="100"
-                        y2="100"
-                      ></line>
-                      <line
-                        stroke="var(--hair)"
-                        stroke-width="1"
-                        x1="100"
-                        x2="100"
-                        y1="12"
-                        y2="188"
-                      ></line>
-                      <g class="ar-sweep" fill="url(#ar-sweep-grad)">
-                        <path
-                          d="M100 100 L100 12 A88 88 0 0 1 176.2 56 Z"
-                        ></path>
-                      </g>
-                    </svg>
-                    <div class="ar-blips" id="ar-blips"></div>
-                    <div class="ar-radar-core">
-                      <span class="ar-radar-count" id="ar-detected-count">—</span>
-                      <span class="ar-radar-label" id="ar-radar-label"
-                        >not scanned</span
-                      >
-                    </div>
-                  </div>
-                  <div class="ar-radar-side">
-                    <div class="ar-radar-readout">
-                      <span class="ar-live-dot" id="ar-live-dot"></span>
-                      <span id="ar-radar-note"></span>
-                    </div>
-                    <div aria-label="Indicator legend" class="ar-legend">
-                      <span><i class="ar-legend-dot tone-ok"></i>Verified</span>
-                      <span><i class="ar-legend-dot tone-warn"></i>Unverified</span>
-                      <span><i class="ar-legend-dot tone-bad"></i>Suspect</span>
-                      <span><i class="ar-legend-dot tone-info"></i>Model server</span>
-                    </div>
-                  </div>
+            <div class="ar-container">
+              <!-- Block 1: Top Hero Card with Cyber-Cat Stage -->
+              <div class="ar-hero-card">
+                <div class="ar-cat-stage" id="ar-cat-stage">
+                  <div class="ar-cat-box" id="ar-cat-companion"></div>
                 </div>
-
-                <ul
-                  aria-label="Detected agents"
-                  class="ar-agent-list"
-                  id="ar-agent-list"
-                ></ul>
-                <div class="empty-state ar-rich-empty" id="ar-agents-empty">
-                  <div class="ar-empty-title">
-                    <svg
-                      aria-hidden="true"
-                      class="ar-empty-radar-icon"
-                      fill="none"
-                      height="20"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      viewBox="0 0 24 24"
-                      width="20"
-                    >
-                      <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
-                      <circle cx="12" cy="12" r="6" stroke-opacity="0.5"></circle>
-                      <circle cx="12" cy="12" r="2"></circle>
-                      <path
-                        d="M12 2 L12 12 L18 18"
-                        stroke-linecap="round"></path>
-                    </svg>
-                    <strong id="ar-empty-title">Not scanned this session</strong>
-                  </div>
-                  <div class="ar-supported-grid" id="ar-supported-grid">
-                    <span class="ar-tool-chip"><code>OpenCode</code></span>
-                    <span class="ar-tool-chip"><code>Codex</code></span>
-                    <span class="ar-tool-chip"><code>Claude Code</code></span>
-                    <span class="ar-tool-chip"><code>Antigravity</code></span>
-                    <span class="ar-tool-chip"><code>Cursor</code></span>
-                    <span class="ar-tool-chip"><code>Windsurf</code></span>
-                    <span class="ar-tool-chip"><code>Gemini CLI</code></span>
-                    <span class="ar-tool-chip"><code>Aider</code></span>
-                    <span class="ar-tool-chip"><code>Ollama</code></span>
-                    <span class="ar-tool-chip"><code>Cline</code></span>
-                    <span class="ar-tool-chip"><code>Continue</code></span>
-                    <span class="ar-tool-chip"><code>Copilot</code></span>
-                  </div>
-                </div>
-              </section>
-
-              <section class="ar-panel ar-flight-panel">
-                <div class="ar-panel-head">
-                  <div>
-                    <h2 class="section-title">Flight Recorder</h2>
-                    <p class="ar-panel-sub" id="ar-session-sub">
-                      Nothing is watched until you start a session.
+                <div class="ar-hero-content">
+                  <div class="ar-hero-header">
+                    <div class="eyebrow">AI AGENT & BOT DETECTION</div>
+                    <h1 class="headline">AI Agent & Bot Scanner</h1>
+                    <p class="ar-hero-desc">
+                      Real-time discovery for active coding agents, local model servers (Ollama), and automation bots. Groups child processes with Authenticode signature verification and instant termination control.
                     </p>
                   </div>
-                  <span class="ar-state-badge" id="ar-session-badge">Idle</span>
+                  <div class="ar-actions-row">
+                    <button class="ar-primary-scan-btn" id="ar-scan-now" type="button">
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                      </svg>
+                      <span id="ar-scan-btn-text">Scan Active Agents</span>
+                    </button>
+                  </div>
+                  <div class="ar-progress-section">
+                    <div class="ar-progress-track">
+                      <div class="ar-progress-bar" id="ar-progress-bar" style="width: 0%;"></div>
+                    </div>
+                    <div class="ar-phase-ticker" id="ar-phase-ticker">Ready to scan — click "Scan Active Agents" to inspect memory</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Block 2: 3-Column KPI Grid -->
+              <div class="ar-kpi-grid">
+                <div class="ar-kpi-card">
+                  <span class="ar-kpi-label">Detected AI Agents</span>
+                  <span class="ar-kpi-val" id="ar-kpi-agents-count">0</span>
+                </div>
+                <div class="ar-kpi-card">
+                  <span class="ar-kpi-label">Processes & Memory</span>
+                  <span class="ar-kpi-val" id="ar-kpi-procs-memory">0 procs · 0 MB</span>
+                </div>
+                <div class="ar-kpi-card ar-kpi-unverified" id="ar-kpi-unverified-card">
+                  <span class="ar-kpi-label">Unverified / Unsigned Bots</span>
+                  <span class="ar-kpi-val" id="ar-kpi-unverified-count">0</span>
+                </div>
+              </div>
+
+              <!-- Block 3: Grouped Agents List Section -->
+              <section class="ar-findings-section" id="ar-findings-section">
+                <!-- Idle State Card -->
+                <div class="ar-idle-card" id="ar-idle-card">
+                  <div class="ar-idle-icon">🤖</div>
+                  <h3>Ready to Scan AI Agents & Model Servers</h3>
+                  <p>Click "Scan Active Agents" to inspect memory for Claude Code, Cursor, Antigravity, Ollama, and local automation bots.</p>
                 </div>
 
-                <div class="ar-workspace-row">
-                  <label class="ar-field" for="ar-workspace">
-                    <span>Workspace to monitor</span>
-                    <input
-                      autocomplete="off"
-                      id="ar-workspace"
-                      placeholder="D:\Projects\my-app"
-                      spellcheck="false"
-                      type="text"
-                    />
-                  </label>
-                  <button class="btn btn-primary" id="ar-start" type="button">
-                    Start monitoring
-                  </button>
-                  <button class="btn btn-danger hidden" id="ar-stop" type="button">
-                    Stop and review
-                  </button>
-                </div>
-                <p class="ar-error hidden" id="ar-workspace-error" role="alert"></p>
-
-                <!-- A recovered previous recording starts collapsed: it is
-                     durable evidence, never a live session. -->
-                <div class="ar-history hidden" id="ar-history">
-                  <div class="ar-history-main">
-                    <span class="ar-history-kicker">Previous recording</span>
-                    <span class="ar-history-meta" id="ar-history-meta">—</span>
+                <!-- Clean Empty State Card -->
+                <div class="ar-clean-card hidden" id="ar-clean-card">
+                  <div class="ar-clean-icon-wrap">
+                    <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="20 6 9 17 4 12"/>
+                    </svg>
                   </div>
-                  <button class="btn" id="ar-history-open" type="button">
-                    View events
-                  </button>
+                  <div class="ar-clean-info">
+                    <h2 class="ar-clean-title">No Active AI Agents Running</h2>
+                    <p class="ar-clean-sub">Zero background coding agents, local LLM servers, or automation bots detected in memory.</p>
+                  </div>
                 </div>
 
-                <div class="empty-state ar-flight-empty" id="ar-flight-empty">
-                  <strong>No recording in progress</strong>
-                  <span>Start monitoring to record workspace changes.</span>
-                </div>
-
-                <div class="ar-flight hidden" id="ar-flight-live">
-                  <dl class="ar-stats">
-                    <div><dt>Observed</dt><dd id="ar-stat-total">0</dd></div>
-                    <div><dt>Created</dt><dd id="ar-stat-created">0</dd></div>
-                    <div><dt>Modified</dt><dd id="ar-stat-modified">0</dd></div>
-                    <div><dt>Removed</dt><dd id="ar-stat-removed">0</dd></div>
-                    <div><dt>Net size</dt><dd id="ar-stat-bytes">0 B</dd></div>
-                    <div><dt>Evidence</dt><dd id="ar-stat-confidence">—</dd></div>
-                    <div><dt>Duration</dt><dd id="ar-session-duration">—</dd></div>
-                  </dl>
-
-                  <div class="ar-coverage" id="ar-coverage" role="status"></div>
-
-                  <div class="ar-flight-tools">
-                    <div class="ar-filters" id="ar-filters" role="group" aria-label="Filter recorded changes">
-                      <button aria-pressed="true" class="ar-chip is-on" data-filter="all" type="button">All</button>
-                      <button aria-pressed="false" class="ar-chip" data-filter="created" type="button">Created</button>
-                      <button aria-pressed="false" class="ar-chip" data-filter="modified" type="button">Modified</button>
-                      <button aria-pressed="false" class="ar-chip" data-filter="removed" type="button">Removed</button>
-                      <button aria-pressed="false" class="ar-chip" data-filter="renamed" type="button">Renamed</button>
-                      <button aria-pressed="false" class="ar-chip" data-filter="correlated" type="button">Correlated</button>
-                    </div>
-                    <div class="ar-flight-actions">
-                      <button
-                        aria-pressed="false"
-                        class="ar-chip hidden"
-                        id="ar-review-toggle"
-                        type="button"
-                      >
-                        Review timeline
-                      </button>
-                      <button
-                        aria-pressed="false"
-                        class="ar-chip hidden"
-                        id="ar-export-toggle"
-                        type="button"
-                      >
-                        Export
-                      </button>
+                <!-- Grouped Agents List Card -->
+                <div class="ar-agents-card hidden" id="ar-agents-card">
+                  <div class="ar-agents-header">
+                    <div class="ar-agents-title-group">
+                      <h2 class="ar-agents-title">Active AI Agents & Tools</h2>
+                      <span class="ar-agents-subtitle">Grouped by application identity with child processes consolidated</span>
                     </div>
                   </div>
-
-                  <!-- Replay controls exist only in explicit review mode. -->
-                  <div class="ar-review hidden" id="ar-review">
-                    <div class="ar-scrub-row">
-                      <label for="ar-scrub">Replay</label>
-                      <input id="ar-scrub" max="0" min="0" step="1" type="range" value="0" />
-                      <span class="ar-scrub-label" id="ar-scrub-label">Live</span>
-                    </div>
-                    <div class="ar-timeline-wrap">
-                      <div
-                        aria-label="Recorded observation timeline"
-                        class="ar-timeline"
-                        id="ar-timeline"
-                      ></div>
-                    </div>
-                  </div>
-
-                  <div class="ar-flight-body">
-                    <div class="ar-event-column">
-                      <ul aria-label="Observed changes" class="ar-event-list" id="ar-event-list"></ul>
-                      <div class="empty-state" id="ar-event-empty">
-                        <strong>No changes observed yet</strong>
-                        <span>Changes appear here as they are observed.</span>
-                      </div>
-                    </div>
-                    <aside aria-label="Evidence details" class="ar-evidence" id="ar-evidence">
-                      <div class="empty-state" id="ar-evidence-empty">
-                        <strong>Select an observation</strong>
-                        <span>Its evidence appears here.</span>
-                      </div>
-                      <div class="hidden" id="ar-evidence-card"></div>
-                    </aside>
-                  </div>
-
-                  <!-- Privacy-safe case file, revealed on request. -->
-                  <div class="ar-export hidden" id="ar-export">
-                    <div class="ar-case-controls">
-                      <label class="ar-field" for="ar-case-summary">
-                        <span>Optional operator note (screened for paths and addresses)</span>
-                        <input
-                          autocomplete="off"
-                          id="ar-case-summary"
-                          maxlength="160"
-                          placeholder="e.g. Investigated a suspicious build"
-                          type="text"
-                        />
-                      </label>
-                      <label class="ar-check">
-                        <input id="ar-case-include" type="checkbox" />
-                        <span>Include the note</span>
-                      </label>
-                      <button class="btn" id="ar-case-preview" type="button" disabled>
-                        Preview
-                      </button>
-                      <button class="btn btn-primary" id="ar-case-export" type="button">
-                        Evidence Card
-                      </button>
-                      <button class="btn" id="ar-case-export-md" type="button">
-                        Markdown
-                      </button>
-                      <button class="btn" id="ar-case-export-json" type="button">
-                        JSON
-                      </button>
-                      <button class="btn" id="ar-case-export-html" type="button">
-                        HTML
-                      </button>
-                    </div>
-                    <p class="ar-caveat" id="ar-case-status" role="status"></p>
-                    <div class="ar-case-stage" id="ar-case-stage"></div>
-                  </div>
+                  <div class="ar-grouped-list" id="ar-grouped-list"></div>
                 </div>
               </section>
             </div>
-
-            <!-- Agent Detail Inspector Dialog -->
-            <dialog class="modal-dialog ar-inspector-modal hidden" id="ar-agent-inspector">
-              <div class="modal-card">
-                <div class="modal-head">
-                  <h3 class="section-title" id="ar-insp-title">Agent Detail Inspector</h3>
-                  <button class="ghost-btn icon-only" id="ar-insp-close" type="button" aria-label="Close">Close</button>
-                </div>
-                <div class="modal-body" id="ar-insp-body"></div>
-              </div>
-            </dialog>
           </section>
 
           <!-- ============================================================
