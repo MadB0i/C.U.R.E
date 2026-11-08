@@ -1166,6 +1166,9 @@
   }
 
   function renderRescueResult(summary, errorText) {
+    if (window.CureVirusRescueClean && window.CureVirusRescueClean.onScanDone) {
+      window.CureVirusRescueClean.onScanDone(summary);
+    }
     const panel = document.getElementById("rescue-results");
     if (!panel) return;
     const title = document.getElementById("xr-results-title");
@@ -1431,18 +1434,10 @@
   }
 
   const VIEW_TITLES = {
-    "view-overview": "Overview",
-    "view-agents": "AI Agent Radar",
-    "scan-center": "Rescue",
-    "scan-view": "Rescue",
-    "landing-view": "Rescue",
-    "results-view": "Investigate",
-    "view-quarantine": "Quarantine",
-    "view-detective": "Detective Mode",
-    "cleanup-view": "Storage Workstation",
-    "view-eventlog": "Monitor",
-    "view-canary": "Monitor / Canary",
-    "view-incident": "Monitor / Login Observation",
+    "scan-view": "Virus Rescue",
+    "scan-center": "Virus Rescue",
+    "view-agents": "AI Agents",
+    "cleanup-view": "Storage & Move",
   };
 
   function setNav(viewId) {
@@ -4795,7 +4790,7 @@
 
   (async () => {
     scanView.classList.add("hidden");
-    showViewInstant(document.getElementById("view-overview"));
+    showViewInstant(document.getElementById("scan-view"));
     renderOverviewIdle();
     loadOperatorPosture();
     restorePill();

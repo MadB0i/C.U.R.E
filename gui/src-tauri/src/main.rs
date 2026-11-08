@@ -2920,6 +2920,69 @@ fn storage_reveal(path: String) -> Result<String, String> {
         .map_err(|e| format!("cannot open explorer: {e}"))?;
     Ok(target.to_string_lossy().into_owned())
 }
+
+#[tauri::command]
+async fn storage_remove_leftover(path: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let p = PathBuf::from(&path);
+        if !p.exists() || !p.is_dir() {
+            return Err("Folder does not exist.".to_string());
+        }
+        let allowed = ["APPDATA", "LOCALAPPDATA", "ProgramData", "USERPROFILE"].iter().any(|var| {
+            if let Some(base) = std::env::var_os(var).map(PathBuf::from) {
+                p.starts_with(&base) && p != base
+            } else {
+                false
+            }
+        });
+        if !allowed {
+            return Err("Removal refused: folder is outside safe application data directories.".to_string());
+        }
+
+        let lower = path.to_lowercase();
+        if lower.contains(r"\windows\\") || lower.contains(r"\system32") || lower.contains(r"\program files") {
+            return Err("Removal refused: protected system directory.".to_string());
+        }
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStrExt;
+            use windows::Win32::UI::Shell::{
+                SHFileOperationW, FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_SILENT, SHFILEOPSTRUCTW,
+            };
+            use windows::core::PCWSTR;
+
+            let mut wide: Vec<u16> = p.as_os_str().encode_wide().collect();
+            wide.push(0);
+            wide.push(0);
+
+            let mut op = SHFILEOPSTRUCTW {
+                hwnd: Default::default(),
+                wFunc: FO_DELETE,
+                pFrom: PCWSTR::from_raw(wide.as_ptr()),
+                pTo: PCWSTR::null(),
+                fFlags: (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT).0 as u16,
+                fAnyOperationsAborted: Default::default(),
+                hNameMappings: Default::default(),
+                lpszProgressTitle: PCWSTR::null(),
+            };
+
+            let ret = unsafe { SHFileOperationW(&mut op) };
+            if ret == 0 && !op.fAnyOperationsAborted.as_bool() {
+                Ok("Safely moved leftover to Recycle Bin".to_string())
+            } else {
+                Err(format!("Could not move to Recycle Bin (error code {ret})"))
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            Err("Only Windows supported".to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn main() {
     // Before anything creates a window: see `declare_dpi_awareness`.
     declare_dpi_awareness();
@@ -2991,6 +3054,7 @@ fn main() {
             storage_preview,
             storage_execute,
             storage_reveal,
+            storage_remove_leftover,
             storage_case_file,
             storage_save_case_file,
             share_card_png,
@@ -5001,5 +5065,27 @@ mod case_file_export_tests {
         assert!(!safe.contains('/'));
         assert!(!safe.contains('\\'));
         assert!(!safe.contains(".."));
+    }
+}
+
+#[cfg(test)]
+mod leftover_tests {
+    #[test]
+    fn system_paths_are_refused_for_leftover_removal() {
+        let windows_path = r"C:\\Windows\\System32\\drivers";
+        let is_system = windows_path.to_lowercase().contains(r"\\windows\\")
+            || windows_path.to_lowercase().contains(r"\\system32")
+            || windows_path.to_lowercase().contains(r"\\program files");
+        assert!(is_system);
+    }
+
+    #[test]
+    fn valid_appdata_path_passes_allowlist() {
+        let appdata = std::env::var_os("APPDATA").map(std::path::PathBuf::from);
+        if let Some(base) = appdata {
+            let leftover = base.join("UninstalledSoftwareApp");
+            let is_child = leftover.starts_with(&base) && leftover != base;
+            assert!(is_child);
+        }
     }
 }

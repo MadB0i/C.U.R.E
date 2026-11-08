@@ -393,6 +393,10 @@
   }
 
   async function scanAgents() {
+    const catComp = document.getElementById("ar-cat-companion");
+    if (window.CureCat && catComp) {
+      window.CureCat.setState(catComp, "scanning");
+    }
     if (!invoke) return;
     if (state.scanning) {
       // One enumeration at a time; a request that lands mid-scan (e.g. the
@@ -897,7 +901,7 @@
       row.appendChild(node("span", "ar-agent-chevron", "▾", undefined));
       li.appendChild(row);
 
-      const body = node("div", "ar-agent-body hidden");
+      const body = node("div", "ar-agent-body");
 
       procs.forEach(function (proc) {
         const line = node("div", "ar-proc");
@@ -931,10 +935,19 @@
           openAgentInspector(agent, proc);
         });
         actions.appendChild(detailsBtn);
+        const openFolderBtn = node("button", "btn btn-ghost ar-proc-folder", "Open Folder");
+        openFolderBtn.type = "button";
+        openFolderBtn.addEventListener("click", function (ev) {
+          ev.stopPropagation();
+          if (proc.exe_path) {
+            invoke("storage_reveal", { path: proc.exe_path }).catch(function () {});
+          }
+        });
+        actions.appendChild(openFolderBtn);
         const endBtn = node(
           "button",
           "btn btn-ghost ar-proc-end",
-          proc.has_windows ? "End process" : "Force stop",
+          "Stop Agent",
         );
         endBtn.type = "button";
         endBtn.title = proc.has_windows

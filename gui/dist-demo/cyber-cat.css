@@ -1,0 +1,159 @@
+/* Cyber-Cat Mascot Companion Styles */
+.cyber-cat-wrapper {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 52px;
+  height: 48px;
+  user-select: none;
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+.cyber-cat {
+  width: 52px;
+  height: 48px;
+  overflow: visible;
+  transition: transform 0.25s ease;
+}
+
+/* Base Part Styling */
+.cyber-cat .cat-tail-group {
+  transform-origin: 12px 36px;
+}
+
+.cyber-cat .cat-paw-front {
+  transform-origin: 38px 38px;
+}
+
+.cyber-cat .cat-file-cube {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  transform-origin: 48px 36px;
+}
+
+/* State 1: IDLE */
+.cyber-cat.cat-idle .cat-tail-group {
+  animation: catTailSway 3s ease-in-out infinite;
+}
+.cyber-cat.cat-idle .cat-eye {
+  animation: catSoftBlink 4.5s ease-in-out infinite;
+  transform-origin: 38px 14px;
+}
+.cyber-cat.cat-idle .cat-file-cube {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* State: CLEAN (Relaxed celebration) */
+.cyber-cat.cat-clean .cat-tail-group {
+  animation: catTailSway 2.5s ease-in-out infinite;
+}
+.cyber-cat.cat-clean .cat-eye {
+  fill: #10b981 !important;
+  filter: drop-shadow(0 0 4px rgba(16, 185, 129, 0.9));
+}
+.cyber-cat.cat-clean .cat-file-cube {
+  opacity: 0;
+}
+.cyber-cat.cat-clean {
+  animation: catGentlePurr 2s ease-in-out infinite;
+}
+
+/* State 2: SCANNING (Hunter Mode) */
+.cyber-cat.cat-scanning {
+  transform: translateY(2px) scale(1.02);
+}
+.cyber-cat.cat-scanning .cat-tail-group {
+  animation: catTailTwitch 0.9s ease-in-out infinite alternate;
+}
+.cyber-cat.cat-scanning .cat-eyes {
+  animation: catEyeDart 1.4s ease-in-out infinite alternate;
+}
+.cyber-cat.cat-scanning .cat-eye {
+  fill: #00f0ff !important;
+  filter: drop-shadow(0 0 5px #00f0ff);
+}
+.cyber-cat.cat-scanning .cat-file-cube {
+  opacity: 0;
+}
+
+/* State 3: MOVING (Trotting & Pushing File Cube) */
+.cyber-cat.cat-moving {
+  animation: catTrot 0.45s ease-in-out infinite alternate;
+}
+.cyber-cat.cat-moving .cat-tail-group {
+  animation: catTailSway 1.2s ease-in-out infinite;
+}
+.cyber-cat.cat-moving .cat-paw-front {
+  animation: catPawPush 0.45s ease-in-out infinite alternate;
+}
+.cyber-cat.cat-moving .cat-file-cube {
+  opacity: 1;
+  animation: catCubeBob 0.45s ease-in-out infinite alternate;
+}
+
+/* State 4: DELETING (Paw Swat) */
+.cyber-cat.cat-deleting .cat-paw-front {
+  animation: catPawSwat 0.45s cubic-bezier(0.17, 0.89, 0.32, 1.28) forwards;
+}
+.cyber-cat.cat-deleting .cat-file-cube {
+  animation: catCubeKnockout 0.45s ease-out forwards;
+}
+
+/* Keyframes */
+@keyframes catTailSway {
+  0% { transform: rotate(-8deg); }
+  50% { transform: rotate(14deg); }
+  100% { transform: rotate(-8deg); }
+}
+
+@keyframes catTailTwitch {
+  0% { transform: rotate(-4deg); }
+  100% { transform: rotate(18deg); }
+}
+
+@keyframes catSoftBlink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.08); }
+}
+
+@keyframes catEyeDart {
+  0% { transform: translateX(-2.5px); }
+  50% { transform: translateX(2.5px); }
+  100% { transform: translateX(-2.5px); }
+}
+
+@keyframes catTrot {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-3px); }
+}
+
+@keyframes catGentlePurr {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-1.5px); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes catPawPush {
+  0% { transform: translateX(-1px); }
+  100% { transform: translateX(3px); }
+}
+
+@keyframes catCubeBob {
+  0% { transform: translateY(0) translateX(0); }
+  100% { transform: translateY(-2px) translateX(2px); }
+}
+
+@keyframes catPawSwat {
+  0% { transform: rotate(0) translateY(0); }
+  35% { transform: rotate(-25deg) translateY(-4px); }
+  70% { transform: rotate(35deg) translateY(2px) translateX(6px); }
+  100% { transform: rotate(0) translateY(0); }
+}
+
+@keyframes catCubeKnockout {
+  0% { opacity: 1; transform: translate(0, 0) scale(1); }
+  40% { opacity: 1; transform: translate(6px, -6px) scale(1.1) rotate(20deg); }
+  100% { opacity: 0; transform: translate(24px, 14px) scale(0.2) rotate(90deg); }
+}

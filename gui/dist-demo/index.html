@@ -8,6 +8,8 @@
     <!-- No remote fonts or assets: system font stack only (see style.css
        --font-ui). The app must work fully offline; see README threat model. -->
     <link href="style.css" rel="stylesheet" />
+    <link href="cyber-cat.css" rel="stylesheet" />
+    <link href="clean-3tab.css" rel="stylesheet" />
     <link href="xray.css" rel="stylesheet" />
     <link href="investigate.css" rel="stylesheet" />
     <link href="operator.css" rel="stylesheet" />
@@ -49,16 +51,16 @@
         </div>
         <nav aria-label="Sections" class="nav">
           <button
-            aria-current="false"
+            aria-current="true"
             class="nav-item"
-            data-view="view-overview"
-            id="nav-overview"
+            data-view="scan-view"
+            id="nav-scan"
             type="button"
           >
             <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M4 13h6V4H4zM14 20h6v-6h-6zM4 20h6v-4H4zM14 11h6V4h-6z"
-              ></path></svg
-            ><span>Overview</span></button>
+              <path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3z"></path>
+              <path d="M9 12l2 2 4-4"></path>
+            </svg><span>Virus Rescue</span></button>
           <button
             aria-current="false"
             class="nav-item"
@@ -70,51 +72,7 @@
               <circle cx="12" cy="12" r="9"></circle>
               <circle cx="12" cy="12" r="4"></circle>
               <path d="M12 3v3M21 12h-3M12 21v-3M3 12h3"></path>
-            </svg><span>Agents</span></button>
-          <button
-            aria-current="false"
-            class="nav-item"
-            data-view="scan-center"
-            id="nav-scan"
-            type="button"
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M12 4v16M4 12h16M6.5 6.5l11 11M17.5 6.5l-11 11"
-              ></path></svg
-            ><span>Rescue</span></button>
-          <button
-            aria-current="false"
-            class="nav-item"
-            data-view="results-view"
-            id="nav-results"
-            type="button"
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <circle cx="10.5" cy="10.5" r="6.5"></circle>
-              <path d="M15.5 15.5L21 21"></path></svg
-            ><span>Investigate</span></button>
-          <button
-            aria-current="false"
-            class="nav-item"
-            data-view="view-quarantine"
-            id="nav-quarantine"
-            type="button"
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M4 8h16v11H4zM3 4h18v4H3zM9.5 12.5h5"></path></svg
-            ><span>Quarantine</span></button>
-          <button
-            aria-current="false"
-            class="nav-item"
-            data-view="view-detective"
-            id="nav-detective"
-            type="button"
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <circle cx="10.5" cy="10.5" r="6.5"></circle>
-              <path d="M15.5 15.5L21 21"></path>
-              <path d="M8 10.5h5"></path></svg
-            ><span>Detective</span></button>
+            </svg><span>AI Agents</span></button>
           <button
             aria-current="false"
             class="nav-item"
@@ -124,19 +82,8 @@
           >
             <svg aria-hidden="true" viewBox="0 0 24 24">
               <ellipse cx="12" cy="6.5" rx="7.5" ry="3"></ellipse>
-              <path d="M4.5 6.5v11c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-11M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"
-              ></path></svg
-            ><span>Storage</span></button>
-          <button
-            aria-current="false"
-            class="nav-item"
-            data-view="view-eventlog"
-            id="nav-eventlog"
-            type="button"
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M3 12h4l2.5-6 4 12L16 12h5"></path></svg
-            ><span>Monitor</span></button>
+              <path d="M4.5 6.5v11c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-11M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"></path>
+            </svg><span>Storage & Move</span></button>
         </nav>
       </aside>
       <div class="shell">
@@ -187,8 +134,8 @@
 
             <div class="ar-head">
               <div class="ar-head-copy">
-                <div class="eyebrow">AI agent intelligence</div>
-                <h1 class="headline">Agent Radar</h1>
+                <div class="eyebrow">AI AGENT & BOT DETECTION</div>
+                <h1 class="headline">AI Agent & Bot Scanner</h1>
               </div>
               <div class="ar-head-actions">
                 <span
@@ -197,11 +144,9 @@
                   title="When the current process snapshot was taken"
                   >Not scanned this session</span
                 >
-                <button class="btn" id="ar-refresh" type="button">
-                  Refresh
-                </button>
+                <div class="ar-cat-companion" id="ar-cat-companion"></div>
                 <button class="btn btn-primary" id="ar-scan-now" type="button">
-                  Scan Agents
+                  Scan Active Agents
                 </button>
               </div>
             </div>
@@ -551,132 +496,103 @@
             class="view"
             id="scan-view"
           >
-            <div class="rescue-head">
-              <div class="rescue-head-copy">
-                <div class="eyebrow">Rescue / System X-Ray</div>
-                <h1 class="headline">System X-Ray</h1>
-              </div>
-              <div class="rescue-head-actions">
-                <span
-                  class="xr-response"
-                  id="xray-response-wrap"
-                  title="Response level reported by the operator engine"
-                >
-                  <span class="xr-response-label">Response</span>
-                  <span class="operator-level-badge level-0-observe" id="xray-response-badge">Level 0 · observe</span>
-                </span>
-                <details class="xr-tools" id="xr-tools">
-                  <summary class="btn xr-tools-summary">Tools</summary>
-                  <div class="xr-tools-menu">
-                    <button
-                      class="xr-tools-item"
-                      id="xray-export-case-btn"
-                      type="button"
-                    >
-                      Export case file
-                    </button>
-                    <button
-                      class="xr-tools-item"
-                      id="xray-defender-scan-btn"
-                      type="button"
-                    >
-                      Defender file scan
-                      <span class="xr-tools-note">audit only · never removes</span>
-                    </button>
-                  </div>
-                </details>
+            <div class="vr-hero">
+              <div class="vr-hero-text">
+                <div class="eyebrow">DEEP VIRUS & PERSISTENCE SCANNER</div>
+                <h1 class="headline">Virus Rescue</h1>
+                <p class="vr-hero-sub">Scans every system file and startup vector for hidden rootkits, defender-bypass threats, and silent trojans.</p>
               </div>
             </div>
 
-            <div class="xr-shell">
-              <div class="xr-workstation">
-                <div class="xr-radar-col">
-                  <div class="xray-field" data-running="false" data-state="idle" id="xray-field">
-                    <canvas
-                      aria-hidden="true"
-                      class="xray-canvas"
-                      id="xray-canvas"
-                    ></canvas>
-                    <div class="xray-corner top">
-                      <span class="xray-tag">Persistence radar · 10 inspection vectors</span>
-                    </div>
-                    <div class="xray-corner bottom">
-                      <span class="xray-live" id="xray-live">Radar standby</span>
-                      <button
-                        class="ghost-btn xray-motion"
-                        id="xray-motion"
-                        type="button"
-                      >
-                        Pause field motion
-                      </button>
-                    </div>
-                    <div class="xray-core-readout" id="xray-core-readout">
-                      READY // STANDBY
-                    </div>
-                  </div>
-                  <div class="xr-actions">
-                    <button class="btn btn-primary xr-primary" id="xray-start-btn" type="button">
-                      Start System Scan
-                    </button>
-                    <button class="btn xr-secondary hidden" id="xray-investigate-btn" type="button">
-                      Review findings
-                    </button>
-                    <button class="btn xr-secondary hidden" id="scan-retry" type="button">
-                      Retry scan
-                    </button>
-                    <p class="xr-actions-note" id="xr-actions-note">
-                      Idle — no scan has run in this session.
-                    </p>
-                  </div>
+            <!-- Stage A: Top Scan Stage with Cyber-Cat & 1 Big Button -->
+            <div class="vr-scan-card">
+              <div class="vr-scan-topbar">
+                <div class="vr-scan-action-wrap">
+                  <button class="btn btn-primary vr-big-scan-btn" id="xray-start-btn" type="button">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                    </svg>
+                    <span>Scan System for Threats</span>
+                  </button>
+                  <button class="btn xr-secondary hidden" id="scan-retry" type="button">Retry scan</button>
                 </div>
+                <div class="vr-cat-box" id="vr-cat-companion"></div>
+              </div>
 
-                <aside class="xr-side" aria-label="Collector telemetry">
-                  <div class="xray-telemetry-hud" id="xray-telemetry-hud">
-                    <div class="xray-hud-header">
-                      <span class="xray-hud-eyebrow">Live telemetry</span>
-                      <span class="xray-hud-badge" id="xray-hud-badge">Standby</span>
-                    </div>
-                    <div class="xray-hud-target">
-                      <div class="xray-hud-target-meta">
-                        <strong class="xray-hud-name" id="xray-hud-name">Awaiting operator</strong>
-                        <span class="xray-hud-detail" id="xray-hud-detail">No collection has run in this session</span>
-                      </div>
-                    </div>
-                    <div class="xray-hud-metrics">
-                      <div class="xray-hud-metric">
-                        <span class="xray-metric-label">ENTRIES</span>
-                        <span class="xray-metric-val" id="xray-hud-inspected">0</span>
-                      </div>
-                      <div class="xray-hud-metric">
-                        <span class="xray-metric-label">LAYERS</span>
-                        <span class="xray-metric-val" id="xray-hud-coverage">0 / 10</span>
-                      </div>
-                      <div class="xray-hud-metric">
-                        <span class="xray-metric-label">FLAGGED</span>
-                        <span class="xray-metric-val" id="xray-hud-findings">0</span>
-                      </div>
-                      <div class="xray-hud-metric">
-                        <span class="xray-metric-label">UNREADABLE</span>
-                        <span class="xray-metric-val" id="xray-hud-unavailable">0</span>
-                      </div>
-                    </div>
-                  </div>
+              <!-- Progress Bar Track -->
+              <div class="vr-track-wrap">
+                <div class="vr-progress-track">
+                  <div class="vr-progress-bar" id="vr-progress-bar" style="width: 0%;"></div>
+                </div>
+                <div class="vr-stage-label" id="xray-phase">Ready to scan</div>
+              </div>
 
-                  <section class="xr-matrix" aria-labelledby="xr-matrix-title">
-                    <div class="xr-matrix-head">
-                      <h2 class="section-title" id="xr-matrix-title">Inspection layers</h2>
-                      <span class="xr-matrix-count" id="xray-matrix-cover">0 / 10</span>
-                    </div>
-                    <ul
-                      aria-label="Collector states"
-                      class="xr-layers"
-                      id="sweep-sources"
-                    ></ul>
-                    <p class="xr-matrix-foot">
-                      <span id="sweep-current">Awaiting collection</span>
-                      <span id="sweep-items">0 entries inspected</span>
-                    </p>
-                  </section>
+              <!-- Live Counters -->
+              <div class="vr-counters-grid">
+                <div class="vr-counter-card">
+                  <span class="vr-counter-label">SCANNED FILES</span>
+                  <span class="vr-counter-val" id="xray-inspected">0</span>
+                </div>
+                <div class="vr-counter-card">
+                  <span class="vr-counter-label">ELAPSED TIME</span>
+                  <span class="vr-counter-val" id="scan-elapsed">0.0s</span>
+                </div>
+                <div class="vr-counter-card vr-counter-threats">
+                  <span class="vr-counter-label">THREATS FOUND</span>
+                  <span class="vr-counter-val" id="xray-findings">0</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Stage B: Clean Findings List / Results -->
+            <section class="vr-results-stage" id="rescue-results">
+              <div class="vr-clean-card hidden" id="vr-clean-card">
+                <div class="vr-clean-cat" id="vr-clean-cat"></div>
+                <div class="vr-clean-info">
+                  <h2 class="vr-clean-title">System Clean — No Hidden Threats Found</h2>
+                  <p class="vr-clean-sub">All critical system layers, background persistence entries, and memory modules passed inspection. Zero rootkits or Defender-bypasses detected.</p>
+                </div>
+              </div>
+
+              <div class="vr-threats-container hidden" id="vr-threats-container">
+                <div class="vr-threats-head">
+                  <h2 class="vr-threats-title">Detected Threats for Review</h2>
+                  <span class="vr-threats-count-badge" id="vr-threats-badge">0 threats</span>
+                </div>
+                <ul class="vr-threats-list" id="xr-result-findings"></ul>
+              </div>
+
+              <div class="vr-idle-card" id="vr-idle-card">
+                <div class="vr-idle-icon">🛡️</div>
+                <h3>Ready to Protect Your PC</h3>
+                <p>Click "Scan System for Threats" to run a deep scan across all boot sectors, registry autoruns, scheduled tasks, and memory processes.</p>
+              </div>
+
+              <!-- Hidden telemetry for core event hooks -->
+              <div class="hidden" aria-hidden="true" style="display: none;">
+                <canvas id="xray-canvas"></canvas>
+                <span id="xray-hud-inspected">0</span>
+                <span id="xray-hud-coverage">0/10</span>
+                <span id="xray-hud-findings">0</span>
+                <span id="xray-hud-unavailable">0</span>
+                <span id="xray-coverage">0/10</span>
+                <span id="xray-matrix-cover">0/10</span>
+                <ul id="sweep-sources"></ul>
+                <span id="sweep-current"></span>
+                <span id="sweep-items"></span>
+                <p id="xr-actions-note"></p>
+                <h2 id="xr-results-title"></h2>
+                <p id="xr-result-sub"></p>
+                <ul id="xr-result-stats"></ul>
+                <ul id="xr-result-notes"></ul>
+                <p id="xr-result-empty"></p>
+                <ul id="log"></ul>
+                <span id="feed-count"></span>
+                <button id="xray-investigate-btn"></button>
+                <button id="xr-result-open"></button>
+              </div>
+            </section>
+          </section>
                 </aside>
               </div>
 
@@ -1271,780 +1187,125 @@
                STORAGE WORKSTATION
                ============================================================ -->
           <section
-            aria-label="Storage Workstation"
+            aria-label="Storage & Move"
             class="view hidden"
             id="cleanup-view"
           >
-            <div class="results-stack">
-              <div class="results-head">
-                <div class="headline-wrap">
-                  <h1 class="headline">Storage Workstation</h1>
-                </div>
-                <span class="flex-spacer"></span>
-                <div class="pill" id="sw-status-pill">
-                  <span class="pill-dot"></span>
-                  <span id="sw-status-text" role="status" aria-live="polite"
-                    >Ready</span
-                  >
-                </div>
+            <div class="sm-hero">
+              <div class="sm-hero-text">
+                <div class="eyebrow">ONE-CLICK STORAGE OPTIMIZATION</div>
+                <h1 class="headline">Storage & Move</h1>
+                <p class="sm-hero-sub">Select any drive to uncover space hogs, move heavy folders to another drive in seconds, or clean uninstalled app leftovers.</p>
               </div>
-
-              <!-- scan controls ------------------------------------- -->
-              <div class="sw-controls" role="group" aria-label="Scan controls">
-                <div class="sw-depth" role="radiogroup" aria-label="Scan depth">
-                  <button
-                    aria-checked="true"
-                    class="sw-chip is-on"
-                    data-depth="quick"
-                    role="radio"
-                    tabindex="0"
-                    type="button"
-                  >
-                    Quick
-                  </button>
-                  <button
-                    aria-checked="false"
-                    class="sw-chip"
-                    data-depth="deep"
-                    role="radio"
-                    tabindex="-1"
-                    type="button"
-                  >
-                    Deep inventory
-                  </button>
-                </div>
-                <p class="sw-depth-note dim" id="sw-depth-note"></p>
-                <span class="flex-spacer"></span>
-                <button
-                  class="btn btn-ghost"
-                  id="sw-add-root"
-                  type="button"
-                >
-                  Add location
-                </button>
-                <button class="btn btn-primary" id="sw-scan" type="button">
-                  Run scan
-                </button>
-                <button class="btn btn-danger hidden" id="sw-cancel" type="button">
-                  Cancel scan
-                </button>
-              </div>
-
-              <div
-                aria-label="Locations added to this scan"
-                class="sw-roots hidden"
-                id="sw-roots-bar"
-              ></div>
-
-              <!-- live progress ----------------------------------- -->
-              <!-- The progress bar updates several times a second. A live
-                   region that changes that often floods a screen reader,
-                   so the region is polite-but-off and the *completion* is
-                   announced through #sw-status-text instead.
-
-                   Every figure below comes from the engine's own progress
-                   event. There is no estimated percentage anywhere: the
-                   engine reports what it has measured and when it expects
-                   to finish, and nothing is inferred from elapsed time. -->
-              <div
-                aria-live="off"
-                class="sw-progress hidden"
-                id="sw-progress"
-                role="status"
-              >
-                <div class="sw-scan-console">
-                  <div aria-hidden="true" class="sw-scan-visual">
-                    <div class="sw-scan-platter"></div>
-                    <div class="sw-scan-beam"></div>
-                    <div class="sw-scan-sweep"></div>
-                  </div>
-                  <div class="sw-scan-readout">
-                    <div class="sw-scan-stage">
-                      <span class="sw-scan-stage-name" id="sw-progress-phase"
-                        >Preparing</span
-                      >
-                      <span class="dim" id="sw-progress-detail"></span>
-                    </div>
-                    <dl class="sw-scan-counters">
-                      <div>
-                        <dt id="sw-label-files">Files</dt>
-                        <dd id="sw-count-files">0</dd>
-                      </div>
-                      <div>
-                        <dt id="sw-label-dirs">Folders</dt>
-                        <dd id="sw-count-dirs">0</dd>
-                      </div>
-                      <div>
-                        <dt id="sw-label-bytes">Measured</dt>
-                        <dd id="sw-count-bytes">0 B</dd>
-                      </div>
-                    </dl>
-                  </div>
-                </div>
-                <ol class="sw-scan-stages" id="sw-scan-stages">
-                  <li data-stage="prepare">Preparing</li>
-                  <li data-stage="walk">Scanning locations</li>
-                  <li data-stage="hash">Verifying duplicates</li>
-                  <li data-stage="final">Finalizing results</li>
-                </ol>
-                <div class="sw-progress-row">
-                  <span class="dim" id="sw-progress-eta"></span>
-                </div>
-              </div>
-
-              <!-- tabs ---------------------------------------------- -->
-              <div class="sw-tabs" role="tablist" aria-label="Storage views">
-                <button
-                  aria-controls="sw-panel-rescue"
-                  aria-selected="true"
-                  class="sw-tab is-on"
-                  id="sw-tab-rescue"
-                  role="tab"
-                  tabindex="0"
-                  type="button"
-                >
-                  Storage Rescue
-                </button>
-                <button
-                  aria-controls="sw-panel-large"
-                  aria-selected="false"
-                  class="sw-tab"
-                  id="sw-tab-large"
-                  role="tab"
-                  tabindex="-1"
-                  type="button"
-                >
-                  Largest files
-                </button>
-                <button
-                  aria-controls="sw-panel-dupes"
-                  aria-selected="false"
-                  class="sw-tab"
-                  id="sw-tab-dupes"
-                  role="tab"
-                  tabindex="-1"
-                  type="button"
-                >
-                  Duplicates
-                </button>
-                <button
-                  aria-controls="sw-panel-queue"
-                  aria-selected="false"
-                  class="sw-tab"
-                  id="sw-tab-queue"
-                  role="tab"
-                  tabindex="-1"
-                  type="button"
-                >
-                  Cleanup queue
-                  <span class="sw-tab-count" id="sw-queue-badge">0</span>
-                </button>
-                <button
-                  aria-controls="sw-panel-coverage"
-                  aria-selected="false"
-                  class="sw-tab"
-                  id="sw-tab-coverage"
-                  role="tab"
-                  tabindex="-1"
-                  type="button"
-                >
-                  Coverage
-                </button>
-              </div>
-
-                            <!-- LUMA STORAGE RESCUE --------------------------------- -->
-              <div
-                aria-labelledby="sw-tab-rescue"
-                class="sw-panel"
-                id="sw-panel-rescue"
-                role="tabpanel"
-                tabindex="0"
-              >
-                <div class="sr-container">
-                  <!-- Drive Pressure Dashboard Cards -->
-                  <div class="sr-drives-grid">
-                    <div class="sr-drive-card sr-source-card" id="sr-source-card">
-                      <div class="sr-drive-head">
-                        <div class="sr-drive-name">Drive C: (System SSD)</div>
-                        <span class="sr-badge sr-badge-danger">CONGESTION DETECTED</span>
-                      </div>
-                      <div class="sr-meter-wrap">
-                        <div class="sr-meter-bar"><div class="sr-meter-fill" style="width: 92.9%;"></div></div>
-                        <div class="sr-meter-labels"><span>92.9% Used</span><span>18.2 GB Free</span></div>
-                      </div>
-                    </div>
-
-                    <div class="sr-drive-card sr-target-card" id="sr-target-card">
-                      <div class="sr-drive-head">
-                        <div class="sr-drive-name">Target Drive D:</div>
-                        <span class="sr-badge sr-badge-ready">HEADROOM READY</span>
-                      </div>
-                      <div class="sr-meter-wrap">
-                        <div class="sr-meter-bar"><div class="sr-meter-fill" style="width: 32.0%;"></div></div>
-                        <div class="sr-meter-labels"><span>32% Used</span><span>680 GB Available</span></div>
-                      </div>
-                    </div>
-
-                    <div class="sr-drive-card sr-relief-card">
-                      <div class="sr-relief-figure" id="sr-relief-figure">+129.1 GB</div>
-                      <div class="sr-relief-label">Safe Recoverable Space on C:</div>
-                      <div class="sr-relief-note" id="sr-relief-note">3 personal libraries ready for verified transfer</div>
-                    </div>
-                  </div>
-
-                  <!-- Operator Guided Workflow Console -->
-                  <div class="sr-operator-guide">
-                    <div class="sr-guide-body">
-                      <div class="sr-guide-title">
-                        <div class="operator-id">
-                          <span class="operator-pulse-dot"></span>
-                          <span>C.U.R.E MOVE ASSISTANT · C: TO D:</span>
-                        </div>
-                        <span class="sr-badge sr-badge-ready" id="sr-guide-badge">WATCHING</span>
-                      </div>
-                      <p class="sr-guide-text" id="sr-guide-text">
-                        Pick the folders below and I will move them to your
-                        other drive — copied, verified, switched over.
-                      </p>
-                      <div class="sr-steps-strip">
-                        <span class="sr-step-chip is-done">1. Measured your drives</span>
-                        <span class="sr-step-chip is-active">2. Pick what to move</span>
-                        <span class="sr-step-chip">3. Safety checks</span>
-                        <span class="sr-step-chip">4. Verified copy</span>
-                        <span class="sr-step-chip">5. Switch over</span>
-                        <span class="sr-step-chip">6. You approve cleanup</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- Candidates Segmentation Section -->
-                  <div class="sr-candidates-section">
-                    <!-- Segment 1: Safe Candidates -->
-                    <div class="sr-segment">
-                      <div class="sr-segment-head">
-                        <div class="sr-segment-title">
-                          <span class="sr-badge sr-segment-badge-safe">SAFE TO MOVE</span>
-                          <span>Your personal folders</span>
-                        </div>
-                        <span class="sr-segment-desc">Your own files only — nothing Windows or your apps depend on.</span>
-                      </div>
-                      <table class="sr-table">
-                        <thead>
-                          <tr>
-                            <th class="sr-col-check"></th>
-                            <th>Library / Current Path</th>
-                            <th>Recommended Target on D:</th>
-                            <th class="sr-num">Files</th>
-                            <th class="sr-num">Size on Disk</th>
-                          </tr>
-                        </thead>
-                        <tbody id="sr-safe-candidates-body">
-                          <!-- Populated by storage-rescue.js -->
-                        </tbody>
-                      </table>
-                    </div>
-
-                    <!-- Segment 2: Caution Candidates -->
-                    <div class="sr-segment">
-                      <div class="sr-segment-head">
-                        <div class="sr-segment-title">
-                          <span class="sr-badge sr-segment-badge-caution">MOVABLE, NEEDS A TWEAK</span>
-                          <span>Developer tools & workspaces</span>
-                        </div>
-                        <span class="sr-segment-desc">Safe to move, but a setting (like a path variable) has to be updated afterwards — I handle that for you.</span>
-                      </div>
-                      <table class="sr-table">
-                        <thead>
-                          <tr>
-                            <th class="sr-col-check"></th>
-                            <th>Package Store / Workspace Path</th>
-                            <th>Recommended Target on D:</th>
-                            <th class="sr-num">Files</th>
-                            <th class="sr-num">Size on Disk</th>
-                          </tr>
-                        </thead>
-                        <tbody id="sr-caution-candidates-body">
-                          <!-- Populated by storage-rescue.js -->
-                        </tbody>
-                      </table>
-                    </div>
-
-                    <!-- Segment 3: Protected (Do Not Move) -->
-                    <div class="sr-segment">
-                      <div class="sr-segment-head">
-                        <div class="sr-segment-title">
-                          <span class="sr-badge sr-segment-badge-blocked">PROTECTED · NEVER MOVED</span>
-                          <span>Windows itself</span>
-                        </div>
-                        <span class="sr-segment-desc">C.U.R.E protects these system files and will never suggest moving them.</span>
-                      </div>
-                      <table class="sr-table">
-                        <tbody>
-                          <tr>
-                            <td class="sr-col-check">
-                              <svg viewBox="0 0 24 24" width="14" height="14" fill="#f87171">
-                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-2h2v2h-2zm0-10v6h2V7h-2z"/>
-                              </svg>
-                            </td>
-                            <td>
-                              <div class="sr-item-main">
-                                <span class="sr-item-name">Windows System Root (C:\Windows, System32)</span>
-                                <span class="sr-item-path">Operating system core binaries, drivers, and side-by-side assembly cache (WinSxS).</span>
-                              </div>
-                            </td>
-                            <td><span class="dim">BLOCKED BY ENGINE</span></td>
-                            <td class="sr-num dim">—</td>
-                            <td class="sr-num dim">PROTECTED</td>
-                          </tr>
-                          <tr>
-                            <td class="sr-col-check">
-                              <svg viewBox="0 0 24 24" width="14" height="14" fill="#f87171">
-                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-2h2v2h-2zm0-10v6h2V7h-2z"/>
-                              </svg>
-                            </td>
-                            <td>
-                              <div class="sr-item-main">
-                                <span class="sr-item-name">Program Files & ProgramData</span>
-                                <span class="sr-item-path">Installed Win32 binaries, services, and COM server registration points.</span>
-                              </div>
-                            </td>
-                            <td><span class="dim">BLOCKED BY ENGINE</span></td>
-                            <td class="sr-num dim">—</td>
-                            <td class="sr-num dim">PROTECTED</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  <!-- Sticky Action Footer Bar -->
-                  <div class="sr-action-bar">
-                    <div class="sr-action-summary">
-                      <div class="sr-summary-stat">
-                        <span>Ready to move: </span>
-                        <strong id="sr-summary-count">3 libraries</strong>
-                      </div>
-                      <div class="sr-summary-stat">
-                        <span>Space freed on C: </span>
-                        <strong id="sr-summary-bytes">+129.1 GB</strong>
-                      </div>
-                    </div>
-                    <div class="sr-action-btns">
-                      <button class="btn btn-ghost" id="sr-btn-rescan" type="button">Rescan drives</button>
-                      <button class="btn" id="sr-btn-build-plan" type="button">Pick folders myself</button>
-                      <button class="btn btn-primary" id="sr-btn-move-bot" type="button">
-                        Move it for me — one click
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- MAP ------------------------------------------------ -->
-              <div
-                aria-labelledby="sw-tab-map"
-                class="sw-panel hidden"
-                id="sw-panel-map"
-                role="tabpanel"
-                tabindex="-1"
-              >
-                <div class="sw-headline-card" id="sw-headline-card">
-                  <div class="sw-headline-figure">
-                    <div class="operator-mount" data-companion="storage"></div>
-                  </div>
-                  <div class="sw-headline-main">
-                    <div class="sw-headline-amount" id="sw-amount">
-                      —
-                    </div>
-                    <div class="sw-headline-label" id="sw-amount-label">
-                      Not measured
-                    </div>
-                    <p class="sw-headline-note dim" id="sw-amount-note"></p>
-                  </div>
-                  <dl class="sw-headline-split">
-                    <div>
-                      <dt>Needs individual review</dt>
-                      <dd id="sw-careful">—</dd>
-                    </div>
-                    <div>
-                      <dt>Never touched</dt>
-                      <dd id="sw-protected">—</dd>
-                    </div>
-                    <div>
-                      <dt>Free on volume</dt>
-                      <dd id="sw-free">—</dd>
-                    </div>
-                  </dl>
-                </div>
-
-                <div class="sw-map-split">
-                  <div class="sw-treemap-wrap">
-                    <div
-                      class="sw-map-badge hidden"
-                      id="sw-map-badge"
-                    ></div>
-                    <nav
-                      aria-label="Where the map is looking"
-                      class="sw-crumbs"
-                      id="sw-breadcrumbs"
-                    ></nav>
-                    <div
-                      aria-label="Disk usage map. Use the category list beside it for the same information as text."
-                      class="sw-treemap"
-                      id="sw-treemap"
-                      role="img"
-                    >
-                      <canvas
-                        aria-hidden="true"
-                        id="sw-treemap-canvas"
-                      ></canvas>
-                    </div>
-                    <p class="sw-treemap-hint dim" id="sw-treemap-hint">
-                      Each tile is sized by measured bytes. Click a category
-                      for the folders inside it, a folder for what is inside
-                      that, and a file for its details. The trail above the
-                      map is the way back.
-                    </p>
-                    <div
-                      aria-hidden="true"
-                      class="sw-map-tip"
-                      id="sw-map-tip"
-                    ></div>
-                  </div>
-                  <aside
-                    aria-label="Categories measured by the engine"
-                    class="sw-rail"
-                  >
-                    <h2 class="section-title">By category</h2>
-                    <ul class="sw-tiers" id="sw-tier-filter">
-                      <li>
-                        <button
-                          aria-pressed="true"
-                          class="sw-tier is-on"
-                          data-tier="all"
-                          type="button"
-                        >
-                          All
-                        </button>
-                      </li>
-                    </ul>
-                    <ul class="sw-classes" id="sw-classes"></ul>
-                  </aside>
-                </div>
-              </div>
-
-              <!-- LARGEST FILES -------------------------------------- -->
-              <div
-                aria-labelledby="sw-tab-large"
-                class="sw-panel hidden"
-                id="sw-panel-large"
-                role="tabpanel"
-                tabindex="0"
-              >
-                  <div class="sw-toolbar">
-                    <label class="sw-sort">
-                      <span>Sort</span>
-                      <select id="sw-large-sort">
-                        <option value="size">Largest first</option>
-                        <option value="age">Oldest first</option>
-                        <option value="name">Name</option>
-                      </select>
-                    </label>
-                    <span class="flex-spacer"></span>
-                    <span class="dim" id="sw-large-count"></span>
-                  </div>
-                  <div class="hidden" id="sw-file-filter"></div>
-                <div
-                  aria-label="Largest files. Scrollable."
-                  class="sw-table-wrap"
-                  role="region"
-                  tabindex="0"
-                  >
-                  <table class="sw-table" id="sw-large-table">
-                    <caption class="visually-hidden">
-                      Largest files measured on this machine
-                    </caption>
-
-                    <colgroup>
-
-                      <col class="sw-col-name" />
-
-                      <col class="sw-col-class" />
-
-                      <col class="sw-col-tier" />
-
-                      <col class="sw-col-date" />
-
-                      <col class="sw-col-size" />
-
-                      <col class="sw-col-act" />
-
-                    </colgroup>
-                    <thead>
-                      <tr>
-                        <th scope="col">File</th>
-                        <th scope="col">Class</th>
-                        <th scope="col">Tier</th>
-                        <th scope="col">Modified</th>
-                        <th scope="col" class="num">On disk</th>
-                        <th scope="col"><span class="visually-hidden">Actions</span></th>
-                      </tr>
-                    </thead>
-                    <tbody id="sw-large-body"></tbody>
-                  </table>
-                </div>
-
-                <h3 class="section-title sw-folders-title">
-                  Biggest folders
-                </h3>
-                <div
-                  aria-label="Biggest folders measured on this machine. Scrollable."
-                  class="sw-table-wrap"
-                  role="region"
-                  tabindex="0"
-                >
-                  <table class="sw-table" id="sw-folders-table">
-                    <caption class="visually-hidden">
-                      Folders that occupy the most space
-                    </caption>
-                    <colgroup>
-                      <col class="sw-col-name" />
-                      <col class="sw-col-class" />
-                      <col class="sw-col-date" />
-                      <col class="sw-col-size" />
-                    </colgroup>
-                    <thead>
-                      <tr>
-                        <th scope="col">Folder</th>
-                        <th scope="col">Class</th>
-                        <th scope="col">Files</th>
-                        <th scope="col" class="num">On disk</th>
-                        <th scope="col"><span class="visually-hidden">Actions</span></th>
-                      </tr>
-                    </thead>
-                    <tbody id="sw-folders-body"></tbody>
-                  </table>
-                </div>
-              </div>
-
-              <!-- DUPLICATES ----------------------------------------- -->
-              <div
-                aria-labelledby="sw-tab-dupes"
-                class="sw-panel hidden"
-                id="sw-panel-dupes"
-                role="tabpanel"
-                tabindex="0"
-              >
-                <div class="sw-dupe-head">
-                  <p class="dim" id="sw-dupe-coverage"></p>
-                </div>
-                <div id="sw-dupe-list" class="sw-dupe-list"></div>
-              </div>
-
-              <!-- QUEUE ----------------------------------------------- -->
-              <div
-                aria-labelledby="sw-tab-queue"
-                class="sw-panel hidden"
-                id="sw-panel-queue"
-                role="tabpanel"
-                tabindex="0"
-              >
-                <div class="sw-queue-head">
-                  <h2 class="section-title">Queued for removal</h2>
-                </div>
-                <div id="sw-queue-groups" class="sw-queue-groups"></div>
-                <div class="sw-queue-empty dim" id="sw-queue-empty">
-                  Nothing queued. Add files from the map, the largest-files
-                  list, or a duplicate group.
-                </div>
-                <div class="sw-queue-actions">
-                  <button
-                    class="btn btn-danger"
-                    disabled=""
-                    id="sw-preview-btn"
-                    type="button"
-                  >
-                    Preview removal
-                  </button>
-                  <button class="btn btn-ghost" id="sw-queue-clear" type="button">
-                    Clear queue
-                  </button>
-                </div>
-              </div>
-
-              <!-- COVERAGE -------------------------------------------- -->
-              <div
-                aria-labelledby="sw-tab-coverage"
-                class="sw-panel hidden"
-                id="sw-panel-coverage"
-                role="tabpanel"
-                tabindex="0"
-              >
-                <div class="sw-toolbar">
-                  <h2 class="section-title">What the scan could and could not see</h2>
-                  <span class="flex-spacer"></span>
-                  <button class="btn btn-ghost" id="sw-reveal-root" type="button">
-                    Show data folder
-                  </button>
-                </div>
-                <div class="sw-empty-panel" id="sw-coverage-empty">
-                  <p class="sw-empty">
-                    Nothing has been measured yet. Run a scan and this tab will
-                    report exactly what was read, what was refused, and what
-                    was left out.
-                  </p>
-                  <button class="btn btn-primary" id="sw-coverage-scan" type="button">
-                    Run a scan
-                  </button>
-                </div>
-                <dl class="sw-stat-rows" id="sw-stat-rows"></dl>
-                <h3 class="section-title sw-sub-title">Roots measured</h3>
-                <div
-                  aria-label="Scan roots and their outcome. Scrollable."
-                  class="sw-table-wrap"
-                  role="region"
-                  tabindex="0"
-                  >
-                  <table class="sw-table">
-                    <caption class="visually-hidden">
-                        Scan roots and their outcome
-                    </caption>
-
-                    <colgroup>
-
-                      <col class="sw-col-name" />
-
-                      <col class="sw-col-class" />
-
-                      <col class="sw-col-tier" />
-
-                      <col class="sw-col-date" />
-
-                      <col class="sw-col-size" />
-
-                    </colgroup>
-                    <thead>
-                      <tr>
-                        <th scope="col">Location</th>
-                        <th scope="col">Category</th>
-                        <th scope="col">Result</th>
-                        <th scope="col" class="num">Files</th>
-                        <th scope="col" class="num">On disk</th>
-                      </tr>
-                    </thead>
-                    <tbody id="sw-roots-body"></tbody>
-                  </table>
-                </div>
-                <h3 class="section-title sw-sub-title">
-                  Places the engine could not read
-                </h3>
-                <ul
-                  aria-label="Locations the engine could not read"
-                  class="sw-failures"
-                  id="sw-failures"
-                  role="list"
-                  tabindex="0"
-                ></ul>
-              </div>
-
-              <!-- INSPECTOR ------------------------------------------ -->
-              <aside
-                aria-label="Selected item details"
-                class="sw-inspector hidden"
-                id="sw-inspector"
-              >
-                <div class="sw-inspector-head">
-                  <h2 class="section-title" id="sw-inspector-title">
-                    Details
-                  </h2>
-                  <button
-                    aria-label="Close details"
-                    class="icon-btn"
-                    id="sw-inspector-close"
-                    type="button"
-                  >
-                    ×
-                  </button>
-                </div>
-                <div class="sw-inspector-body" id="sw-inspector-body"></div>
-              </aside>
             </div>
 
-            <!-- preview dialog ------------------------------------- -->
-            <div
-              aria-labelledby="sw-preview-title"
-              aria-modal="true"
-              class="modal-overlay hidden"
-              id="sw-preview-overlay"
-              role="dialog"
-            >
-              <div class="confirm-modal sw-preview-modal">
-                <h2 class="confirm-title" id="sw-preview-title">
-                  Confirm removal
-                </h2>
-                <p class="sw-preview-consequence" id="sw-preview-consequence"></p>
-                <div class="sw-preview-columns">
-                  <div>
-                    <h3 class="section-title">Will be removed</h3>
-                    <ul class="sw-preview-list" id="sw-preview-list"></ul>
-                  </div>
-                  <div>
-                    <h3 class="section-title">Refused</h3>
-                    <ul
-                      class="sw-preview-list sw-preview-refused"
-                      id="sw-preview-refused"
-                    ></ul>
-                  </div>
+            <!-- Block A: Drive Selector & 1-Click Scan Bar (Top) -->
+            <div class="sm-block sm-block-drives">
+              <div class="sm-drives-header">
+                <span class="sm-section-label">SELECT DRIVE TO SCAN</span>
+                <span class="sm-drives-hint">Click a drive to scan its storage</span>
+              </div>
+              <div class="sm-drives-grid" id="sm-drives-grid">
+                <!-- Populated dynamically via storage_available_roots -->
+              </div>
+
+              <div class="sm-scan-action-row">
+                <button class="btn btn-primary sm-scan-btn" id="sw-scan" type="button">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>
+                  <span id="sm-scan-btn-text">Scan Selected Drive (C:\)</span>
+                </button>
+                <button class="btn btn-danger hidden" id="sw-cancel" type="button">Cancel scan</button>
+                <div class="sm-cat-companion" id="sm-cat-companion"></div>
+              </div>
+
+              <!-- Smooth Progress Bar with Cyber-Cat -->
+              <div class="sm-scan-progress-wrap hidden" id="sw-progress">
+                <div class="sm-scan-bar-track">
+                  <div class="sm-scan-bar-fill" id="sm-scan-bar-fill" style="width: 0%;"></div>
                 </div>
-                <label class="sw-confirm">
-                  <span id="sw-preview-phrase"
-                    >Type <b>REMOVE</b> to confirm this cannot be undone.</span
-                  >
-                  <input
-                    autocomplete="off"
-                    id="sw-confirm-input"
-                    spellcheck="false"
-                    type="text"
-                  />
-                </label>
-                <div class="confirm-actions">
-                  <button class="btn btn-ghost" id="sw-preview-cancel" type="button">
-                    Cancel
-                  </button>
-                  <button
-                    class="btn btn-danger"
-                    disabled=""
-                    id="sw-preview-confirm"
-                    type="button"
-                  >
-                    Remove permanently
-                  </button>
+                <div class="sm-scan-status-row">
+                  <span class="sm-scan-phase-text" id="sw-progress-phase">Scanning files…</span>
+                  <span class="sm-scan-detail-text" id="sw-progress-detail"></span>
+                  <span class="dim" id="sw-count-bytes">0 B</span>
                 </div>
               </div>
             </div>
 
-            <!-- receipt -------------------------------------------- -->
-            <div
-              aria-labelledby="sw-receipt-title"
-              aria-modal="true"
-              class="modal-overlay hidden"
-              id="sw-receipt-overlay"
-              role="dialog"
-            >
-              <div class="confirm-modal sw-receipt-modal">
-                <h2 class="confirm-title" id="sw-receipt-title">
-                  Cleanup receipt
-                </h2>
-                <div class="sw-receipt-figure" id="sw-receipt-amount">—</div>
-                <p class="sw-receipt-label" id="sw-receipt-label"></p>
-                <dl class="sw-receipt-rows" id="sw-receipt-rows"></dl>
-                <ul class="sw-preview-list sw-preview-refused" id="sw-receipt-notes"></ul>
-                <div class="confirm-actions">
-                  <button class="btn btn-primary" id="sw-receipt-close" type="button">
-                    Done
-                  </button>
+            <!-- Block B: Highest Space Consumers — Direct Move or Delete (Main List) -->
+            <div class="sm-block sm-block-main">
+              <div class="sm-block-head">
+                <div>
+                  <h2 class="sm-block-title">Highest Space Consumers</h2>
+                  <p class="sm-block-sub" id="sm-highest-sub">Folders and large files taking the most gigabytes on this drive.</p>
+                </div>
+                <div class="sm-count-badge" id="sm-consumers-badge">0 items</div>
+              </div>
+
+              <div class="sm-consumers-table-wrap">
+                <table class="sm-consumers-table" id="sm-consumers-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 44%;">NAME & LOCATION</th>
+                      <th style="width: 28%;">SPACE OCCUPIED</th>
+                      <th style="width: 28%; text-align: right;">QUICK ACTIONS</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sm-consumers-body">
+                    <tr>
+                      <td colspan="3" class="sm-empty-cell">
+                        Click "Scan Selected Drive" above to view largest folders and files.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Block C: Bottom Compact Row — "Uninstalled App Leftovers (Ghost Files)" -->
+            <div class="sm-block sm-block-leftovers">
+              <div class="sm-block-head">
+                <div>
+                  <div class="sm-badge-ghost">GHOST FILES</div>
+                  <h2 class="sm-block-title">Uninstalled App Leftovers</h2>
+                  <p class="sm-block-sub">Folders belonging to programs no longer installed on this PC.</p>
+                </div>
+                <button class="btn btn-ghost sm-rescan-leftovers-btn" id="sm-rescan-leftovers" type="button">
+                  Refresh Leftovers
+                </button>
+              </div>
+
+              <div class="sm-leftovers-list" id="sm-leftovers-list">
+                <div class="sm-leftovers-empty">
+                  No leftovers found or scan pending.
                 </div>
               </div>
+            </div>
+
+            <!-- Hidden compatibility anchors for existing workstation elements -->
+            <div class="hidden" aria-hidden="true" style="display: none;">
+              <div id="sw-status-pill"><span id="sw-status-text"></span></div>
+              <div id="sw-roots-bar"></div>
+              <div id="sw-depth-note"></div>
+              <button id="sw-add-root"></button>
+              <span id="sw-count-files"></span>
+              <span id="sw-count-dirs"></span>
+              <ol id="sw-scan-stages"></ol>
+              <span id="sw-progress-eta"></span>
+              <div class="sw-tabs">
+                <button id="sw-tab-rescue"></button>
+                <button id="sw-tab-large"></button>
+                <button id="sw-tab-dupes"></button>
+                <button id="sw-tab-queue"><span id="sw-queue-badge"></span></button>
+                <button id="sw-tab-coverage"></button>
+              </div>
+              <div id="sw-panel-rescue"></div>
+              <div id="sw-panel-large"><tbody id="sw-large-body"></tbody><tbody id="sw-folders-body"></tbody></div>
+              <div id="sw-panel-dupes"></div>
+              <div id="sw-panel-queue"></div>
+              <div id="sw-panel-coverage"></div>
             </div>
           </section>
 
@@ -3016,6 +2277,9 @@
     <script src="casefile.js"></script>
     <script src="detective.js"></script>
     <script src="agent-radar.js"></script>
+    <script src="cyber-cat.js"></script>
+    <script src="virus-rescue-clean.js"></script>
+    <script src="storage-clean.js"></script>
     <script src="app.js"></script>
       <!-- ============================================================
          LUMA STORAGE RESCUE MODALS (Plan, Progress, Receipt)

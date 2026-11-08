@@ -353,7 +353,7 @@ pub fn scan(
     let mut abandoned_records = Vec::new();
     if options.find_abandoned && !any_cancelled {
         let mut bases = Vec::new();
-        for key in ["LOCALAPPDATA", "APPDATA"] {
+        for key in ["LOCALAPPDATA", "APPDATA", "ProgramData"] {
             if let Some(p) = std::env::var_os(key).map(PathBuf::from) {
                 if !bases.contains(&p) {
                     bases.push(p);
