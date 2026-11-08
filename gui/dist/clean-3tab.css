@@ -56,6 +56,62 @@
   transform: scale(1.08);
 }
 
+/* --- Sidebar Privacy Badge --- */
+.sidebar-privacy-badge {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.22);
+  border-radius: 8px;
+  margin-left: 10px;
+  margin-right: 10px;
+  margin-bottom: 8px;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.sidebar-privacy-badge:hover {
+  background: rgba(16, 185, 129, 0.14);
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+.sidebar-privacy-badge .privacy-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #10b981;
+  box-shadow: 0 0 8px #10b981;
+  flex-shrink: 0;
+  animation: privacyPulse 2.5s infinite ease-in-out;
+}
+
+@keyframes privacyPulse {
+  0%, 100% { opacity: 0.6; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+.sidebar-privacy-badge .privacy-text {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: #a7f3d0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:root[data-theme="light"] .sidebar-privacy-badge {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+:root[data-theme="light"] .sidebar-privacy-badge .privacy-text {
+  color: #065f46;
+}
+
 /* --- Hero Headers --- */
 .vr-hero, .sm-hero, .ar-clean-hero {
   margin-bottom: 20px;
@@ -221,6 +277,34 @@
   color: #ffffff;
   border-color: rgba(244, 63, 94, 0.6);
   transform: translateY(-1px);
+}
+
+.vr-secondary-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  background: rgba(56, 189, 248, 0.08);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.vr-secondary-action-btn:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.18);
+  color: #ffffff;
+  border-color: rgba(56, 189, 248, 0.55);
+  transform: translateY(-1px);
+}
+
+.vr-secondary-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .vr-progress-section {

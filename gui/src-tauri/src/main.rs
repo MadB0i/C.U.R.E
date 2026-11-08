@@ -212,10 +212,7 @@ fn read_head_bytes(p: &Path, max_bytes: usize) -> std::io::Result<Vec<u8>> {
     Ok(buf)
 }
 
-fn run_heuristic_file_sweep(
-    app: &AppHandle,
-    scanned_count: &mut usize,
-) -> Vec<ScoredEntry> {
+fn run_heuristic_file_sweep(app: &AppHandle, scanned_count: &mut usize) -> Vec<ScoredEntry> {
     let mut findings: Vec<ScoredEntry> = Vec::new();
     let mut target_dirs: Vec<PathBuf> = Vec::new();
 
@@ -255,7 +252,9 @@ fn scan_heuristic_dir(
     scanned_count: &mut usize,
     findings: &mut Vec<ScoredEntry>,
 ) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return; };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         let file_type = match entry.file_type() {
@@ -267,7 +266,14 @@ fn scan_heuristic_dir(
             if current_depth < max_depth {
                 let name = entry.file_name().to_string_lossy().to_string();
                 if !name.starts_with('.') && name != "node_modules" && name != "WindowsApps" {
-                    scan_heuristic_dir(app, &path, current_depth + 1, max_depth, scanned_count, findings);
+                    scan_heuristic_dir(
+                        app,
+                        &path,
+                        current_depth + 1,
+                        max_depth,
+                        scanned_count,
+                        findings,
+                    );
                 }
             }
             continue;
@@ -284,21 +290,31 @@ fn scan_heuristic_dir(
         if cure_core::risk::is_cure_binary_name(&file_name) {
             continue;
         }
-        if file_name.eq_ignore_ascii_case("desktop.ini") && cure_core::scanners::startup::is_standard_desktop_ini(&path) {
+        if file_name.eq_ignore_ascii_case("desktop.ini")
+            && cure_core::scanners::startup::is_standard_desktop_ini(&path)
+        {
             continue;
         }
 
         if (*scanned_count).is_multiple_of(5) {
-            let _ = app.emit("scan-progress", serde_json::json!({
-                "stage": "progress-counter",
-                "count": *scanned_count,
-                "message": format!("Inspecting {}", file_name)
-            }));
+            let _ = app.emit(
+                "scan-progress",
+                serde_json::json!({
+                    "stage": "progress-counter",
+                    "count": *scanned_count,
+                    "message": format!("Inspecting {}", file_name)
+                }),
+            );
         }
 
         // 1. Filename spoofing (double extensions / RTLO)
         if let Some(reason) = cure_core::scanners::heuristics::check_filename_spoofing(&file_name) {
-            let p_entry = PersistenceEntry::new(PersistenceSource::StartupFolder, file_name.clone(), path.to_string_lossy().to_string(), dir.to_string_lossy().to_string());
+            let p_entry = PersistenceEntry::new(
+                PersistenceSource::StartupFolder,
+                file_name.clone(),
+                path.to_string_lossy().to_string(),
+                dir.to_string_lossy().to_string(),
+            );
             findings.push(ScoredEntry {
                 entry: p_entry,
                 score: 95,
@@ -306,14 +322,24 @@ fn scan_heuristic_dir(
                 evidence: vec![cure_core::evidence::Evidence::observed(format!(
                     "Double-extension / spoofed file: {reason}"
                 ))],
-                attack: cure_core::model::AttackInfo { id: "T1036.007".to_string(), name: "Heuristic Detection".to_string() },
+                attack: cure_core::model::AttackInfo {
+                    id: "T1036.007".to_string(),
+                    name: "Heuristic Detection".to_string(),
+                },
             });
             continue;
         }
 
         // 2. System binary masquerading
-        if let Some(reason) = cure_core::scanners::heuristics::check_system_masquerade(&file_name, &path) {
-            let p_entry = PersistenceEntry::new(PersistenceSource::StartupFolder, file_name.clone(), path.to_string_lossy().to_string(), dir.to_string_lossy().to_string());
+        if let Some(reason) =
+            cure_core::scanners::heuristics::check_system_masquerade(&file_name, &path)
+        {
+            let p_entry = PersistenceEntry::new(
+                PersistenceSource::StartupFolder,
+                file_name.clone(),
+                path.to_string_lossy().to_string(),
+                dir.to_string_lossy().to_string(),
+            );
             findings.push(ScoredEntry {
                 entry: p_entry,
                 score: 95,
@@ -321,18 +347,32 @@ fn scan_heuristic_dir(
                 evidence: vec![cure_core::evidence::Evidence::observed(format!(
                     "System binary masquerading: {reason}"
                 ))],
-                attack: cure_core::model::AttackInfo { id: "T1036.005".to_string(), name: "Heuristic Detection".to_string() },
+                attack: cure_core::model::AttackInfo {
+                    id: "T1036.005".to_string(),
+                    name: "Heuristic Detection".to_string(),
+                },
             });
             continue;
         }
 
         // 3. Script obfuscation / LOLBins (ps1, bat, cmd, vbs, hta, wsf)
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
         if cure_core::scanners::heuristics::SCRIPT_EXTENSIONS.contains(&ext.as_str()) {
             if let Ok(bytes) = read_head_bytes(&path, 65536) {
                 let content = String::from_utf8_lossy(&bytes);
-                if let Some(reason) = cure_core::scanners::heuristics::check_script_content(&content) {
-                    let p_entry = PersistenceEntry::new(PersistenceSource::StartupFolder, file_name.clone(), path.to_string_lossy().to_string(), dir.to_string_lossy().to_string());
+                if let Some(reason) =
+                    cure_core::scanners::heuristics::check_script_content(&content)
+                {
+                    let p_entry = PersistenceEntry::new(
+                        PersistenceSource::StartupFolder,
+                        file_name.clone(),
+                        path.to_string_lossy().to_string(),
+                        dir.to_string_lossy().to_string(),
+                    );
                     findings.push(ScoredEntry {
                         entry: p_entry,
                         score: 95,
@@ -340,7 +380,10 @@ fn scan_heuristic_dir(
                         evidence: vec![cure_core::evidence::Evidence::observed(format!(
                             "Obfuscated script dropper: {reason}"
                         ))],
-                        attack: cure_core::model::AttackInfo { id: "T1059".to_string(), name: "Heuristic Detection".to_string() },
+                        attack: cure_core::model::AttackInfo {
+                            id: "T1059".to_string(),
+                            name: "Heuristic Detection".to_string(),
+                        },
                     });
                 }
             }
@@ -353,7 +396,12 @@ fn scan_heuristic_dir(
                 if let Some(entropy) = cure_core::scanners::heuristics::check_high_entropy(&bytes) {
                     let sig = cure_core::signature::check_signature(&path);
                     if sig != SignatureStatus::ValidSigned {
-                        let p_entry = PersistenceEntry::new(PersistenceSource::StartupFolder, file_name.clone(), path.to_string_lossy().to_string(), dir.to_string_lossy().to_string());
+                        let p_entry = PersistenceEntry::new(
+                            PersistenceSource::StartupFolder,
+                            file_name.clone(),
+                            path.to_string_lossy().to_string(),
+                            dir.to_string_lossy().to_string(),
+                        );
                         findings.push(ScoredEntry {
                             entry: p_entry,
                             score: 90,
@@ -390,7 +438,9 @@ async fn delete_threat_entry(
             let path = PathBuf::from(&file_path);
             if path.exists() {
                 if cure_core::risk::is_cure_binary_name(&file_path) {
-                    return Err("Refused to delete C.U.R.E system binary (self-protection)".to_string());
+                    return Err(
+                        "Refused to delete C.U.R.E system binary (self-protection)".to_string()
+                    );
                 }
                 let lower = file_path.to_ascii_lowercase();
                 if lower.contains("windows\\system32")
@@ -459,11 +509,14 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         record_source_state(&app, &mut source_states, registry_state_row(&reg));
         scanned_count += reg.entries.len();
         entries.extend(reg.entries);
-        let _ = app.emit("scan-progress", serde_json::json!({
-            "stage": "progress-counter",
-            "count": scanned_count,
-            "message": "Reading Run / RunOnce autoruns"
-        }));
+        let _ = app.emit(
+            "scan-progress",
+            serde_json::json!({
+                "stage": "progress-counter",
+                "count": scanned_count,
+                "message": "Reading Run / RunOnce autoruns"
+            }),
+        );
     }
     #[cfg(not(windows))]
     source_states.push(cure_core::report::CoverageRow::unavailable(
@@ -494,21 +547,27 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     entries.extend(startup_user);
     entries.extend(startup_common);
     scanned_count += startup_total;
-    let _ = app.emit("scan-progress", serde_json::json!({
-        "stage": "progress-counter",
-        "count": scanned_count,
-        "message": "Inspecting Startup folders"
-    }));
+    let _ = app.emit(
+        "scan-progress",
+        serde_json::json!({
+            "stage": "progress-counter",
+            "count": scanned_count,
+            "message": "Inspecting Startup folders"
+        }),
+    );
     emit_stage(&app, "tasks", "Parsing scheduled task definitions");
     let task_report = scanners::scheduled_tasks::scan_report(&tasks_root());
     record_source_state(&app, &mut source_states, tasks_state_row(&task_report));
     scanned_count += task_report.entries.len();
     entries.extend(task_report.entries);
-    let _ = app.emit("scan-progress", serde_json::json!({
-        "stage": "progress-counter",
-        "count": scanned_count,
-        "message": "Parsing scheduled task definitions"
-    }));
+    let _ = app.emit(
+        "scan-progress",
+        serde_json::json!({
+            "stage": "progress-counter",
+            "count": scanned_count,
+            "message": "Parsing scheduled task definitions"
+        }),
+    );
     emit_stage(&app, "services", "Enumerating auto-start services");
     let service_report = scanners::services::scan_report();
     record_source_state(
@@ -519,11 +578,14 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     let service_records = service_report.records;
     entries.extend(service_records.iter().map(|r| r.entry.clone()));
     scanned_count += service_records.len();
-    let _ = app.emit("scan-progress", serde_json::json!({
-        "stage": "progress-counter",
-        "count": scanned_count,
-        "message": "Enumerating auto-start services"
-    }));
+    let _ = app.emit(
+        "scan-progress",
+        serde_json::json!({
+            "stage": "progress-counter",
+            "count": scanned_count,
+            "message": "Enumerating auto-start services"
+        }),
+    );
     #[cfg(windows)]
     {
         emit_stage(&app, "wmi", "Querying WMI event subscriptions");
@@ -583,11 +645,14 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         );
         scanned_count += ifeo_total + com_len + boot_len;
         entries.extend(boot_entries);
-        let _ = app.emit("scan-progress", serde_json::json!({
-            "stage": "progress-counter",
-            "count": scanned_count,
-            "message": "Checking IFEO, COM and Winlogon"
-        }));
+        let _ = app.emit(
+            "scan-progress",
+            serde_json::json!({
+                "stage": "progress-counter",
+                "count": scanned_count,
+                "message": "Checking IFEO, COM and Winlogon"
+            }),
+        );
     }
     #[cfg(not(windows))]
     {
@@ -679,6 +744,32 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
                     scored.extend(part);
                 }
                 Err(e) => return Err(format!("service scan failed: {e}")),
+            }
+        }
+    }
+    let custom_rules = cure_core::custom_rules::load_rules_from_dir(&data_dir.join("rules"));
+    if !custom_rules.is_empty() {
+        for scored_entry in &mut scored {
+            if let Some(rule) = cure_core::custom_rules::evaluate_custom_rules(
+                &scored_entry.entry.command,
+                &custom_rules,
+            )
+            .or_else(|| {
+                cure_core::custom_rules::evaluate_custom_rules(
+                    &scored_entry.entry.location,
+                    &custom_rules,
+                )
+            }) {
+                scored_entry.score = scored_entry.score.max(85);
+                scored_entry.risk = rule.risk;
+                scored_entry.attack.id = "CUSTOM".to_string();
+                scored_entry.attack.name = rule.name.clone();
+                scored_entry
+                    .evidence
+                    .push(cure_core::evidence::Evidence::observed(format!(
+                        "Custom Rule Match [{}]: {}",
+                        rule.name, rule.description
+                    )));
             }
         }
     }
@@ -881,7 +972,11 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     };
     record_source_state(&app, &mut source_states, ransom_row);
     // ── heuristic file sweep (Temp, Downloads, AppData droppers & LOLBins) ─
-    emit_stage(&app, "heuristic-sweep", "Heuristic sweep: inspecting %TEMP%, droppers & stealth scripts");
+    emit_stage(
+        &app,
+        "heuristic-sweep",
+        "Heuristic sweep: inspecting %TEMP%, droppers & stealth scripts",
+    );
     let heuristic_threats = run_heuristic_file_sweep(&app, &mut scanned_count);
     for h in heuristic_threats {
         suspicious_for_review.push(h);
@@ -1116,8 +1211,8 @@ fn reveal_location(id: String) -> Result<String, String> {
 async fn export_report(format: String, redact: bool) -> Result<String, String> {
     use cure_core::report::{CoverageRow, ReportOptions, ScanInput};
     let format = format.to_ascii_lowercase();
-    if format != "json" && format != "txt" {
-        return Err("unknown format: use json or txt".to_string());
+    if format != "json" && format != "txt" && format != "sarif" {
+        return Err("unknown format: use json, sarif or txt".to_string());
     }
     let data_dir = resolve_data_dir();
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("cannot create data dir: {e}"))?;
@@ -1278,10 +1373,10 @@ async fn export_report(format: String, redact: bool) -> Result<String, String> {
         coverage,
         &ReportOptions { redact },
     );
-    let body = if format == "json" {
-        cure_core::report::render_json(&report)
-    } else {
-        cure_core::report::render_txt(&report)
+    let body = match format.as_str() {
+        "json" => cure_core::report::render_json(&report),
+        "sarif" => cure_core::report::render_sarif(&report),
+        _ => cure_core::report::render_txt(&report),
     };
     let filename = format!("cure-report-{}.{}", cure_core::report::utc_stamp(), format);
     let out_path = data_dir.join(&filename);
@@ -1417,8 +1512,8 @@ async fn export_incident_report(
 ) -> Result<String, String> {
     use cure_core::report::{CoverageRow, ReportOptions};
     let format = format.to_ascii_lowercase();
-    if format != "json" && format != "txt" {
-        return Err("unknown format: use json or txt".to_string());
+    if format != "json" && format != "txt" && format != "sarif" {
+        return Err("unknown format: use json, sarif or txt".to_string());
     }
     let data_dir = resolve_data_dir();
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("cannot create data dir: {e}"))?;
@@ -1486,10 +1581,10 @@ async fn export_incident_report(
         &ReportOptions { redact },
     );
     report.incident = Some(cure_core::report::incident_section(&result, redact));
-    let body = if format == "json" {
-        cure_core::report::render_json(&report)
-    } else {
-        cure_core::report::render_txt(&report)
+    let body = match format.as_str() {
+        "json" => cure_core::report::render_json(&report),
+        "sarif" => cure_core::report::render_sarif(&report),
+        _ => cure_core::report::render_txt(&report),
     };
     let filename = format!(
         "cure-incident-{}.{}",
@@ -1549,7 +1644,9 @@ async fn kill_high_risk_processes(processes: Vec<(String, u32)>) -> Result<KillR
             .collect();
         for (name, pid) in processes {
             if cure_core::risk::is_cure_binary_name(&name) {
-                failed.push(format!("{name} (pid {pid}): refused to kill C.U.R.E system process"));
+                failed.push(format!(
+                    "{name} (pid {pid}): refused to kill C.U.R.E system process"
+                ));
                 continue;
             }
             if let Err(reason) = pid_still_matches(pid, &name, &live) {
@@ -1583,6 +1680,22 @@ async fn kill_high_risk_processes(processes: Vec<(String, u32)>) -> Result<KillR
 fn open_quarantine_folder() -> Result<String, String> {
     let dir = resolve_data_dir().join("quarantine");
     std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create quarantine folder: {e}"))?;
+    std::process::Command::new("explorer")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| format!("cannot open explorer: {e}"))?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn open_custom_rules_folder() -> Result<String, String> {
+    let dir = resolve_data_dir().join("rules");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create rules directory: {e}"))?;
+    let sample = dir.join("example_rules.rule");
+    if !sample.exists() {
+        let _ = std::fs::write(&sample, cure_core::custom_rules::SAMPLE_RULE_TEMPLATE);
+    }
+    #[cfg(windows)]
     std::process::Command::new("explorer")
         .arg(&dir)
         .spawn()
@@ -2305,11 +2418,9 @@ async fn operator_status() -> Result<cure_core::operator::OperatorPosture, Strin
 /// Retrieve deep agent session hierarchy and orphan states.
 #[tauri::command]
 async fn operator_agent_sessions() -> Result<Vec<cure_core::agent::AgentSessionDetail>, String> {
-    tokio::task::spawn_blocking(move || {
-        Ok(cure_core::agent::inspect_agent_sessions())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || Ok(cure_core::agent::inspect_agent_sessions()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Request non-destructive graceful shutdown of an agent window or session.
@@ -3300,10 +3411,11 @@ async fn storage_remove_leftover(path: String) -> Result<String, String> {
         #[cfg(windows)]
         {
             use std::os::windows::ffi::OsStrExt;
-            use windows::Win32::UI::Shell::{
-                SHFileOperationW, FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_SILENT, SHFILEOPSTRUCTW,
-            };
             use windows::core::PCWSTR;
+            use windows::Win32::UI::Shell::{
+                SHFileOperationW, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_SILENT, FO_DELETE,
+                SHFILEOPSTRUCTW,
+            };
 
             let mut wide: Vec<u16> = p.as_os_str().encode_wide().collect();
             wide.push(0);
@@ -3344,10 +3456,12 @@ async fn drop_test_leftover() -> Result<String, String> {
             .map(PathBuf::from)
             .ok_or_else(|| "Could not locate %LOCALAPPDATA%".to_string())?;
         let dir = local.join("OldUninstalledGame_Leftover_Test");
-        std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create leftover test directory: {e}"))?;
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("Failed to create leftover test directory: {e}"))?;
         let cache_file = dir.join("cache.dat");
         let dummy = vec![0xCCu8; 2 * 1024 * 1024];
-        std::fs::write(&cache_file, &dummy).map_err(|e| format!("Failed to write dummy cache file: {e}"))?;
+        std::fs::write(&cache_file, &dummy)
+            .map_err(|e| format!("Failed to write dummy cache file: {e}"))?;
         Ok(dir.to_string_lossy().into_owned())
     })
     .await
@@ -3393,40 +3507,108 @@ async fn list_uninstalled_leftovers() -> Result<Vec<StorageAbandonedDto>, String
         }
 
         let apps = storage::abandoned::installed_apps();
-        let app_names: Vec<String> = apps
-            .iter()
-            .map(|a| a.display_name.to_lowercase())
-            .collect();
+        let app_names: Vec<String> = apps.iter().map(|a| a.display_name.to_lowercase()).collect();
 
         let known_system = [
-            "microsoft", "windows", "packages", "temp", "tmp", "system", "crashdumps",
-            "programs", "google", "chrome", "mozilla", "firefox", "brave", "bravesoftware",
-            "cure", "cure_gui", "cure-watch", "cure-cli",
-            "antigravity", "gemini", "codex", "gradle", "android", "vscode", "code",
-            "npm", "cargo", "rustup", "pip", "yarn", "pnpm", "python", "node", "nodejs",
-            "nvidia", "intel", "amd", "realtek", "steam", "epic games", "git", "github",
-            "jetbrains", "docker", "ollama", "lmstudio", "virtualbox",
-            "elevateddiagnostics", "connecteddevicesplatform", "comms", "identityhx",
-            "locallow", "assembly", "diagnostics", "d3dscache", "iconcache",
-            "obsidian", "slack", "discord", "spotify", "notion", "telegram",
-            "whatsapp", "zoom", "dropbox", "onedrive", "adobe", "vlc", "7-zip"
+            "microsoft",
+            "windows",
+            "packages",
+            "temp",
+            "tmp",
+            "system",
+            "crashdumps",
+            "programs",
+            "google",
+            "chrome",
+            "mozilla",
+            "firefox",
+            "brave",
+            "bravesoftware",
+            "cure",
+            "cure_gui",
+            "cure-watch",
+            "cure-cli",
+            "antigravity",
+            "gemini",
+            "codex",
+            "gradle",
+            "android",
+            "vscode",
+            "code",
+            "npm",
+            "cargo",
+            "rustup",
+            "pip",
+            "yarn",
+            "pnpm",
+            "python",
+            "node",
+            "nodejs",
+            "nvidia",
+            "intel",
+            "amd",
+            "realtek",
+            "steam",
+            "epic games",
+            "git",
+            "github",
+            "jetbrains",
+            "docker",
+            "ollama",
+            "lmstudio",
+            "virtualbox",
+            "elevateddiagnostics",
+            "connecteddevicesplatform",
+            "comms",
+            "identityhx",
+            "locallow",
+            "assembly",
+            "diagnostics",
+            "d3dscache",
+            "iconcache",
+            "obsidian",
+            "slack",
+            "discord",
+            "spotify",
+            "notion",
+            "telegram",
+            "whatsapp",
+            "zoom",
+            "dropbox",
+            "onedrive",
+            "adobe",
+            "vlc",
+            "7-zip",
         ];
 
         let now = std::time::SystemTime::now();
 
         for base in &bases {
-            let Ok(readers) = std::fs::read_dir(base) else { continue };
+            let Ok(readers) = std::fs::read_dir(base) else {
+                continue;
+            };
             for entry in readers.flatten() {
                 let p = entry.path();
-                if !p.is_dir() { continue };
-                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
-                if name.is_empty() || name == "OldUninstalledGame_Leftover_Test" { continue };
+                if !p.is_dir() {
+                    continue;
+                };
+                let name = p
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default()
+                    .to_string();
+                if name.is_empty() || name == "OldUninstalledGame_Leftover_Test" {
+                    continue;
+                };
                 // NEVER flag dot-directories (active developer environments like .codex, .gradle, .vscode)
                 if name.starts_with('.') {
                     continue;
                 }
                 let lower = name.to_lowercase();
-                if known_system.iter().any(|k| lower == *k || lower.starts_with(k) || lower.contains(k)) {
+                if known_system
+                    .iter()
+                    .any(|k| lower == *k || lower.starts_with(k) || lower.contains(k))
+                {
                     continue;
                 }
                 let matches_installed = app_names.iter().any(|a| {
@@ -3439,9 +3621,13 @@ async fn list_uninstalled_leftovers() -> Result<Vec<StorageAbandonedDto>, String
                     continue;
                 }
 
-                let Ok(md) = std::fs::symlink_metadata(&p) else { continue };
+                let Ok(md) = std::fs::symlink_metadata(&p) else {
+                    continue;
+                };
                 let Ok(mtime) = md.modified() else { continue };
-                let Ok(age) = now.duration_since(mtime) else { continue };
+                let Ok(age) = now.duration_since(mtime) else {
+                    continue;
+                };
                 let days = age.as_secs() / 86_400;
 
                 let mut size: u64 = 0;
@@ -3550,6 +3736,7 @@ fn main() {
             start_incident_observation,
             export_incident_report,
             open_quarantine_folder,
+            open_custom_rules_folder,
             view_log,
             exit_app,
             storage_scan,
@@ -5604,18 +5791,30 @@ mod threat_tests {
     fn test_spawn_and_delete_stealth_threat() {
         tauri::async_runtime::block_on(async {
             let spawn_res = spawn_test_stealth_threat().await;
-            assert!(spawn_res.is_ok(), "Failed to spawn test threat: {:?}", spawn_res);
+            assert!(
+                spawn_res.is_ok(),
+                "Failed to spawn test threat: {:?}",
+                spawn_res
+            );
             let file_path = spawn_res.unwrap();
             assert!(Path::new(&file_path).exists(), "Spawned file must exist");
 
             // Verify heuristic scanner catches it
             let content = std::fs::read_to_string(&file_path).unwrap();
             let heuristic_reason = cure_core::scanners::heuristics::check_script_content(&content);
-            assert!(heuristic_reason.is_some(), "Heuristic scanner must catch test payload");
+            assert!(
+                heuristic_reason.is_some(),
+                "Heuristic scanner must catch test payload"
+            );
 
             // Verify deletion
-            let del_res = delete_threat_entry("test-id-1".to_string(), file_path.clone(), None).await;
-            assert!(del_res.is_ok(), "Delete threat entry should succeed: {:?}", del_res);
+            let del_res =
+                delete_threat_entry("test-id-1".to_string(), file_path.clone(), None).await;
+            assert!(
+                del_res.is_ok(),
+                "Delete threat entry should succeed: {:?}",
+                del_res
+            );
             assert!(!Path::new(&file_path).exists(), "File should be deleted");
         });
     }
@@ -5629,7 +5828,10 @@ mod threat_tests {
                 None,
             )
             .await;
-            assert!(del_res.is_err(), "Must refuse to delete protected system file");
+            assert!(
+                del_res.is_err(),
+                "Must refuse to delete protected system file"
+            );
         });
     }
 

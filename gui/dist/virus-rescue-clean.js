@@ -40,6 +40,8 @@
     els.threatsList = document.getElementById("xr-result-findings");
     els.deleteAllBtn = document.getElementById("vr-delete-all-btn");
     els.idleCard = document.getElementById("vr-idle-card");
+    els.exportSarifBtn = document.getElementById("vr-export-sarif-btn");
+    els.customRulesBtn = document.getElementById("vr-custom-rules-btn");
   }
 
   function escapeHtml(str) {
@@ -91,6 +93,52 @@
             els.phaseTicker.textContent = "Could not create test threat: " + err;
           }
           if (els.dropTestBtn) els.dropTestBtn.disabled = false;
+        }
+      });
+    }
+
+    // Export SARIF / JSON Report Button
+    if (els.exportSarifBtn) {
+      els.exportSarifBtn.addEventListener("click", async function (e) {
+        try {
+          els.exportSarifBtn.disabled = true;
+          const labelSpan = els.exportSarifBtn.querySelector("span");
+          const origText = labelSpan ? labelSpan.textContent : "Export SARIF";
+          if (labelSpan) labelSpan.textContent = "Exporting...";
+          const fmt = (e.shiftKey || e.altKey) ? "json" : "sarif";
+          const outPath = await invoke("export_report", { format: fmt, redact: true });
+          if (els.phaseTicker) {
+            els.phaseTicker.innerHTML = `<span style="color: #38bdf8; font-weight: bold;">[${fmt.toUpperCase()} EXPORTED]</span> Saved report to <code style="color: #a7f3d0;">${escapeHtml(outPath)}</code>`;
+          }
+          if (labelSpan) labelSpan.textContent = "Exported!";
+          setTimeout(() => {
+            if (els.exportSarifBtn) {
+              els.exportSarifBtn.disabled = false;
+              if (labelSpan) labelSpan.textContent = origText;
+            }
+          }, 1500);
+        } catch (err) {
+          if (els.phaseTicker) els.phaseTicker.textContent = "Export failed: " + err;
+          if (els.exportSarifBtn) els.exportSarifBtn.disabled = false;
+        }
+      });
+    }
+
+    // Custom Rules Folder Button
+    if (els.customRulesBtn) {
+      els.customRulesBtn.addEventListener("click", async function () {
+        try {
+          els.customRulesBtn.disabled = true;
+          const path = await invoke("open_custom_rules_folder");
+          if (els.phaseTicker) {
+            els.phaseTicker.innerHTML = `<span style="color: #38bdf8; font-weight: bold;">[CUSTOM RULES]</span> Opened rules directory <code style="color: #a7f3d0;">${escapeHtml(path)}</code>. Drop custom .rule files here.`;
+          }
+          setTimeout(() => {
+            if (els.customRulesBtn) els.customRulesBtn.disabled = false;
+          }, 1000);
+        } catch (err) {
+          if (els.phaseTicker) els.phaseTicker.textContent = "Could not open rules folder: " + err;
+          if (els.customRulesBtn) els.customRulesBtn.disabled = false;
         }
       });
     }
