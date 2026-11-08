@@ -547,14 +547,9 @@ fn print_cyber_cat_banner() {
 
 fn print_report(scored: &[ScoredEntry], data_dir: &Path) {
     for s in scored {
-        let risk_badge = match s.risk {
-            RiskLevel::HighRisk => "\x1b[1;31m[HIGH RISK]\x1b[0m",
-            RiskLevel::Suspicious => "\x1b[1;33m[SUSPICIOUS]\x1b[0m",
-            RiskLevel::Safe => "\x1b[0;32m[SAFE]\x1b[0m",
-        };
         println!(
-            "{:<22} score={:>3}  {:<30} ({})  id={}",
-            risk_badge,
+            "{}  {:>3}  {:<30} ({})  id={}",
+            s.risk,
             s.score,
             truncate(&s.entry.name, 30),
             s.entry.source.tag(),
@@ -734,7 +729,7 @@ fn cmd_scan(
     let quarantined = quarantine::list_records(&paths.data_dir).len();
     println!();
     println!(
-        "summary: {} entr{} | \x1b[1;31m{high} high-risk\x1b[0m, \x1b[1;33m{susp} suspicious\x1b[0m, \x1b[0;32m{safe} safe\x1b[0m | {quarantined} in quarantine",
+        "summary: {} entr{} | {high} high-risk, {susp} suspicious, {safe} safe | {quarantined} in quarantine",
         scored.len(),
         if scored.len() == 1 { "y" } else { "ies" }
     );
