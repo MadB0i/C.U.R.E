@@ -1173,7 +1173,6 @@
       window.CureVirusRescueClean.onScanDone(summary);
       return;
     }
-    const panel = document.getElementById("rescue-results");
     if (!panel) return;
     const title = document.getElementById("xr-results-title");
     const sub = document.getElementById("xr-result-sub");

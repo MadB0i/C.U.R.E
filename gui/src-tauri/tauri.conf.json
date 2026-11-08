@@ -15,6 +15,9 @@
       "../dist/storage-workstation.css",
       "../dist/detective.css",
       "../dist/agent.css",
+      "../dist/storage-rescue.css",
+      "../dist/clean-3tab.css",
+      "../dist/cyber-cat.css",
       "../dist/app.js",
       "../dist/operator.js",
       "../dist/xray.js",
@@ -22,9 +25,11 @@
       "../dist/casefile.js",
       "../dist/detective.js",
       "../dist/agent-radar.js",
-      "../dist/storage-rescue.css",
       "../dist/storage-rescue.js",
-      "../dist/move-bot.js"
+      "../dist/move-bot.js",
+      "../dist/cyber-cat.js",
+      "../dist/virus-rescue-clean.js",
+      "../dist/storage-clean.js"
     ]
   },
   "app": {
