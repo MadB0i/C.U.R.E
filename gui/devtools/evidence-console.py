@@ -1230,10 +1230,14 @@ def storage_failure(browser):
 
 def palette_and_assets():
     """Offline asset guard plus a measured, restrained palette check."""
-    shipped=["index.html","style.css","xray.css","storage-workstation.css",
-             "detective.css","agent.css","app.js","xray.js","storage-workstation.js",
-             "casefile.js","detective.js","agent-radar.js","operator.css","operator.js",
-             "storage-rescue.css","storage-rescue.js"]
+    shipped = [
+        "index.html", "style.css", "operator.css", "xray.css", "investigate.css",
+        "quarantine.css", "monitor.css", "storage-workstation.css", "detective.css",
+        "agent.css", "storage-rescue.css", "clean-3tab.css", "cyber-cat.css",
+        "app.js", "operator.js", "xray.js", "storage-workstation.js", "casefile.js",
+        "detective.js", "agent-radar.js", "storage-rescue.js", "move-bot.js",
+        "cyber-cat.js", "virus-rescue-clean.js", "storage-clean.js"
+    ]
     for name in shipped:
         body=(ROOT/"gui/dist"/name).read_text(encoding="utf-8")
         hits=[l for l in body.splitlines()
