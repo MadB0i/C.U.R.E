@@ -515,6 +515,120 @@ pub fn render_json(report: &Report) -> String {
     serde_json::to_string_pretty(report).unwrap_or_else(|_| "{}".to_string())
 }
 
+/// Render the security report as standard SARIF v2.1.0 JSON.
+///
+/// SARIF (Static Analysis Results Interchange Format) is natively ingested
+/// by CI/CD pipelines (e.g. GitHub Code Scanning, Azure DevOps) and local
+/// security auditing tools.
+pub fn render_sarif(report: &Report) -> String {
+    let rules = serde_json::json!([
+        {
+            "id": "CURE-HIGH-RISK",
+            "name": "HighRiskThreat",
+            "shortDescription": { "text": "High-risk threat detected by C.U.R.E security engine" },
+            "defaultConfiguration": { "level": "error" }
+        },
+        {
+            "id": "CURE-SUSPICIOUS",
+            "name": "SuspiciousFinding",
+            "shortDescription": { "text": "Suspicious persistence or process indicator detected" },
+            "defaultConfiguration": { "level": "warning" }
+        },
+        {
+            "id": "CURE-INFO",
+            "name": "InformationalFinding",
+            "shortDescription": { "text": "Informational finding observed by C.U.R.E" },
+            "defaultConfiguration": { "level": "note" }
+        }
+    ]);
+
+    let mut results = Vec::new();
+    for finding in &report.findings {
+        let (rule_id, level) = match finding.risk.as_str() {
+            "HighRisk" => ("CURE-HIGH-RISK", "error"),
+            "Suspicious" => ("CURE-SUSPICIOUS", "warning"),
+            _ => ("CURE-INFO", "note"),
+        };
+
+        let evidence_summary = finding
+            .evidence
+            .iter()
+            .map(|e| e.detail().to_string())
+            .collect::<Vec<_>>()
+            .join("; ");
+
+        let message_text = if evidence_summary.is_empty() {
+            format!(
+                "[{}] {} (score: {})",
+                finding.kind, finding.name, finding.score
+            )
+        } else {
+            format!(
+                "[{}] {} (score: {}) - {}",
+                finding.kind, finding.name, finding.score, evidence_summary
+            )
+        };
+
+        let mut result_obj = serde_json::json!({
+            "ruleId": rule_id,
+            "level": level,
+            "message": { "text": message_text },
+            "properties": {
+                "kind": finding.kind,
+                "score": finding.score,
+                "risk": finding.risk,
+                "source": finding.source,
+                "attackId": finding.attack_id,
+                "attackName": finding.attack_name,
+                "signature": finding.signature,
+                "recommendedAction": finding.recommended_action
+            }
+        });
+
+        if !finding.location.is_empty() {
+            let normalized_uri = if finding.location.starts_with("file://") {
+                finding.location.clone()
+            } else if finding.location.contains(":\\") || finding.location.contains(":/") {
+                format!("file:///{}", finding.location.replace('\\', "/"))
+            } else {
+                finding.location.clone()
+            };
+
+            result_obj["locations"] = serde_json::json!([
+                {
+                    "physicalLocation": {
+                        "artifactLocation": {
+                            "uri": normalized_uri
+                        }
+                    }
+                }
+            ]);
+        }
+
+        results.push(result_obj);
+    }
+
+    let sarif = serde_json::json!({
+        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "C.U.R.E",
+                        "version": report.cure_version,
+                        "informationUri": "https://github.com/rupjy/CURE",
+                        "rules": rules
+                    }
+                },
+                "results": results
+            }
+        ]
+    });
+
+    serde_json::to_string_pretty(&sarif).unwrap_or_else(|_| "{}".to_string())
+}
+
 pub fn render_txt(report: &Report) -> String {
     let mut out = String::new();
     out.push_str("C.U.R.E. SECURITY REPORT\n");
@@ -855,5 +969,78 @@ mod tests {
         assert_eq!(back.findings[0].evidence[1].level().label(), "Correlated");
         // A report that DOES carry evidence never shows the legacy state.
         assert!(!render_txt(&report).contains("LEGACY REPORT"));
+    }
+
+    #[test]
+    fn sarif_export_produces_valid_v210_json() {
+        let report = Report {
+            generated_at: "2026-11-09T00:00:00Z".to_string(),
+            cure_version: "0.2.0".to_string(),
+            windows_version: "Windows 11".to_string(),
+            coverage: vec![],
+            findings: vec![
+                FindingReport {
+                    kind: "persistence".to_string(),
+                    name: "MaliciousRunKey".to_string(),
+                    source: "HKCU\\Run".to_string(),
+                    command: "C:\\evil.exe".to_string(),
+                    location: "C:\\evil.exe".to_string(),
+                    score: 95,
+                    risk: "HighRisk".to_string(),
+                    evidence: vec![Evidence::observed("Known ransomware signature match")],
+                    attack_id: "T1547.001".to_string(),
+                    attack_name: "Registry Run Keys".to_string(),
+                    signature: "UNSIGNED".to_string(),
+                    publisher: None,
+                    sha256: Some("abcdef1234567890".to_string()),
+                    recommended_action: "Quarantine immediately.".to_string(),
+                },
+                FindingReport {
+                    kind: "process".to_string(),
+                    name: "suspicious_helper.exe".to_string(),
+                    source: "pid 4321".to_string(),
+                    command: "C:\\temp\\helper.exe".to_string(),
+                    location: "C:\\temp\\helper.exe".to_string(),
+                    score: 45,
+                    risk: "Suspicious".to_string(),
+                    evidence: vec![Evidence::correlated("Running unverified script host")],
+                    attack_id: String::new(),
+                    attack_name: String::new(),
+                    signature: "NOT ASSESSED".to_string(),
+                    publisher: None,
+                    sha256: None,
+                    recommended_action: "Investigate process origin.".to_string(),
+                },
+            ],
+            safe_persistence: 5,
+            safe_processes: 20,
+            intel_provider: "DEMO".to_string(),
+            redacted: false,
+            incident: None,
+        };
+
+        let sarif_str = render_sarif(&report);
+        let sarif_val: serde_json::Value = serde_json::from_str(&sarif_str).expect("Valid JSON");
+
+        assert_eq!(sarif_val["version"], "2.1.0");
+        assert_eq!(sarif_val["runs"][0]["tool"]["driver"]["name"], "C.U.R.E");
+
+        let results = sarif_val["runs"][0]["results"]
+            .as_array()
+            .expect("results array");
+        assert_eq!(results.len(), 2);
+
+        // First finding: HighRisk -> level: error, ruleId: CURE-HIGH-RISK
+        assert_eq!(results[0]["level"], "error");
+        assert_eq!(results[0]["ruleId"], "CURE-HIGH-RISK");
+        assert_eq!(
+            results[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"],
+            "file:///C:/evil.exe"
+        );
+        assert_eq!(results[0]["properties"]["score"], 95);
+
+        // Second finding: Suspicious -> level: warning, ruleId: CURE-SUSPICIOUS
+        assert_eq!(results[1]["level"], "warning");
+        assert_eq!(results[1]["ruleId"], "CURE-SUSPICIOUS");
     }
 }

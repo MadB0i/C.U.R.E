@@ -51,6 +51,54 @@ pub fn scan_common() -> Vec<PersistenceEntry> {
     }
 }
 
+pub fn is_standard_desktop_ini(path: &Path) -> bool {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy())
+        .unwrap_or_default();
+    if !name.eq_ignore_ascii_case("desktop.ini") {
+        return false;
+    }
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    if metadata.len() > 32768 {
+        return false;
+    }
+    let Ok(bytes) = fs::read(path) else {
+        return false;
+    };
+    // If it starts with MZ, it is a PE binary masquerading as desktop.ini
+    if bytes.starts_with(b"MZ") {
+        return false;
+    }
+    let text = String::from_utf8_lossy(&bytes).to_ascii_lowercase();
+    let suspicious_tokens = [
+        "powershell",
+        "cmd.exe",
+        "cscript",
+        "wscript",
+        "mshta",
+        "regsvr32",
+        "certutil",
+        "bitsadmin",
+        "rundll32",
+        "-enc",
+        "invoke-expression",
+        "iex",
+        "frombase64string",
+        "downloadstring",
+        "http://",
+        "https://",
+    ];
+    for token in &suspicious_tokens {
+        if text.contains(token) {
+            return false;
+        }
+    }
+    true
+}
+
 pub fn scan(root: &Path) -> Vec<PersistenceEntry> {
     let mut entries = Vec::new();
     let Ok(read_dir) = fs::read_dir(root) else {
@@ -66,6 +114,9 @@ pub fn scan(root: &Path) -> Vec<PersistenceEntry> {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
+        if name.eq_ignore_ascii_case("desktop.ini") && is_standard_desktop_ini(&path) {
+            continue;
+        }
         let location = path.to_string_lossy().into_owned();
         // For shortcuts, command is the resolved target + args (what gets
         // executed), while location stays the .lnk file itself (what gets
@@ -518,5 +569,32 @@ mod tests {
             crate::model::RiskLevel::HighRisk,
             "hash hit on target must force High"
         );
+    }
+
+    #[test]
+    fn standard_desktop_ini_is_ignored() {
+        let startup = temp_startup_in_repo();
+        let ini = startup.path().join("desktop.ini");
+        std::fs::write(&ini, "[.ShellClassInfo]\r\nLocalizedResourceName=@%SystemRoot%\\system32\\shell32.dll,-21787\r\n").unwrap();
+        assert!(is_standard_desktop_ini(&ini));
+
+        let entries = scan(startup.path());
+        assert!(!entries
+            .iter()
+            .any(|e| e.name.eq_ignore_ascii_case("desktop.ini")));
+    }
+
+    #[test]
+    fn disguised_or_script_desktop_ini_is_retained() {
+        let startup = temp_startup_in_repo();
+        // MZ disguised
+        let mz_ini = startup.path().join("desktop.ini");
+        std::fs::write(&mz_ini, b"MZ\x90\x00\x03fake-pe").unwrap();
+        assert!(!is_standard_desktop_ini(&mz_ini));
+
+        let entries = scan(startup.path());
+        assert!(entries
+            .iter()
+            .any(|e| e.name.eq_ignore_ascii_case("desktop.ini")));
     }
 }

@@ -142,9 +142,9 @@ fn tasks_root() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(scanners::scheduled_tasks::default_tasks_root)
 }
-const SCAN_TARGET_TOTAL_MS: u64 = 5000;
-const SCAN_MIN_PER_ITEM_MS: u64 = 15;
-const SCAN_MAX_PER_ITEM_MS: u64 = 250;
+const SCAN_TARGET_TOTAL_MS: u64 = 500;
+const SCAN_MIN_PER_ITEM_MS: u64 = 0;
+const SCAN_MAX_PER_ITEM_MS: u64 = 25;
 // Live process enumeration lives in cure_core::process_scan// (shared with the CLI report) — pure scoring stays there too.// ---------------------------------------------------------------------------// Ransom-detection folder scanning (OS glue: read-only directory walks)// ---------------------------------------------------------------------------
 fn user_folder_candidates() -> Vec<PathBuf> {
     let mut folders = Vec::new();
@@ -202,8 +202,298 @@ struct RansomFoundEvent {
     path: String,
     detail: String,
 }
+
+fn read_head_bytes(p: &Path, max_bytes: usize) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(p)?;
+    let mut buf = vec![0u8; max_bytes];
+    let n = file.read(&mut buf)?;
+    buf.truncate(n);
+    Ok(buf)
+}
+
+fn run_heuristic_file_sweep(app: &AppHandle, scanned_count: &mut usize) -> Vec<ScoredEntry> {
+    let mut findings: Vec<ScoredEntry> = Vec::new();
+    let mut target_dirs: Vec<PathBuf> = Vec::new();
+
+    target_dirs.push(std::env::temp_dir());
+
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        let local_temp = PathBuf::from(local).join("Temp");
+        if local_temp.exists() && !target_dirs.contains(&local_temp) {
+            target_dirs.push(local_temp);
+        }
+    }
+
+    if let Ok(home) = std::env::var("USERPROFILE") {
+        let home_p = PathBuf::from(home);
+        let downloads = home_p.join("Downloads");
+        if downloads.exists() {
+            target_dirs.push(downloads);
+        }
+        let appdata_roaming = home_p.join("AppData").join("Roaming");
+        if appdata_roaming.exists() {
+            target_dirs.push(appdata_roaming);
+        }
+    }
+
+    for dir in target_dirs {
+        scan_heuristic_dir(app, &dir, 0, 1, scanned_count, &mut findings);
+    }
+
+    findings
+}
+
+fn scan_heuristic_dir(
+    app: &AppHandle,
+    dir: &Path,
+    current_depth: usize,
+    max_depth: usize,
+    scanned_count: &mut usize,
+    findings: &mut Vec<ScoredEntry>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let file_type = match entry.file_type() {
+            Ok(ft) => ft,
+            Err(_) => continue,
+        };
+
+        if file_type.is_dir() {
+            if current_depth < max_depth {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if !name.starts_with('.') && name != "node_modules" && name != "WindowsApps" {
+                    scan_heuristic_dir(
+                        app,
+                        &path,
+                        current_depth + 1,
+                        max_depth,
+                        scanned_count,
+                        findings,
+                    );
+                }
+            }
+            continue;
+        }
+
+        if !file_type.is_file() {
+            continue;
+        }
+
+        *scanned_count += 1;
+        let file_name = entry.file_name().to_string_lossy().to_string();
+
+        // Skip C.U.R.E system binaries and standard desktop.ini
+        if cure_core::risk::is_cure_binary_name(&file_name) {
+            continue;
+        }
+        if file_name.eq_ignore_ascii_case("desktop.ini")
+            && cure_core::scanners::startup::is_standard_desktop_ini(&path)
+        {
+            continue;
+        }
+
+        if (*scanned_count).is_multiple_of(5) {
+            let _ = app.emit(
+                "scan-progress",
+                serde_json::json!({
+                    "stage": "progress-counter",
+                    "count": *scanned_count,
+                    "message": format!("Inspecting {}", file_name)
+                }),
+            );
+        }
+
+        // 1. Filename spoofing (double extensions / RTLO)
+        if let Some(reason) = cure_core::scanners::heuristics::check_filename_spoofing(&file_name) {
+            let p_entry = PersistenceEntry::new(
+                PersistenceSource::StartupFolder,
+                file_name.clone(),
+                path.to_string_lossy().to_string(),
+                dir.to_string_lossy().to_string(),
+            );
+            findings.push(ScoredEntry {
+                entry: p_entry,
+                score: 95,
+                risk: RiskLevel::HighRisk,
+                evidence: vec![cure_core::evidence::Evidence::observed(format!(
+                    "Double-extension / spoofed file: {reason}"
+                ))],
+                attack: cure_core::model::AttackInfo {
+                    id: "T1036.007".to_string(),
+                    name: "Heuristic Detection".to_string(),
+                },
+            });
+            continue;
+        }
+
+        // 2. System binary masquerading
+        if let Some(reason) =
+            cure_core::scanners::heuristics::check_system_masquerade(&file_name, &path)
+        {
+            let p_entry = PersistenceEntry::new(
+                PersistenceSource::StartupFolder,
+                file_name.clone(),
+                path.to_string_lossy().to_string(),
+                dir.to_string_lossy().to_string(),
+            );
+            findings.push(ScoredEntry {
+                entry: p_entry,
+                score: 95,
+                risk: RiskLevel::HighRisk,
+                evidence: vec![cure_core::evidence::Evidence::observed(format!(
+                    "System binary masquerading: {reason}"
+                ))],
+                attack: cure_core::model::AttackInfo {
+                    id: "T1036.005".to_string(),
+                    name: "Heuristic Detection".to_string(),
+                },
+            });
+            continue;
+        }
+
+        // 3. Script obfuscation / LOLBins (ps1, bat, cmd, vbs, hta, wsf)
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if cure_core::scanners::heuristics::SCRIPT_EXTENSIONS.contains(&ext.as_str()) {
+            if let Ok(bytes) = read_head_bytes(&path, 65536) {
+                let content = String::from_utf8_lossy(&bytes);
+                if let Some(reason) =
+                    cure_core::scanners::heuristics::check_script_content(&content)
+                {
+                    let p_entry = PersistenceEntry::new(
+                        PersistenceSource::StartupFolder,
+                        file_name.clone(),
+                        path.to_string_lossy().to_string(),
+                        dir.to_string_lossy().to_string(),
+                    );
+                    findings.push(ScoredEntry {
+                        entry: p_entry,
+                        score: 95,
+                        risk: RiskLevel::HighRisk,
+                        evidence: vec![cure_core::evidence::Evidence::observed(format!(
+                            "Obfuscated script dropper: {reason}"
+                        ))],
+                        attack: cure_core::model::AttackInfo {
+                            id: "T1059".to_string(),
+                            name: "Heuristic Detection".to_string(),
+                        },
+                    });
+                }
+            }
+            continue;
+        }
+
+        // 4. High-entropy packed binaries in Temp/Startup
+        if ext == "exe" || ext == "dll" {
+            if let Ok(bytes) = read_head_bytes(&path, 262144) {
+                if let Some(entropy) = cure_core::scanners::heuristics::check_high_entropy(&bytes) {
+                    let sig = cure_core::signature::check_signature(&path);
+                    if sig != SignatureStatus::ValidSigned {
+                        let p_entry = PersistenceEntry::new(
+                            PersistenceSource::StartupFolder,
+                            file_name.clone(),
+                            path.to_string_lossy().to_string(),
+                            dir.to_string_lossy().to_string(),
+                        );
+                        findings.push(ScoredEntry {
+                            entry: p_entry,
+                            score: 90,
+                            risk: RiskLevel::HighRisk,
+                            evidence: vec![cure_core::evidence::Evidence::observed(format!(
+                                "High-entropy packed/encrypted binary (entropy: {:.2}): unsigned dropper payload",
+                                entropy
+                            ))],
+                            attack: cure_core::model::AttackInfo { id: "T1027.002".to_string(), name: "Heuristic Detection".to_string() },
+                        });
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[tauri::command]
+async fn delete_threat_entry(
+    id: String,
+    file_path: String,
+    pid: Option<u32>,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        // 1. Terminate process if PID provided
+        if let Some(p) = pid {
+            if p > 4 {
+                let _ = kill_process_by_pid(p);
+            }
+        }
+
+        // 2. Permanently delete file from disk
+        if !file_path.trim().is_empty() {
+            let path = PathBuf::from(&file_path);
+            if path.exists() {
+                if cure_core::risk::is_cure_binary_name(&file_path) {
+                    return Err(
+                        "Refused to delete C.U.R.E system binary (self-protection)".to_string()
+                    );
+                }
+                let lower = file_path.to_ascii_lowercase();
+                if lower.contains("windows\\system32")
+                    || lower.contains("windows\\syswow64")
+                    || lower == "c:\\windows"
+                    || lower == "c:\\"
+                {
+                    return Err("Refused to delete protected Windows system path".to_string());
+                }
+
+                // Clear read-only permissions if needed
+                if let Ok(metadata) = std::fs::metadata(&path) {
+                    let mut perms = metadata.permissions();
+                    #[allow(clippy::permissions_set_readonly_false)]
+                    perms.set_readonly(false);
+                    let _ = std::fs::set_permissions(&path, perms);
+                }
+
+                std::fs::remove_file(&path)
+                    .map_err(|e| format!("Failed to delete threat file {}: {e}", file_path))?;
+            }
+        }
+
+        Ok(format!("Successfully deleted threat {id}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn spawn_test_stealth_threat() -> Result<String, String> {
+    tokio::task::spawn_blocking(|| {
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("cure_defender_bypass_test.bat");
+        let content = concat!(
+            "@echo off\r\n",
+            "REM CURE-SAFE-TEST-PAYLOAD - Harmless verification file for C.U.R.E detection testing\r\n",
+            "REM This file tests detection of obfuscated stealth droppers that bypass Defender signatures.\r\n",
+            "powershell -WindowStyle Hidden -EncodedCommand SGVsbG8gV29ybGQ=\r\n",
+            "REM [System.Convert]::FromBase64String(\"SGVsbG8=\")\r\n",
+            "exit /b 0\r\n"
+        );
+        std::fs::write(&test_file, content)
+            .map_err(|e| format!("Failed to write test file: {e}"))?;
+        Ok(test_file.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
+    let mut scanned_count: usize = 0;
     let data_dir = resolve_data_dir();
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("cannot create data dir: {e}"))?;
     emit_stage(&app, "registry", "Reading Run / RunOnce autoruns");
@@ -217,7 +507,16 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     {
         let reg = scanners::registry::scan_report();
         record_source_state(&app, &mut source_states, registry_state_row(&reg));
+        scanned_count += reg.entries.len();
         entries.extend(reg.entries);
+        let _ = app.emit(
+            "scan-progress",
+            serde_json::json!({
+                "stage": "progress-counter",
+                "count": scanned_count,
+                "message": "Reading Run / RunOnce autoruns"
+            }),
+        );
     }
     #[cfg(not(windows))]
     source_states.push(cure_core::report::CoverageRow::unavailable(
@@ -247,10 +546,28 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     );
     entries.extend(startup_user);
     entries.extend(startup_common);
+    scanned_count += startup_total;
+    let _ = app.emit(
+        "scan-progress",
+        serde_json::json!({
+            "stage": "progress-counter",
+            "count": scanned_count,
+            "message": "Inspecting Startup folders"
+        }),
+    );
     emit_stage(&app, "tasks", "Parsing scheduled task definitions");
     let task_report = scanners::scheduled_tasks::scan_report(&tasks_root());
     record_source_state(&app, &mut source_states, tasks_state_row(&task_report));
+    scanned_count += task_report.entries.len();
     entries.extend(task_report.entries);
+    let _ = app.emit(
+        "scan-progress",
+        serde_json::json!({
+            "stage": "progress-counter",
+            "count": scanned_count,
+            "message": "Parsing scheduled task definitions"
+        }),
+    );
     emit_stage(&app, "services", "Enumerating auto-start services");
     let service_report = scanners::services::scan_report();
     record_source_state(
@@ -260,6 +577,15 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     );
     let service_records = service_report.records;
     entries.extend(service_records.iter().map(|r| r.entry.clone()));
+    scanned_count += service_records.len();
+    let _ = app.emit(
+        "scan-progress",
+        serde_json::json!({
+            "stage": "progress-counter",
+            "count": scanned_count,
+            "message": "Enumerating auto-start services"
+        }),
+    );
     #[cfg(windows)]
     {
         emit_stage(&app, "wmi", "Querying WMI event subscriptions");
@@ -298,11 +624,13 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
                 ),
             ),
         );
+        let com_len = com_entries.len();
         entries.extend(com_entries);
         // Detection Engine v2: Winlogon session-start values and Active
         // Setup StubPaths — boot/logon persistence Defender never surfaces.
         emit_stage(&app, "bootlogon", "Checking Winlogon and Active Setup");
         let boot_entries = scanners::bootlogon::scan().unwrap_or_default();
+        let boot_len = boot_entries.len();
         record_source_state(
             &app,
             &mut source_states,
@@ -310,12 +638,21 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
                 "Winlogon & Active Setup",
                 format!(
                     "{} entr{}",
-                    boot_entries.len(),
-                    if boot_entries.len() == 1 { "y" } else { "ies" }
+                    boot_len,
+                    if boot_len == 1 { "y" } else { "ies" }
                 ),
             ),
         );
+        scanned_count += ifeo_total + com_len + boot_len;
         entries.extend(boot_entries);
+        let _ = app.emit(
+            "scan-progress",
+            serde_json::json!({
+                "stage": "progress-counter",
+                "count": scanned_count,
+                "message": "Checking IFEO, COM and Winlogon"
+            }),
+        );
     }
     #[cfg(not(windows))]
     {
@@ -410,13 +747,41 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
             }
         }
     }
+    let custom_rules = cure_core::custom_rules::load_rules_from_dir(&data_dir.join("rules"));
+    if !custom_rules.is_empty() {
+        for scored_entry in &mut scored {
+            if let Some(rule) = cure_core::custom_rules::evaluate_custom_rules(
+                &scored_entry.entry.command,
+                &custom_rules,
+            )
+            .or_else(|| {
+                cure_core::custom_rules::evaluate_custom_rules(
+                    &scored_entry.entry.location,
+                    &custom_rules,
+                )
+            }) {
+                scored_entry.score = scored_entry.score.max(85);
+                scored_entry.risk = rule.risk;
+                scored_entry.attack.id = "CUSTOM".to_string();
+                scored_entry.attack.name = rule.name.clone();
+                scored_entry
+                    .evidence
+                    .push(cure_core::evidence::Evidence::observed(format!(
+                        "Custom Rule Match [{}]: {}",
+                        rule.name, rule.description
+                    )));
+            }
+        }
+    }
     emit_stage(&app, "item-scan", "Inspecting each persistence entry");
     let per_item_ms = (SCAN_TARGET_TOTAL_MS / std::cmp::max(count, 1) as u64)
         .clamp(SCAN_MIN_PER_ITEM_MS, SCAN_MAX_PER_ITEM_MS);
     let high_risk_cleaned = Vec::new();
     let mut suspicious_for_review = Vec::new();
     let mut safe = 0usize;
-    for s in scored.iter() {
+    let base_scanned = scanned_count;
+    for (idx, s) in scored.iter().enumerate() {
+        let current_count = base_scanned + idx + 1;
         let _ = app.emit(
             "scan-progress",
             ItemScannedEvent {
@@ -427,6 +792,14 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
                 risk: format!("{:?}", s.risk),
                 score: s.score,
             },
+        );
+        let _ = app.emit(
+            "scan-progress",
+            serde_json::json!({
+                "stage": "progress-counter",
+                "count": current_count,
+                "message": format!("Inspecting {}", s.entry.name)
+            }),
         );
         tokio::time::sleep(std::time::Duration::from_millis(per_item_ms)).await;
         // NO automatic remediation here: even HighRisk findings only land in
@@ -444,6 +817,7 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     // ── live process scan ──────────────────────────────────────────────
     emit_stage(&app, "process-scan", "Enumerating running processes");
     let processes = process_scan::enumerate_processes();
+    scanned_count += processes.len();
     let mut process_findings: Vec<ProcessFinding> = Vec::new();
     if !processes.is_empty() {
         emit_stage(
@@ -597,10 +971,32 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         )
     };
     record_source_state(&app, &mut source_states, ransom_row);
+    // ── heuristic file sweep (Temp, Downloads, AppData droppers & LOLBins) ─
+    emit_stage(
+        &app,
+        "heuristic-sweep",
+        "Heuristic sweep: inspecting %TEMP%, droppers & stealth scripts",
+    );
+    let heuristic_threats = run_heuristic_file_sweep(&app, &mut scanned_count);
+    for h in heuristic_threats {
+        suspicious_for_review.push(h);
+    }
+
     emit_stage(&app, "done", "Saving baseline");
     baseline::save_baseline(&data_dir.join("baseline.json"), &entries)
         .map_err(|e| format!("cannot write baseline: {e}"))?;
-    let total = high_risk_cleaned.len() + suspicious_for_review.len() + safe;
+    let total = scanned_count;
+    if safe < scanned_count {
+        safe = scanned_count.saturating_sub(suspicious_for_review.len() + process_findings.len());
+    }
+    let _ = app.emit(
+        "scan-progress",
+        serde_json::json!({
+            "stage": "progress-counter",
+            "count": total,
+            "message": "Scan complete"
+        }),
+    );
     Ok(ScanSummary {
         total,
         high_risk_cleaned,
@@ -682,45 +1078,53 @@ fn find_current_entry(id: &str) -> Option<PersistenceEntry> {
         .find(|entry| entry.id == id)
 }
 #[tauri::command]
-fn quarantine_entry(id: String, _name: String, _command: String) -> Result<String, String> {
-    let data_dir = resolve_data_dir();
-    // Strict: only entries present in a fresh scan may be quarantined. Never
-    // construct an entry from frontend-supplied paths — the webview must not
-    // be able to turn this command into a move-any-file primitive.
-    let Some(entry) = find_current_entry(&id) else {
-        return Err(
-            "entry is no longer present in the latest scan (already quarantined or removed?) — rescan to refresh"
-                .to_string(),
-        );
-    };
-    if entry.source == PersistenceSource::RegistryRun {
-        return Err(format!(
-            "registry autoruns are detected and scored but never auto-disabled — remove manually: {} / value \"{}\" (back up the key first)",
-            entry.location, entry.name
-        ));
-    }
-    if !entry.source.is_file_backed() {
-        return Err(format!(
-            "{} findings are detected and scored but never auto-disabled — investigate first, back up {}, then remove manually",
-            entry.source, entry.location
-        ));
-    }
-    let record = quarantine::quarantine_file(&data_dir, &entry).map_err(|e| e.to_string())?;
-    Ok(format!(
-        "moved {} -> {}",
-        record.original_path.display(),
-        record.quarantine_path.display()
-    ))
+async fn quarantine_entry(id: String, _name: String, _command: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let data_dir = resolve_data_dir();
+        // Strict: only entries present in a fresh scan may be quarantined. Never
+        // construct an entry from frontend-supplied paths — the webview must not
+        // be able to turn this command into a move-any-file primitive.
+        let Some(entry) = find_current_entry(&id) else {
+            return Err(
+                "entry is no longer present in the latest scan (already quarantined or removed?) — rescan to refresh"
+                    .to_string(),
+            );
+        };
+        if entry.source == PersistenceSource::RegistryRun {
+            return Err(format!(
+                "registry autoruns are detected and scored but never auto-disabled — remove manually: {} / value \"{}\" (back up the key first)",
+                entry.location, entry.name
+            ));
+        }
+        if !entry.source.is_file_backed() {
+            return Err(format!(
+                "{} findings are detected and scored but never auto-disabled — investigate first, back up {}, then remove manually",
+                entry.source, entry.location
+            ));
+        }
+        let record = quarantine::quarantine_file(&data_dir, &entry).map_err(|e| e.to_string())?;
+        Ok(format!(
+            "moved {} -> {}",
+            record.original_path.display(),
+            record.quarantine_path.display()
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
-fn undo_entry(id: String) -> Result<(), String> {
-    // Scoped restore (see cli cmd_undo): only under the scanned roots. The
-    // machine-wide Startup folder is always scanned, so always in scope.
-    let mut roots = vec![startup_root(), tasks_root()];
-    roots.extend(scanners::startup::default_common_startup_root());
-    quarantine::undo_scoped(&resolve_data_dir(), &id, Some(&roots))
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+async fn undo_entry(id: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        // Scoped restore (see cli cmd_undo): only under the scanned roots. The
+        // machine-wide Startup folder is always scanned, so always in scope.
+        let mut roots = vec![startup_root(), tasks_root()];
+        roots.extend(scanners::startup::default_common_startup_root());
+        quarantine::undo_scoped(&resolve_data_dir(), &id, Some(&roots))
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[derive(Serialize)]
 struct QuarantineRecordDto {
@@ -738,33 +1142,41 @@ struct QuarantineRecordDto {
 }
 /// Everything currently in quarantine (newest last). Powers the Quarantine/// view; undo actions go through `undo_entry` one record at a time.
 #[tauri::command]
-fn list_quarantine() -> Result<Vec<QuarantineRecordDto>, String> {
-    Ok(quarantine::list_records(&resolve_data_dir())
-        .into_iter()
-        .map(|r| QuarantineRecordDto {
-            id: r.id,
-            name: r.name,
-            source: r.source,
-            original_path: r.original_path.to_string_lossy().into_owned(),
-            quarantine_path: r.quarantine_path.to_string_lossy().into_owned(),
-            archived_at: r.archived_at.to_rfc3339(),
-            state: format!("{:?}", r.state),
-            file_size: r.file_size,
-            sha256_hex: r.sha256_hex,
-            acl_captured: r.security.as_ref().is_some_and(|s| s.sddl.is_some()),
-            security_notes: r.security_notes,
-        })
-        .collect())
+async fn list_quarantine() -> Result<Vec<QuarantineRecordDto>, String> {
+    tokio::task::spawn_blocking(move || {
+        Ok(quarantine::list_records(&resolve_data_dir())
+            .into_iter()
+            .map(|r| QuarantineRecordDto {
+                id: r.id,
+                name: r.name,
+                source: r.source,
+                original_path: r.original_path.to_string_lossy().into_owned(),
+                quarantine_path: r.quarantine_path.to_string_lossy().into_owned(),
+                archived_at: r.archived_at.to_rfc3339(),
+                state: format!("{:?}", r.state),
+                file_size: r.file_size,
+                sha256_hex: r.sha256_hex,
+                acl_captured: r.security.as_ref().is_some_and(|s| s.sddl.is_some()),
+                security_notes: r.security_notes,
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 /// Forensic details for one finding (shortcut resolution, task metadata,/// publisher/signature) — strictly read-only enrichment for display./// The id must come from a fresh scan; unknown ids are rejected, so the/// webview cannot turn this into an arbitrary-path inspection oracle.
 #[tauri::command]
-fn entry_details(id: String) -> Result<cure_core::entry_details::EntryDetails, String> {
-    let Some(entry) = find_current_entry(&id) else {
-        return Err(
-            "entry is no longer present in the latest scan — rescan to refresh".to_string(),
-        );
-    };
-    Ok(cure_core::entry_details::for_entry(&entry))
+async fn entry_details(id: String) -> Result<cure_core::entry_details::EntryDetails, String> {
+    tokio::task::spawn_blocking(move || {
+        let Some(entry) = find_current_entry(&id) else {
+            return Err(
+                "entry is no longer present in the latest scan — rescan to refresh".to_string(),
+            );
+        };
+        Ok(cure_core::entry_details::for_entry(&entry))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 /// Reveal a finding's file in Explorer (selects it, opens nothing)./// Strict id-based lookup like `entry_details`; registry/service/WMI and/// other non-file locations are refused. Direct argv to explorer — no/// shell parsing, so spaces and metacharacters in paths are inert.
 #[tauri::command]
@@ -799,8 +1211,8 @@ fn reveal_location(id: String) -> Result<String, String> {
 async fn export_report(format: String, redact: bool) -> Result<String, String> {
     use cure_core::report::{CoverageRow, ReportOptions, ScanInput};
     let format = format.to_ascii_lowercase();
-    if format != "json" && format != "txt" {
-        return Err("unknown format: use json or txt".to_string());
+    if format != "json" && format != "txt" && format != "sarif" {
+        return Err("unknown format: use json, sarif or txt".to_string());
     }
     let data_dir = resolve_data_dir();
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("cannot create data dir: {e}"))?;
@@ -961,10 +1373,10 @@ async fn export_report(format: String, redact: bool) -> Result<String, String> {
         coverage,
         &ReportOptions { redact },
     );
-    let body = if format == "json" {
-        cure_core::report::render_json(&report)
-    } else {
-        cure_core::report::render_txt(&report)
+    let body = match format.as_str() {
+        "json" => cure_core::report::render_json(&report),
+        "sarif" => cure_core::report::render_sarif(&report),
+        _ => cure_core::report::render_txt(&report),
     };
     let filename = format!("cure-report-{}.{}", cure_core::report::utc_stamp(), format);
     let out_path = data_dir.join(&filename);
@@ -1100,8 +1512,8 @@ async fn export_incident_report(
 ) -> Result<String, String> {
     use cure_core::report::{CoverageRow, ReportOptions};
     let format = format.to_ascii_lowercase();
-    if format != "json" && format != "txt" {
-        return Err("unknown format: use json or txt".to_string());
+    if format != "json" && format != "txt" && format != "sarif" {
+        return Err("unknown format: use json, sarif or txt".to_string());
     }
     let data_dir = resolve_data_dir();
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("cannot create data dir: {e}"))?;
@@ -1169,10 +1581,10 @@ async fn export_incident_report(
         &ReportOptions { redact },
     );
     report.incident = Some(cure_core::report::incident_section(&result, redact));
-    let body = if format == "json" {
-        cure_core::report::render_json(&report)
-    } else {
-        cure_core::report::render_txt(&report)
+    let body = match format.as_str() {
+        "json" => cure_core::report::render_json(&report),
+        "sarif" => cure_core::report::render_sarif(&report),
+        _ => cure_core::report::render_txt(&report),
     };
     let filename = format!(
         "cure-incident-{}.{}",
@@ -1190,8 +1602,20 @@ fn pid_still_matches(
     approved_name: &str,
     live: &std::collections::HashMap<u32, String>,
 ) -> Result<(), String> {
+    if cure_core::operator::defense::is_critical_system_process(pid, approved_name) {
+        return Err(format!(
+            "pid {pid} ({approved_name}) is a critical Windows system process — termination refused"
+        ));
+    }
     match live.get(&pid) {
-        Some(current) if current.eq_ignore_ascii_case(approved_name) => Ok(()),
+        Some(current) if current.eq_ignore_ascii_case(approved_name) => {
+            if cure_core::operator::defense::is_critical_system_process(pid, current) {
+                return Err(format!(
+                    "pid {pid} ({current}) is a critical Windows system process — termination refused"
+                ));
+            }
+            Ok(())
+        }
         Some(current) => Err(format!(
             "pid {pid} no longer belongs to {approved_name} (now {current}) — refusing to kill"
         )),
@@ -1209,43 +1633,69 @@ fn pid_still_matches(
     Ok(())
 }
 #[tauri::command]
-fn kill_high_risk_processes(processes: Vec<(String, u32)>) -> Result<KillReport, String> {
-    let mut killed = Vec::new();
-    let mut failed = Vec::new();
-    // Snapshot once so every decision below uses the same process table.
-    let live: std::collections::HashMap<u32, String> = process_scan::enumerate_processes()
-        .into_iter()
-        .map(|p| (p.pid, p.name))
-        .collect();
-    for (name, pid) in processes {
-        if let Err(reason) = pid_still_matches(pid, &name, &live) {
-            failed.push(reason);
-            continue;
-        }
-        match kill_process_by_pid(pid) {
-            Ok(()) => {
-                killed.push(ProcessFinding {
-                    name: name.clone(),
-                    pid,
-                    exe_path: String::new(),
-                    score: 0,
-                    risk: "HighRisk".to_string(),
-                    evidence: vec![cure_core::evidence::Evidence::observed(
-                        "termination requested by the operator",
-                    )],
-                });
+async fn kill_high_risk_processes(processes: Vec<(String, u32)>) -> Result<KillReport, String> {
+    tokio::task::spawn_blocking(move || {
+        let mut killed = Vec::new();
+        let mut failed = Vec::new();
+        // Snapshot once so every decision below uses the same process table.
+        let live: std::collections::HashMap<u32, String> = process_scan::enumerate_processes()
+            .into_iter()
+            .map(|p| (p.pid, p.name))
+            .collect();
+        for (name, pid) in processes {
+            if cure_core::risk::is_cure_binary_name(&name) {
+                failed.push(format!(
+                    "{name} (pid {pid}): refused to kill C.U.R.E system process"
+                ));
+                continue;
             }
-            Err(e) => {
-                failed.push(format!("{name} (pid {pid}): {e}"));
+            if let Err(reason) = pid_still_matches(pid, &name, &live) {
+                failed.push(reason);
+                continue;
+            }
+            match kill_process_by_pid(pid) {
+                Ok(()) => {
+                    killed.push(ProcessFinding {
+                        name: name.clone(),
+                        pid,
+                        exe_path: String::new(),
+                        score: 0,
+                        risk: "HighRisk".to_string(),
+                        evidence: vec![cure_core::evidence::Evidence::observed(
+                            "termination requested by the operator",
+                        )],
+                    });
+                }
+                Err(e) => {
+                    failed.push(format!("{name} (pid {pid}): {e}"));
+                }
             }
         }
-    }
-    Ok(KillReport { killed, failed })
+        Ok(KillReport { killed, failed })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 fn open_quarantine_folder() -> Result<String, String> {
     let dir = resolve_data_dir().join("quarantine");
     std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create quarantine folder: {e}"))?;
+    std::process::Command::new("explorer")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| format!("cannot open explorer: {e}"))?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn open_custom_rules_folder() -> Result<String, String> {
+    let dir = resolve_data_dir().join("rules");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create rules directory: {e}"))?;
+    let sample = dir.join("example_rules.rule");
+    if !sample.exists() {
+        let _ = std::fs::write(&sample, cure_core::custom_rules::SAMPLE_RULE_TEMPLATE);
+    }
+    #[cfg(windows)]
     std::process::Command::new("explorer")
         .arg(&dir)
         .spawn()
@@ -1585,89 +2035,119 @@ struct StorageRootOptionDto {
 /// `D:\Projects` is exactly the kind of place a storage tool needs to look,
 /// and the operator is the only one who knows where it is.
 #[tauri::command]
-fn storage_validate_root(path: String) -> Result<StorageRootOptionDto, String> {
-    let trimmed = path.trim();
-    if trimmed.is_empty() {
-        return Err("Type a folder path.".to_string());
-    }
-    let target = PathBuf::from(trimmed);
-    let metadata = std::fs::symlink_metadata(&target)
-        .map_err(|e| format!("That folder could not be read: {e}"))?;
-    if !metadata.is_dir() {
-        return Err("That path is not a folder.".to_string());
-    }
-    if storage::fsx::is_reparse_point(&metadata) {
-        return Err(
-            "That path is a link or junction. Add the folder it points to instead.".to_string(),
-        );
-    }
-    let space = storage::fsx::volume_space(&target);
-    Ok(StorageRootOptionDto {
-        label: target
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| trimmed.to_string()),
-        path: target.to_string_lossy().into_owned(),
-        exists: true,
-        is_drive: false,
-        total_bytes: space.as_ref().map(|v| v.total_bytes),
-        free_bytes: space.as_ref().map(|v| v.free_bytes),
-        volume_label: space.and_then(|v| v.label),
-        selectable: true,
+async fn storage_validate_root(path: String) -> Result<StorageRootOptionDto, String> {
+    tokio::task::spawn_blocking(move || {
+        let trimmed = path.trim();
+        if trimmed.is_empty() {
+            return Err("Type a folder path.".to_string());
+        }
+        let target = PathBuf::from(trimmed);
+        let metadata = std::fs::symlink_metadata(&target)
+            .map_err(|e| format!("That folder could not be read: {e}"))?;
+        if !metadata.is_dir() {
+            return Err("That path is not a folder.".to_string());
+        }
+        if storage::fsx::is_reparse_point(&metadata) {
+            return Err(
+                "That path is a link or junction. Add the folder it points to instead.".to_string(),
+            );
+        }
+        let space = storage::fsx::volume_space(&target);
+        Ok(StorageRootOptionDto {
+            label: target
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| trimmed.to_string()),
+            path: target.to_string_lossy().into_owned(),
+            exists: true,
+            is_drive: false,
+            total_bytes: space.as_ref().map(|v| v.total_bytes),
+            free_bytes: space.as_ref().map(|v| v.free_bytes),
+            volume_label: space.and_then(|v| v.label),
+            selectable: true,
+        })
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Assess drive pressure and discover safe relocation candidates.
 #[tauri::command]
-fn storage_rescue_status(
+async fn storage_rescue_status(
     source_drive: Option<String>,
     target_drive: Option<String>,
 ) -> Result<cure_core::storage::StorageRescueStatus, String> {
-    let src = source_drive.unwrap_or_else(|| "C:".into());
-    let tgt = target_drive.unwrap_or_default();
-    Ok(cure_core::storage::discover_migration_candidates(
-        &src, &tgt,
-    ))
+    tokio::task::spawn_blocking(move || {
+        let src = source_drive.unwrap_or_else(|| "C:".into());
+        let tgt = target_drive.unwrap_or_default();
+        Ok(cure_core::storage::discover_migration_candidates(
+            &src, &tgt,
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Build a preflight-verified migration plan for selected candidate folders.
 #[tauri::command]
-fn storage_rescue_plan(
+async fn storage_rescue_plan(
     selected_ids: Vec<String>,
     source_drive: String,
     target_drive: String,
 ) -> Result<cure_core::storage::MigrationPlan, String> {
-    Ok(cure_core::storage::build_migration_plan(
-        &selected_ids,
-        &source_drive,
-        &target_drive,
-    ))
+    tokio::task::spawn_blocking(move || {
+        Ok(cure_core::storage::build_migration_plan(
+            &selected_ids,
+            &source_drive,
+            &target_drive,
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Execute a safe copy-and-verify migration flow non-destructively.
 #[tauri::command]
 async fn storage_rescue_execute(
     app: AppHandle,
+    state: State<'_, StorageState>,
     candidate_id: String,
     source_path: String,
     target_path: String,
     source_drive: String,
     target_drive: String,
 ) -> Result<cure_core::storage::MigrationReceipt, String> {
-    let cancel = AtomicBool::new(false);
+    let cancel = Arc::new(AtomicBool::new(false));
+    {
+        let mut guard = state
+            .cancel
+            .lock()
+            .map_err(|_| "storage state poisoned".to_string())?;
+        *guard = Some(Arc::clone(&cancel));
+    }
+    let app_clone = app.clone();
+    let cid = candidate_id.clone();
     let src = PathBuf::from(&source_path);
     let dst = PathBuf::from(&target_path);
-    cure_core::storage::execute_candidate_migration(
-        &candidate_id,
-        &src,
-        &dst,
-        &source_drive,
-        &target_drive,
-        &cancel,
-        |progress| {
-            let _ = app.emit("rescue-migration-progress", progress);
-        },
-    )
+    let s_drv = source_drive.clone();
+    let t_drv = target_drive.clone();
+    let cancel_flag = Arc::clone(&cancel);
+
+    let res = tokio::task::spawn_blocking(move || {
+        cure_core::storage::execute_candidate_migration(
+            &cid,
+            &src,
+            &dst,
+            &s_drv,
+            &t_drv,
+            &cancel_flag,
+            |progress| {
+                let _ = app_clone.emit("rescue-migration-progress", progress);
+            },
+        )
+    })
+    .await
+    .map_err(|e| format!("Migration task panicked: {e}"))?
     .inspect(|receipt| {
         let outcome = match receipt.items.first() {
             Some(item) if item.is_verified => "copy_verified",
@@ -1682,7 +2162,13 @@ async fn storage_rescue_execute(
             serde_json::to_value(receipt).unwrap_or(serde_json::Value::Null),
         );
     })
-    .map_err(|e| format!("Migration failed: {e}"))
+    .map_err(|e| format!("Migration failed: {e}"));
+
+    if let Ok(mut guard) = state.cancel.lock() {
+        *guard = None;
+    }
+
+    res
 }
 
 /// Persist a migration lifecycle record to the app data directory so a
@@ -1841,94 +2327,100 @@ fn storage_rescue_receipts() -> Result<Vec<ReconciledRescueReceipt>, String> {
 
 /// Retrieve overall system posture and operator recommendations.
 #[tauri::command]
-fn operator_status() -> Result<cure_core::operator::OperatorPosture, String> {
-    let pressures = cure_core::storage::assess_drive_pressures();
-    let c_drive = pressures
-        .iter()
-        .find(|d| d.is_system)
-        .cloned()
-        .unwrap_or_else(|| cure_core::storage::DrivePressure {
-            drive_letter: "C:".into(),
-            volume_label: None,
-            total_bytes: 0,
-            free_bytes: 0,
-            used_bytes: 0,
-            pressure_pct: 0.0,
-            is_system: true,
-            is_congested: false,
-        });
-
-    let status = cure_core::storage::discover_migration_candidates("C:", "D:");
-    let safe_relief: u64 = status
-        .candidates
-        .iter()
-        .filter(|c| c.safety == cure_core::storage::MigrationSafety::Safe)
-        .map(|c| c.size_bytes)
-        .sum();
-
-    let sessions = cure_core::agent::inspect_agent_sessions();
-    let unverified_count = sessions
-        .iter()
-        .filter(|s| {
-            s.state == cure_core::agent::SessionProcessState::Unverified
-                || s.state == cure_core::agent::SessionProcessState::SuspectMismatch
-        })
-        .count();
-
-    let mut recommendations = Vec::new();
-    let mut highest_level = cure_core::operator::ResponseLevel::Level0Observe;
-
-    if c_drive.is_congested && safe_relief > 0 {
-        recommendations.push(cure_core::operator::OperatorRecommendation {
-            id: "rec_drive_pressure".into(),
-            level: cure_core::operator::ResponseLevel::Level2ActionRecommended,
-            title: "C: Drive Pressure Relief Available".into(),
-            description: format!("System drive is {:.1}% full. Relocating {} safe personal libraries can relieve storage pressure.", c_drive.pressure_pct, status.candidates.len()),
-            risk_assessment: "Non-destructive. Source preserved until verified.".into(),
-            action_type: "storage_rescue".into(),
-            action_label: "Open Storage Rescue".into(),
-            target: "C:".into(),
-            required_confirmation_token: None,
-        });
-        highest_level =
-            highest_level.max(cure_core::operator::ResponseLevel::Level2ActionRecommended);
-    }
-
-    for s in &sessions {
-        if s.is_orphan {
-            recommendations.push(cure_core::operator::OperatorRecommendation {
-                id: format!("rec_orphan_{}", s.pid),
-                level: cure_core::operator::ResponseLevel::Level1Review,
-                title: format!("Orphaned Worker Detected (PID {})", s.pid),
-                description: format!("Process '{}' has survived the exit of its parent process.", s.name),
-                risk_assessment: "Worker may be consuming background CPU/RAM without active user session.".into(),
-                action_type: "agent_session".into(),
-                action_label: "Inspect Session".into(),
-                target: format!("{}", s.pid),
-                required_confirmation_token: Some(format!("TERMINATE_{}", s.pid)),
+async fn operator_status() -> Result<cure_core::operator::OperatorPosture, String> {
+    tokio::task::spawn_blocking(move || {
+        let pressures = cure_core::storage::assess_drive_pressures();
+        let c_drive = pressures
+            .iter()
+            .find(|d| d.is_system)
+            .cloned()
+            .unwrap_or_else(|| cure_core::storage::DrivePressure {
+                drive_letter: "C:".into(),
+                volume_label: None,
+                total_bytes: 0,
+                free_bytes: 0,
+                used_bytes: 0,
+                pressure_pct: 0.0,
+                is_system: true,
+                is_congested: false,
             });
-            highest_level = highest_level.max(cure_core::operator::ResponseLevel::Level1Review);
-        }
-    }
 
-    Ok(cure_core::operator::OperatorPosture {
-        timestamp_unix: cure_core::agent::now_unix(),
-        highest_threat_level: highest_level,
-        c_drive_congested: c_drive.is_congested,
-        c_drive_pressure_pct: c_drive.pressure_pct,
-        c_drive_free_bytes: c_drive.free_bytes,
-        recommended_storage_relief_bytes: safe_relief,
-        active_agent_count: sessions.len(),
-        unverified_agent_count: unverified_count,
-        threat_findings: vec![],
-        recommendations,
+        let status = cure_core::storage::discover_migration_candidates("C:", "D:");
+        let safe_relief: u64 = status
+            .candidates
+            .iter()
+            .filter(|c| c.safety == cure_core::storage::MigrationSafety::Safe)
+            .map(|c| c.size_bytes)
+            .sum();
+
+        let sessions = cure_core::agent::inspect_agent_sessions();
+        let unverified_count = sessions
+            .iter()
+            .filter(|s| {
+                s.state == cure_core::agent::SessionProcessState::Unverified
+                    || s.state == cure_core::agent::SessionProcessState::SuspectMismatch
+            })
+            .count();
+
+        let mut recommendations = Vec::new();
+        let mut highest_level = cure_core::operator::ResponseLevel::Level0Observe;
+
+        if c_drive.is_congested && safe_relief > 0 {
+            recommendations.push(cure_core::operator::OperatorRecommendation {
+                id: "rec_drive_pressure".into(),
+                level: cure_core::operator::ResponseLevel::Level2ActionRecommended,
+                title: "C: Drive Pressure Relief Available".into(),
+                description: format!("System drive is {:.1}% full. Relocating {} safe personal libraries can relieve storage pressure.", c_drive.pressure_pct, status.candidates.len()),
+                risk_assessment: "Non-destructive. Source preserved until verified.".into(),
+                action_type: "storage_rescue".into(),
+                action_label: "Open Storage Rescue".into(),
+                target: "C:".into(),
+                required_confirmation_token: None,
+            });
+            highest_level =
+                highest_level.max(cure_core::operator::ResponseLevel::Level2ActionRecommended);
+        }
+
+        for s in &sessions {
+            if s.is_orphan {
+                recommendations.push(cure_core::operator::OperatorRecommendation {
+                    id: format!("rec_orphan_{}", s.pid),
+                    level: cure_core::operator::ResponseLevel::Level1Review,
+                    title: format!("Orphaned Worker Detected (PID {})", s.pid),
+                    description: format!("Process '{}' has survived the exit of its parent process.", s.name),
+                    risk_assessment: "Worker may be consuming background CPU/RAM without active user session.".into(),
+                    action_type: "agent_session".into(),
+                    action_label: "Inspect Session".into(),
+                    target: format!("{}", s.pid),
+                    required_confirmation_token: Some(format!("TERMINATE_{}", s.pid)),
+                });
+                highest_level = highest_level.max(cure_core::operator::ResponseLevel::Level1Review);
+            }
+        }
+
+        Ok(cure_core::operator::OperatorPosture {
+            timestamp_unix: cure_core::agent::now_unix(),
+            highest_threat_level: highest_level,
+            c_drive_congested: c_drive.is_congested,
+            c_drive_pressure_pct: c_drive.pressure_pct,
+            c_drive_free_bytes: c_drive.free_bytes,
+            recommended_storage_relief_bytes: safe_relief,
+            active_agent_count: sessions.len(),
+            unverified_agent_count: unverified_count,
+            threat_findings: vec![],
+            recommendations,
+        })
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Retrieve deep agent session hierarchy and orphan states.
 #[tauri::command]
-fn operator_agent_sessions() -> Result<Vec<cure_core::agent::AgentSessionDetail>, String> {
-    Ok(cure_core::agent::inspect_agent_sessions())
+async fn operator_agent_sessions() -> Result<Vec<cure_core::agent::AgentSessionDetail>, String> {
+    tokio::task::spawn_blocking(move || Ok(cure_core::agent::inspect_agent_sessions()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Request non-destructive graceful shutdown of an agent window or session.
@@ -2030,21 +2522,59 @@ fn operator_agent_end_process(
     )
 }
 
+/// Stop a list of agent PIDs requested by the operator from AI Agent Scanner.
+#[tauri::command]
+async fn stop_agent_pids(pids: Vec<u32>) -> Result<usize, String> {
+    tokio::task::spawn_blocking(move || {
+        let current_pid = std::process::id();
+        let live_procs: std::collections::HashMap<u32, String> =
+            cure_core::process_scan::enumerate_processes()
+                .into_iter()
+                .map(|p| (p.pid, p.name))
+                .collect();
+        let mut stopped = 0;
+        for pid in pids {
+            if pid <= 4 || pid == current_pid {
+                continue;
+            }
+            if let Some(name) = live_procs.get(&pid) {
+                if cure_core::risk::is_cure_binary_name(name) {
+                    continue;
+                }
+            }
+            if kill_process_by_pid(pid).is_ok() {
+                stopped += 1;
+            }
+        }
+        Ok(stopped)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Scan a specific file with native Windows Defender without shell expansion.
 #[tauri::command]
-fn operator_defender_scan(
+async fn operator_defender_scan(
     file_path: String,
 ) -> Result<cure_core::operator::DefenderScanResult, String> {
-    cure_core::operator::scan_file_with_defender(Path::new(&file_path))
+    tokio::task::spawn_blocking(move || {
+        cure_core::operator::scan_file_with_defender(Path::new(&file_path))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Explicit, user-approved containment scan with remediation enabled.
 #[tauri::command]
-fn operator_defender_contain(
+async fn operator_defender_contain(
     file_path: String,
     confirmation_token: String,
 ) -> Result<cure_core::operator::DefenderScanResult, String> {
-    cure_core::operator::contain_file_with_defender(Path::new(&file_path), &confirmation_token)
+    tokio::task::spawn_blocking(move || {
+        cure_core::operator::contain_file_with_defender(Path::new(&file_path), &confirmation_token)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Fetch recent operator audit log entries.
@@ -2057,65 +2587,73 @@ fn operator_audit_log(
 
 /// Verify integrity of the operator audit journal.
 #[tauri::command]
-fn operator_verify_audit_journal() -> Result<usize, String> {
-    let log_path = resolve_data_dir().join("operator_audit.jsonl");
-    cure_core::operator::verify_global_journal_integrity(&log_path)
+async fn operator_verify_audit_journal() -> Result<usize, String> {
+    tokio::task::spawn_blocking(move || {
+        let log_path = resolve_data_dir().join("operator_audit.jsonl");
+        cure_core::operator::verify_global_journal_integrity(&log_path)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// List candidate roots: fixed drives plus the profile's real user folders.
 #[tauri::command]
-fn storage_available_roots() -> Result<Vec<StorageRootOptionDto>, String> {
-    let mut out: Vec<StorageRootOptionDto> = Vec::new();
-    for letter in b'A'..=b'Z' {
-        let root = PathBuf::from(format!("{}:\\", letter as char));
-        let Ok(md) = std::fs::metadata(&root) else {
-            continue;
-        };
-        if !md.is_dir() {
-            continue;
+async fn storage_available_roots() -> Result<Vec<StorageRootOptionDto>, String> {
+    tokio::task::spawn_blocking(move || {
+        let mut out: Vec<StorageRootOptionDto> = Vec::new();
+        for letter in b'A'..=b'Z' {
+            let root = PathBuf::from(format!("{}:\\", letter as char));
+            let Ok(md) = std::fs::metadata(&root) else {
+                continue;
+            };
+            if !md.is_dir() {
+                continue;
+            }
+            let space = storage::fsx::volume_space(&root);
+            out.push(StorageRootOptionDto {
+                label: format!("Drive {}", letter as char),
+                path: root.to_string_lossy().into_owned(),
+                exists: true,
+                is_drive: true,
+                total_bytes: space.as_ref().map(|v| v.total_bytes),
+                free_bytes: space.as_ref().map(|v| v.free_bytes),
+                volume_label: space.and_then(|v| v.label),
+                selectable: true,
+            });
         }
-        let space = storage::fsx::volume_space(&root);
-        out.push(StorageRootOptionDto {
-            label: format!("Drive {}", letter as char),
-            path: root.to_string_lossy().into_owned(),
-            exists: true,
-            is_drive: true,
-            total_bytes: space.as_ref().map(|v| v.total_bytes),
-            free_bytes: space.as_ref().map(|v| v.free_bytes),
-            volume_label: space.and_then(|v| v.label),
-            selectable: true,
-        });
-    }
-    // The removable/external drives a USB rescue copy sits on are the whole
-    // point of the watcher; offer them explicitly rather than hiding them in
-    // an OS dialog the operator may not know to open.
-    for (key, label) in [
-        ("USERPROFILE", "Profile"),
-        ("LOCALAPPDATA", "App data (local)"),
-        ("APPDATA", "App data (roaming)"),
-        ("TEMP", "Temp"),
-        ("SystemDrive", "Windows drive"),
-    ] {
-        let Some(p) = std::env::var_os(key).map(PathBuf::from) else {
-            continue;
-        };
-        if p.as_os_str().is_empty() || out.iter().any(|o| o.path == p.to_string_lossy()) {
-            continue;
+        // The removable/external drives a USB rescue copy sits on are the whole
+        // point of the watcher; offer them explicitly rather than hiding them in
+        // an OS dialog the operator may not know to open.
+        for (key, label) in [
+            ("USERPROFILE", "Profile"),
+            ("LOCALAPPDATA", "App data (local)"),
+            ("APPDATA", "App data (roaming)"),
+            ("TEMP", "Temp"),
+            ("SystemDrive", "Windows drive"),
+        ] {
+            let Some(p) = std::env::var_os(key).map(PathBuf::from) else {
+                continue;
+            };
+            if p.as_os_str().is_empty() || out.iter().any(|o| o.path == p.to_string_lossy()) {
+                continue;
+            }
+            let exists = p.is_dir();
+            let space = storage::fsx::volume_space(&p);
+            out.push(StorageRootOptionDto {
+                label: label.to_string(),
+                path: p.to_string_lossy().into_owned(),
+                exists,
+                is_drive: false,
+                total_bytes: space.as_ref().map(|v| v.total_bytes),
+                free_bytes: space.as_ref().map(|v| v.free_bytes),
+                volume_label: space.and_then(|v| v.label),
+                selectable: true,
+            });
         }
-        let exists = p.is_dir();
-        let space = storage::fsx::volume_space(&p);
-        out.push(StorageRootOptionDto {
-            label: label.to_string(),
-            path: p.to_string_lossy().into_owned(),
-            exists,
-            is_drive: false,
-            total_bytes: space.as_ref().map(|v| v.total_bytes),
-            free_bytes: space.as_ref().map(|v| v.free_bytes),
-            volume_label: space.and_then(|v| v.label),
-            selectable: true,
-        });
-    }
-    Ok(out)
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 /// Run a storage scan. Blocking work runs on a worker thread; progress and/// the finished scan are relayed through events, never invented by the UI.
 #[tauri::command]
@@ -2140,13 +2678,18 @@ async fn storage_scan(
         .map(PathBuf::from)
         .filter(|p| !p.as_os_str().is_empty())
         .collect();
+    let is_sys_drive_only = roots.len() == 1 && {
+        let r = roots[0].to_ascii_uppercase();
+        r == "C:\\" || r == "C:" || r == "C:/"
+    };
     let options = storage::ScanOptions {
         walk_limits: storage::catalog::limits_for(depth),
         ..storage::ScanOptions {
             depth,
-            extra_roots: extra,
+            extra_roots: if is_sys_drive_only { Vec::new() } else { extra },
             find_duplicates,
             find_abandoned,
+            use_catalogue: is_sys_drive_only || roots.is_empty(),
             ..storage::ScanOptions::default()
         }
     };
@@ -2274,12 +2817,20 @@ fn storage_scan_dto(scan: &storage::StorageScan) -> StorageScanDto {
         gain: the interface only ever shows the largest ones. The count
         that was measured travels with the list so nothing is implied
         that did not happen. */
-        files: scan
-            .files
-            .iter()
-            .take(MAX_FILES_TO_UI)
-            .map(storage_file_dto)
-            .collect(),
+        files: {
+            let mut sorted: Vec<&storage::FileRecord> = scan.files.iter().collect();
+            sorted.sort_by(|a, b| {
+                b.size_allocated
+                    .unwrap_or(b.size_logical)
+                    .cmp(&a.size_allocated.unwrap_or(a.size_logical))
+                    .then_with(|| a.path.cmp(&b.path))
+            });
+            sorted
+                .into_iter()
+                .take(MAX_FILES_TO_UI)
+                .map(storage_file_dto)
+                .collect()
+        },
         files_total: scan.distinct_file_count,
         tier_counts: StorageTierCountsDto {
             safe_to_review: scan.safe_file_count,
@@ -2820,6 +3371,305 @@ fn storage_reveal(path: String) -> Result<String, String> {
         .map_err(|e| format!("cannot open explorer: {e}"))?;
     Ok(target.to_string_lossy().into_owned())
 }
+
+#[tauri::command]
+async fn storage_remove_leftover(path: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let p = PathBuf::from(&path);
+        if !p.exists() {
+            return Err("File or folder does not exist.".to_string());
+        }
+
+        // Never delete drive roots (e.g. C:\, D:\)
+        if p.parent().is_none() || p.components().count() <= 1 {
+            return Err("Removal refused: cannot delete drive root.".to_string());
+        }
+
+        let lower = path.to_lowercase().replace('/', "\\");
+        // Refuse protected system and OS containers
+        if lower.contains(r"\windows")
+            || lower.contains(r"\system32")
+            || lower.contains(r"\syswow64")
+            || lower.contains(r"\program files")
+            || lower == r"c:\users"
+            || lower == r"c:\programdata"
+            || lower == r"c:\windows"
+        {
+            return Err("Removal refused: protected system directory or root.".to_string());
+        }
+
+        // Safely strip read-only attributes so deletion proceeds cleanly
+        if let Ok(metadata) = std::fs::metadata(&p) {
+            let mut permissions = metadata.permissions();
+            if permissions.readonly() {
+                #[allow(clippy::permissions_set_readonly_false)]
+                permissions.set_readonly(false);
+                let _ = std::fs::set_permissions(&p, permissions);
+            }
+        }
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStrExt;
+            use windows::core::PCWSTR;
+            use windows::Win32::UI::Shell::{
+                SHFileOperationW, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_SILENT, FO_DELETE,
+                SHFILEOPSTRUCTW,
+            };
+
+            let mut wide: Vec<u16> = p.as_os_str().encode_wide().collect();
+            wide.push(0);
+            wide.push(0);
+
+            let mut op = SHFILEOPSTRUCTW {
+                hwnd: Default::default(),
+                wFunc: FO_DELETE,
+                pFrom: PCWSTR::from_raw(wide.as_ptr()),
+                pTo: PCWSTR::null(),
+                fFlags: (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT).0 as u16,
+                fAnyOperationsAborted: Default::default(),
+                hNameMappings: Default::default(),
+                lpszProgressTitle: PCWSTR::null(),
+            };
+
+            let ret = unsafe { SHFileOperationW(&mut op) };
+            if ret == 0 && !op.fAnyOperationsAborted.as_bool() {
+                Ok("Safely moved leftover to Recycle Bin".to_string())
+            } else {
+                Err(format!("Could not move to Recycle Bin (error code {ret})"))
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            Err("Only Windows supported".to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Creates a safe, harmless dummy test leftover in %LOCALAPPDATA%
+#[tauri::command]
+async fn drop_test_leftover() -> Result<String, String> {
+    tokio::task::spawn_blocking(|| {
+        let local = std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .ok_or_else(|| "Could not locate %LOCALAPPDATA%".to_string())?;
+        let dir = local.join("OldUninstalledGame_Leftover_Test");
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("Failed to create leftover test directory: {e}"))?;
+        let cache_file = dir.join("cache.dat");
+        let dummy = vec![0xCCu8; 2 * 1024 * 1024];
+        std::fs::write(&cache_file, &dummy)
+            .map_err(|e| format!("Failed to write dummy cache file: {e}"))?;
+        Ok(dir.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Discovers uninstalled application leftovers in AppData / ProgramData
+#[tauri::command]
+async fn list_uninstalled_leftovers() -> Result<Vec<StorageAbandonedDto>, String> {
+    tokio::task::spawn_blocking(|| {
+        let mut out: Vec<StorageAbandonedDto> = Vec::new();
+        let mut bases: Vec<PathBuf> = Vec::new();
+        if let Some(l) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+            bases.push(l);
+        }
+        if let Some(r) = std::env::var_os("APPDATA").map(PathBuf::from) {
+            bases.push(r);
+        }
+
+        // Always prioritize the safe test leftover if created
+        if let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+            let test_dir = local.join("OldUninstalledGame_Leftover_Test");
+            if test_dir.exists() {
+                let size = std::fs::metadata(test_dir.join("cache.dat"))
+                    .map(|m| m.len())
+                    .unwrap_or(2 * 1024 * 1024);
+                out.push(StorageAbandonedDto {
+                    path: test_dir.to_string_lossy().into_owned(),
+                    app_name: "OldUninstalledGame_Leftover_Test".to_string(),
+                    size_allocated: size,
+                    file_count: 1,
+                    days_since_change: Some(0),
+                    tier: "review_carefully".to_string(),
+                    tier_label: "Review carefully".to_string(),
+                    reasons: vec![
+                        "Orphaned test game leftover created for verification".to_string(),
+                        "No installed program found in Windows registry".to_string(),
+                    ],
+                    caveat: "Safe to remove to Windows Recycle Bin".to_string(),
+                    removable: true,
+                });
+            }
+        }
+
+        let apps = storage::abandoned::installed_apps();
+        let app_names: Vec<String> = apps.iter().map(|a| a.display_name.to_lowercase()).collect();
+
+        let known_system = [
+            "microsoft",
+            "windows",
+            "packages",
+            "temp",
+            "tmp",
+            "system",
+            "crashdumps",
+            "programs",
+            "google",
+            "chrome",
+            "mozilla",
+            "firefox",
+            "brave",
+            "bravesoftware",
+            "cure",
+            "cure_gui",
+            "cure-watch",
+            "cure-cli",
+            "antigravity",
+            "gemini",
+            "codex",
+            "gradle",
+            "android",
+            "vscode",
+            "code",
+            "npm",
+            "cargo",
+            "rustup",
+            "pip",
+            "yarn",
+            "pnpm",
+            "python",
+            "node",
+            "nodejs",
+            "nvidia",
+            "intel",
+            "amd",
+            "realtek",
+            "steam",
+            "epic games",
+            "git",
+            "github",
+            "jetbrains",
+            "docker",
+            "ollama",
+            "lmstudio",
+            "virtualbox",
+            "elevateddiagnostics",
+            "connecteddevicesplatform",
+            "comms",
+            "identityhx",
+            "locallow",
+            "assembly",
+            "diagnostics",
+            "d3dscache",
+            "iconcache",
+            "obsidian",
+            "slack",
+            "discord",
+            "spotify",
+            "notion",
+            "telegram",
+            "whatsapp",
+            "zoom",
+            "dropbox",
+            "onedrive",
+            "adobe",
+            "vlc",
+            "7-zip",
+        ];
+
+        let now = std::time::SystemTime::now();
+
+        for base in &bases {
+            let Ok(readers) = std::fs::read_dir(base) else {
+                continue;
+            };
+            for entry in readers.flatten() {
+                let p = entry.path();
+                if !p.is_dir() {
+                    continue;
+                };
+                let name = p
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default()
+                    .to_string();
+                if name.is_empty() || name == "OldUninstalledGame_Leftover_Test" {
+                    continue;
+                };
+                // NEVER flag dot-directories (active developer environments like .codex, .gradle, .vscode)
+                if name.starts_with('.') {
+                    continue;
+                }
+                let lower = name.to_lowercase();
+                if known_system
+                    .iter()
+                    .any(|k| lower == *k || lower.starts_with(k) || lower.contains(k))
+                {
+                    continue;
+                }
+                let matches_installed = app_names.iter().any(|a| {
+                    if a.is_empty() || a.len() < 3 {
+                        return false;
+                    }
+                    a.contains(&lower) || lower.contains(a.as_str())
+                });
+                if matches_installed {
+                    continue;
+                }
+
+                let Ok(md) = std::fs::symlink_metadata(&p) else {
+                    continue;
+                };
+                let Ok(mtime) = md.modified() else { continue };
+                let Ok(age) = now.duration_since(mtime) else {
+                    continue;
+                };
+                let days = age.as_secs() / 86_400;
+
+                let mut size: u64 = 0;
+                let mut file_count: u64 = 0;
+                if let Ok(sub) = std::fs::read_dir(&p) {
+                    for se in sub.flatten().take(100) {
+                        if let Ok(smd) = se.metadata() {
+                            if smd.is_file() {
+                                size += smd.len();
+                                file_count += 1;
+                            }
+                        }
+                    }
+                }
+
+                if size >= 500_000 && days >= 30 {
+                    out.push(StorageAbandonedDto {
+                        path: p.to_string_lossy().into_owned(),
+                        app_name: name,
+                        size_allocated: size,
+                        file_count,
+                        days_since_change: Some(days),
+                        tier: "review_carefully".to_string(),
+                        tier_label: "Review carefully".to_string(),
+                        reasons: vec![
+                            format!("newest file inside modified {days} days ago"),
+                            "no matching installed program found in Windows registry".to_string(),
+                        ],
+                        caveat: "Safe to remove to Windows Recycle Bin".to_string(),
+                        removable: true,
+                    });
+                }
+            }
+        }
+
+        out.sort_by_key(|b| std::cmp::Reverse(b.size_allocated));
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn main() {
     // Before anything creates a window: see `declare_dpi_awareness`.
     declare_dpi_awareness();
@@ -2871,6 +3721,8 @@ fn main() {
     } else {
         builder.invoke_handler(tauri::generate_handler![
             run_auto_scan,
+            delete_threat_entry,
+            spawn_test_stealth_threat,
             list_overlay_candidates,
             close_overlay_window,
             allowlist_overlay,
@@ -2884,6 +3736,7 @@ fn main() {
             start_incident_observation,
             export_incident_report,
             open_quarantine_folder,
+            open_custom_rules_folder,
             view_log,
             exit_app,
             storage_scan,
@@ -2891,6 +3744,9 @@ fn main() {
             storage_preview,
             storage_execute,
             storage_reveal,
+            storage_remove_leftover,
+            drop_test_leftover,
+            list_uninstalled_leftovers,
             storage_case_file,
             storage_save_case_file,
             share_card_png,
@@ -2917,6 +3773,7 @@ fn main() {
             stop_canary_guard,
             canary_status,
             agent_radar,
+            stop_agent_pids,
             flight_start,
             flight_status,
             flight_stop,
@@ -3037,7 +3894,7 @@ fn save_overlay_allowlist_to(
 }
 /// List overlay candidates for per-window confirmation. Matches are SHOWN,/// never closed here — closing is a separate per-window command below.
 #[tauri::command]
-fn list_overlay_candidates() -> Result<OverlayCandidateList, String> {
+async fn list_overlay_candidates() -> Result<OverlayCandidateList, String> {
     #[cfg(not(windows))]
     {
         return Ok(OverlayCandidateList {
@@ -3047,41 +3904,45 @@ fn list_overlay_candidates() -> Result<OverlayCandidateList, String> {
     }
     #[cfg(windows)]
     {
-        use cure_core::overlay::OverlayCandidate;
-        let allowlist = load_overlay_allowlist();
-        let collected = collect_window_candidates()?;
-        let checked = collected.len();
-        let mut with_hash: Vec<OverlayCandidate> = Vec::with_capacity(checked);
-        for (_, desc, sig) in &collected {
-            let hash = cure_core::hash_intel::sha256_file_hex(&desc.process_path);
-            with_hash.push(OverlayCandidate {
-                desc: desc.clone(),
-                signature: *sig,
-                binary_sha256: hash,
-            });
-        }
-        let picks = overlay::pick_overlays(&with_hash, &allowlist);
-        let mut candidates = Vec::with_capacity(picks.len());
-        for idx in picks {
-            let (hwnd_raw, desc, sig) = &collected[idx];
-            let width = (desc.rect.right - desc.rect.left).max(0);
-            let height = (desc.rect.bottom - desc.rect.top).max(0);
-            candidates.push(OverlayCandidateDto {
-                hwnd: *hwnd_raw,
-                title: desc.title.clone(),
-                process: desc.process_name(),
-                path: desc.process_path.to_string_lossy().into_owned(),
-                pid: desc.pid,
-                signature: signature_text(sig),
-                width,
-                height,
-                coverage_pct: desc.coverage_ratio() * 100.0,
-            });
-        }
-        Ok(OverlayCandidateList {
-            checked,
-            candidates,
+        tokio::task::spawn_blocking(move || {
+            use cure_core::overlay::OverlayCandidate;
+            let allowlist = load_overlay_allowlist();
+            let collected = collect_window_candidates()?;
+            let checked = collected.len();
+            let mut with_hash: Vec<OverlayCandidate> = Vec::with_capacity(checked);
+            for (_, desc, sig) in &collected {
+                let hash = cure_core::hash_intel::sha256_file_hex(&desc.process_path);
+                with_hash.push(OverlayCandidate {
+                    desc: desc.clone(),
+                    signature: *sig,
+                    binary_sha256: hash,
+                });
+            }
+            let picks = overlay::pick_overlays(&with_hash, &allowlist);
+            let mut candidates = Vec::with_capacity(picks.len());
+            for idx in picks {
+                let (hwnd_raw, desc, sig) = &collected[idx];
+                let width = (desc.rect.right - desc.rect.left).max(0);
+                let height = (desc.rect.bottom - desc.rect.top).max(0);
+                candidates.push(OverlayCandidateDto {
+                    hwnd: *hwnd_raw,
+                    title: desc.title.clone(),
+                    process: desc.process_name(),
+                    path: desc.process_path.to_string_lossy().into_owned(),
+                    pid: desc.pid,
+                    signature: signature_text(sig),
+                    width,
+                    height,
+                    coverage_pct: desc.coverage_ratio() * 100.0,
+                });
+            }
+            Ok(OverlayCandidateList {
+                checked,
+                candidates,
+            })
         })
+        .await
+        .map_err(|e| e.to_string())?
     }
 }
 /// Close a single candidate window the operator confirmed./// `force = false`: graceful `WM_CLOSE` only. `force = true`: terminate the/// owning process (explicit per-window Force-close button only).
@@ -3953,8 +4814,7 @@ fn agent_state_for(
 }
 
 #[tauri::command]
-fn agent_radar(state: State<'_, AgentState>) -> Result<AgentRadarDto, String> {
-    let processes = agent::enumerate_agent_processes();
+async fn agent_radar(state: State<'_, AgentState>) -> Result<AgentRadarDto, String> {
     let session = state
         .recorder
         .lock()
@@ -3969,95 +4829,101 @@ fn agent_radar(state: State<'_, AgentState>) -> Result<AgentRadarDto, String> {
                 .and_then(|guard| guard.clone())
         });
 
-    let mut panels = Vec::new();
-    for kind in agent::AgentKind::ALL {
-        let own: Vec<AgentProcessDto> = processes
-            .iter()
-            .filter(|p| p.kind == kind)
-            .map(agent_process_dto)
-            .collect();
-        let detected = !own.is_empty();
-        let (state_id, state_label, state_note) = agent_state_for(kind, &own, session.as_ref());
-        panels.push(AgentPanelDto {
-            id: kind.id().to_string(),
-            label: kind.label().to_string(),
-            detected,
-            process_count: own.len(),
-            state: state_id,
-            state_label,
-            state_note,
-            integration_note: kind.integration_note().to_string(),
-            processes: own,
-            is_model_server: kind.is_model_server(),
-            category: format!("{:?}", kind.category()),
-        });
-    }
-
-    let detected_count = panels
-        .iter()
-        .filter(|p| p.detected && !p.is_model_server)
-        .count();
-    let model_server_count = panels
-        .iter()
-        .filter(|p| p.detected && p.is_model_server)
-        .count();
     let windows = state
         .last_windows
         .lock()
         .map_err(|_| "Windows change state is unavailable".to_string())?
         .clone();
 
-    let mut notes = Vec::new();
-    notes.push(
-        "A running process does not prove that an agent is generating code or executing tasks."
-            .to_string(),
-    );
-    if detected_count == 0 && model_server_count == 0 {
-        notes.push(
-            "No supported agent process or model server was detected in this sample.".to_string(),
-        );
-    } else {
-        if detected_count > 0 {
-            let verified_count = panels
+    tokio::task::spawn_blocking(move || {
+        let processes = agent::enumerate_agent_processes();
+        let mut panels = Vec::new();
+        for kind in agent::AgentKind::ALL {
+            let own: Vec<AgentProcessDto> = processes
                 .iter()
-                .filter(|p| {
-                    p.detected
-                        && !p.is_model_server
-                        && p.processes
-                            .iter()
-                            .any(|proc| proc.identity.contains("Verified"))
-                })
-                .count();
-            if verified_count == detected_count {
-                notes.push(format!("{detected_count} verified AI agent(s) detected."));
-            } else if verified_count > 0 {
+                .filter(|p| p.kind == kind)
+                .map(agent_process_dto)
+                .collect();
+            let detected = !own.is_empty();
+            let (state_id, state_label, state_note) = agent_state_for(kind, &own, session.as_ref());
+            panels.push(AgentPanelDto {
+                id: kind.id().to_string(),
+                label: kind.label().to_string(),
+                detected,
+                process_count: own.len(),
+                state: state_id,
+                state_label,
+                state_note,
+                integration_note: kind.integration_note().to_string(),
+                processes: own,
+                is_model_server: kind.is_model_server(),
+                category: format!("{:?}", kind.category()),
+            });
+        }
+
+        let detected_count = panels
+            .iter()
+            .filter(|p| p.detected && !p.is_model_server)
+            .count();
+        let model_server_count = panels
+            .iter()
+            .filter(|p| p.detected && p.is_model_server)
+            .count();
+
+        let mut notes = Vec::new();
+        notes.push(
+            "A running process does not prove that an agent is generating code or executing tasks."
+                .to_string(),
+        );
+        if detected_count == 0 && model_server_count == 0 {
+            notes.push(
+                "No supported agent process or model server was detected in this sample.".to_string(),
+            );
+        } else {
+            if detected_count > 0 {
+                let verified_count = panels
+                    .iter()
+                    .filter(|p| {
+                        p.detected
+                            && !p.is_model_server
+                            && p.processes
+                                .iter()
+                                .any(|proc| proc.identity.contains("Verified"))
+                    })
+                    .count();
+                if verified_count == detected_count {
+                    notes.push(format!("{detected_count} verified AI agent(s) detected."));
+                } else if verified_count > 0 {
+                    notes.push(format!(
+                        "{detected_count} agent image(s) detected ({verified_count} verified tool, {} unverified).",
+                        detected_count - verified_count
+                    ));
+                } else {
+                    notes.push(format!(
+                        "{detected_count} unverified agent candidate(s) detected (image name match only; tool identity unconfirmed)."
+                    ));
+                }
+            }
+            if model_server_count > 0 {
                 notes.push(format!(
-                    "{detected_count} agent image(s) detected ({verified_count} verified tool, {} unverified).",
-                    detected_count - verified_count
-                ));
-            } else {
-                notes.push(format!(
-                    "{detected_count} unverified agent candidate(s) detected (image name match only; tool identity unconfirmed)."
+                    "{model_server_count} local model server(s) running (Ollama)."
                 ));
             }
         }
-        if model_server_count > 0 {
-            notes.push(format!(
-                "{model_server_count} local model server(s) running (Ollama)."
-            ));
-        }
-    }
 
-    Ok(AgentRadarDto {
-        generated_unix: agent::now_unix(),
-        supported_agents: panels,
-        detected_count,
-        model_server_count,
-        processes: processes.iter().map(agent_process_dto).collect(),
-        monitoring: session,
-        windows,
-        notes,
+        Ok(AgentRadarDto {
+            generated_unix: agent::now_unix(),
+            supported_agents: panels,
+            detected_count,
+            model_server_count,
+            processes: processes.iter().map(agent_process_dto).collect(),
+            monitoring: session,
+            windows,
+            notes,
+        })
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn current_agent_kinds() -> Vec<agent::AgentKind> {
@@ -4892,5 +5758,91 @@ mod case_file_export_tests {
         assert!(!safe.contains('/'));
         assert!(!safe.contains('\\'));
         assert!(!safe.contains(".."));
+    }
+}
+
+#[cfg(test)]
+mod leftover_tests {
+    #[test]
+    fn system_paths_are_refused_for_leftover_removal() {
+        let windows_path = r"C:\\Windows\\System32\\drivers";
+        let is_system = windows_path.to_lowercase().contains(r"\\windows\\")
+            || windows_path.to_lowercase().contains(r"\\system32")
+            || windows_path.to_lowercase().contains(r"\\program files");
+        assert!(is_system);
+    }
+
+    #[test]
+    fn valid_appdata_path_passes_allowlist() {
+        let appdata = std::env::var_os("APPDATA").map(std::path::PathBuf::from);
+        if let Some(base) = appdata {
+            let leftover = base.join("UninstalledSoftwareApp");
+            let is_child = leftover.starts_with(&base) && leftover != base;
+            assert!(is_child);
+        }
+    }
+}
+
+#[cfg(test)]
+mod threat_tests {
+    use super::*;
+
+    #[test]
+    fn test_spawn_and_delete_stealth_threat() {
+        tauri::async_runtime::block_on(async {
+            let spawn_res = spawn_test_stealth_threat().await;
+            assert!(
+                spawn_res.is_ok(),
+                "Failed to spawn test threat: {:?}",
+                spawn_res
+            );
+            let file_path = spawn_res.unwrap();
+            assert!(Path::new(&file_path).exists(), "Spawned file must exist");
+
+            // Verify heuristic scanner catches it
+            let content = std::fs::read_to_string(&file_path).unwrap();
+            let heuristic_reason = cure_core::scanners::heuristics::check_script_content(&content);
+            assert!(
+                heuristic_reason.is_some(),
+                "Heuristic scanner must catch test payload"
+            );
+
+            // Verify deletion
+            let del_res =
+                delete_threat_entry("test-id-1".to_string(), file_path.clone(), None).await;
+            assert!(
+                del_res.is_ok(),
+                "Delete threat entry should succeed: {:?}",
+                del_res
+            );
+            assert!(!Path::new(&file_path).exists(), "File should be deleted");
+        });
+    }
+
+    #[test]
+    fn test_delete_threat_refuses_system32() {
+        tauri::async_runtime::block_on(async {
+            let del_res = delete_threat_entry(
+                "bad-id".to_string(),
+                "C:\\Windows\\System32\\cmd.exe".to_string(),
+                None,
+            )
+            .await;
+            assert!(
+                del_res.is_err(),
+                "Must refuse to delete protected system file"
+            );
+        });
+    }
+
+    #[test]
+    fn test_stop_agent_pids_ignores_system_and_self_pid() {
+        tauri::async_runtime::block_on(async {
+            let self_pid = std::process::id();
+            let pids = vec![0, 1, 4, self_pid];
+            let res = stop_agent_pids(pids).await;
+            assert!(res.is_ok(), "Command should succeed");
+            assert_eq!(res.unwrap(), 0, "System and self PIDs must be skipped");
+        });
     }
 }

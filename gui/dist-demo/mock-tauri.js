@@ -1575,7 +1575,19 @@
     }
 
     emit("scan-progress", {
+      stage: "progress-counter",
+      count: 480,
+      message: "Inspecting startup vector hooks...",
+    });
+    emit("scan-progress", {
+      stage: "heuristic-sweep",
+      count: 1120,
+      message: "Running heuristic sweeps across %TEMP% and user directories",
+    });
+    await delay(180);
+    emit("scan-progress", {
       stage: "process-scan",
+      count: 1450,
       message: "Inspecting running processes",
     });
     await delay(200);
@@ -1584,7 +1596,22 @@
       message: "Inspecting ransom indicators",
     });
     await delay(200);
-    emit("scan-progress", { stage: "done", message: "Scan complete" });
+    if (window.__CURE_MOCK_TEST_THREAT) {
+      review.push({
+        id: "threat-stealth-test",
+        name: "cure_defender_bypass_test.bat",
+        source: "startup-folder",
+        location: "C:\\Users\\MockUser\\AppData\\Local\\Temp\\cure_defender_bypass_test.bat",
+        command: "powershell -WindowStyle Hidden -EncodedCommand SGVsbG8gV29ybGQ=",
+        risk: "HighRisk",
+        score: 95,
+        evidence: [{
+          category: "HeuristicDetection",
+          detail: "Obfuscated script dropper containing stealth execution patterns: -WindowStyle Hidden, -EncodedCommand",
+        }],
+      });
+    }
+    emit("scan-progress", { stage: "done", message: "Scan complete", count: (n + 1450) });
     window.__CURE_SCAN_DONE = true;
     console.info(
       "[mock-tauri] run #" +
@@ -1597,7 +1624,7 @@
     );
 
     var result = {
-      total: n,
+      total: (n + 1450),
       high_risk_cleaned: [], // real backend never auto-cleans; review-only
       suspicious_for_review: review.map(toScored),
       safe,
@@ -2010,6 +2037,15 @@
           }
           case "run_auto_scan":
             return runAutoScan();
+          case "spawn_test_stealth_threat": {
+            window.__CURE_MOCK_TEST_THREAT = true;
+            return Promise.resolve("C:\\Users\\MockUser\\AppData\\Local\\Temp\\cure_defender_bypass_test.bat");
+          }
+          case "delete_threat_entry": {
+            window.__CURE_MOCK_DELETE_CALLS = (window.__CURE_MOCK_DELETE_CALLS || 0) + 1;
+            window.__CURE_MOCK_TEST_THREAT = false;
+            return Promise.resolve(true);
+          }
           case "quarantine_entry": {
             window.__CURE_MOCK_QUARANTINE_CALLS =
               (window.__CURE_MOCK_QUARANTINE_CALLS || 0) + 1;

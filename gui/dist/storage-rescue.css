@@ -956,3 +956,33 @@
     opacity: 1;
   }
 }
+
+
+/* ==========================================================================
+   HIGH-SPEED RESCUE & MOVE-BOT FLOW ENHANCEMENTS (PHASE 2)
+   ========================================================================== */
+
+.sr-progress-fill,
+#sr-exec-progress-fill,
+.mb-progress-fill,
+#mb-run-bar-fill {
+  background: linear-gradient(90deg, #7c3aed, #06b6d4, #8b5cf6, #06b6d4) !important;
+  background-size: 200% 100% !important;
+  animation: sr-cyber-flow 2s linear infinite !important;
+  box-shadow: 0 0 16px rgba(6, 182, 212, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.4) !important;
+}
+
+@keyframes sr-cyber-flow {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+.mb-step.is-active .mb-step-dot {
+  box-shadow: 0 0 10px var(--cure-400), 0 0 20px var(--cure-500) !important;
+  animation: mb-dot-pulse 1.4s ease-in-out infinite !important;
+}
+
+@keyframes mb-dot-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.3); opacity: 1; }
+}

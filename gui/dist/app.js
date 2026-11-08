@@ -1140,6 +1140,7 @@
      gap into an all-clear, and it never labels the checked-entry count as
      a score. */
   function clearRescueResult() {
+    if (window.CureVirusRescueClean) return;
     const panel = document.getElementById("rescue-results");
     if (!panel) return;
     panel.classList.add("hidden");
@@ -1167,6 +1168,11 @@
 
   function renderRescueResult(summary, errorText) {
     const panel = document.getElementById("rescue-results");
+    if (panel) panel.classList.remove("hidden");
+    if (window.CureVirusRescueClean && window.CureVirusRescueClean.onScanDone) {
+      window.CureVirusRescueClean.onScanDone(summary);
+      return;
+    }
     if (!panel) return;
     const title = document.getElementById("xr-results-title");
     const sub = document.getElementById("xr-result-sub");
@@ -1431,18 +1437,10 @@
   }
 
   const VIEW_TITLES = {
-    "view-overview": "Overview",
-    "view-agents": "AI Agent Radar",
-    "scan-center": "Rescue",
-    "scan-view": "Rescue",
-    "landing-view": "Rescue",
-    "results-view": "Investigate",
-    "view-quarantine": "Quarantine",
-    "view-detective": "Detective Mode",
-    "cleanup-view": "Storage Workstation",
-    "view-eventlog": "Monitor",
-    "view-canary": "Monitor / Canary",
-    "view-incident": "Monitor / Login Observation",
+    "scan-view": "Virus Rescue",
+    "scan-center": "Virus Rescue",
+    "view-agents": "AI Agents",
+    "cleanup-view": "Storage & Move",
   };
 
   function setNav(viewId) {
@@ -1629,6 +1627,9 @@
     }
     setPill("scanning", "Collecting evidence");
     if (scanOrigin === "overview") renderOverviewLive();
+    if (window.CureVirusRescueClean && window.CureVirusRescueClean.startScan) {
+      window.CureVirusRescueClean.startScan();
+    }
     window.CureSweep.start();
     try {
       const summary = await invoke("run_auto_scan");
@@ -1691,12 +1692,18 @@
     const note = document.getElementById("xr-actions-note");
     if (start) {
       start.disabled = phase === "running";
-      start.textContent =
+      const btnText = document.getElementById("vr-scan-btn-text");
+      const label =
         phase === "running"
-          ? "Scanning…"
+          ? "Scanning System…"
           : phase === "done" || phase === "failed"
             ? "Scan Again"
-            : "Start System Scan";
+            : "Scan System for Threats";
+      if (btnText) {
+        btnText.textContent = label;
+      } else {
+        start.textContent = label;
+      }
     }
     if (retry) retry.classList.toggle("hidden", phase !== "failed");
     if (review) {
@@ -1724,6 +1731,12 @@
 
   listen("scan-progress", (event) => {
     const payload = event.payload;
+    if (window.CureVirusRescueClean && window.CureVirusRescueClean.onProgress) {
+      window.CureVirusRescueClean.onProgress(payload);
+    }
+    if (payload.stage === "progress-counter") {
+      return;
+    }
     window.CureSweep.progress(payload);
     if (payload.stage === "source-state") {
       // Real progress only: a segment lights when its layer has actually
@@ -4795,7 +4808,7 @@
 
   (async () => {
     scanView.classList.add("hidden");
-    showViewInstant(document.getElementById("view-overview"));
+    showViewInstant(document.getElementById("scan-view"));
     renderOverviewIdle();
     loadOperatorPosture();
     restorePill();

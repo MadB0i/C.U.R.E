@@ -2121,3 +2121,220 @@ fn cancelling_from_another_thread_stops_a_walk_in_flight() {
         stats.files_seen
     );
 }
+
+#[test]
+fn rollup_folder_sizes_aggregates_nested_subdirectories() {
+    use super::types::FolderRecord;
+    use std::path::PathBuf;
+
+    let root = PathBuf::from(r"C:\Users\testuser\.codex");
+    let sub1 = root.join("models");
+    let sub2 = sub1.join("gemini");
+
+    let mut folders = vec![
+        FolderRecord {
+            path: root.clone(),
+            depth: 0,
+            size_logical: 1024,
+            size_allocated: 1024,
+            file_count: 1,
+            dir_count: 1,
+            class: StorageClass::DevCache,
+            tier: SafetyTier::SafeToReview,
+            incomplete: false,
+        },
+        FolderRecord {
+            path: sub1.clone(),
+            depth: 1,
+            size_logical: 2048,
+            size_allocated: 2048,
+            file_count: 2,
+            dir_count: 1,
+            class: StorageClass::DevCache,
+            tier: SafetyTier::SafeToReview,
+            incomplete: false,
+        },
+        FolderRecord {
+            path: sub2.clone(),
+            depth: 2,
+            size_logical: 50_000_000,
+            size_allocated: 50_000_000,
+            file_count: 10,
+            dir_count: 0,
+            class: StorageClass::DevCache,
+            tier: SafetyTier::SafeToReview,
+            incomplete: true,
+        },
+    ];
+
+    super::rollup_folder_sizes(&mut folders);
+
+    // sub2 (leaf) retains its original counts
+    assert_eq!(folders[2].size_logical, 50_000_000);
+    assert_eq!(folders[2].file_count, 10);
+    assert!(folders[2].incomplete);
+
+    // sub1 rolls up sub2
+    assert_eq!(folders[1].size_logical, 50_002_048);
+    assert_eq!(folders[1].file_count, 12);
+    assert!(folders[1].incomplete);
+
+    // root (.codex) rolls up sub1 (which includes sub2) plus its own direct files
+    assert_eq!(folders[0].size_logical, 50_003_072);
+    assert_eq!(folders[0].file_count, 13);
+    assert!(folders[0].incomplete);
+}
+
+#[test]
+fn allocated_size_never_produces_phantom_4gb_on_error() {
+    let non_existent = Path::new(r"C:\__cure_phantom_file_test_never_exists__.tmp");
+    let res = fsx::allocated_size(non_existent, 512);
+    // Must fall back to logical (512 bytes) and exact == false, never 4,294,967,295 bytes!
+    assert_eq!(res.bytes, 512);
+    assert!(!res.exact);
+}
+
+#[test]
+fn bidirectional_drop_nested_roots_prunes_prior_children() {
+    let mut roots = vec![
+        types::ScanRoot {
+            path: PathBuf::from(r"C:\Users\test\AppData\Local\Temp"),
+            class: StorageClass::UserTemp,
+            is_catalogue: true,
+            label: "Temp".to_string(),
+        },
+        types::ScanRoot {
+            path: PathBuf::from(r"C:\Users\test\.codex"),
+            class: StorageClass::DevCache,
+            is_catalogue: true,
+            label: ".codex".to_string(),
+        },
+        types::ScanRoot {
+            path: PathBuf::from(r"C:\Users\test\.gradle"),
+            class: StorageClass::DevCache,
+            is_catalogue: true,
+            label: ".gradle".to_string(),
+        },
+        // Drive root added AFTER the sub-roots:
+        types::ScanRoot {
+            path: PathBuf::from(r"C:\"),
+            class: StorageClass::UserSelected,
+            is_catalogue: false,
+            label: "Drive C".to_string(),
+        },
+    ];
+
+    let dropped = catalog::drop_nested_roots(&mut roots);
+    assert_eq!(roots.len(), 1);
+    assert_eq!(roots[0].path, PathBuf::from(r"C:\"));
+    assert_eq!(dropped, 3);
+}
+
+#[test]
+fn rollup_folder_sizes_does_not_double_count_across_four_levels() {
+    use super::types::FolderRecord;
+
+    let root = PathBuf::from(r"C:\projects\app");
+    let lvl1 = root.join("src");
+    let lvl2 = lvl1.join("components");
+    let lvl3 = lvl2.join("ui");
+
+    let mut folders = vec![
+        FolderRecord {
+            path: root.clone(),
+            depth: 0,
+            size_logical: 10_000_000,
+            size_allocated: 10_000_000,
+            file_count: 5,
+            dir_count: 1,
+            class: StorageClass::UserSelected,
+            tier: SafetyTier::SafeToReview,
+            incomplete: false,
+        },
+        FolderRecord {
+            path: lvl1.clone(),
+            depth: 1,
+            size_logical: 20_000_000,
+            size_allocated: 20_000_000,
+            file_count: 10,
+            dir_count: 1,
+            class: StorageClass::UserSelected,
+            tier: SafetyTier::SafeToReview,
+            incomplete: false,
+        },
+        FolderRecord {
+            path: lvl2.clone(),
+            depth: 2,
+            size_logical: 30_000_000,
+            size_allocated: 30_000_000,
+            file_count: 15,
+            dir_count: 1,
+            class: StorageClass::UserSelected,
+            tier: SafetyTier::SafeToReview,
+            incomplete: false,
+        },
+        FolderRecord {
+            path: lvl3.clone(),
+            depth: 3,
+            size_logical: 40_000_000,
+            size_allocated: 40_000_000,
+            file_count: 20,
+            dir_count: 0,
+            class: StorageClass::UserSelected,
+            tier: SafetyTier::SafeToReview,
+            incomplete: false,
+        },
+    ];
+
+    super::rollup_folder_sizes(&mut folders);
+
+    // Level 3 (leaf)
+    assert_eq!(folders[3].size_allocated, 40_000_000);
+    assert_eq!(folders[3].file_count, 20);
+
+    // Level 2 (lvl2 + lvl3) = 30 + 40 = 70 MB
+    assert_eq!(folders[2].size_allocated, 70_000_000);
+    assert_eq!(folders[2].file_count, 35);
+
+    // Level 1 (lvl1 + lvl2) = 20 + 70 = 90 MB
+    assert_eq!(folders[1].size_allocated, 90_000_000);
+    assert_eq!(folders[1].file_count, 45);
+
+    // Level 0 root (root + lvl1) = 10 + 90 = 100 MB
+    assert_eq!(folders[0].size_allocated, 100_000_000);
+    assert_eq!(folders[0].file_count, 50);
+}
+
+#[test]
+fn structural_container_filtering_keeps_actionable_folders() {
+    assert!(super::is_structural_container(Path::new(r"C:\")));
+    assert!(super::is_structural_container(Path::new(r"C:\Users")));
+    assert!(super::is_structural_container(Path::new(r"C:\Users\rupjy")));
+    assert!(super::is_structural_container(Path::new(
+        r"C:\Users\rupjy\AppData"
+    )));
+    assert!(super::is_structural_container(Path::new(
+        r"C:\Users\rupjy\AppData\Local"
+    )));
+    assert!(super::is_structural_container(Path::new(
+        r"C:\Users\rupjy\AppData\Local\Packages"
+    )));
+    assert!(super::is_structural_container(Path::new(r"C:\Windows")));
+    assert!(super::is_structural_container(Path::new(
+        r"C:\Program Files"
+    )));
+
+    // Specific actionable package or dev folders are NOT structural containers:
+    assert!(!super::is_structural_container(Path::new(
+        r"C:\Users\rupjy\AppData\Local\Packages\Claude_pzs8sxrjxfjjc"
+    )));
+    assert!(!super::is_structural_container(Path::new(
+        r"C:\Users\rupjy\.codex"
+    )));
+    assert!(!super::is_structural_container(Path::new(
+        r"C:\Users\rupjy\.gradle"
+    )));
+    assert!(!super::is_structural_container(Path::new(
+        r"C:\Users\rupjy\.android"
+    )));
+}

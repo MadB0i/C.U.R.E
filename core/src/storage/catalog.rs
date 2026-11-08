@@ -106,6 +106,93 @@ pub fn roots_with_report(depth: ScanDepth, extra: &[PathBuf]) -> (Vec<ScanRoot>,
         });
     };
 
+    // ---- developer & AI toolchain caches (priority scan on user profile) -
+    if !profile.as_os_str().is_empty() {
+        // 1. Dynamic discovery of top-level dot-directories under %USERPROFILE%
+        // E.g. .codex, .gradle, .android, .cache, .rustup, .lmstudio, .vscode, .cargo, .gemini, .npm, etc.
+        if let Ok(readers) = std::fs::read_dir(&profile) {
+            for entry in readers.flatten() {
+                let p = entry.path();
+                if p.is_dir() && !fsx_is_link(&p) {
+                    if let Some(name) = p
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|s| s.to_string())
+                    {
+                        if name.starts_with('.') && name.len() > 1 {
+                            push(
+                                &mut roots,
+                                &mut seen,
+                                p,
+                                StorageClass::DevCache,
+                                &format!("Developer cache ({name})"),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        // 2. Known dev cache directory names in profile root (including non-dot names like node_modules)
+        for name in super::tiers::DEV_CACHE_DIR_NAMES {
+            let p = profile.join(name);
+            if p.is_dir() {
+                push(
+                    &mut roots,
+                    &mut seen,
+                    p,
+                    StorageClass::DevCache,
+                    &format!("Developer cache ({name})"),
+                );
+            }
+        }
+    }
+
+    // Heavy developer tool caches under %LOCALAPPDATA%
+    if !local.as_os_str().is_empty() {
+        for (rel, label) in [
+            ("pip\\cache", "pip cache"),
+            ("npm-cache", "npm cache"),
+            ("Yarn\\Cache", "Yarn cache"),
+            ("pnpm\\store", "pnpm store"),
+            ("HuggingFace\\hub", "HuggingFace models"),
+            ("Ollama", "Ollama models"),
+            ("torch\\kernels", "PyTorch kernel cache"),
+            ("Caches", "cross-platform cache"),
+        ] {
+            let p = local.join(rel);
+            if p.is_dir() {
+                push(
+                    &mut roots,
+                    &mut seen,
+                    p,
+                    StorageClass::DevCache,
+                    &format!("Developer cache ({label})"),
+                );
+            }
+        }
+    }
+
+    // ---- user profile data directories -----------------------------------
+    push(
+        &mut roots,
+        &mut seen,
+        profile.join("Downloads"),
+        StorageClass::UserSelected,
+        "Downloads",
+    );
+    for user_sub in ["Videos", "Documents", "Desktop"] {
+        let p = profile.join(user_sub);
+        if p.is_dir() {
+            push(
+                &mut roots,
+                &mut seen,
+                p,
+                StorageClass::UserSelected,
+                user_sub,
+            );
+        }
+    }
+
     // ---- user temp -------------------------------------------------------
     if let Some(t) = env_path("TEMP").or_else(|| env_path("TMP")) {
         push(
@@ -261,33 +348,9 @@ pub fn roots_with_report(depth: ScanDepth, extra: &[PathBuf]) -> (Vec<ScanRoot>,
         );
     }
 
-    // ---- downloads -------------------------------------------------------
-    // Measured here so old installers and downloads appear in the inventory,
-    // but classified per-file by the caller: an `.msi` and a `.pdf` in the
-    // same folder are not the same proposition.
-    push(
-        &mut roots,
-        &mut seen,
-        profile.join("Downloads"),
-        StorageClass::UserSelected,
-        "Downloads",
-    );
-
-    // ---- developer caches (deep only) -----------------------------------
+    // ---- deep scan extensions -------------------------------------------
     if depth == ScanDepth::Deep {
         if !profile.as_os_str().is_empty() {
-            for name in super::tiers::DEV_CACHE_DIR_NAMES {
-                let p = profile.join(name);
-                if p.is_dir() {
-                    push(
-                        &mut roots,
-                        &mut seen,
-                        p,
-                        StorageClass::DevCache,
-                        &format!("Developer cache ({name})"),
-                    );
-                }
-            }
             // Repository-shaped build output, one level down.
             if let Ok(readers) = std::fs::read_dir(&profile) {
                 for entry in readers.flatten() {
@@ -295,7 +358,15 @@ pub fn roots_with_report(depth: ScanDepth, extra: &[PathBuf]) -> (Vec<ScanRoot>,
                     if !repo.is_dir() || fsx_is_link(&repo) {
                         continue;
                     }
-                    for name in ["node_modules", "target", "bin", "obj", ".next", "build"] {
+                    for name in [
+                        "node_modules",
+                        "target",
+                        "bin",
+                        "obj",
+                        ".next",
+                        "build",
+                        "dist",
+                    ] {
                         let p = repo.join(name);
                         if p.is_dir() {
                             push(
@@ -369,14 +440,29 @@ pub fn drop_nested_roots(roots: &mut Vec<ScanRoot>) -> usize {
     let mut keep: Vec<ScanRoot> = Vec::new();
     let mut dropped = 0usize;
     for candidate in roots.drain(..) {
+        // 1. Is candidate equal to or nested under an existing root in keep?
         let nested = keep
             .iter()
-            .any(|k| k.path != candidate.path && super::tiers::is_under(&candidate.path, &k.path));
+            .any(|k| k.path == candidate.path || super::tiers::is_under(&candidate.path, &k.path));
         if nested {
             dropped += 1;
-        } else {
-            keep.push(candidate);
+            continue;
         }
+
+        // 2. Are there existing roots in keep that are nested under candidate?
+        // E.g. keep contains C:\Users\bob\Temp, and candidate is C:\Users\bob
+        // Candidate is broader, so the prior narrower sub-roots are redundant and must be pruned.
+        let mut i = 0;
+        while i < keep.len() {
+            if super::tiers::is_under(&keep[i].path, &candidate.path) {
+                keep.swap_remove(i);
+                dropped += 1;
+            } else {
+                i += 1;
+            }
+        }
+
+        keep.push(candidate);
     }
     *roots = keep;
     dropped
@@ -468,9 +554,9 @@ fn volume_or_folder_label(path: &Path) -> String {
 pub fn limits_for(depth: ScanDepth) -> WalkLimits {
     match depth {
         ScanDepth::Quick => WalkLimits {
-            max_depth: 48,
-            max_entries: 1_500_000,
-            max_duration_ms: 90_000,
+            max_depth: 16,
+            max_entries: 100_000,
+            max_duration_ms: 4_000,
             min_item_size: 0,
             idle_days: 30,
             recent_file_seconds: 3600,

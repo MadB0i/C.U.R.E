@@ -72,6 +72,27 @@ fn is_lolbin_program(program: &str) -> bool {
     LOLBIN_NAMES.contains(&file)
 }
 
+/// True if the given file name or path matches a C.U.R.E system binary.
+pub fn is_cure_binary_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    let file = lower.rsplit(['/', '\\']).next().unwrap_or(&lower);
+    matches!(
+        file,
+        "cure-watch.exe" | "cure.exe" | "cure_gui.exe" | "cure-gui.exe" | "cure-cli.exe"
+    )
+}
+
+fn is_pe_file(path: &Path) -> bool {
+    if let Ok(mut f) = std::fs::File::open(path) {
+        use std::io::Read;
+        let mut magic = [0u8; 2];
+        if f.read_exact(&mut magic).is_ok() {
+            return &magic == b"MZ";
+        }
+    }
+    false
+}
+
 pub fn extract_program_path(command: &str) -> &str {
     let trimmed = command.trim();
     if let Some(unquoted) = trimmed.strip_prefix('"') {
@@ -83,9 +104,114 @@ pub fn extract_program_path(command: &str) -> &str {
     trimmed.split_whitespace().next().unwrap_or(trimmed)
 }
 
+/// Strips architecture / platform tokens from the end of an executable stem.
+/// E.g. "ffmpeg-x64" -> "ffmpeg", "node_x64" -> "node", "tool-win64" -> "tool".
+pub fn strip_arch_tokens(mut s: &str) -> &str {
+    for _ in 0..2 {
+        let lower = s.to_ascii_lowercase();
+        if lower.ends_with("-x64")
+            || lower.ends_with("-x86")
+            || lower.ends_with("_x64")
+            || lower.ends_with("_x86")
+        {
+            s = &s[..s.len() - 4];
+        } else if lower.ends_with("win64") || lower.ends_with("win32") {
+            s = &s[..s.len() - 5];
+        } else if lower.ends_with("-windows") {
+            s = &s[..s.len() - 8];
+        } else {
+            break;
+        }
+    }
+    s
+}
+
+/// Checks if an executable stem corresponds to a standard developer or system tool.
+/// Only exempts authentic version patterns (e.g. "python312", "node-v20"), never
+/// arbitrary long random strings (e.g. "python_9823749823").
+pub fn is_standard_developer_tool(s: &str) -> bool {
+    let lower = s.to_ascii_lowercase();
+    let lower = strip_arch_tokens(&lower);
+
+    const EXACT_TOOLS: &[&str] = &[
+        "python",
+        "pythonw",
+        "node",
+        "npm",
+        "npx",
+        "pnpm",
+        "yarn",
+        "rustc",
+        "cargo",
+        "rustup",
+        "rust-analyzer",
+        "ffmpeg",
+        "ffprobe",
+        "ffplay",
+        "git",
+        "bash",
+        "sh",
+        "deno",
+        "bun",
+        "go",
+        "javac",
+        "java",
+        "ruby",
+        "perl",
+    ];
+    if EXACT_TOOLS.contains(&lower) {
+        return true;
+    }
+
+    // Versioned python binaries: "python3", "python311", "python312", "python3.12", "pythonw3.11"
+    if let Some(rest) = lower
+        .strip_prefix("pythonw")
+        .or_else(|| lower.strip_prefix("python"))
+    {
+        let rest = rest.strip_prefix('-').unwrap_or(rest);
+        if !rest.is_empty()
+            && rest.len() <= 6
+            && rest.chars().all(|c| c.is_ascii_digit() || c == '.')
+        {
+            return true;
+        }
+    }
+
+    // Versioned node binaries: "node-v20", "node-v18.16.0", "node-20"
+    if let Some(rest) = lower.strip_prefix("node") {
+        let rest = rest.strip_prefix('-').unwrap_or(rest);
+        let rest = rest.strip_prefix('v').unwrap_or(rest);
+        if !rest.is_empty()
+            && rest.len() <= 8
+            && rest.chars().all(|c| c.is_ascii_digit() || c == '.')
+        {
+            return true;
+        }
+    }
+
+    // Versioned cargo commands: "cargo-clippy", "cargo-fmt"
+    if let Some(rest) = lower.strip_prefix("cargo-") {
+        if !rest.is_empty()
+            && rest.len() <= 12
+            && rest.chars().all(|c| c.is_ascii_alphabetic() || c == '-')
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
 pub fn looks_randomized(name: &str) -> bool {
     let stem = name.split('.').next().unwrap_or(name);
-    let compact: Vec<char> = stem.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+    let stripped = strip_arch_tokens(stem);
+    if is_standard_developer_tool(stripped) {
+        return false;
+    }
+    let compact: Vec<char> = stripped
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
     let len = compact.len();
     if len < 6 {
         return false;
@@ -249,6 +375,68 @@ fn score_with_expander(
     // program name. `IEX`/`DownloadString`/encoded payloads inside an
     // autorun argument are hostile regardless of how signed the host is.
     let cradle = CRADLE_TOKENS.iter().any(|t| command_norm.contains(t));
+
+    // Self-protection: C.U.R.E's own background daemons and binaries are trusted
+    // components and must never be penalized by location heuristics (like sitting
+    // in Roaming/Startup) unless spoofed by an invalid signature, known-bad hash,
+    // or non-PE script payload.
+    let is_cure = is_cure_binary_name(&program_norm) || is_cure_binary_name(&entry.name);
+    if is_cure
+        && !cradle
+        && !sneaky_powershell
+        && hash_match.is_none()
+        && signature != SignatureStatus::Invalid
+    {
+        let raw_path = extract_program_path(&expanded_command);
+        let p = Path::new(raw_path);
+        let spoofed = if p.is_file() { !is_pe_file(p) } else { false };
+        if !spoofed {
+            evidence.push(Evidence::observed(
+                "C.U.R.E system binary (self-protection allowlist)",
+            ));
+            return ScoredEntry {
+                entry: entry.clone(),
+                score: 0,
+                risk: RiskLevel::Safe,
+                evidence,
+                attack: AttackInfo {
+                    id: String::new(),
+                    name: String::new(),
+                },
+            };
+        }
+    }
+
+    // Standard Windows desktop.ini in Startup folders
+    if (entry.name.eq_ignore_ascii_case("desktop.ini") || program_norm.ends_with("/desktop.ini"))
+        && !cradle
+        && !sneaky_powershell
+        && hash_match.is_none()
+        && signature != SignatureStatus::Invalid
+    {
+        let raw_path = extract_program_path(&expanded_command);
+        let p = Path::new(raw_path);
+        let malicious = if p.is_file() {
+            !crate::scanners::startup::is_standard_desktop_ini(p)
+        } else {
+            false
+        };
+        if !malicious {
+            evidence.push(Evidence::observed(
+                "Standard Windows desktop configuration file (desktop.ini)",
+            ));
+            return ScoredEntry {
+                entry: entry.clone(),
+                score: 0,
+                risk: RiskLevel::Safe,
+                evidence,
+                attack: AttackInfo {
+                    id: String::new(),
+                    name: String::new(),
+                },
+            };
+        }
+    }
 
     // F-LOLBIN-1: a LOLBin pulling a remote payload (URL arg or UNC path)
     // scores at least Suspicious on its own (+25 clears the threshold even
@@ -611,6 +799,42 @@ mod tests {
     }
 
     // ---- heuristic behaviour, unchanged from v1 (Unknown / no hash) ----
+
+    #[test]
+    fn cure_watch_in_roaming_startup_is_safe() {
+        let scored = score_with_signals(
+            &entry(
+                "cure-watch.exe",
+                r"C:\Users\tester\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\cure-watch.exe",
+            ),
+            SignatureStatus::Unknown,
+            None,
+        );
+        assert_eq!(scored.risk, RiskLevel::Safe);
+        assert_eq!(scored.score, 0);
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|e| e.detail().contains("self-protection allowlist")));
+    }
+
+    #[test]
+    fn standard_desktop_ini_in_startup_is_safe() {
+        let scored = score_with_signals(
+            &entry(
+                "desktop.ini",
+                r"C:\Users\tester\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\desktop.ini",
+            ),
+            SignatureStatus::Unknown,
+            None,
+        );
+        assert_eq!(scored.risk, RiskLevel::Safe);
+        assert_eq!(scored.score, 0);
+        assert!(scored
+            .evidence
+            .iter()
+            .any(|e| e.detail().contains("desktop.ini")));
+    }
 
     #[test]
     fn trusted_binary_is_safe() {
@@ -1320,6 +1544,22 @@ mod tests {
         assert!(!looks_randomized("WindowsDefender"));
         assert!(!looks_randomized("svchost"));
         assert!(!looks_randomized("Update"));
+
+        // Standard developer tools and versioned names are NOT randomized
+        assert!(!looks_randomized("python.exe"));
+        assert!(!looks_randomized("python312.exe"));
+        assert!(!looks_randomized("python3.11.exe"));
+        assert!(!looks_randomized("node.exe"));
+        assert!(!looks_randomized("node-v20.exe"));
+        assert!(!looks_randomized("rustc.exe"));
+        assert!(!looks_randomized("cargo-clippy.exe"));
+        assert!(!looks_randomized("ffmpeg-x64.exe"));
+
+        // Spoofed prefix with long randomized string IS detected as randomized
+        assert!(looks_randomized("python_9823749823.exe"));
+        assert!(looks_randomized("node_9823749823.exe"));
+        assert!(looks_randomized("python1234567890.exe"));
+        assert!(looks_randomized("a3f8k2m9x1-x64.exe"));
     }
 
     #[test]

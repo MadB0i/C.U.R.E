@@ -135,6 +135,38 @@ pub struct WalkRequest<'a> {
     pub root_label: &'a str,
 }
 
+/// Check if a directory is a protected Windows OS or system root container that must never be entered.
+pub fn is_skipped_system_dir(path: &Path, root: &Path) -> bool {
+    if path == root {
+        return false;
+    }
+    let s = path.to_string_lossy();
+    let lower = s.to_ascii_lowercase().replace('/', "\\");
+    let trimmed = lower.trim_end_matches('\\');
+
+    // Windows OS, System binaries, and drive-root system containers
+    if trimmed.ends_with(r"\windows")
+        || trimmed.ends_with(r"\program files")
+        || trimmed.ends_with(r"\program files (x86)")
+        || trimmed.ends_with(r"\system volume information")
+        || trimmed.ends_with(r"\$recycle.bin")
+        || trimmed.ends_with(r"\perflogs")
+        || trimmed.ends_with(r"\recovery")
+        || trimmed.ends_with(r"\msocache")
+    {
+        return true;
+    }
+
+    // Heavy deep recursive loops: UWP virtualized LocalCache and git object databases
+    if trimmed.ends_with(r"\.git\objects")
+        || (trimmed.contains(r"\appdata\local\packages") && trimmed.contains(r"\localcache"))
+    {
+        return true;
+    }
+
+    false
+}
+
 /// Walk one root and append its files and folder aggregates to `sink`.
 ///
 /// `class` is the provenance assigned to every file found under `root`.
@@ -169,6 +201,9 @@ pub fn walk_root(req: WalkRequest<'_>, sink: &mut WalkSink, progress: ProgressFn
     let mut stack: Vec<(PathBuf, usize)> = vec![(root.to_path_buf(), 0)];
 
     while let Some((dir, depth)) = stack.pop() {
+        if is_skipped_system_dir(&dir, root) {
+            continue;
+        }
         if cancel.load(Ordering::Relaxed) {
             stats.outcome.cancelled = true;
             break;
@@ -267,6 +302,9 @@ pub fn walk_root(req: WalkRequest<'_>, sink: &mut WalkSink, progress: ProgressFn
             }
 
             if md.is_dir() {
+                if is_skipped_system_dir(&path, root) {
+                    continue;
+                }
                 if depth + 1 > limits.max_depth {
                     stats.outcome.hit_depth_limit = true;
                     /* The tree below this point was not walked, so this

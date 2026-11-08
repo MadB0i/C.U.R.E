@@ -4,6 +4,7 @@ pub mod attack;
 pub mod baseline;
 pub mod canary;
 pub mod cleanup;
+pub mod custom_rules;
 pub mod elevation;
 pub mod entry_details;
 pub mod evidence;

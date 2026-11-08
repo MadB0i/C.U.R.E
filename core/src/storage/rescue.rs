@@ -16,6 +16,7 @@
 //!    must match before a migration is marked complete.
 //! 4. **Honest capacity checks**: Validate that target volumes have sufficient free space plus a 10% safety buffer.
 
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -816,6 +817,168 @@ pub fn discover_migration_candidates(
             Some("Set GRADLE_USER_HOME environment variable to new destination.".into()),
             source_drive,
         );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "codex_cache",
+            "Codex & AI Workspace Cache",
+            &p.join(".codex"),
+            &target,
+            MigrationSafety::Caution,
+            "AI Toolchain",
+            "Local model context, indexes, and agent workspaces.",
+            Some("Set CODEX_HOME environment variable or link directory.".into()),
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "android_cache",
+            "Android SDK & Emulators",
+            &p.join(".android"),
+            &target,
+            MigrationSafety::Caution,
+            "Developer Toolchain",
+            "Android virtual device images (AVD) and emulator caches.",
+            Some("Set ANDROID_USER_HOME or ANDROID_AVD_HOME to new destination.".into()),
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "rustup_cache",
+            "Rustup Toolchains",
+            &p.join(".rustup"),
+            &target,
+            MigrationSafety::Caution,
+            "Developer Toolchain",
+            "Installed Rust toolchain binaries and target platforms.",
+            Some("Set RUSTUP_HOME environment variable to new destination.".into()),
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "lmstudio_models",
+            "LM Studio AI Models",
+            &p.join(".lmstudio"),
+            &target,
+            MigrationSafety::Caution,
+            "AI Toolchain",
+            "Local LLM model weights (GGUF, safetensors).",
+            Some("Configure LM Studio models directory to point to new location.".into()),
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "vscode_extensions",
+            "VS Code Extensions & Cache",
+            &p.join(".vscode"),
+            &target,
+            MigrationSafety::Caution,
+            "Developer Toolchain",
+            "Installed VS Code extensions and runtime dependencies.",
+            Some("Pass --extensions-dir or create directory symlink.".into()),
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "user_cache_dir",
+            "User Profile Generic Cache",
+            &p.join(".cache"),
+            &target,
+            MigrationSafety::Caution,
+            "Application Cache",
+            "Generic application and build cache files.",
+            None,
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "gemini_cache",
+            "Gemini CLI Cache",
+            &p.join(".gemini"),
+            &target,
+            MigrationSafety::Caution,
+            "AI Toolchain",
+            "Gemini local session logs, artifacts, and indexes.",
+            None,
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "pnpm_store",
+            "pnpm Store",
+            &p.join(".pnpm-store"),
+            &target,
+            MigrationSafety::Caution,
+            "Developer Toolchain",
+            "Content-addressable package store for pnpm.",
+            Some("Run `pnpm config set store-dir <new_path>`.".into()),
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "ollama_models",
+            "Ollama Models",
+            &p.join(".ollama"),
+            &target,
+            MigrationSafety::Caution,
+            "AI Toolchain",
+            "Local Ollama models and blobs.",
+            Some("Set OLLAMA_MODELS environment variable to new destination.".into()),
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "cursor_cache",
+            "Cursor Editor State",
+            &p.join(".cursor"),
+            &target,
+            MigrationSafety::Caution,
+            "Developer Toolchain",
+            "Cursor editor extensions and session data.",
+            None,
+            source_drive,
+        );
+        add_candidate_if_on_drive(
+            &mut candidates,
+            "cargo_root",
+            "Cargo Root & Downloads",
+            &p.join(".cargo"),
+            &target,
+            MigrationSafety::Caution,
+            "Developer Toolchain",
+            "Rust crate source code, git checkouts, and binary cache.",
+            Some("Set CARGO_HOME environment variable to the new destination.".into()),
+            source_drive,
+        );
+        // Dynamically discover any other large dot-folders in %USERPROFILE%
+        if let Ok(readers) = std::fs::read_dir(p) {
+            for entry in readers.flatten() {
+                let ep = entry.path();
+                let is_reparse = fs::symlink_metadata(&ep)
+                    .map(|m| fsx::is_reparse_point(&m))
+                    .unwrap_or(true);
+                if ep.is_dir() && !is_reparse {
+                    if let Some(name) = ep.file_name().and_then(|n| n.to_str()) {
+                        if name.starts_with('.') && name.len() > 1 {
+                            let already = candidates.iter().any(|c| c.source_path == ep);
+                            if !already {
+                                add_candidate_if_on_drive(
+                                    &mut candidates,
+                                    &format!("user_dot_{}", name.trim_start_matches('.')),
+                                    &format!("User Folder {}", name),
+                                    &ep,
+                                    &target,
+                                    MigrationSafety::Caution,
+                                    "Developer Toolchain",
+                                    "User profile dot-directory discovered on drive.",
+                                    None,
+                                    source_drive,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     if !local_app_data.is_empty() {
@@ -965,8 +1128,8 @@ pub fn inspect_folder_quick(path: &Path) -> (u64, u64, usize) {
     let mut bytes = 0u64;
     let mut reparse_count = 0usize;
     let mut stack = vec![(path.to_path_buf(), 0usize)];
-    let max_files = 500;
-    let max_depth = 3;
+    let max_files = 100_000;
+    let max_depth = 24;
 
     while let Some((dir, depth)) = stack.pop() {
         if depth > max_depth {
@@ -1152,6 +1315,58 @@ fn preserve_file_times(_src: &Path, _dst: &Path) {}
 
 /// Recursively copy a directory tree preserving files and directories.
 /// Emits progress callback, respects cancellation flag, and NEVER modifies source.
+/// Stream-copies a file in 1 MB buffered chunks while computing its SHA-256 hash.
+/// Aborts and deletes the destination file if cancellation is flagged.
+fn fast_copy_file_with_hash<P>(
+    src: &Path,
+    dst: &Path,
+    cancel_flag: &AtomicBool,
+    mut on_chunk: P,
+) -> io::Result<(u64, String)>
+where
+    P: FnMut(u64),
+{
+    use std::io::{BufReader, BufWriter, Read, Write};
+    let src_file = File::open(src)?;
+    let mut reader = BufReader::with_capacity(1024 * 1024, src_file);
+    let dst_file = File::create(dst)?;
+    let mut writer = BufWriter::with_capacity(1024 * 1024, dst_file);
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 1024 * 1024];
+    let mut total = 0u64;
+    let mut unnotified = 0u64;
+    const NOTIFY_INTERVAL: u64 = 16 * 1024 * 1024; // 16 MB
+
+    loop {
+        if cancel_flag.load(Ordering::SeqCst) {
+            drop(writer);
+            drop(reader);
+            let _ = fs::remove_file(dst);
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "Transfer cancelled by operator",
+            ));
+        }
+        let n = reader.read(&mut buffer)?;
+        if n == 0 {
+            break;
+        }
+        writer.write_all(&buffer[..n])?;
+        hasher.update(&buffer[..n]);
+        total += n as u64;
+        unnotified += n as u64;
+        if unnotified >= NOTIFY_INTERVAL {
+            on_chunk(unnotified);
+            unnotified = 0;
+        }
+    }
+    writer.flush()?;
+    if unnotified > 0 {
+        on_chunk(unnotified);
+    }
+    Ok((total, format!("{:x}", hasher.finalize())))
+}
+
 pub fn copy_tree_verified<F>(
     candidate_id: &str,
     source: &Path,
@@ -1197,8 +1412,38 @@ where
     }
     let total_files_count = source_files_list.len() as u64;
 
+    // Validate target volume has sufficient free space (including 10% safety buffer)
+    if let Some(target_space) = fsx::volume_space_at(target) {
+        let required_bytes = total_source_bytes.saturating_add(total_source_bytes / 10);
+        if target_space.free_bytes < required_bytes {
+            return Ok(CandidateVerification {
+                candidate_id: candidate_id.into(),
+                source_path: source.to_string_lossy().into_owned(),
+                target_path: target.to_string_lossy().into_owned(),
+                source_files: total_files_count,
+                target_files: 0,
+                source_bytes: total_source_bytes,
+                target_bytes: 0,
+                files_match: false,
+                bytes_match: false,
+                sample_hashes_checked: 0,
+                sample_hashes_matched: 0,
+                sha256_checked: 0,
+                sha256_matched: 0,
+                is_verified: false,
+                metadata_report: MetadataPreservationReport::default(),
+                reparse_points_safely_skipped: skipped_reparse,
+                error: Some(format!(
+                    "Target volume has insufficient free space ({} free vs {} required with 10% buffer)",
+                    target_space.free_bytes, required_bytes
+                )),
+            });
+        }
+    }
+
     let mut copied_files = 0u64;
     let mut copied_bytes = 0u64;
+    let mut source_hashes: HashMap<PathBuf, String> = HashMap::new();
 
     // Copy every file
     for src_file in &source_files_list {
@@ -1238,36 +1483,58 @@ where
             }
         }
 
-        let file_len = match fs::metadata(src_file) {
-            Ok(m) => m.len(),
-            Err(_) => 0,
+        let (_file_len, src_hash) = match fast_copy_file_with_hash(
+            src_file,
+            &dst_file,
+            cancel_flag,
+            |chunk| {
+                copied_bytes += chunk;
+                let pct = if total_source_bytes > 0 {
+                    ((copied_bytes as f64 / total_source_bytes as f64) * 100.0).min(100.0)
+                } else {
+                    100.0
+                };
+                on_progress(MigrationProgress {
+                    candidate_id: candidate_id.into(),
+                    phase: "copying".into(),
+                    current_file: rel.to_string_lossy().into_owned(),
+                    files_copied: copied_files,
+                    total_files: total_files_count,
+                    bytes_copied: copied_bytes,
+                    total_bytes: total_source_bytes,
+                    percent: (pct * 10.0).round() / 10.0,
+                });
+            },
+        ) {
+            Ok(res) => res,
+            Err(e) => {
+                let _ = fs::remove_file(&dst_file);
+                return Ok(CandidateVerification {
+                    candidate_id: candidate_id.into(),
+                    source_path: source.to_string_lossy().into_owned(),
+                    target_path: target.to_string_lossy().into_owned(),
+                    source_files: total_files_count,
+                    target_files: copied_files,
+                    source_bytes: total_source_bytes,
+                    target_bytes: copied_bytes,
+                    files_match: false,
+                    bytes_match: false,
+                    sample_hashes_checked: 0,
+                    sample_hashes_matched: 0,
+                    sha256_checked: 0,
+                    sha256_matched: 0,
+                    is_verified: false,
+                    metadata_report: MetadataPreservationReport::default(),
+                    reparse_points_safely_skipped: skipped_reparse,
+                    error: Some(format!(
+                        "Copy failed on '{}': {} (File may be locked by an active process or access denied)",
+                        rel.display(),
+                        e
+                    )),
+                });
+            }
         };
-
-        if let Err(e) = fs::copy(src_file, &dst_file) {
-            return Ok(CandidateVerification {
-                candidate_id: candidate_id.into(),
-                source_path: source.to_string_lossy().into_owned(),
-                target_path: target.to_string_lossy().into_owned(),
-                source_files: total_files_count,
-                target_files: copied_files,
-                source_bytes: total_source_bytes,
-                target_bytes: copied_bytes,
-                files_match: false,
-                bytes_match: false,
-                sample_hashes_checked: 0,
-                sample_hashes_matched: 0,
-                sha256_checked: 0,
-                sha256_matched: 0,
-                is_verified: false,
-                metadata_report: MetadataPreservationReport::default(),
-                reparse_points_safely_skipped: skipped_reparse,
-                error: Some(format!(
-                    "Copy failed on '{}': {} (File may be locked by an active process or access denied)",
-                    rel.display(),
-                    e
-                )),
-            });
-        }
+        source_hashes.insert(rel.to_path_buf(), src_hash);
         preserve_file_times(src_file, &dst_file);
         if let Ok(md) = fs::metadata(src_file) {
             if fsx::is_read_only(&md) {
@@ -1278,7 +1545,6 @@ where
             }
         }
         copied_files += 1;
-        copied_bytes += file_len;
 
         let pct = if total_source_bytes > 0 {
             ((copied_bytes as f64 / total_source_bytes as f64) * 100.0).min(100.0)
@@ -1332,7 +1598,11 @@ where
             if let Ok(rel) = src_f.strip_prefix(source) {
                 let dst_f = target.join(rel);
                 if dst_f.exists() {
-                    let h_src = hash_file_sha256(src_f);
+                    let h_src = source_hashes
+                        .get(rel)
+                        .cloned()
+                        .map(Ok)
+                        .unwrap_or_else(|| hash_file_sha256(src_f));
                     let h_dst = hash_file_sha256(&dst_f);
                     if let (Ok(s), Ok(d)) = (h_src, h_dst) {
                         sample_checked += 1;
@@ -1351,10 +1621,35 @@ where
     let mut first_hash_err: Option<String> = None;
 
     for src_f in &source_files_list {
+        if cancel_flag.load(Ordering::SeqCst) {
+            return Ok(CandidateVerification {
+                candidate_id: candidate_id.into(),
+                source_path: source.to_string_lossy().into_owned(),
+                target_path: target.to_string_lossy().into_owned(),
+                source_files: total_files_count,
+                target_files: copied_files,
+                source_bytes: total_source_bytes,
+                target_bytes: copied_bytes,
+                files_match: false,
+                bytes_match: false,
+                sample_hashes_checked: 0,
+                sample_hashes_matched: 0,
+                sha256_checked: 0,
+                sha256_matched: 0,
+                is_verified: false,
+                metadata_report: MetadataPreservationReport::default(),
+                reparse_points_safely_skipped: skipped_reparse,
+                error: Some("Migration cancelled by operator during verification.".into()),
+            });
+        }
         if let Ok(rel) = src_f.strip_prefix(source) {
             let dst_f = target.join(rel);
             if dst_f.exists() {
-                let h_src = hash_file_sha256(src_f);
+                let h_src = source_hashes
+                    .get(rel)
+                    .cloned()
+                    .map(Ok)
+                    .unwrap_or_else(|| hash_file_sha256(src_f));
                 let h_dst = hash_file_sha256(&dst_f);
                 match (h_src, h_dst) {
                     (Ok(s), Ok(d)) => {
@@ -2247,8 +2542,8 @@ pub fn execute_source_cleanup(
         .map(|s| s.free_bytes)
         .unwrap_or(0);
 
-    // Perform safe deletion of source tree
-    fs::remove_dir_all(source_path)?;
+    // Perform safe deletion of source tree (recursively clearing read-only attributes)
+    safe_remove_dir_all(source_path)?;
 
     // Measure C: drive free space AFTER cleanup
     let space_after = fsx::volume_space_at(c_root)
@@ -2523,6 +2818,44 @@ pub fn recover_nonce_issuances_from_journal(journal_path: &Path) -> usize {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+/// Clears read-only attributes recursively so Windows remove_dir_all does not fail with PermissionDenied.
+fn clear_readonly_recursive(path: &Path) -> io::Result<()> {
+    if path.is_file() {
+        if let Ok(metadata) = fs::metadata(path) {
+            let mut permissions = metadata.permissions();
+            if permissions.readonly() {
+                #[allow(clippy::permissions_set_readonly_false)]
+                permissions.set_readonly(false);
+                let _ = fs::set_permissions(path, permissions);
+            }
+        }
+    } else if path.is_dir() {
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            let p = entry.path();
+            if p.is_dir() {
+                let _ = clear_readonly_recursive(&p);
+            } else if let Ok(metadata) = entry.metadata() {
+                let mut permissions = metadata.permissions();
+                if permissions.readonly() {
+                    #[allow(clippy::permissions_set_readonly_false)]
+                    permissions.set_readonly(false);
+                    let _ = fs::set_permissions(&p, permissions);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn safe_remove_dir_all(path: &Path) -> io::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let _ = clear_readonly_recursive(path);
+    fs::remove_dir_all(path)
+}
 
 #[cfg(test)]
 mod tests {

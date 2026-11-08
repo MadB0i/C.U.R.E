@@ -330,11 +330,91 @@ fn move_file_ex(source: &Path, destination: &Path) -> io::Result<()> {
     .map_err(std::io::Error::from)
 }
 
+/// Validates whether a file path points to a critical Windows system component
+/// that must NEVER be quarantined to avoid rendering the OS unbootable.
+pub fn is_protected_system_file(path: &Path) -> bool {
+    let stem = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+
+    const CRITICAL_FILES: [&str; 15] = [
+        "ntoskrnl.exe",
+        "hal.dll",
+        "kernel32.dll",
+        "user32.dll",
+        "ntdll.dll",
+        "csrss.exe",
+        "smss.exe",
+        "wininit.exe",
+        "services.exe",
+        "lsass.exe",
+        "svchost.exe",
+        "winlogon.exe",
+        "explorer.exe",
+        "dwm.exe",
+        "sihost.exe",
+    ];
+    if CRITICAL_FILES.contains(&stem.as_str()) {
+        return true;
+    }
+
+    let normalized = path
+        .to_string_lossy()
+        .to_ascii_lowercase()
+        .replace('\\', "/");
+
+    let clean_norm = normalized
+        .strip_prefix("//?/")
+        .or_else(|| normalized.strip_prefix(r"\\?\"))
+        .unwrap_or(&normalized);
+
+    let sys_root = std::env::var("SystemRoot")
+        .or_else(|_| std::env::var("windir"))
+        .unwrap_or_else(|_| "c:/windows".to_string())
+        .to_ascii_lowercase()
+        .replace('\\', "/");
+    let sys_root = sys_root.trim_end_matches('/');
+
+    let sys32_prefix = format!("{}/system32/", sys_root);
+    let syswow64_prefix = format!("{}/syswow64/", sys_root);
+
+    let is_in_system_dir = clean_norm.starts_with(&sys32_prefix)
+        || clean_norm.starts_with(&syswow64_prefix)
+        || clean_norm.starts_with("c:/windows/system32/")
+        || clean_norm.starts_with("c:/windows/syswow64/");
+
+    if is_in_system_dir {
+        // Only block quarantine in System32/SysWOW64 if the file is in CRITICAL_FILES
+        // or is a known signed Windows system binary. Rogue unsigned binaries dropped
+        // into system directories must be quarantineable.
+        let sig = crate::signature::check_signature(path);
+        if matches!(
+            sig,
+            crate::signature::SignatureStatus::ValidSigned
+                | crate::signature::SignatureStatus::ValidRevocationUnknown
+        ) {
+            return true;
+        }
+    }
+
+    false
+}
+
 pub fn quarantine_entry(data_dir: &Path, entry: &PersistenceEntry) -> io::Result<QuarantineRecord> {
     // Heal interrupted past first so stale intents never block this run.
     let _ = reconcile(data_dir);
 
     let original = PathBuf::from(&entry.location);
+    if is_protected_system_file(&original) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "refusing to quarantine critical operating system file: {}",
+                original.display()
+            ),
+        ));
+    }
     let md = fs::symlink_metadata(&original).map_err(|e| {
         io::Error::new(
             io::ErrorKind::NotFound,
@@ -1099,5 +1179,54 @@ mod tests {
         let err = undo(data.path(), &entry.id).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
         assert!(err.to_string().contains("original path is occupied"));
+    }
+
+    #[test]
+    fn quarantine_refuses_critical_system_files() {
+        let data = tempdir().unwrap();
+        let user_land = tempdir().unwrap();
+        let fake_csrss = user_land.path().join("csrss.exe");
+        fs::write(&fake_csrss, b"critical binary").unwrap();
+
+        let entry = PersistenceEntry {
+            id: "fake-csrss-id".to_string(),
+            name: "csrss.exe".to_string(),
+            location: fake_csrss.to_string_lossy().to_string(),
+            command: fake_csrss.to_string_lossy().to_string(),
+            source: PersistenceSource::StartupFolder,
+            arguments: None,
+        };
+
+        let err = quarantine_entry(data.path(), &entry).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+        assert!(err.to_string().contains("critical operating system file"));
+        assert!(fake_csrss.exists());
+    }
+
+    #[test]
+    fn quarantine_allows_spoofed_path_in_user_directory() {
+        let data = tempdir().unwrap();
+        let user_land = tempdir().unwrap();
+        // Path spoofing attempt: mimic /windows/system32/ inside user profile
+        let spoofed_dir = user_land.path().join("windows").join("system32");
+        fs::create_dir_all(&spoofed_dir).unwrap();
+        let malware_file = spoofed_dir.join("malware.exe");
+        fs::write(&malware_file, b"evil payload").unwrap();
+
+        // Must NOT be protected since it's not the actual %SystemRoot%
+        assert!(!is_protected_system_file(&malware_file));
+
+        let entry = PersistenceEntry {
+            id: "spoofed-malware-id".to_string(),
+            name: "malware.exe".to_string(),
+            location: malware_file.to_string_lossy().to_string(),
+            command: malware_file.to_string_lossy().to_string(),
+            source: PersistenceSource::StartupFolder,
+            arguments: None,
+        };
+
+        let rec = quarantine_entry(data.path(), &entry).expect("quarantine should succeed");
+        assert!(!malware_file.exists());
+        assert!(rec.quarantine_path.exists());
     }
 }

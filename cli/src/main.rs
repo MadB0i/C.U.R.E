@@ -63,7 +63,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    Scan,
+    /// Scan persistence hooks and processes for threats with Cyber-Cat heuristics.
+    Scan {
+        #[arg(long, help = "output format: text (default), sarif, or json")]
+        format: Option<String>,
+        #[arg(long, help = "save output to file instead of stdout")]
+        output: Option<PathBuf>,
+    },
     Diff,
     Quarantine {
         id: String,
@@ -78,9 +84,9 @@ enum Command {
     Undo {
         id: String,
     },
-    /// Write a JSON/TXT security report (explicit export; nothing is remediated).
+    /// Write a JSON/SARIF/TXT security report (explicit export; nothing is remediated).
     Report {
-        #[arg(long, default_value = "txt", help = "json or txt")]
+        #[arg(long, default_value = "txt", help = "sarif, json or txt")]
         format: String,
         #[arg(long, default_value_t = true, action = clap::ArgAction::Set, help = "redact home directory and username (default: on)")]
         redact: bool,
@@ -304,7 +310,7 @@ fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
     }
     fs::create_dir_all(&paths.data_dir)?;
     match &cli.command {
-        Command::Scan => cmd_scan(&paths),
+        Command::Scan { format, output } => cmd_scan(&paths, format.as_deref(), output.as_deref()),
         Command::Diff => cmd_diff(&paths),
         Command::Quarantine { id, yes, dry_run } => cmd_quarantine(&paths, id, *yes, *dry_run),
         Command::Undo { id } => cmd_undo(&paths, id),
@@ -531,6 +537,14 @@ fn truncate(text: &str, max_chars: usize) -> String {
     format!("{cut}…")
 }
 
+fn print_cyber_cat_banner() {
+    println!("\x1b[36m   /\\_/\\  \x1b[1;37m C.U.R.E v{} \x1b[0;32m[100% Offline · Zero Telemetry]\x1b[0m", cure_core::report::CURE_VERSION);
+    println!(
+        "\x1b[36m  ( o.o ) \x1b[0;90m Evidence-First Windows Security & Fast Storage Rescue\x1b[0m"
+    );
+    println!("\x1b[36m   > ^ <  \x1b[0;34m https://github.com/rupjy/CURE\x1b[0m\n");
+}
+
 fn print_report(scored: &[ScoredEntry], data_dir: &Path) {
     for s in scored {
         println!(
@@ -605,28 +619,106 @@ fn summarize(scored: &[ScoredEntry]) -> (usize, usize, usize) {
     (high, susp, safe)
 }
 
-fn cmd_scan(paths: &ResolvedPaths) -> Result<(), Box<dyn Error>> {
+fn cmd_scan(
+    paths: &ResolvedPaths,
+    format: Option<&str>,
+    output: Option<&Path>,
+) -> Result<(), Box<dyn Error>> {
     use std::time::Instant;
-    println!("C.U.R.E - Clean USB Rescue Engine");
-    println!("startup root : {}", paths.startup_root.display());
-    match scanners::startup::default_common_startup_root() {
-        Some(common) => println!("common startup: {}", common.display()),
-        None => println!("common startup: n/a on this OS"),
+
+    let format_clean = format.map(|s| s.to_ascii_lowercase());
+    let is_structured = matches!(format_clean.as_deref(), Some("sarif") | Some("json"));
+
+    if !is_structured {
+        print_cyber_cat_banner();
+        println!("startup root : {}", paths.startup_root.display());
+        match scanners::startup::default_common_startup_root() {
+            Some(common) => println!("common startup: {}", common.display()),
+            None => println!("common startup: n/a on this OS"),
+        }
+        println!("tasks root   : {}", paths.tasks_root.display());
+        if cfg!(windows) {
+            println!("registry     : HKCU + HKLM Run / RunOnce + IFEO + AppInit + COM (HKCU) + WMI + services");
+        } else {
+            println!("registry     : unavailable on this OS (Windows-only source)");
+        }
     }
-    println!("tasks root   : {}", paths.tasks_root.display());
-    if cfg!(windows) {
-        println!("registry     : HKCU + HKLM Run / RunOnce + IFEO + AppInit + COM (HKCU) + WMI + services");
-    } else {
-        println!("registry     : unavailable on this OS (Windows-only source)");
+
+    let custom_rules = cure_core::custom_rules::load_rules_from_dir(&paths.data_dir.join("rules"));
+    if !custom_rules.is_empty() && !is_structured {
+        println!(
+            "custom rules : {} active rules loaded from {}",
+            custom_rules.len(),
+            paths.data_dir.join("rules").display()
+        );
     }
-    println!();
+    if !is_structured {
+        println!();
+    }
 
     let t_collect = Instant::now();
     let collected = collect(paths);
     let collect_ms = t_collect.elapsed().as_millis();
     let t_score = Instant::now();
-    let scored = score_all(&collected.entries, &collected.services);
+    let mut scored = score_all(&collected.entries, &collected.services);
+
+    if !custom_rules.is_empty() {
+        for s in &mut scored {
+            if let Some(rule) =
+                cure_core::custom_rules::evaluate_custom_rules(&s.entry.command, &custom_rules)
+                    .or_else(|| {
+                        cure_core::custom_rules::evaluate_custom_rules(
+                            &s.entry.location,
+                            &custom_rules,
+                        )
+                    })
+            {
+                s.score = s.score.max(85);
+                s.risk = rule.risk;
+                s.attack.id = "CUSTOM".to_string();
+                s.attack.name = rule.name.clone();
+                s.evidence
+                    .push(cure_core::evidence::Evidence::observed(format!(
+                        "Custom Rule Match [{}]: {}",
+                        rule.name, rule.description
+                    )));
+            }
+        }
+    }
+
     let score_ms = t_score.elapsed().as_millis();
+
+    if let Some(ref fmt) = format_clean {
+        if fmt == "sarif" || fmt == "json" {
+            let coverage = vec![cure_core::report::CoverageRow::checked(
+                "Persistence & Services",
+                format!("{} items evaluated", scored.len()),
+            )];
+            let report = cure_core::report::assemble(
+                cure_core::report::ScanInput {
+                    persistence: scored,
+                    processes: Vec::new(),
+                    ransom: Vec::new(),
+                    canary_note: "CLI scan".to_string(),
+                },
+                coverage,
+                &cure_core::report::ReportOptions { redact: false },
+            );
+            let rendered = if fmt == "sarif" {
+                cure_core::report::render_sarif(&report)
+            } else {
+                cure_core::report::render_json(&report)
+            };
+            if let Some(out_file) = output {
+                fs::write(out_file, rendered)?;
+                println!("Report exported to: {}", out_file.display());
+            } else {
+                println!("{rendered}");
+            }
+            return Ok(());
+        }
+    }
+
     if scored.is_empty() {
         println!("no persistence entries found in the scanned locations.");
     } else {
@@ -1001,8 +1093,8 @@ fn cmd_report(paths: &ResolvedPaths, format: &str, redact: bool) -> Result<(), B
     use cure_core::report::{CoverageRow, ReportOptions, ScanInput};
 
     let format = format.to_ascii_lowercase();
-    if format != "json" && format != "txt" {
-        return Err(format!("unknown format {format}: use json or txt").into());
+    if format != "json" && format != "txt" && format != "sarif" {
+        return Err(format!("unknown format {format}: use json, sarif or txt").into());
     }
     println!("C.U.R.E security report — collecting evidence (nothing is remediated)…");
 
@@ -1090,10 +1182,10 @@ fn cmd_report(paths: &ResolvedPaths, format: &str, redact: bool) -> Result<(), B
         coverage,
         &ReportOptions { redact },
     );
-    let body = if format == "json" {
-        cure_core::report::render_json(&report)
-    } else {
-        cure_core::report::render_txt(&report)
+    let body = match format.as_str() {
+        "json" => cure_core::report::render_json(&report),
+        "sarif" => cure_core::report::render_sarif(&report),
+        _ => cure_core::report::render_txt(&report),
     };
     let stamp = cure_core::report::utc_stamp();
     let filename = format!("cure-report-{stamp}.{format}");
@@ -1123,8 +1215,8 @@ fn cmd_incident(
 
     let duration_secs = incident::validate_duration(duration_secs).map_err(|e| e.to_string())?;
     let format = format.to_ascii_lowercase();
-    if format != "json" && format != "txt" {
-        return Err(format!("unknown format {format}: use json or txt").into());
+    if format != "json" && format != "txt" && format != "sarif" {
+        return Err(format!("unknown format {format}: use json, sarif or txt").into());
     }
 
     println!("C.U.R.E post-login incident investigation");
@@ -1279,10 +1371,10 @@ fn cmd_incident(
         &ReportOptions { redact },
     );
     report.incident = Some(cure_core::report::incident_section(&result, redact));
-    let body = if format == "json" {
-        cure_core::report::render_json(&report)
-    } else {
-        cure_core::report::render_txt(&report)
+    let body = match format.as_str() {
+        "json" => cure_core::report::render_json(&report),
+        "sarif" => cure_core::report::render_sarif(&report),
+        _ => cure_core::report::render_txt(&report),
     };
     let stamp = cure_core::report::utc_stamp();
     let filename = format!("cure-incident-{stamp}.{format}");

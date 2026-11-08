@@ -532,6 +532,8 @@ pub fn enumerate_agent_processes() -> Vec<DetectedAgentProcess> {
     };
 
     let mut results = Vec::new();
+    let mut identity_cache: std::collections::HashMap<(AgentKind, String), ExecutableIdentity> =
+        std::collections::HashMap::new();
     // SAFETY: CreateToolhelp32Snapshot creates a read-only snapshot of running processes.
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
     let Ok(snapshot) = snapshot else {
@@ -627,7 +629,9 @@ pub fn enumerate_agent_processes() -> Vec<DetectedAgentProcess> {
             let identity = if access_denied {
                 ExecutableIdentity::AccessDenied
             } else {
-                verify_process_identity(kind, &exe_path)
+                *identity_cache
+                    .entry((kind, exe_path.clone()))
+                    .or_insert_with(|| verify_process_identity(kind, &exe_path))
             };
             let evidence = match identity {
                 ExecutableIdentity::Verified => format!(

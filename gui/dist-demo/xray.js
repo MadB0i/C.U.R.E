@@ -457,11 +457,11 @@
     if (!prefersMotion()) return;
     state.ripples.push({
       r: geo.innerR + 4,
-      maxR: geo.outerR + 25,
+      maxR: geo.outerR + 32,
       color: color || "#a78bfa",
-      alpha: 0.8,
+      alpha: 0.95,
     });
-    if (state.ripples.length > 4) state.ripples.shift();
+    if (state.ripples.length > 5) state.ripples.shift();
   }
 
   function draw() {
@@ -640,10 +640,19 @@
         cy + Math.sin(sweepAngle) * (geo.outerR + 16)
       );
       ctx.strokeStyle = P.sweepLine;
-      ctx.lineWidth = 2.4;
+      ctx.lineWidth = 2.8;
       ctx.shadowColor = P.sweepLine;
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = 14;
       ctx.stroke();
+
+      const tipX = cx + Math.cos(sweepAngle) * (geo.outerR + 16);
+      const tipY = cy + Math.sin(sweepAngle) * (geo.outerR + 16);
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.shadowColor = "#38bdf8";
+      ctx.shadowBlur = 14;
+      ctx.fill();
       ctx.restore();
     }
 
@@ -651,13 +660,16 @@
     if (state.ripples.length > 0 && prefersMotion()) {
       for (let rp = 0; rp < state.ripples.length; rp += 1) {
         const ripple = state.ripples[rp];
+        ctx.save();
         ctx.beginPath();
         ctx.arc(cx, cy, ripple.r, 0, Math.PI * 2);
         ctx.strokeStyle = ripple.color;
         ctx.globalAlpha = Math.max(0, ripple.alpha);
-        ctx.lineWidth = 1.6;
+        ctx.lineWidth = 2.0;
+        ctx.shadowColor = ripple.color;
+        ctx.shadowBlur = 12;
         ctx.stroke();
-        ctx.globalAlpha = 1.0;
+        ctx.restore();
       }
     }
 
@@ -1063,8 +1075,8 @@
     const c = counts();
 
     if (itemsEl) itemsEl.textContent = state.entries + " entries inspected";
-    if (inspectedEl) inspectedEl.textContent = String(state.entries);
-    if (findingsEl) findingsEl.textContent = String(state.findings);
+    if (inspectedEl && !window.CureVirusRescueClean) inspectedEl.textContent = String(state.entries);
+    if (findingsEl && !window.CureVirusRescueClean) findingsEl.textContent = String(state.findings);
     if (coverageEl) coverageEl.textContent = c.covered + " / " + c.total;
     if (matrixCoverEl) {
       matrixCoverEl.textContent = c.covered + " / " + c.total + " checked";

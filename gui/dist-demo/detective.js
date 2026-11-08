@@ -350,6 +350,29 @@
     });
   }
 
+  function kindIcon(kind) {
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("viewBox", "0 0 24 24");
+    icon.setAttribute("width", "13");
+    icon.setAttribute("height", "13");
+    icon.setAttribute("fill", "currentColor");
+    icon.classList.add("dt-lead-kind-icon");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    if (kind === "location") {
+      path.setAttribute("d", "M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z");
+    } else if (kind === "category") {
+      path.setAttribute("d", "M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z");
+    } else if (kind === "duplicate") {
+      path.setAttribute("d", "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z");
+    } else if (kind === "abandoned") {
+      path.setAttribute("d", "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z");
+    } else {
+      path.setAttribute("d", "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z");
+    }
+    icon.appendChild(path);
+    return icon;
+  }
+
   function buildLeads() {
     const list = $("dt-leads");
     const empty = $("dt-empty");
@@ -368,13 +391,17 @@
 
       const top = el("div", "dt-lead-top");
       const rank = el("span", "dt-lead-rank", String(index + 1).padStart(2, "0"));
-      const kind = el("span", "dt-lead-kind", KIND_LABEL[lead.kind] || lead.kind);
+      const kind = el("span", "dt-lead-kind");
+      const icon = kindIcon(lead.kind);
+      if (icon) kind.appendChild(icon);
+      kind.appendChild(document.createTextNode(" " + (KIND_LABEL[lead.kind] || lead.kind)));
       const size = el("span", "dt-lead-size", lead.bytes_allocated_label);
       top.appendChild(rank);
       top.appendChild(kind);
       top.appendChild(size);
 
       const title = el("div", "dt-lead-title", lead.title);
+      title.title = lead.title;
 
       const meta = el("div", "dt-lead-meta");
       const risk = el(
@@ -393,8 +420,8 @@
       }
       meta.appendChild(el("span", "dt-lead-share", percent(lead.share)));
 
-      const bar = el("div", "dt-lead-bar");
-      const fill = el("span", "dt-lead-fill " + (RISK_CLASS[lead.risk] || ""));
+      const bar = el("div", "dt-lead-capacity-track");
+      const fill = el("div", "dt-lead-capacity-bar");
       fill.style.width = Math.max(2, Math.min(100, (lead.share || 0) * 100)) + "%";
       bar.appendChild(fill);
 
@@ -627,6 +654,65 @@
   /* ---------------------------------------------------------------------
      the investigation itself
      --------------------------------------------------------------------- */
+  function renderActiveScan() {
+    const empty = $("dt-empty");
+    if (empty) empty.classList.add("hidden");
+
+    const mapHost = $("dt-map");
+    if (mapHost) {
+      mapHost.replaceChildren();
+      const stage = el("div", "dt-radar-stage");
+      const sphere = el("div", "dt-radar-sphere");
+      sphere.appendChild(el("div", "dt-radar-rings"));
+      sphere.appendChild(el("div", "dt-radar-sweep-beam"));
+      sphere.appendChild(el("div", "dt-radar-center-blip"));
+      stage.appendChild(sphere);
+
+      const headline = el("div", "dt-radar-headline", "Forensic Storage Radar Active");
+      const sub = el("div", "dt-radar-subtext", "Scanning C: drive & developer caches…");
+      sub.id = "dt-radar-ticker";
+      stage.appendChild(headline);
+      stage.appendChild(sub);
+      mapHost.appendChild(stage);
+    }
+
+    const list = $("dt-leads");
+    if (list) {
+      list.replaceChildren();
+      for (let i = 0; i < 4; i++) {
+        const sk = el("li", "dt-skeleton-card");
+        const l1 = el("div", "dt-skeleton-line");
+        l1.style.width = (65 + (i * 9) % 30) + "%";
+        const l2 = el("div", "dt-skeleton-line");
+        l2.style.width = (40 + (i * 13) % 45) + "%";
+        l2.style.height = "6px";
+        const l3 = el("div", "dt-skeleton-line");
+        l3.style.width = "100%";
+        l3.style.height = "4px";
+        sk.append(l1, l2, l3);
+        list.appendChild(sk);
+      }
+    }
+
+    const cards = document.querySelectorAll("#dt-stats-strip .dt-stat-card");
+    cards.forEach(function (card) {
+      card.classList.add("is-scanning");
+    });
+
+    setStep("scan");
+    const scanStep = document.querySelector("#dt-timeline li[data-step='scan']");
+    if (scanStep) scanStep.classList.add("is-active-scan");
+  }
+
+  function clearActiveScan() {
+    const cards = document.querySelectorAll("#dt-stats-strip .dt-stat-card");
+    cards.forEach(function (card) {
+      card.classList.remove("is-scanning");
+    });
+    const scanStep = document.querySelector("#dt-timeline li[data-step='scan']");
+    if (scanStep) scanStep.classList.remove("is-active-scan");
+  }
+
   async function startInvestigation() {
     if (state.running) return;
     state.running = true;
@@ -637,7 +723,8 @@
       button.textContent = "Investigating…";
     }
     if (rescan) rescan.classList.add("hidden");
-    setStep("scan");
+    renderActiveScan();
+
     if (window.CureTopbar && window.CureTopbar.storageScanStarted) {
       window.CureTopbar.storageScanStarted();
     }
@@ -649,9 +736,11 @@
         findDuplicates: true,
         findAbandoned: true,
       });
+      clearActiveScan();
       adopt(scan);
     } catch (err) {
       state.running = false;
+      clearActiveScan();
       if (window.CureTopbar && window.CureTopbar.storageScanFinished) {
         window.CureTopbar.storageScanFinished();
       }
@@ -881,8 +970,18 @@
         if (!state.running) return;
         const p = event && event.payload;
         if (!p) return;
-        if (p.phase === lastPhase) return;
-        lastPhase = p.phase;
+        const ticker = $("dt-radar-ticker");
+        if (ticker && p.current_path) {
+          ticker.textContent = p.current_path;
+        }
+        const total = $("dt-stat-total");
+        if (total && p.bytes_seen) {
+          total.textContent = fmtBytes(p.bytes_seen);
+        }
+        const files = $("dt-stat-files");
+        if (files && p.files_seen) {
+          files.textContent = p.files_seen.toLocaleString();
+        }
       });
     }
 

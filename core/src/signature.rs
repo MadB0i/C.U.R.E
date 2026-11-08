@@ -72,7 +72,7 @@ pub enum SignatureStatus {
 /// against the local Windows cache only, so C.U.R.E makes NO network calls.
 /// [`RevocationMode::Online`] may fetch CRLs/OCSP and is strictly opt-in
 /// (CLI `--online-revocation`); the GUI never enables it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum RevocationMode {
     /// Whole-chain revocation, cache only. Offline-safe, zero network.
     #[default]
@@ -234,12 +234,47 @@ pub fn signature_detail(exe_path: &Path) -> SignatureDetail {
 }
 
 /// [`signature_detail`] with an explicit [`RevocationMode`].
+#[cfg(windows)]
+type SignatureCacheKey = (
+    std::path::PathBuf,
+    u64,
+    Option<std::time::SystemTime>,
+    RevocationMode,
+);
+#[cfg(windows)]
+type SignatureCacheMap =
+    std::sync::RwLock<std::collections::HashMap<SignatureCacheKey, SignatureDetail>>;
+#[cfg(windows)]
+static SIGNATURE_CACHE: std::sync::LazyLock<SignatureCacheMap> =
+    std::sync::LazyLock::new(|| std::sync::RwLock::new(std::collections::HashMap::new()));
+
 pub fn signature_detail_with_mode(exe_path: &Path, mode: RevocationMode) -> SignatureDetail {
     #[cfg(windows)]
     {
+        let meta = std::fs::metadata(exe_path).ok();
+        let cache_key = meta
+            .as_ref()
+            .map(|m| (exe_path.to_path_buf(), m.len(), m.modified().ok(), mode));
+
+        if let Some(ref key) = cache_key {
+            if let Ok(guard) = SIGNATURE_CACHE.read() {
+                if let Some(detail) = guard.get(key) {
+                    return detail.clone();
+                }
+            }
+        }
+
         let status = imp::verify_with_mode(exe_path, mode);
         let publisher = imp::signer_publisher(exe_path, mode);
-        SignatureDetail { status, publisher }
+        let detail = SignatureDetail { status, publisher };
+
+        if let Some(key) = cache_key {
+            if let Ok(mut guard) = SIGNATURE_CACHE.write() {
+                guard.insert(key, detail.clone());
+            }
+        }
+
+        detail
     }
     #[cfg(not(windows))]
     {

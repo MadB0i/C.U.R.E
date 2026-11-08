@@ -1,0 +1,255 @@
+/* ==========================================================================
+   C.U.R.E — Cyber-Cat Companion Mascot Styles
+   ========================================================================== */
+.cyber-cat-wrapper {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+  pointer-events: none;
+}
+
+.cyber-cat {
+  width: 100%;
+  height: 100%;
+  max-width: 150px;
+  max-height: 130px;
+  overflow: visible;
+  transition: transform 0.25s ease;
+}
+
+/* Part Setup */
+.cyber-cat .cat-tail-group {
+  transform-origin: 18px 46px;
+}
+
+.cyber-cat .cat-paw-front {
+  transform-origin: 48px 52px;
+}
+
+.cyber-cat .cat-laser {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.cyber-cat .cat-alert-badge {
+  opacity: 0;
+  transform-origin: 58px 10px;
+  transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+
+.cyber-cat .cat-virus-cube {
+  opacity: 0;
+  transform-origin: 54px 44px;
+}
+
+.cyber-cat .cat-vortex {
+  opacity: 0;
+  transform-origin: 74px 50px;
+}
+
+.cyber-cat .cat-shield {
+  opacity: 0.85;
+  transition: opacity 0.3s ease, filter 0.3s ease;
+}
+
+/* --------------------------------------------------------------------------
+   State 1: IDLE / CLEAN (Calm Relaxing / Green Shield)
+   -------------------------------------------------------------------------- */
+.cyber-cat.cat-idle .cat-tail-group,
+.cyber-cat.cat-clean .cat-tail-group {
+  animation: catTailSway 3s ease-in-out infinite;
+}
+
+.cyber-cat.cat-idle .cat-eye,
+.cyber-cat.cat-clean .cat-eye {
+  animation: catSoftBlink 4.5s ease-in-out infinite;
+  transform-origin: 44px 18px;
+}
+
+.cyber-cat.cat-clean .cat-eye {
+  fill: #10b981 !important;
+  filter: drop-shadow(0 0 5px rgba(16, 185, 129, 0.9)) !important;
+}
+
+.cyber-cat.cat-clean .cat-shield {
+  opacity: 1;
+  filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.6));
+  animation: catShieldPulse 2.5s ease-in-out infinite alternate;
+}
+
+.cyber-cat.cat-clean {
+  animation: catGentlePurr 2.2s ease-in-out infinite;
+}
+
+/* --------------------------------------------------------------------------
+   State 2: SCANNING (Hunter Mode + Laser Sweep)
+   -------------------------------------------------------------------------- */
+.cyber-cat.cat-scanning {
+  transform: translateY(2px) scale(1.02);
+}
+
+.cyber-cat.cat-scanning .cat-tail-group {
+  animation: catTailTwitch 0.8s ease-in-out infinite alternate;
+}
+
+.cyber-cat.cat-scanning .cat-eyes {
+  animation: catEyeDart 1.2s ease-in-out infinite alternate;
+}
+
+.cyber-cat.cat-scanning .cat-eye {
+  fill: #00f0ff !important;
+  filter: drop-shadow(0 0 6px #00f0ff) !important;
+}
+
+.cyber-cat.cat-scanning .cat-ear-l,
+.cyber-cat.cat-scanning .cat-ear-r {
+  animation: catEarTwitch 1.6s ease-in-out infinite;
+}
+
+/* --------------------------------------------------------------------------
+   State 3: THREAT-FOUND (Alert Mode + Crimson Eyes + Exclamation Badge)
+   -------------------------------------------------------------------------- */
+.cyber-cat.cat-threat-found {
+  animation: catAlertArch 0.4s ease-out forwards;
+}
+
+.cyber-cat.cat-threat-found .cat-eye {
+  fill: #f43f5e !important;
+  filter: drop-shadow(0 0 7px #f43f5e) !important;
+}
+
+.cyber-cat.cat-threat-found .cat-alert-badge {
+  opacity: 1;
+  animation: catAlertBadgePop 0.5s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;
+}
+
+.cyber-cat.cat-threat-found .cat-tail-group {
+  animation: catTailAlert 0.4s ease-in-out infinite alternate;
+}
+
+/* --------------------------------------------------------------------------
+   State 4: DELETING (Paw Swat Knocking Threat into Vortex)
+   -------------------------------------------------------------------------- */
+.cyber-cat.cat-deleting .cat-paw-front {
+  animation: catPawSwat 0.75s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;
+}
+
+.cyber-cat.cat-deleting .cat-virus-cube {
+  opacity: 1;
+  animation: catCubeKnockout 0.75s ease-out forwards;
+}
+
+.cyber-cat.cat-deleting .cat-vortex {
+  opacity: 1;
+  animation: catVortexSpin 0.75s linear infinite;
+}
+
+/* --------------------------------------------------------------------------
+   State 5: MOVING (For storage transfers)
+   -------------------------------------------------------------------------- */
+.cyber-cat.cat-moving {
+  animation: catTrot 0.45s ease-in-out infinite alternate;
+}
+
+.cyber-cat.cat-moving .cat-paw-front {
+  animation: catPawPush 0.45s ease-in-out infinite alternate;
+}
+
+.cyber-cat.cat-moving .cat-virus-cube {
+  opacity: 1;
+  animation: catCubeBob 0.45s ease-in-out infinite alternate;
+}
+
+/* Keyframe Animations */
+@keyframes catTailSway {
+  0% { transform: rotate(-8deg); }
+  50% { transform: rotate(14deg); }
+  100% { transform: rotate(-8deg); }
+}
+
+@keyframes catTailTwitch {
+  0% { transform: rotate(-3deg); }
+  100% { transform: rotate(20deg); }
+}
+
+@keyframes catTailAlert {
+  0% { transform: rotate(15deg); }
+  100% { transform: rotate(28deg); }
+}
+
+@keyframes catSoftBlink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.08); }
+}
+
+@keyframes catEyeDart {
+  0% { transform: translateX(-3px); }
+  50% { transform: translateX(3px); }
+  100% { transform: translateX(-3px); }
+}
+
+@keyframes catEarTwitch {
+  0%, 80%, 100% { transform: rotate(0deg); }
+  85% { transform: rotate(-4deg); }
+  90% { transform: rotate(4deg); }
+}
+
+@keyframes catAlertArch {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-4px) scaleY(1.05); }
+}
+
+@keyframes catAlertBadgePop {
+  0% { transform: scale(0); opacity: 0; }
+  70% { transform: scale(1.25); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes catGentlePurr {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes catShieldPulse {
+  0% { filter: drop-shadow(0 0 4px rgba(16, 185, 129, 0.4)); }
+  100% { filter: drop-shadow(0 0 10px rgba(16, 185, 129, 0.85)); }
+}
+
+@keyframes catTrot {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-3px); }
+}
+
+@keyframes catPawPush {
+  0% { transform: translateX(-1px); }
+  100% { transform: translateX(3px); }
+}
+
+@keyframes catCubeBob {
+  0% { transform: translateY(0) translateX(0); }
+  100% { transform: translateY(-2px) translateX(2px); }
+}
+
+@keyframes catPawSwat {
+  0% { transform: rotate(0) translateY(0); }
+  25% { transform: rotate(-35deg) translateY(-8px); }
+  50% { transform: rotate(45deg) translateY(4px) translateX(12px); }
+  80% { transform: rotate(20deg) translateY(2px) translateX(8px); }
+  100% { transform: rotate(0) translateY(0); }
+}
+
+@keyframes catCubeKnockout {
+  0% { opacity: 1; transform: translate(0, 0) scale(1) rotate(0deg); }
+  35% { opacity: 1; transform: translate(14px, -12px) scale(1.15) rotate(45deg); }
+  100% { opacity: 0; transform: translate(45px, 25px) scale(0.15) rotate(180deg); }
+}
+
+@keyframes catVortexSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
