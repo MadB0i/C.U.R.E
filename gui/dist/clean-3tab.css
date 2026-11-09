@@ -154,18 +154,28 @@
 }
 
 /* --- Hero Card with Cyber-Cat Stage --- */
+/* --- Hero Card with Deep Synaptic Cortex (Clean 2-Column HUD) --- */
 .vr-hero-card {
   display: grid;
-  grid-template-columns: 160px 1fr;
-  gap: 24px;
-  align-items: center;
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.75) 100%);
+  grid-template-columns: 1fr 440px;
+  gap: 28px;
+  align-items: stretch;
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(20, 30, 48, 0.88) 100%);
   border: 1px solid rgba(56, 189, 248, 0.28);
-  border-radius: 16px;
-  padding: 24px 28px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(12px);
+  border-radius: 18px;
+  padding: 26px 30px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px);
   margin-bottom: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+@media (max-width: 1200px) {
+  .vr-hero-card {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
 }
 
 .vr-cat-stage {
@@ -2740,40 +2750,106 @@
 }
 
 /* ==========================================================================
-   NEURAL CORE & SYNAPTIC BRAIN VISUALIZER (Page 1: #scan-view)
+   DEEP SYNAPTIC CORTEX & NEURAL MATRIX VISUALIZER (Page 1: #scan-view)
    ========================================================================== */
 .vr-neural-stage {
-  width: 220px;
-  min-width: 220px;
-  height: 160px;
-  background: radial-gradient(circle at center, rgba(15, 23, 42, 0.95) 0%, rgba(8, 14, 26, 0.98) 100%);
-  border: 1px solid rgba(56, 189, 248, 0.25);
+  width: 100%;
+  max-width: 440px;
+  height: 100%;
+  min-height: 250px;
+  background: radial-gradient(ellipse at 50% 50%, rgba(15, 23, 42, 0.98) 0%, rgba(8, 14, 26, 0.99) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.32);
   border-radius: 16px;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  justify-content: space-between;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 0 25px rgba(56, 189, 248, 0.12), inset 0 0 15px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 0 35px rgba(56, 189, 248, 0.1), inset 0 0 30px rgba(0, 0, 0, 0.7);
+  padding: 10px 12px;
 }
+
+/* Aerospace HUD Corner Brackets */
+.hud-corner {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-color: rgba(56, 189, 248, 0.65);
+  pointer-events: none;
+  z-index: 5;
+}
+.hud-corner.tl { top: 6px; left: 6px; border-top: 2px solid; border-left: 2px solid; }
+.hud-corner.tr { top: 6px; right: 6px; border-top: 2px solid; border-right: 2px solid; }
+.hud-corner.bl { bottom: 6px; left: 6px; border-bottom: 2px solid; border-left: 2px solid; }
+.hud-corner.br { bottom: 6px; right: 6px; border-bottom: 2px solid; border-right: 2px solid; }
 
 .vr-neural-core {
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
   justify-content: space-between;
-  padding: 8px 6px 6px 6px;
   position: relative;
+  z-index: 2;
 }
 
+/* Top Telemetry Header inside Chamber */
+.cortex-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 6px 4px 6px;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.15);
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.cortex-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #38bdf8;
+  font-weight: 700;
+}
+
+.cortex-pulse-pip {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #38bdf8;
+  box-shadow: 0 0 6px #38bdf8;
+  animation: pipBlink 1.8s ease-in-out infinite;
+}
+
+@keyframes pipBlink {
+  0%, 100% { opacity: 0.3; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+.cortex-telemetry-rate {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.cortex-telemetry-rate .rate-val {
+  color: #a855f7;
+  font-weight: 700;
+}
+
+.cortex-telemetry-rate .tensors-val {
+  color: #34d399;
+  font-weight: 700;
+}
+
+/* Middle SVG Orb Matrix */
 .neural-orb-matrix {
   width: 100%;
-  height: 125px;
+  height: 165px;
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
 }
 
 .neural-svg {
@@ -2782,87 +2858,116 @@
   overflow: visible;
 }
 
-.neural-ring-outer {
-  transform-origin: 120px 100px;
-  animation: orbitalRotate 18s linear infinite;
+/* Concentric HUD Rings Rotation */
+.cortex-ring-outer {
+  transform-origin: 230px 96px;
+  animation: cortexSpinOuter 18s linear infinite;
 }
 
-.neural-ring-mid {
-  transform-origin: 120px 100px;
-  animation: orbitalRotateRev 12s linear infinite;
+.cortex-ring-mid {
+  transform-origin: 230px 96px;
+  animation: cortexSpinMid 11s linear infinite;
 }
 
-@keyframes orbitalRotate {
+.cortex-ring-inner {
+  transform-origin: 230px 96px;
+  animation: cortexSpinInner 7s linear infinite;
+}
+
+@keyframes cortexSpinOuter {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
 
-@keyframes orbitalRotateRev {
+@keyframes cortexSpinMid {
   from { transform: rotate(360deg); }
   to { transform: rotate(0deg); }
 }
 
-.cortex-core {
-  transform-origin: 120px 100px;
-  animation: cortexPulse 3s ease-in-out infinite;
+@keyframes cortexSpinInner {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
-@keyframes cortexPulse {
+/* Central Nucleus Core */
+.cortex-nucleus-core {
+  transform-origin: 230px 96px;
+  animation: cortexBreathe 3s ease-in-out infinite;
+}
+
+@keyframes cortexBreathe {
   0%, 100% {
     transform: scale(1);
-    filter: drop-shadow(0 0 4px #38bdf8);
+    filter: drop-shadow(0 0 5px #38bdf8);
   }
   50% {
     transform: scale(1.08);
-    filter: drop-shadow(0 0 10px #818cf8);
+    filter: drop-shadow(0 0 14px #818cf8);
   }
 }
 
-.neural-label {
+.cortex-node-label {
   font-family: var(--font-mono, monospace);
-  font-size: 8px;
+  font-size: 7.5px;
   font-weight: 700;
-  fill: #94a3b8;
-  letter-spacing: 0.05em;
+  fill: #64748b;
+  letter-spacing: 0.06em;
 }
 
-.neural-node {
-  animation: nodeGlow 2.5s ease-in-out infinite;
+.cortex-node-label.verdict-lbl {
+  fill: #38bdf8;
+  font-weight: 800;
 }
 
-@keyframes nodeGlow {
-  0%, 100% { opacity: 0.7; }
+/* Axon lines default */
+.axon {
+  opacity: 0.65;
+  transition: stroke 0.4s ease, opacity 0.4s ease;
+}
+
+/* Satellites and Feature Nodes */
+.feature-node, .cortex-satellite, .synthesis-node {
+  animation: nodeShimmer 2.4s ease-in-out infinite;
+}
+
+@keyframes nodeShimmer {
+  0%, 100% { opacity: 0.65; }
   50% { opacity: 1; filter: drop-shadow(0 0 4px currentColor); }
 }
 
-.synapse {
-  animation: synapseFlash 1.8s ease-in-out infinite;
+/* Bottom Footer */
+.cortex-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px 2px 6px;
+  border-top: 1px solid rgba(56, 189, 248, 0.15);
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
 }
 
-.synapse.s1 { animation-delay: 0s; }
-.synapse.s2 { animation-delay: 0.4s; }
-.synapse.s3 { animation-delay: 0.8s; }
-.synapse.s4 { animation-delay: 1.2s; }
-.synapse.s5 { animation-delay: 1.6s; }
-
-@keyframes synapseFlash {
-  0%, 100% { opacity: 0.3; transform: scale(0.9); }
-  50% { opacity: 1; transform: scale(1.3); }
+.cortex-sub-status {
+  font-size: 8.5px;
+  color: #64748b;
+  letter-spacing: 0.06em;
+  font-weight: 600;
 }
 
 .neural-status-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(15, 23, 42, 0.8);
-  border: 1px solid rgba(56, 189, 248, 0.3);
-  padding: 3px 8px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  padding: 3px 9px;
   border-radius: 9999px;
   font-size: 9px;
   font-family: var(--font-mono, monospace);
   color: #38bdf8;
   letter-spacing: 0.05em;
   font-weight: 700;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.1);
+  transition: all 0.4s ease;
 }
 
 .neural-pulse-dot {
@@ -2879,44 +2984,127 @@
   50% { opacity: 1; }
 }
 
-/* Neural Core Reactive Scanning States */
-.vr-neural-core.is-scanning .neural-ring-outer {
-  animation-duration: 6s;
-  stroke: rgba(56, 189, 248, 0.6);
+/* ==========================================================================
+   DYNAMIC REACTIVE CORTEX STATES (is-scanning, is-clean, is-threat)
+   ========================================================================== */
+
+/* 1. SCANNING STATE: High-speed computation & intense photon firing */
+.vr-neural-core.is-scanning .cortex-ring-outer {
+  animation-duration: 5s;
+  stroke: rgba(56, 189, 248, 0.65);
 }
 
-.vr-neural-core.is-scanning .cortex-core {
-  animation-duration: 1.2s;
+.vr-neural-core.is-scanning .cortex-ring-mid {
+  animation-duration: 3.5s;
+  stroke: rgba(168, 85, 247, 0.65);
+}
+
+.vr-neural-core.is-scanning .cortex-ring-inner {
+  animation-duration: 2s;
+  stroke: rgba(56, 189, 248, 0.85);
+}
+
+.vr-neural-core.is-scanning .cortex-nucleus-core {
+  animation-duration: 1.0s;
   stroke: #38bdf8;
-  filter: drop-shadow(0 0 14px #38bdf8);
+  filter: drop-shadow(0 0 18px #38bdf8);
+}
+
+.vr-neural-core.is-scanning .axon {
+  opacity: 0.95;
 }
 
 .vr-neural-core.is-scanning .neural-status-badge {
-  border-color: rgba(56, 189, 248, 0.6);
+  border-color: rgba(56, 189, 248, 0.7);
   color: #38bdf8;
-  background: rgba(2, 132, 199, 0.15);
+  background: rgba(2, 132, 199, 0.2);
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.35);
 }
 
-.vr-neural-core.is-clean .cortex-core {
+.vr-neural-core.is-scanning .cortex-sub-status {
+  color: #38bdf8;
+}
+
+/* 2. VERIFIED CLEAN STATE: Harmonic emerald neural shield */
+.vr-neural-core.is-clean .cortex-nucleus-core {
   stroke: #10b981;
-  filter: drop-shadow(0 0 10px #10b981);
+  filter: drop-shadow(0 0 14px #10b981);
+}
+
+.vr-neural-core.is-clean .cortex-nucleus-inner {
+  fill: #10b981;
+}
+
+.vr-neural-core.is-clean .verdict-shield {
+  stroke: #10b981;
+  fill: rgba(16, 185, 129, 0.18);
+  filter: drop-shadow(0 0 8px #10b981);
+}
+
+.vr-neural-core.is-clean .verdict-core {
+  fill: #059669;
+  stroke: #10b981;
 }
 
 .vr-neural-core.is-clean .neural-status-badge {
-  border-color: rgba(16, 185, 129, 0.6);
+  border-color: rgba(16, 185, 129, 0.7);
   color: #34d399;
-  background: rgba(16, 185, 129, 0.15);
+  background: rgba(16, 185, 129, 0.18);
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.3);
 }
 
-.vr-neural-core.is-threat .cortex-core {
+.vr-neural-core.is-clean .neural-pulse-dot {
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+}
+
+.vr-neural-core.is-clean .axon {
+  stroke: rgba(52, 211, 153, 0.35) !important;
+}
+
+.vr-neural-core.is-clean .cortex-sub-status {
+  color: #34d399;
+}
+
+/* 3. THREAT CAUGHT STATE: Crimson alert & anomaly lock-on */
+.vr-neural-core.is-threat .cortex-nucleus-core {
   stroke: #f43f5e;
-  filter: drop-shadow(0 0 12px #f43f5e);
+  filter: drop-shadow(0 0 16px #f43f5e);
+}
+
+.vr-neural-core.is-threat .cortex-nucleus-inner {
+  fill: #f43f5e;
+}
+
+.vr-neural-core.is-threat .verdict-shield {
+  stroke: #f43f5e;
+  fill: rgba(244, 63, 94, 0.22);
+  filter: drop-shadow(0 0 10px #f43f5e);
+}
+
+.vr-neural-core.is-threat .verdict-core {
+  fill: #be123c;
+  stroke: #f43f5e;
 }
 
 .vr-neural-core.is-threat .neural-status-badge {
-  border-color: rgba(244, 63, 94, 0.6);
+  border-color: rgba(244, 63, 94, 0.7);
   color: #fb7185;
-  background: rgba(244, 63, 94, 0.15);
+  background: rgba(244, 63, 94, 0.2);
+  box-shadow: 0 0 16px rgba(244, 63, 94, 0.35);
+}
+
+.vr-neural-core.is-threat .neural-pulse-dot {
+  background: #f43f5e;
+  box-shadow: 0 0 8px #f43f5e;
+}
+
+.vr-neural-core.is-threat .axon {
+  stroke: rgba(244, 63, 94, 0.4) !important;
+}
+
+.vr-neural-core.is-threat .cortex-sub-status {
+  color: #fb7185;
 }
 
 /* ==========================================================================

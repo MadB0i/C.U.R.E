@@ -2604,28 +2604,6 @@ pub fn execute_source_cleanup(
     // Perform safe deletion of source tree (recursively clearing read-only attributes)
     safe_remove_dir_all(source_path)?;
 
-    #[cfg(windows)]
-    {
-        // For developer toolchain and custom directories (e.g. .codex, .cargo, .gradle),
-        // establish an NTFS directory junction at the vacated source_path pointing to target_path
-        // so applications and shells accessing the original path continue seamlessly.
-        let is_known = matches!(
-            candidate_id,
-            "downloads" | "documents" | "pictures" | "videos" | "desktop" | "desktop_media"
-        );
-        if !is_known && !source_path.exists() && target_path.is_dir() {
-            let _ = std::process::Command::new("cmd")
-                .args([
-                    "/C",
-                    "mklink",
-                    "/J",
-                    &source_path.to_string_lossy(),
-                    &target_path.to_string_lossy(),
-                ])
-                .output();
-        }
-    }
-
     // Measure C: drive free space AFTER cleanup
     let space_after = fsx::volume_space_at(c_root)
         .map(|s| s.free_bytes)

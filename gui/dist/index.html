@@ -231,101 +231,11 @@
             id="scan-view"
           >
             <div class="vr-container">
-              <!-- Top Hero Card with Neural Core Visualizer -->
+                            <!-- Top Hero Card with Deep Synaptic Cortex Visualizer -->
               <div class="vr-hero-card">
-                <div class="vr-neural-stage" id="vr-neural-stage">
-                  <div class="vr-neural-core" id="vr-neural-core">
-                    <div class="neural-orb-matrix">
-                      <svg class="neural-svg" viewBox="0 0 240 200" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <defs>
-                          <filter id="neuralGlow" x="-20%" y="-20%" width="140%" height="140%">
-                            <feGaussianBlur stdDeviation="3" result="blur" />
-                            <feMerge>
-                              <feMergeNode in="blur" />
-                              <feMergeNode in="SourceGraphic" />
-                            </feMerge>
-                          </filter>
-                          <radialGradient id="cortexGlow" cx="50%" cy="50%" r="50%">
-                            <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.7" />
-                            <stop offset="50%" stop-color="#818cf8" stop-opacity="0.3" />
-                            <stop offset="100%" stop-color="#0f172a" stop-opacity="0" />
-                          </radialGradient>
-                        </defs>
-                        <circle class="neural-cortex-aura" cx="120" cy="100" r="75" fill="url(#cortexGlow)" />
-                        <circle class="neural-ring-outer" cx="120" cy="100" r="82" stroke="rgba(56, 189, 248, 0.25)" stroke-width="1.2" stroke-dasharray="4 8" />
-                        <circle class="neural-ring-mid" cx="120" cy="100" r="58" stroke="rgba(168, 85, 247, 0.3)" stroke-width="1" stroke-dasharray="6 6" />
-                        
-                        <!-- Neural Tendrils (Branching into Filesystem) -->
-                        <g class="neural-tendrils">
-                          <!-- Top-Left: Memory -->
-                          <path class="neural-axon axon-tl" d="M120 100 Q80 60 30 45" stroke="#38bdf8" stroke-width="1.8" stroke-linecap="round" />
-                          <circle class="neural-packet packet-tl" r="3" fill="#38bdf8" filter="url(#neuralGlow)">
-                            <animateMotion path="M120 100 Q80 60 30 45" dur="1.3s" repeatCount="indefinite" />
-                          </circle>
-                          <circle class="neural-node node-tl" cx="30" cy="45" r="4.5" fill="#0284c7" stroke="#38bdf8" stroke-width="2" />
-                          <text class="neural-label label-tl" x="12" y="30">MEMORY</text>
-
-                          <!-- Top-Right: Persistence -->
-                          <path class="neural-axon axon-tr" d="M120 100 Q160 55 210 40" stroke="#818cf8" stroke-width="1.8" stroke-linecap="round" />
-                          <circle class="neural-packet packet-tr" r="3" fill="#818cf8" filter="url(#neuralGlow)">
-                            <animateMotion path="M120 100 Q160 55 210 40" dur="1.6s" repeatCount="indefinite" />
-                          </circle>
-                          <circle class="neural-node node-tr" cx="210" cy="40" r="4.5" fill="#4f46e5" stroke="#818cf8" stroke-width="2" />
-                          <text class="neural-label label-tr" x="170" y="26">PERSISTENCE</text>
-
-                          <!-- Bottom-Right: Entropy -->
-                          <path class="neural-axon axon-br" d="M120 100 Q175 135 215 160" stroke="#f43f5e" stroke-width="1.8" stroke-linecap="round" />
-                          <circle class="neural-packet packet-br" r="3" fill="#f43f5e" filter="url(#neuralGlow)">
-                            <animateMotion path="M120 100 Q175 135 215 160" dur="1.2s" repeatCount="indefinite" />
-                          </circle>
-                          <circle class="neural-node node-br" cx="215" cy="160" r="4.5" fill="#be123c" stroke="#f43f5e" stroke-width="2" />
-                          <text class="neural-label label-br" x="178" y="180">ENTROPY</text>
-
-                          <!-- Bottom-Left: LOLBins -->
-                          <path class="neural-axon axon-bl" d="M120 100 Q65 140 25 155" stroke="#34d399" stroke-width="1.8" stroke-linecap="round" />
-                          <circle class="neural-packet packet-bl" r="3" fill="#34d399" filter="url(#neuralGlow)">
-                            <animateMotion path="M120 100 Q65 140 25 155" dur="1.4s" repeatCount="indefinite" />
-                          </circle>
-                          <circle class="neural-node node-bl" cx="25" cy="155" r="4.5" fill="#059669" stroke="#34d399" stroke-width="2" />
-                          <text class="neural-label label-bl" x="10" y="175">LOLBINS</text>
-                        </g>
-
-                        <!-- Synaptic Brain Mesh -->
-                        <g class="neural-mesh">
-                          <line class="mesh-link" x1="95" y1="85" x2="145" y2="85" stroke="rgba(56, 189, 248, 0.45)" stroke-width="1" />
-                          <line class="mesh-link" x1="95" y1="85" x2="80" y2="115" stroke="rgba(168, 85, 247, 0.45)" stroke-width="1" />
-                          <line class="mesh-link" x1="145" y1="85" x2="160" y2="115" stroke="rgba(168, 85, 247, 0.45)" stroke-width="1" />
-                          <line class="mesh-link" x1="80" y1="115" x2="120" y2="130" stroke="rgba(56, 189, 248, 0.45)" stroke-width="1" />
-                          <line class="mesh-link" x1="160" y1="115" x2="120" y2="130" stroke="rgba(56, 189, 248, 0.45)" stroke-width="1" />
-                          <line class="mesh-link" x1="120" y1="100" x2="95" y2="85" stroke="rgba(52, 211, 153, 0.5)" stroke-width="1" />
-                          <line class="mesh-link" x1="120" y1="100" x2="145" y2="85" stroke="rgba(52, 211, 153, 0.5)" stroke-width="1" />
-                          <line class="mesh-link" x1="120" y1="100" x2="80" y2="115" stroke="rgba(52, 211, 153, 0.5)" stroke-width="1" />
-                          <line class="mesh-link" x1="120" y1="100" x2="160" y2="115" stroke="rgba(52, 211, 153, 0.5)" stroke-width="1" />
-                          <line class="mesh-link" x1="120" y1="100" x2="120" y2="130" stroke="rgba(52, 211, 153, 0.5)" stroke-width="1" />
-
-                          <!-- Synaptic Nodes -->
-                          <circle class="synapse s1" cx="95" cy="85" r="3.5" fill="#38bdf8" />
-                          <circle class="synapse s2" cx="145" cy="85" r="3.5" fill="#818cf8" />
-                          <circle class="synapse s3" cx="80" cy="115" r="3.5" fill="#c084fc" />
-                          <circle class="synapse s4" cx="160" cy="115" r="3.5" fill="#f43f5e" />
-                          <circle class="synapse s5" cx="120" cy="130" r="3.5" fill="#34d399" />
-                        </g>
-
-                        <!-- Central Nucleus Core -->
-                        <circle class="cortex-core" cx="120" cy="100" r="16" fill="#0f172a" stroke="#38bdf8" stroke-width="2.5" filter="url(#neuralGlow)" />
-                        <circle class="cortex-nucleus" cx="120" cy="100" r="8" fill="#38bdf8" />
-                        <circle class="cortex-spark" cx="120" cy="100" r="3" fill="#ffffff" />
-                      </svg>
-                    </div>
-                    <div class="neural-status-badge" id="neural-status-badge">
-                      <span class="neural-pulse-dot"></span>
-                      <span class="neural-status-text" id="neural-status-text">NEURAL CORTEX: ONLINE</span>
-                    </div>
-                  </div>
-                </div>
                 <div class="vr-hero-content">
                   <div class="vr-hero-header">
-                    <div class="eyebrow">DEEP VIRUS & HEURISTIC ENGINE</div>
+                    <div class="eyebrow">DEEP VIRUS &amp; HEURISTIC ENGINE</div>
                     <h1 class="headline">Virus Rescue</h1>
                     <p class="vr-hero-desc">
                       Real-time heuristic sweeps for stealth threats Windows Defender misses: obfuscated scripts, LOLBins, RTLO spoofing, system masquerades, and malicious startup persistence.
@@ -338,7 +248,7 @@
                       </svg>
                       <span id="vr-scan-btn-text">Scan System for Threats</span>
                     </button>
-                    <button class="vr-test-threat-btn" id="vr-drop-test-btn" type="button" title="Generates a harmless test script in %TEMP% flagged by heuristics to test detection and Cat swat deletion">
+                    <button class="vr-test-threat-btn" id="vr-drop-test-btn" type="button" title="Generates a harmless test script in %TEMP% flagged by heuristics to test detection">
                       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
                         <circle cx="12" cy="12" r="10"/>
                         <line x1="12" y1="8" x2="12" y2="12"/>
@@ -393,6 +303,219 @@
                       </div>
                     </div>
                     <div class="vr-phase-ticker" id="vr-phase-ticker">Ready to scan — click "Scan System for Threats" to begin</div>
+                  </div>
+                </div>
+
+                <!-- Right Side: Deep Synaptic Cortex Chamber (440px HUD) -->
+                <div class="vr-neural-stage" id="vr-neural-stage">
+                  <div class="hud-corner tl"></div>
+                  <div class="hud-corner tr"></div>
+                  <div class="hud-corner bl"></div>
+                  <div class="hud-corner br"></div>
+                  <div class="vr-neural-core" id="vr-neural-core">
+                    <div class="cortex-header">
+                      <div class="cortex-tag"><span class="cortex-pulse-pip"></span><span>SYNAPTIC HEURISTIC CORTEX</span></div>
+                      <div class="cortex-telemetry-rate"><span class="rate-val">4.8 GHz</span> · <span class="tensors-val">128 TENSORS</span></div>
+                    </div>
+                    <div class="neural-orb-matrix">
+                      <svg class="neural-svg" viewBox="0 0 440 185" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                          <filter id="neuralGlow" x="-30%" y="-30%" width="160%" height="160%">
+                            <feGaussianBlur stdDeviation="2.5" result="blur" />
+                            <feMerge>
+                              <feMergeNode in="blur" />
+                              <feMergeNode in="SourceGraphic" />
+                            </feMerge>
+                          </filter>
+                          <filter id="synapseGlow" x="-40%" y="-40%" width="180%" height="180%">
+                            <feGaussianBlur stdDeviation="3.8" result="blur" />
+                            <feMerge>
+                              <feMergeNode in="blur" />
+                              <feMergeNode in="SourceGraphic" />
+                            </feMerge>
+                          </filter>
+                          <radialGradient id="cortexAuraGrad" cx="50%" cy="50%" r="50%">
+                            <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.65" />
+                            <stop offset="50%" stop-color="#818cf8" stop-opacity="0.28" />
+                            <stop offset="100%" stop-color="#0f172a" stop-opacity="0" />
+                          </radialGradient>
+                          <pattern id="cyberDots" width="16" height="16" patternUnits="userSpaceOnUse">
+                            <circle cx="2" cy="2" r="0.8" fill="rgba(56, 189, 248, 0.12)" />
+                          </pattern>
+                        </defs>
+
+                        <!-- Cyber Dot Background Matrix -->
+                        <rect x="0" y="0" width="440" height="185" fill="url(#cyberDots)" />
+
+                        <!-- Synaptic Axon Neural Pathways (Curved Bezier Lines) -->
+                        <g class="neural-axons">
+                          <!-- Layer 1 Inputs to Layer 2 Features -->
+                          <path class="axon a-in" d="M42,28 Q86,28 130,36" stroke="rgba(56, 189, 248, 0.35)" stroke-width="1.4" stroke-linecap="round" />
+                          <path class="axon a-in" d="M42,28 Q86,52 130,76" stroke="rgba(56, 189, 248, 0.28)" stroke-width="1.2" stroke-linecap="round" />
+                          <path class="axon a-in" d="M42,70 Q86,53 130,36" stroke="rgba(129, 140, 248, 0.28)" stroke-width="1.2" stroke-linecap="round" />
+                          <path class="axon a-in" d="M42,70 Q86,73 130,76" stroke="rgba(129, 140, 248, 0.35)" stroke-width="1.4" stroke-linecap="round" />
+                          <path class="axon a-in" d="M42,70 Q86,95 130,116" stroke="rgba(129, 140, 248, 0.28)" stroke-width="1.2" stroke-linecap="round" />
+                          <path class="axon a-in" d="M42,114 Q86,95 130,76" stroke="rgba(244, 63, 94, 0.28)" stroke-width="1.2" stroke-linecap="round" />
+                          <path class="axon a-in" d="M42,114 Q86,115 130,116" stroke="rgba(244, 63, 94, 0.35)" stroke-width="1.4" stroke-linecap="round" />
+                          <path class="axon a-in" d="M42,114 Q86,135 130,156" stroke="rgba(244, 63, 94, 0.28)" stroke-width="1.2" stroke-linecap="round" />
+                          <path class="axon a-in" d="M42,158 Q86,137 130,116" stroke="rgba(52, 211, 153, 0.28)" stroke-width="1.2" stroke-linecap="round" />
+                          <path class="axon a-in" d="M42,158 Q86,157 130,156" stroke="rgba(52, 211, 153, 0.35)" stroke-width="1.4" stroke-linecap="round" />
+
+                          <!-- Layer 2 Features to Cortex Core & Satellites -->
+                          <path class="axon a-mid" d="M130,36 Q165,44 200,52" stroke="rgba(56, 189, 248, 0.38)" stroke-width="1.4" stroke-linecap="round" />
+                          <path class="axon a-mid" d="M130,36 Q180,66 230,96" stroke="rgba(56, 189, 248, 0.3)" stroke-width="1.2" stroke-linecap="round" />
+                          <path class="axon a-mid" d="M130,76 Q165,64 200,52" stroke="rgba(129, 140, 248, 0.35)" stroke-width="1.3" stroke-linecap="round" />
+                          <path class="axon a-mid" d="M130,76 Q180,86 230,96" stroke="rgba(129, 140, 248, 0.4)" stroke-width="1.5" stroke-linecap="round" />
+                          <path class="axon a-mid" d="M130,116 Q180,106 230,96" stroke="rgba(244, 63, 94, 0.4)" stroke-width="1.5" stroke-linecap="round" />
+                          <path class="axon a-mid" d="M130,116 Q165,128 200,140" stroke="rgba(244, 63, 94, 0.35)" stroke-width="1.3" stroke-linecap="round" />
+                          <path class="axon a-mid" d="M130,156 Q180,126 230,96" stroke="rgba(52, 211, 153, 0.3)" stroke-width="1.2" stroke-linecap="round" />
+                          <path class="axon a-mid" d="M130,156 Q165,148 200,140" stroke="rgba(52, 211, 153, 0.38)" stroke-width="1.4" stroke-linecap="round" />
+
+                          <!-- Cortex Internal Synaptic Mesh -->
+                          <path class="axon a-mesh" d="M200,52 Q230,40 260,52" stroke="rgba(168, 85, 247, 0.45)" stroke-width="1.3" />
+                          <path class="axon a-mesh" d="M200,140 Q230,152 260,140" stroke="rgba(168, 85, 247, 0.45)" stroke-width="1.3" />
+                          <path class="axon a-mesh" d="M200,52 Q215,74 230,96" stroke="rgba(56, 189, 248, 0.5)" stroke-width="1.4" />
+                          <path class="axon a-mesh" d="M260,52 Q245,74 230,96" stroke="rgba(56, 189, 248, 0.5)" stroke-width="1.4" />
+                          <path class="axon a-mesh" d="M200,140 Q215,118 230,96" stroke="rgba(52, 211, 153, 0.5)" stroke-width="1.4" />
+                          <path class="axon a-mesh" d="M260,140 Q245,118 230,96" stroke="rgba(52, 211, 153, 0.5)" stroke-width="1.4" />
+                          <path class="axon a-mesh" d="M200,52 Q188,96 200,140" stroke="rgba(56, 189, 248, 0.35)" stroke-width="1.2" />
+                          <path class="axon a-mesh" d="M260,52 Q272,96 260,140" stroke="rgba(56, 189, 248, 0.35)" stroke-width="1.2" />
+
+                          <!-- Cortex to Synthesis Layer -->
+                          <path class="axon a-out" d="M260,52 Q295,52 330,52" stroke="rgba(129, 140, 248, 0.4)" stroke-width="1.4" stroke-linecap="round" />
+                          <path class="axon a-out" d="M230,96 Q280,74 330,52" stroke="rgba(56, 189, 248, 0.35)" stroke-width="1.3" stroke-linecap="round" />
+                          <path class="axon a-out" d="M230,96 Q280,96 330,96" stroke="rgba(56, 189, 248, 0.45)" stroke-width="1.5" stroke-linecap="round" />
+                          <path class="axon a-out" d="M230,96 Q280,118 330,140" stroke="rgba(52, 211, 153, 0.35)" stroke-width="1.3" stroke-linecap="round" />
+                          <path class="axon a-out" d="M260,140 Q295,140 330,140" stroke="rgba(52, 211, 153, 0.4)" stroke-width="1.4" stroke-linecap="round" />
+
+                          <!-- Synthesis to Verdict Node -->
+                          <path class="axon a-verdict" d="M330,52 Q365,74 400,96" stroke="rgba(56, 189, 248, 0.45)" stroke-width="1.4" stroke-linecap="round" />
+                          <path class="axon a-verdict" d="M330,96 Q365,96 400,96" stroke="rgba(56, 189, 248, 0.55)" stroke-width="1.8" stroke-linecap="round" />
+                          <path class="axon a-verdict" d="M330,140 Q365,118 400,96" stroke="rgba(52, 211, 153, 0.45)" stroke-width="1.4" stroke-linecap="round" />
+                        </g>
+
+                        <!-- Dynamic Action Potential Photon Packets (Flying continuously) -->
+                        <g class="neural-packets">
+                          <circle class="neural-packet p-cyan" r="2.8" fill="#38bdf8" filter="url(#neuralGlow)">
+                            <animateMotion path="M42,28 Q86,28 130,36" dur="1.0s" repeatCount="indefinite" />
+                          </circle>
+                          <circle class="neural-packet p-violet" r="2.8" fill="#818cf8" filter="url(#neuralGlow)">
+                            <animateMotion path="M42,70 Q86,73 130,76" dur="1.2s" repeatCount="indefinite" />
+                          </circle>
+                          <circle class="neural-packet p-rose" r="2.8" fill="#f43f5e" filter="url(#neuralGlow)">
+                            <animateMotion path="M42,114 Q86,115 130,116" dur="0.9s" repeatCount="indefinite" />
+                          </circle>
+                          <circle class="neural-packet p-emerald" r="2.8" fill="#34d399" filter="url(#neuralGlow)">
+                            <animateMotion path="M42,158 Q86,157 130,156" dur="1.1s" repeatCount="indefinite" />
+                          </circle>
+
+                          <circle class="neural-packet p-cyan" r="3.0" fill="#38bdf8" filter="url(#synapseGlow)">
+                            <animateMotion path="M130,36 Q165,44 200,52" dur="0.85s" repeatCount="indefinite" />
+                          </circle>
+                          <circle class="neural-packet p-violet" r="3.0" fill="#818cf8" filter="url(#synapseGlow)">
+                            <animateMotion path="M130,76 Q180,86 230,96" dur="1.15s" repeatCount="indefinite" />
+                          </circle>
+                          <circle class="neural-packet p-rose" r="3.0" fill="#f43f5e" filter="url(#synapseGlow)">
+                            <animateMotion path="M130,116 Q180,106 230,96" dur="0.95s" repeatCount="indefinite" />
+                          </circle>
+                          <circle class="neural-packet p-emerald" r="3.0" fill="#34d399" filter="url(#synapseGlow)">
+                            <animateMotion path="M130,156 Q165,148 200,140" dur="1.05s" repeatCount="indefinite" />
+                          </circle>
+
+                          <circle class="neural-packet p-cyan" r="3.2" fill="#38bdf8" filter="url(#synapseGlow)">
+                            <animateMotion path="M200,52 Q215,74 230,96" dur="0.75s" repeatCount="indefinite" />
+                          </circle>
+                          <circle class="neural-packet p-emerald" r="3.2" fill="#34d399" filter="url(#synapseGlow)">
+                            <animateMotion path="M200,140 Q215,118 230,96" dur="0.8s" repeatCount="indefinite" />
+                          </circle>
+
+                          <circle class="neural-packet p-violet" r="3.0" fill="#c084fc" filter="url(#synapseGlow)">
+                            <animateMotion path="M230,96 Q280,74 330,52" dur="1.0s" repeatCount="indefinite" />
+                          </circle>
+                          <circle class="neural-packet p-cyan" r="3.2" fill="#38bdf8" filter="url(#synapseGlow)">
+                            <animateMotion path="M230,96 Q280,96 330,96" dur="0.7s" repeatCount="indefinite" />
+                          </circle>
+                          <circle class="neural-packet p-emerald" r="3.0" fill="#34d399" filter="url(#synapseGlow)">
+                            <animateMotion path="M230,96 Q280,118 330,140" dur="0.9s" repeatCount="indefinite" />
+                          </circle>
+
+                          <circle class="neural-packet p-cyan" r="3.4" fill="#38bdf8" filter="url(#synapseGlow)">
+                            <animateMotion path="M330,96 Q365,96 400,96" dur="0.65s" repeatCount="indefinite" />
+                          </circle>
+                        </g>
+
+                        <!-- Concentric Orbital HUD Rings around Center (230, 96) -->
+                        <g class="cortex-hud-rings">
+                          <circle class="cortex-ring-outer" cx="230" cy="96" r="64" stroke="rgba(56, 189, 248, 0.25)" stroke-width="1.2" stroke-dasharray="4 8" />
+                          <circle class="cortex-ring-mid" cx="230" cy="96" r="44" stroke="rgba(168, 85, 247, 0.32)" stroke-width="1.2" stroke-dasharray="6 6" />
+                          <circle class="cortex-ring-inner" cx="230" cy="96" r="26" stroke="rgba(56, 189, 248, 0.45)" stroke-width="1" stroke-dasharray="2 4" />
+                          <line x1="230" y1="66" x2="230" y2="72" stroke="rgba(56, 189, 248, 0.6)" stroke-width="1.5" />
+                          <line x1="230" y1="120" x2="230" y2="126" stroke="rgba(56, 189, 248, 0.6)" stroke-width="1.5" />
+                          <line x1="200" y1="96" x2="206" y2="96" stroke="rgba(56, 189, 248, 0.6)" stroke-width="1.5" />
+                          <line x1="254" y1="96" x2="260" y2="96" stroke="rgba(56, 189, 248, 0.6)" stroke-width="1.5" />
+                        </g>
+
+                        <!-- Synaptic Neurons / Nodes Grid -->
+                        <g class="neural-nodes">
+                          <!-- Layer 1: Ingestion Sensors (Left) -->
+                          <g class="sensor-node s-mem">
+                            <circle cx="42" cy="28" r="8" fill="none" stroke="rgba(56, 189, 248, 0.35)" stroke-width="1" />
+                            <circle class="node-core" cx="42" cy="28" r="4.5" fill="#0284c7" stroke="#38bdf8" stroke-width="2" filter="url(#neuralGlow)" />
+                            <text class="cortex-node-label" x="8" y="31">MEM</text>
+                          </g>
+                          <g class="sensor-node s-hook">
+                            <circle cx="42" cy="70" r="8" fill="none" stroke="rgba(129, 140, 248, 0.35)" stroke-width="1" />
+                            <circle class="node-core" cx="42" cy="70" r="4.5" fill="#4338ca" stroke="#818cf8" stroke-width="2" filter="url(#neuralGlow)" />
+                            <text class="cortex-node-label" x="6" y="73">HOOK</text>
+                          </g>
+                          <g class="sensor-node s-ent">
+                            <circle cx="42" cy="114" r="8" fill="none" stroke="rgba(244, 63, 94, 0.35)" stroke-width="1" />
+                            <circle class="node-core" cx="42" cy="114" r="4.5" fill="#be123c" stroke="#f43f5e" stroke-width="2" filter="url(#neuralGlow)" />
+                            <text class="cortex-node-label" x="8" y="117">ENT</text>
+                          </g>
+                          <g class="sensor-node s-lol">
+                            <circle cx="42" cy="158" r="8" fill="none" stroke="rgba(52, 211, 153, 0.35)" stroke-width="1" />
+                            <circle class="node-core" cx="42" cy="158" r="4.5" fill="#047857" stroke="#34d399" stroke-width="2" filter="url(#neuralGlow)" />
+                            <text class="cortex-node-label" x="8" y="161">LOL</text>
+                          </g>
+
+                          <!-- Layer 2: Feature Neurons -->
+                          <circle class="feature-node" cx="130" cy="36" r="4" fill="#0369a1" stroke="#38bdf8" stroke-width="1.8" />
+                          <circle class="feature-node" cx="130" cy="76" r="4" fill="#4f46e5" stroke="#818cf8" stroke-width="1.8" />
+                          <circle class="feature-node" cx="130" cy="116" r="4" fill="#be123c" stroke="#f43f5e" stroke-width="1.8" />
+                          <circle class="feature-node" cx="130" cy="156" r="4" fill="#059669" stroke="#34d399" stroke-width="1.8" />
+
+                          <!-- Layer 3: Cortex Satellites & Center Core -->
+                          <circle class="cortex-satellite" cx="200" cy="52" r="4.5" fill="#6366f1" stroke="#a855f7" stroke-width="2" />
+                          <circle class="cortex-satellite" cx="260" cy="52" r="4.5" fill="#6366f1" stroke="#a855f7" stroke-width="2" />
+                          <circle class="cortex-satellite" cx="200" cy="140" r="4.5" fill="#0284c7" stroke="#38bdf8" stroke-width="2" />
+                          <circle class="cortex-satellite" cx="260" cy="140" r="4.5" fill="#047857" stroke="#34d399" stroke-width="2" />
+
+                          <!-- Central Cortex Decision Core -->
+                          <circle class="cortex-aura" cx="230" cy="96" r="48" fill="url(#cortexAuraGrad)" />
+                          <circle class="cortex-nucleus-core" cx="230" cy="96" r="16" fill="#090d1a" stroke="#38bdf8" stroke-width="2.5" filter="url(#synapseGlow)" />
+                          <circle class="cortex-nucleus-inner" cx="230" cy="96" r="8" fill="#38bdf8" />
+                          <circle class="cortex-nucleus-spark" cx="230" cy="96" r="3" fill="#ffffff" />
+
+                          <!-- Layer 4: Synthesis Neurons -->
+                          <circle class="synthesis-node" cx="330" cy="52" r="4.2" fill="#4338ca" stroke="#818cf8" stroke-width="2" />
+                          <circle class="synthesis-node" cx="330" cy="96" r="4.8" fill="#0284c7" stroke="#38bdf8" stroke-width="2" />
+                          <circle class="synthesis-node" cx="330" cy="140" r="4.2" fill="#059669" stroke="#34d399" stroke-width="2" />
+
+                          <!-- Layer 5: Output Verdict Shield & Node -->
+                          <polygon class="verdict-shield" points="400,80 415,89 415,103 400,112 385,103 385,89" fill="rgba(15, 23, 42, 0.85)" stroke="#38bdf8" stroke-width="1.8" filter="url(#neuralGlow)" />
+                          <circle class="verdict-core" cx="400" cy="96" r="5" fill="#0284c7" stroke="#38bdf8" stroke-width="2" />
+                          <text class="cortex-node-label verdict-lbl" x="374" y="72">VERDICT</text>
+                        </g>
+                      </svg>
+                    </div>
+                    <div class="cortex-footer">
+                      <div class="neural-status-badge" id="neural-status-badge">
+                        <span class="neural-pulse-dot"></span>
+                        <span class="neural-status-text" id="neural-status-text">NEURAL CORTEX: ONLINE</span>
+                      </div>
+                      <div class="cortex-sub-status"><span>100% OFFLINE INFERENCE</span></div>
+                    </div>
                   </div>
                 </div>
               </div>
