@@ -24,6 +24,16 @@
   let scanStartTime = 0;
   let liveScannedCount = 0;
   let peakEntropyVal = 0.0;
+  let stageChoreographyTimers = [];
+  let pendingScanSummary = null;
+  let choreographyFinished = false;
+
+  function clearChoreography() {
+    stageChoreographyTimers.forEach((t) => clearTimeout(t));
+    stageChoreographyTimers = [];
+    pendingScanSummary = null;
+    choreographyFinished = false;
+  }
 
   function cacheEls() {
     els.startBtn = document.getElementById("xray-start-btn");
@@ -249,25 +259,26 @@
     isScanning = true;
     liveScannedCount = 0;
     peakEntropyVal = 0.0;
+    clearChoreography();
     cacheEls();
     setCatState("scanning");
 
     if (els.startBtn) els.startBtn.disabled = true;
     if (els.startBtnText) els.startBtnText.textContent = "Scanning System...";
-    if (els.progressBar) els.progressBar.style.width = "5%";
+    if (els.progressBar) els.progressBar.style.width = "10%";
     if (els.phaseTicker) els.phaseTicker.textContent = "Initializing heuristic engines & forensic telemetry...";
     if (els.idleCard) els.idleCard.classList.add("hidden");
     if (els.cleanCard) els.cleanCard.classList.add("hidden");
     if (els.threatsContainer) els.threatsContainer.classList.add("hidden");
 
-    // Initialize 4-Stage Pipeline
+    // Initialize 4-Stage Pipeline: Stage 1 active
     setStageState(1, "active");
     setStageState(2, "idle");
     setStageState(3, "idle");
     setStageState(4, "idle");
 
     // Initialize Telemetry Console
-    updateTelemetryStream("[INIT]", "Pacing memory & persistence inspection pipeline...");
+    updateTelemetryStream("[MEMORY]", "Inspecting active processes, DLL injection & masquerading...");
     if (els.telemetryEntropy) {
       els.telemetryEntropy.textContent = "0.00 bits/byte";
       els.telemetryEntropy.style.color = "#34d399";
@@ -284,6 +295,49 @@
       const secs = ((performance.now() - scanStartTime) / 1000).toFixed(1);
       if (els.elapsedVal) els.elapsedVal.textContent = secs + "s";
     }, 100);
+
+    // Stage 2 Transition (Persistence Hooks) at 550ms
+    stageChoreographyTimers.push(
+      setTimeout(() => {
+        setStageState(1, "verified");
+        setStageState(2, "active");
+        if (els.progressBar) els.progressBar.style.width = "35%";
+        updateTelemetryStream("[PERSISTENCE]", "Auditing Registry Run keys, Startup folders & Tasks");
+      }, 550)
+    );
+
+    // Stage 3 Transition (Shannon Entropy) at 1100ms
+    stageChoreographyTimers.push(
+      setTimeout(() => {
+        setStageState(2, "verified");
+        setStageState(3, "active");
+        if (els.progressBar) els.progressBar.style.width = "65%";
+        updateTelemetryStream("[ENTROPY]", "Calculating Shannon entropy on executable binaries...");
+      }, 1100)
+    );
+
+    // Stage 4 Transition (De-Obfuscator & LOLBins) at 1650ms
+    stageChoreographyTimers.push(
+      setTimeout(() => {
+        setStageState(3, "verified");
+        setStageState(4, "active");
+        if (els.progressBar) els.progressBar.style.width = "88%";
+        updateTelemetryStream("[LOLBINS]", "De-obfuscating script cradles & Base64 payloads...");
+      }, 1650)
+    );
+
+    // Forensic Pipeline Completion at 2200ms
+    stageChoreographyTimers.push(
+      setTimeout(() => {
+        setStageState(4, "verified");
+        choreographyFinished = true;
+        if (pendingScanSummary) {
+          const s = pendingScanSummary;
+          pendingScanSummary = null;
+          finalizeScan(s);
+        }
+      }, 2200)
+    );
   }
 
   function onProgress(payload) {
@@ -307,7 +361,7 @@
 
     // 3. Pipeline Stages & Live Telemetry Handling
     if (payload.stage === "pipeline-stage") {
-      if (typeof payload.pipeline_stage === "number") {
+      if (typeof payload.pipeline_stage === "number" && choreographyFinished) {
         setStageState(payload.pipeline_stage, payload.state);
       }
     } else if (payload.stage === "telemetry") {
@@ -321,37 +375,33 @@
       updateTelemetryStream(`[${(payload.source || "PERSISTENCE").toUpperCase()}]`, payload.location || payload.name || "");
     }
 
-    // Progressive stage widths and backup stage activation
+    // Progressive stage widths fallback
     const stageWidths = {
-      registry: "15%",
-      startup: "28%",
-      tasks: "42%",
-      services: "55%",
-      "process-scan": "70%",
+      registry: "20%",
+      startup: "35%",
+      tasks: "48%",
+      services: "60%",
+      "process-scan": "72%",
       "ransom-detect": "82%",
       "heuristic-sweep": "92%",
       done: "100%",
     };
 
-    if (payload.stage && stageWidths[payload.stage] && els.progressBar) {
+    if (payload.stage && stageWidths[payload.stage] && els.progressBar && choreographyFinished) {
       els.progressBar.style.width = stageWidths[payload.stage];
-    }
-
-    // Secondary fallback stage advancement if pipeline-stage event isn't triggered
-    if (payload.stage === "registry" || payload.stage === "startup" || payload.stage === "tasks") {
-      setStageState(2, "active");
-    } else if (payload.stage === "process-scan") {
-      setStageState(2, "verified");
-      setStageState(1, "active");
-    } else if (payload.stage === "heuristic-sweep") {
-      setStageState(1, "verified");
-      setStageState(2, "verified");
-      setStageState(3, "active");
-      setStageState(4, "active");
     }
   }
 
   function onScanDone(summary) {
+    if (!choreographyFinished) {
+      // Hold summary until forensic choreography completes its visual dwell time
+      pendingScanSummary = summary;
+      return;
+    }
+    finalizeScan(summary);
+  }
+
+  function finalizeScan(summary) {
     isScanning = false;
     clearInterval(elapsedTimer);
     cacheEls();
@@ -646,8 +696,17 @@
           } catch (err) {
             row.classList.remove("row-swatting");
             delBtn.disabled = false;
-            delBtn.textContent = "Delete Permanently";
-            alert("Could not delete threat: " + err);
+            delBtn.textContent = "Retry Deletion";
+
+            // Add or update inline file lock notification badge
+            let lockNotice = row.querySelector(".vr-file-lock-notice");
+            if (!lockNotice) {
+              lockNotice = document.createElement("div");
+              lockNotice.className = "vr-file-lock-notice";
+              const infoCol = row.querySelector(".vr-threat-info");
+              if (infoCol) infoCol.appendChild(lockNotice);
+            }
+            lockNotice.innerHTML = `⚠️ <strong>FILE LOCK ENCOUNTERED:</strong> ${escapeHtml(err)}<br/><span style="opacity: 0.85; font-size: 11px;">A running process or third-party AV is holding an exclusive handle. Click &quot;Retry Deletion&quot; or use &quot;Quarantine&quot; to safely isolate this file.</span>`;
           }
         });
       }

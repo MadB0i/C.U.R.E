@@ -508,8 +508,25 @@ async fn delete_threat_entry(
                     let _ = std::fs::set_permissions(&path, perms);
                 }
 
-                std::fs::remove_file(&path)
-                    .map_err(|e| format!("Failed to delete threat file {}: {e}", file_path))?;
+                let mut deleted = false;
+                let mut last_err = String::new();
+                for attempt in 0..5 {
+                    match std::fs::remove_file(&path) {
+                        Ok(()) => {
+                            deleted = true;
+                            break;
+                        }
+                        Err(e) => {
+                            last_err = e.to_string();
+                            std::thread::sleep(std::time::Duration::from_millis(60 * (attempt + 1)));
+                        }
+                    }
+                }
+                if !deleted {
+                    return Err(format!(
+                        "File is locked by an external process or active antivirus: {last_err}"
+                    ));
+                }
             }
         }
 
@@ -5971,7 +5988,23 @@ mod threat_tests {
                 "Heuristic scanner must catch test payload"
             );
 
-            // Verify deletion
+            // Verify forensic cradle & de-obfuscated payload extraction
+            let details = cure_core::scanners::heuristics::inspect_script_details(&content);
+            assert!(
+                details.is_some(),
+                "inspect_script_details must extract details from test payload"
+            );
+            let d = details.unwrap();
+            assert!(
+                !d.matched_line.is_empty(),
+                "Captured cradle must contain the suspicious command line"
+            );
+            assert!(
+                d.decoded_payload.is_some(),
+                "Decoded payload must be present for encoded test threat"
+            );
+
+            // Verify deletion with backoff
             let del_res =
                 delete_threat_entry("test-id-1".to_string(), file_path.clone(), None).await;
             assert!(
