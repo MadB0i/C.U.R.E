@@ -3374,14 +3374,69 @@
   transform: none !important;
 }
 
-/* Eyelids completely hidden when locked/open - no cutting across the eye */
-.ar-oculus-core.is-locked .eyelid-blade,
+/* Eyelids during scanning & clean remain retracted */
 .ar-oculus-core.is-scanning .eyelid-blade,
 .ar-oculus-core.is-clean .eyelid-blade {
   display: none !important;
   opacity: 0 !important;
   visibility: hidden !important;
 }
+
+/* In Red Alert: Eye stays wide open, but does a crisp robotic cyber blink every 3.8s! */
+.ar-oculus-core.is-locked .oculus-aperture-ellipse {
+  transform-origin: 190px 90px;
+  animation: cyberRedEyeBlink 3.8s ease-in-out infinite;
+}
+
+.ar-oculus-core.is-locked .eyelid-upper {
+  transform-origin: 190px 90px;
+  stroke: #ef4444;
+  fill: #0a0f1d;
+  display: block !important;
+  visibility: visible !important;
+  animation: redLidUpperBlink 3.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.ar-oculus-core.is-locked .eyelid-lower {
+  transform-origin: 190px 90px;
+  stroke: #ef4444;
+  fill: #0a0f1d;
+  display: block !important;
+  visibility: visible !important;
+  animation: redLidLowerBlink 3.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+@keyframes cyberRedEyeBlink {
+  0%, 86%, 92%, 100% {
+    transform: scaleY(1);
+  }
+  89% {
+    transform: scaleY(0.06);
+  }
+}
+
+@keyframes redLidUpperBlink {
+  0%, 86%, 92%, 100% {
+    transform: translateY(-35px) scaleY(0);
+    opacity: 0;
+  }
+  89% {
+    transform: translateY(10px) scaleY(1.2);
+    opacity: 1;
+  }
+}
+
+@keyframes redLidLowerBlink {
+  0%, 86%, 92%, 100% {
+    transform: translateY(35px) scaleY(0);
+    opacity: 0;
+  }
+  89% {
+    transform: translateY(-10px) scaleY(1.2);
+    opacity: 1;
+  }
+}
+
 .ar-oculus-core.is-locked .oculus-hull {
   stroke: #ef4444;
   filter: drop-shadow(0 0 14px rgba(239, 68, 68, 0.4));
@@ -3394,6 +3449,14 @@
   fill: #dc2626;
   stroke: #ef4444;
   filter: drop-shadow(0 0 18px #ef4444);
+  animation: redIrisThreatPulse 3.8s ease-in-out infinite;
+}
+
+@keyframes redIrisThreatPulse {
+  0%, 86% { filter: drop-shadow(0 0 16px #ef4444); }
+  89% { filter: drop-shadow(0 0 6px #7f1d1d); }
+  92% { filter: drop-shadow(0 0 24px #ff0033); }
+  100% { filter: drop-shadow(0 0 16px #ef4444); }
 }
 .ar-oculus-core.is-locked .pupil-core {
   fill: #450a0a;
