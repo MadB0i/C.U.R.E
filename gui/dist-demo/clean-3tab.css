@@ -171,15 +171,15 @@
 
 .vr-console-upper {
   display: grid;
-  grid-template-columns: 1fr 440px;
-  gap: 28px;
+  grid-template-columns: minmax(0, 1.15fr) 400px;
+  gap: 20px;
   align-items: stretch;
 }
 
 @media (max-width: 1200px) {
   .vr-console-upper {
     grid-template-columns: 1fr;
-    gap: 24px;
+    gap: 20px;
   }
 }
 
@@ -728,17 +728,54 @@
   animation: fadeIn 0.3s ease;
 }
 
-/* Block 1: Top Hero Card */
-.ar-hero-card {
-  display: flex;
-  align-items: center;
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.75) 100%);
-  border: 1px solid rgba(139, 92, 246, 0.28);
-  border-radius: 16px;
-  padding: 24px 28px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(12px);
-  gap: 24px;
+/* --- UNIFIED MASTER AI RADAR CONSOLE (Page 2) --- */
+.ar-master-console {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 20px !important;
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(28, 25, 48, 0.88) 100%) !important;
+  border: 1px solid rgba(168, 85, 247, 0.32) !important;
+  border-radius: 18px !important;
+  padding: 26px 30px !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(16px) !important;
+  margin-bottom: 8px !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.ar-console-upper {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  gap: 28px;
+  align-items: stretch;
+}
+
+@media (max-width: 1200px) {
+  .ar-console-upper {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+}
+
+.ar-console-dock {
+  border-top: 1px solid rgba(168, 85, 247, 0.18);
+  padding-top: 18px;
+  margin-top: 2px;
+}
+
+.ar-console-dock .ar-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-top: 0;
+}
+
+.ar-console-dock .ar-kpi-card {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(168, 85, 247, 0.16);
+  border-radius: 12px;
+  padding: 14px 18px;
 }
 
 .ar-cat-stage {
@@ -2436,26 +2473,28 @@
 /* --- 4-Stage Segmented Forensic Pipeline --- */
 .vr-pipeline-stages {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
   margin-top: 10px;
   margin-bottom: 2px;
+  width: 100%;
 }
 
 .vr-stage-pill {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 8px;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 7px;
   background: rgba(15, 23, 42, 0.7);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   color: #64748b;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   user-select: none;
+  min-width: 0;
 }
 
 .vr-stage-pill .vr-stage-status-icon {
@@ -3130,89 +3169,279 @@
 }
 
 /* ==========================================================================
-   PAGE 2: AI AGENT SENSOR DOME
+   PAGE 2: THE CYBER SENTRY OCULUS (The Autonomous Robotic AI Scanner)
    ========================================================================== */
 .ar-sensor-stage {
-  width: 160px;
-  min-width: 160px;
-  height: 140px;
-  background: radial-gradient(circle at center, rgba(168, 85, 247, 0.12) 0%, rgba(15, 23, 42, 0.9) 80%);
-  border: 1px solid rgba(168, 85, 247, 0.3);
-  border-radius: 14px;
+  width: 100%;
+  max-width: 400px;
+  height: 100%;
+  min-height: 240px;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
   display: flex;
   flex-direction: column;
-  align-items: center;
   justify-content: space-between;
-  padding: 10px 8px;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
+  padding: 0 !important;
 }
 
-.ar-holo-radar {
-  width: 85px;
-  height: 85px;
-  border-radius: 50%;
-  border: 1px solid rgba(168, 85, 247, 0.4);
+.ar-oculus-core {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
   position: relative;
-  background: rgba(168, 85, 247, 0.05);
+  animation: oculusHover 4.5s ease-in-out infinite;
+}
+
+@keyframes oculusHover {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+.oculus-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px 6px 4px;
+  border-bottom: 1px solid rgba(168, 85, 247, 0.18);
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.oculus-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #c084fc;
+  font-weight: 700;
+}
+
+.oculus-pulse-pip {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #c084fc;
+  box-shadow: 0 0 6px #c084fc;
+  animation: pipBlink 1.8s ease-in-out infinite;
+}
+
+.oculus-telemetry-rate {
+  font-size: 8.5px;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.oculus-matrix {
+  width: 100%;
+  height: 165px;
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
 }
 
-.ar-radar-sweep {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: conic-gradient(from 0deg, rgba(168, 85, 247, 0) 0deg, rgba(168, 85, 247, 0.4) 360deg);
-  animation: radarSweep 3s linear infinite;
+.oculus-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
 }
 
-@keyframes radarSweep {
+/* Concentric Gyro Rings */
+.oculus-gyro-outer {
+  transform-origin: 190px 90px;
+  animation: oculusSpinOuter 18s linear infinite;
+}
+
+.oculus-gyro-mid {
+  transform-origin: 190px 90px;
+  animation: oculusSpinMid 11s linear infinite;
+}
+
+@keyframes oculusSpinOuter {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
 
-.ar-radar-ring {
-  position: absolute;
-  border-radius: 50%;
-  border: 1px dashed rgba(168, 85, 247, 0.35);
+@keyframes oculusSpinMid {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
 }
 
-.ar-radar-ring.ring1 { width: 55px; height: 55px; }
-.ar-radar-ring.ring2 { width: 30px; height: 30px; }
+/* ==========================================================================
+   OCULUS STATES: IS-IDLE (Sleep Squint) vs IS-SCANNING (Eye Looks Around!)
+   ========================================================================== */
 
-.ar-radar-crosshair-h {
-  position: absolute;
-  width: 100%;
-  height: 1px;
-  background: rgba(168, 85, 247, 0.25);
+/* 1. IDLE STATE: Sleepy squinted eyelids with calm breathing cyan iris */
+.ar-oculus-core.is-idle .eyelid-upper {
+  transform-origin: 190px 90px;
+  transform: translateY(14px) scaleY(1.3);
+  transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.ar-radar-crosshair-v {
-  position: absolute;
-  height: 100%;
-  width: 1px;
-  background: rgba(168, 85, 247, 0.25);
+.ar-oculus-core.is-idle .eyelid-lower {
+  transform-origin: 190px 90px;
+  transform: translateY(-14px) scaleY(1.3);
+  transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.ar-radar-core-blip {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #c084fc;
-  box-shadow: 0 0 8px #c084fc;
-  z-index: 2;
+.ar-oculus-core.is-idle .oculus-aperture-ellipse {
+  transform-origin: 190px 90px;
+  transform: scaleY(0.35);
+  transition: transform 0.6s ease;
+}
+
+.ar-oculus-core.is-idle .oculus-radar-sweep-beam {
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.ar-oculus-core.is-idle .pupil-iris {
+  animation: idlePupilBreathe 3s ease-in-out infinite;
+}
+
+@keyframes idlePupilBreathe {
+  0%, 100% { filter: drop-shadow(0 0 4px #0284c7); }
+  50% { filter: drop-shadow(0 0 10px #38bdf8); }
+}
+
+/* 2. SCANNING STATE: Eyelids snap wide open & Cyber Eye LOOKS AROUND! */
+.ar-oculus-core.is-scanning .eyelid-upper {
+  transform-origin: 190px 90px;
+  transform: translateY(-12px) scaleY(0.6);
+  transition: transform 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+
+.ar-oculus-core.is-scanning .eyelid-lower {
+  transform-origin: 190px 90px;
+  transform: translateY(12px) scaleY(0.6);
+  transition: transform 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+
+.ar-oculus-core.is-scanning .oculus-aperture-ellipse {
+  transform-origin: 190px 90px;
+  transform: scaleY(1.0);
+  transition: transform 0.4s ease;
+}
+
+/* REALISTIC ROBOTIC LOOK-AROUND MOTION CHOREOGRAPHY */
+.ar-oculus-core.is-scanning .oculus-pupil-eye {
+  animation: oculusLookAround 3.4s ease-in-out infinite;
+}
+
+@keyframes oculusLookAround {
+  0%   { transform: translate(0, 0); }
+  12%  { transform: translate(-18px, -5px); } /* Looks Left */
+  25%  { transform: translate(-14px, 4px); }
+  40%  { transform: translate(20px, -6px); }  /* Looks Right */
+  55%  { transform: translate(16px, 12px); }  /* Looks Down-Right */
+  70%  { transform: translate(-12px, 10px); } /* Looks Down-Left */
+  82%  { transform: translate(0, -14px); }   /* Looks Straight Up */
+  92%  { transform: translate(6px, -2px); }
+  100% { transform: translate(0, 0); }       /* Returns to Center Focus */
+}
+
+/* Active 360° Radar Beam Sweep */
+.ar-oculus-core.is-scanning .oculus-radar-sweep-beam {
+  opacity: 0.85;
+  transform-origin: 190px 90px;
+  animation: radarBeamRotate 2.2s linear infinite;
+}
+
+@keyframes radarBeamRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.ar-oculus-core.is-scanning .oculus-gyro-outer {
+  animation-duration: 5s;
+  stroke: rgba(56, 189, 248, 0.65);
+}
+
+.ar-oculus-core.is-scanning .oculus-gyro-mid {
+  animation-duration: 3.5s;
+  stroke: rgba(168, 85, 247, 0.65);
+}
+
+/* 3. TARGET LOCKED STATE (When AI Agents Found): Amber/Cyan Target Lock */
+.ar-oculus-core.is-locked .eyelid-upper {
+  transform: translateY(-8px) scaleY(0.8);
+}
+.ar-oculus-core.is-locked .eyelid-lower {
+  transform: translateY(8px) scaleY(0.8);
+}
+.ar-oculus-core.is-locked .pupil-reticle {
+  stroke: #f59e0b;
+  filter: drop-shadow(0 0 10px #f59e0b);
+}
+.ar-oculus-core.is-locked .pupil-iris {
+  fill: #d97706;
+  stroke: #f59e0b;
+}
+.ar-oculus-core.is-locked .pupil-core {
+  stroke: #f59e0b;
+}
+.ar-oculus-core.is-locked .oculus-bracket {
+  stroke: #f59e0b;
+  animation: bracketLockPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes bracketLockPulse {
+  0%, 100% { transform: scale(1); opacity: 0.5; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
+
+/* 4. VERIFIED CLEAN STATE: Emerald Green Calming */
+.ar-oculus-core.is-clean .pupil-iris {
+  fill: #059669;
+  stroke: #10b981;
+  filter: drop-shadow(0 0 12px #10b981);
+}
+.ar-oculus-core.is-clean .pupil-reticle {
+  stroke: #10b981;
+}
+.ar-oculus-core.is-clean .oculus-bracket {
+  stroke: #10b981;
+}
+
+/* Bottom Footer */
+.oculus-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 4px 2px 4px;
+  border-top: 1px solid rgba(168, 85, 247, 0.18);
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+}
+
+.oculus-sub-status {
+  font-size: 8.5px;
+  color: #94a3b8;
+  letter-spacing: 0.06em;
+  font-weight: 600;
 }
 
 .ar-sensor-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 8.5px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  padding: 3px 9px;
+  border-radius: 9999px;
+  font-size: 9px;
   font-family: var(--font-mono, monospace);
-  font-weight: 700;
   color: #c084fc;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  box-shadow: 0 0 10px rgba(168, 85, 247, 0.15);
+  transition: all 0.4s ease;
 }
 
 .ar-sensor-dot {
@@ -3220,7 +3449,28 @@
   height: 5px;
   border-radius: 50%;
   background: #c084fc;
-  animation: dotPulse 1.8s infinite;
+  box-shadow: 0 0 6px #c084fc;
+  animation: dotPulse 1.5s ease-in-out infinite;
+}
+
+.ar-oculus-core.is-locked .ar-sensor-badge {
+  border-color: rgba(245, 158, 11, 0.7);
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.15);
+}
+.ar-oculus-core.is-locked .ar-sensor-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 8px #f59e0b;
+}
+
+.ar-oculus-core.is-clean .ar-sensor-badge {
+  border-color: rgba(16, 185, 129, 0.7);
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.15);
+}
+.ar-oculus-core.is-clean .ar-sensor-dot {
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
 }
 
 /* ==========================================================================

@@ -1836,6 +1836,13 @@ where
     F: FnMut(MigrationProgress),
 {
     let ver = copy_tree_verified(candidate_id, source, target, cancel_flag, on_progress)?;
+    if !ver.is_verified {
+        let err_msg = ver
+            .error
+            .as_deref()
+            .unwrap_or("Candidate copy verification failed.");
+        return Err(io::Error::other(err_msg));
+    }
 
     let now = chrono::Utc::now().to_rfc3339();
     let receipt_id = format!("RECEIPT-RESCUE-{}", chrono::Utc::now().timestamp());

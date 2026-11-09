@@ -124,75 +124,179 @@
                AI AGENT RADAR · monitored workspace + flight recorder
                ============================================================ -->
           <section
-            aria-label="AI Agent & Bot Scanner"
+            aria-label="AI Agent &amp; Bot Scanner"
             class="view hidden"
             id="view-agents"
           >
             <div class="ar-container">
-              <!-- Block 1: Top Hero Card with Cyber Sensor Dome -->
-              <div class="ar-hero-card">
-                <div class="ar-sensor-stage" id="ar-sensor-stage">
-                  <div class="ar-holo-radar">
-                    <div class="ar-radar-sweep"></div>
-                    <div class="ar-radar-ring ring1"></div>
-                    <div class="ar-radar-ring ring2"></div>
-                    <div class="ar-radar-crosshair-h"></div>
-                    <div class="ar-radar-crosshair-v"></div>
-                    <div class="ar-radar-core-blip"></div>
-                  </div>
-                  <div class="ar-sensor-badge">
-                    <span class="ar-sensor-dot"></span>
-                    <span class="ar-sensor-label">PROCESS RADAR: ACTIVE</span>
-                  </div>
-                </div>
-                <div class="ar-hero-content">
-                  <div class="ar-hero-header">
-                    <div class="eyebrow">AI AGENT & BOT DETECTION</div>
-                    <h1 class="headline">AI Agent & Bot Scanner</h1>
-                    <p class="ar-hero-desc">
-                      Real-time discovery for active coding agents, local model servers (Ollama), and automation bots. Groups child processes with Authenticode signature verification and instant termination control.
-                    </p>
-                  </div>
-                  <div class="ar-actions-row">
-                    <button class="ar-primary-scan-btn" id="ar-scan-now" type="button">
-                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="3"/>
-                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-                      </svg>
-                      <span id="ar-scan-btn-text">Scan Active Agents</span>
-                    </button>
-                  </div>
-                  <div class="ar-progress-section">
-                    <div class="ar-progress-track">
-                      <div class="ar-progress-bar" id="ar-progress-bar" style="width: 0%;"></div>
+              <!-- UNIFIED MASTER AI RADAR CONSOLE (Single Cohesive Console Deck) -->
+              <div class="ar-hero-card ar-master-console">
+                <!-- Upper Deck: Command & The Cyber Sentry Oculus -->
+                <div class="ar-console-upper">
+                  <div class="ar-hero-content">
+                    <div class="ar-hero-header">
+                      <div class="eyebrow">AI AGENT &amp; BOT DETECTION</div>
+                      <h1 class="headline">AI Agent &amp; Bot Scanner</h1>
+                      <p class="ar-hero-desc">
+                        Real-time discovery for active coding agents, local model servers (Ollama), and automation bots. Groups child processes with Authenticode signature verification and instant termination control.
+                      </p>
                     </div>
-                    <div class="ar-phase-ticker" id="ar-phase-ticker">Ready to scan — click "Scan Active Agents" to inspect memory</div>
+                    <div class="ar-actions-row">
+                      <button class="ar-primary-scan-btn" id="ar-scan-now" type="button">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                          <circle cx="12" cy="12" r="3"/>
+                          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                        </svg>
+                        <span id="ar-scan-btn-text">Scan Active Agents</span>
+                      </button>
+                    </div>
+                    <div class="ar-progress-section">
+                      <div class="ar-progress-track">
+                        <div class="ar-progress-bar" id="ar-progress-bar" style="width: 0%;"></div>
+                      </div>
+                      <div class="ar-phase-ticker" id="ar-phase-ticker">Ready to scan — click "Scan Active Agents" to inspect memory</div>
+                    </div>
+                  </div>
+
+                  <!-- Right Side: The Cyber Sentry Oculus (The AI Eye Orb) -->
+                  <div class="ar-sensor-stage" id="ar-sensor-stage">
+                    <div class="ar-oculus-core is-idle" id="ar-oculus-core">
+                      <div class="oculus-header">
+                        <div class="oculus-tag">
+                          <span class="oculus-pulse-pip"></span>
+                          <span>AI SENTINEL OCULUS</span>
+                        </div>
+                        <div class="oculus-telemetry-rate">
+                          <span class="oculus-mode-txt">360° MEMORY RADAR</span>
+                        </div>
+                      </div>
+                      <div class="oculus-matrix">
+                        <svg class="oculus-svg" viewBox="0 0 380 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <defs>
+                            <filter id="oculusGlow" x="-30%" y="-30%" width="160%" height="160%">
+                              <feGaussianBlur stdDeviation="3" result="blur" />
+                              <feMerge>
+                                <feMergeNode in="blur" />
+                                <feMergeNode in="SourceGraphic" />
+                              </feMerge>
+                            </filter>
+                            <filter id="irisGlow" x="-40%" y="-40%" width="180%" height="180%">
+                              <feGaussianBlur stdDeviation="4" result="blur" />
+                              <feMerge>
+                                <feMergeNode in="blur" />
+                                <feMergeNode in="SourceGraphic" />
+                              </feMerge>
+                            </filter>
+                            <radialGradient id="oculusLensGrad" cx="50%" cy="50%" r="50%">
+                              <stop offset="0%" stop-color="#0284c7" stop-opacity="0.9" />
+                              <stop offset="45%" stop-color="#38bdf8" stop-opacity="0.5" />
+                              <stop offset="85%" stop-color="#0f172a" stop-opacity="0.95" />
+                              <stop offset="100%" stop-color="#020617" stop-opacity="1" />
+                            </radialGradient>
+                            <radialGradient id="scanBeamGrad" cx="50%" cy="50%" r="50%">
+                              <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.55" />
+                              <stop offset="65%" stop-color="#818cf8" stop-opacity="0.18" />
+                              <stop offset="100%" stop-color="#000000" stop-opacity="0" />
+                            </radialGradient>
+                            <clipPath id="eyeApertureClip">
+                              <ellipse class="oculus-aperture-ellipse" cx="190" cy="90" rx="46" ry="38" />
+                            </clipPath>
+                          </defs>
+
+                          <!-- Outer Gimbal Gyro Rings with Azimuth Marks -->
+                          <g class="oculus-gimbal">
+                            <circle cx="190" cy="90" r="76" stroke="rgba(168, 85, 247, 0.22)" stroke-width="1.2" stroke-dasharray="3 6" />
+                            <circle class="oculus-gyro-outer" cx="190" cy="90" r="66" stroke="rgba(56, 189, 248, 0.3)" stroke-width="1.4" stroke-dasharray="6 10" />
+                            <circle class="oculus-gyro-mid" cx="190" cy="90" r="54" stroke="rgba(192, 132, 252, 0.35)" stroke-width="1.2" stroke-dasharray="4 6" />
+                            
+                            <!-- Outer Compass Reticle Ticks -->
+                            <line x1="190" y1="12" x2="190" y2="18" stroke="rgba(168, 85, 247, 0.6)" stroke-width="1.5" />
+                            <line x1="190" y1="162" x2="190" y2="168" stroke="rgba(168, 85, 247, 0.6)" stroke-width="1.5" />
+                            <line x1="112" y1="90" x2="118" y2="90" stroke="rgba(168, 85, 247, 0.6)" stroke-width="1.5" />
+                            <line x1="262" y1="90" x2="268" y2="90" stroke="rgba(168, 85, 247, 0.6)" stroke-width="1.5" />
+
+                            <!-- Target Acquisition Brackets (Corner Angles) -->
+                            <path class="oculus-bracket b-tl" d="M142,50 L134,50 L134,58" stroke="rgba(56, 189, 248, 0.5)" stroke-width="1.8" fill="none" />
+                            <path class="oculus-bracket b-tr" d="M238,50 L246,50 L246,58" stroke="rgba(56, 189, 248, 0.5)" stroke-width="1.8" fill="none" />
+                            <path class="oculus-bracket b-bl" d="M142,130 L134,130 L134,122" stroke="rgba(56, 189, 248, 0.5)" stroke-width="1.8" fill="none" />
+                            <path class="oculus-bracket b-br" d="M238,130 L246,130 L246,122" stroke="rgba(56, 189, 248, 0.5)" stroke-width="1.8" fill="none" />
+                          </g>
+
+                          <!-- Mechanical Armor Sphere Housing -->
+                          <circle class="oculus-hull" cx="190" cy="90" r="48" fill="#090d16" stroke="rgba(168, 85, 247, 0.45)" stroke-width="2" />
+
+                          <!-- Holographic 3D Scanning Radar Beam (Sweeps during scan!) -->
+                          <g class="oculus-radar-sweep-beam" clip-path="url(#eyeApertureClip)">
+                            <path class="oculus-beam-wedge" d="M190 90 L245 45 A50 50 0 0 1 245 135 Z" fill="url(#scanBeamGrad)" />
+                          </g>
+
+                          <!-- Aperture Clipped Eyeball / Lens Group -->
+                          <g clip-path="url(#eyeApertureClip)">
+                            <!-- Deep Lens Glass -->
+                            <circle cx="190" cy="90" r="44" fill="url(#oculusLensGrad)" />
+                            
+                            <!-- Crosshair Radar Grid inside Lens -->
+                            <line x1="150" y1="90" x2="230" y2="90" stroke="rgba(56, 189, 248, 0.25)" stroke-width="1" stroke-dasharray="2 3" />
+                            <line x1="190" y1="50" x2="190" y2="130" stroke="rgba(56, 189, 248, 0.25)" stroke-width="1" stroke-dasharray="2 3" />
+
+                            <!-- MOVING CYBER PUPIL & TRACKING RETICLE (LOOKS AROUND!) -->
+                            <g class="oculus-pupil-eye" id="oculus-pupil-eye">
+                              <circle class="pupil-reticle" cx="190" cy="90" r="22" stroke="#38bdf8" stroke-width="1.2" stroke-dasharray="3 3" />
+                              <circle class="pupil-iris" cx="190" cy="90" r="14" fill="#0284c7" stroke="#38bdf8" stroke-width="2" filter="url(#irisGlow)" />
+                              <circle class="pupil-core" cx="190" cy="90" r="7" fill="#0f172a" stroke="#00f0ff" stroke-width="1.5" />
+                              <circle class="pupil-spark" cx="188" cy="88" r="2.5" fill="#ffffff" />
+                              
+                              <!-- Pupil Crosshairs -->
+                              <line x1="190" y1="72" x2="190" y2="76" stroke="#00f0ff" stroke-width="1.5" />
+                              <line x1="190" y1="104" x2="190" y2="108" stroke="#00f0ff" stroke-width="1.5" />
+                              <line x1="172" y1="90" x2="176" y2="90" stroke="#00f0ff" stroke-width="1.5" />
+                              <line x1="204" y1="90" x2="208" y2="90" stroke="#00f0ff" stroke-width="1.5" />
+                            </g>
+                          </g>
+
+                          <!-- Mechanical Eyelid / Shutter Blades (Aperture squint in Idle, opens wide in Scan) -->
+                          <g class="oculus-eyelids">
+                            <path class="eyelid eyelid-upper" d="M142,90 Q190,52 238,90 Q190,30 142,90 Z" fill="#0f172a" stroke="rgba(168, 85, 247, 0.55)" stroke-width="1.5" />
+                            <path class="eyelid eyelid-lower" d="M142,90 Q190,128 238,90 Q190,150 142,90 Z" fill="#0f172a" stroke="rgba(168, 85, 247, 0.55)" stroke-width="1.5" />
+                          </g>
+                        </svg>
+                      </div>
+                      <div class="oculus-footer">
+                        <div class="ar-sensor-badge" id="ar-sensor-badge">
+                          <span class="ar-sensor-dot"></span>
+                          <span class="ar-sensor-label" id="ar-sensor-label">AI RADAR: STANDBY</span>
+                        </div>
+                        <div class="oculus-sub-status"><span>AUTHENTICODE VERIFIED</span></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Lower Integrated Dock: 3 KPI Metrics (Integrated inside the same console deck!) -->
+                <div class="ar-console-dock">
+                  <div class="ar-kpi-grid">
+                    <div class="ar-kpi-card">
+                      <span class="ar-kpi-label">Detected AI Agents</span>
+                      <span class="ar-kpi-val" id="ar-kpi-agents-count">0</span>
+                    </div>
+                    <div class="ar-kpi-card">
+                      <span class="ar-kpi-label">Processes &amp; Memory</span>
+                      <span class="ar-kpi-val" id="ar-kpi-procs-memory">0 procs · 0 MB</span>
+                    </div>
+                    <div class="ar-kpi-card ar-kpi-unverified" id="ar-kpi-unverified-card">
+                      <span class="ar-kpi-label">Unverified / Unsigned Bots</span>
+                      <span class="ar-kpi-val" id="ar-kpi-unverified-count">0</span>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <!-- Block 2: 3-Column KPI Grid -->
-              <div class="ar-kpi-grid">
-                <div class="ar-kpi-card">
-                  <span class="ar-kpi-label">Detected AI Agents</span>
-                  <span class="ar-kpi-val" id="ar-kpi-agents-count">0</span>
-                </div>
-                <div class="ar-kpi-card">
-                  <span class="ar-kpi-label">Processes & Memory</span>
-                  <span class="ar-kpi-val" id="ar-kpi-procs-memory">0 procs · 0 MB</span>
-                </div>
-                <div class="ar-kpi-card ar-kpi-unverified" id="ar-kpi-unverified-card">
-                  <span class="ar-kpi-label">Unverified / Unsigned Bots</span>
-                  <span class="ar-kpi-val" id="ar-kpi-unverified-count">0</span>
-                </div>
-              </div>
-
-              <!-- Block 3: Grouped Agents List Section -->
+              <!-- Grouped Agents List Section -->
               <section class="ar-findings-section" id="ar-findings-section">
                 <!-- Idle State Card -->
                 <div class="ar-idle-card" id="ar-idle-card">
                   <div class="ar-idle-icon">🤖</div>
-                  <h2>Ready to Scan AI Agents & Model Servers</h2>
+                  <h2>Ready to Scan AI Agents &amp; Model Servers</h2>
                   <p>Click "Scan Active Agents" to inspect memory for Claude Code, Cursor, Antigravity, Ollama, and local automation bots.</p>
                 </div>
 
@@ -213,7 +317,7 @@
                 <div class="ar-agents-card hidden" id="ar-agents-card">
                   <div class="ar-agents-header">
                     <div class="ar-agents-title-group">
-                      <h2 class="ar-agents-title">Active AI Agents & Tools</h2>
+                      <h2 class="ar-agents-title">Active AI Agents &amp; Tools</h2>
                       <span class="ar-agents-subtitle">Grouped by application identity with child processes consolidated</span>
                     </div>
                   </div>
@@ -222,6 +326,8 @@
               </section>
             </div>
           </section>
+
+          
 
           <!-- ============================================================
                RESCUE · live collection

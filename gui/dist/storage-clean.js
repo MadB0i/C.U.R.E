@@ -378,7 +378,7 @@
       moveBtn.title = "Move this item to D: or another drive with directory junction";
       moveBtn.addEventListener("click", function () {
         if (window.CureMoveBot && window.CureMoveBot.start) {
-          window.CureMoveBot.start([item.id || item.path]);
+          window.CureMoveBot.start([item.path || item.id]);
         }
       });
 

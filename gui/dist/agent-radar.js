@@ -51,8 +51,24 @@
     };
   }
 
-  function setCatState(_state) {
-    // Sensor dome is CSS animated
+  function setOculusState(state) {
+    const oculus = $("ar-oculus-core");
+    const badgeText = $("ar-sensor-label");
+    if (!oculus) return;
+    oculus.classList.remove("is-scanning", "is-clean", "is-locked", "is-idle");
+    if (state === "scanning") {
+      oculus.classList.add("is-scanning");
+      if (badgeText) badgeText.textContent = "AI RADAR: SCANNING PROCESSES";
+    } else if (state === "clean") {
+      oculus.classList.add("is-clean");
+      if (badgeText) badgeText.textContent = "AI RADAR: ZERO AGENTS (CLEAN)";
+    } else if (state === "threat-found" || state === "locked") {
+      oculus.classList.add("is-locked");
+      if (badgeText) badgeText.textContent = "AI RADAR: AGENTS DETECTED (LOCKED)";
+    } else {
+      oculus.classList.add("is-idle");
+      if (badgeText) badgeText.textContent = "AI RADAR: STANDBY";
+    }
   }
 
   function setProgress(pct, message) {
@@ -303,6 +319,7 @@
     if (isScanning) return;
     isScanning = true;
     cacheEls();
+    setOculusState("idle");
 
     if (els.scanBtn) {
       els.scanBtn.disabled = true;
@@ -311,7 +328,7 @@
       els.scanBtnText.textContent = "Scanning Memory...";
     }
 
-    setCatState("scanning");
+    setOculusState("scanning");
     setProgress(25, "Enumerating process memory & handles...");
 
     try {
@@ -329,7 +346,7 @@
         // Zero active agents
         if (els.cleanCard) els.cleanCard.classList.remove("hidden");
         if (els.agentsCard) els.agentsCard.classList.add("hidden");
-        setCatState("clean");
+        setOculusState("clean");
         setProgress(100, "Scan complete — zero active AI agents or model servers in memory");
       } else {
         // Active agents detected
@@ -339,9 +356,9 @@
 
         const unverified = groups.filter((g) => g.trust !== "verified").length;
         if (unverified > 0) {
-          setCatState("threat-found");
+          setOculusState("threat-found");
         } else {
-          setCatState("idle");
+          setOculusState("idle");
         }
 
         const totalProcs = groups.reduce((acc, g) => acc + g.pids.length, 0);
@@ -349,7 +366,7 @@
       }
     } catch (err) {
       setProgress(100, "Scan failed: " + err);
-      setCatState("idle");
+      setOculusState("idle");
     } finally {
       isScanning = false;
       if (els.scanBtn) {

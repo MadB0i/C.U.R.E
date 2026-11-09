@@ -194,7 +194,15 @@
         }
       }
     } else {
-      candidates = candidates.filter((c) => c.safety === "safe");
+      const safeOnly = candidates.filter((c) => c.safety === "safe");
+      if (safeOnly.length > 0) {
+        candidates = safeOnly;
+      } else {
+        candidates = candidates
+          .filter((c) => (c.size_bytes || 0) > 1024 * 1024)
+          .sort((a, b) => (b.size_bytes || 0) - (a.size_bytes || 0))
+          .slice(0, 5);
+      }
     }
 
     if (!candidates.length) {
@@ -204,7 +212,8 @@
         p.className = "mb-plain";
         p.textContent =
           "I looked at your C: drive — right now there is nothing I can safely move. " +
-          "Personal folders (Videos, Pictures, Downloads) show up here automatically once they take up real space.";
+          "Personal folders (Videos, Pictures, Downloads) and developer toolchains (.codex, .cargo) show up here automatically once they take up real space.";
+        els.confirmItems.appendChild(p);
       }
       if (els.confirmGo) els.confirmGo.classList.add("hidden");
       if (els.confirmCancel) els.confirmCancel.textContent = "Close";
@@ -226,13 +235,25 @@
       for (const c of candidates) {
         const row = document.createElement("div");
         row.className = "mb-item-row";
+        const leftWrap = document.createElement("div");
+        leftWrap.style.display = "flex";
+        leftWrap.style.flexDirection = "column";
+        leftWrap.style.gap = "2px";
         const name = document.createElement("span");
         name.className = "mb-item-name";
         name.textContent = c.name;
+        leftWrap.appendChild(name);
+        if (c.category || c.safety === "caution" || c.is_onedrive) {
+          const sub = document.createElement("span");
+          sub.style.fontSize = "11px";
+          sub.style.color = "#94a3b8";
+          sub.textContent = c.is_onedrive ? "OneDrive Synced Folder" : (c.category || "Relocation Candidate");
+          leftWrap.appendChild(sub);
+        }
         const size = document.createElement("span");
         size.className = "mb-item-size";
         size.textContent = formatBytes(c.size_bytes);
-        row.append(name, size);
+        row.append(leftWrap, size);
         els.confirmItems.appendChild(row);
       }
     }
