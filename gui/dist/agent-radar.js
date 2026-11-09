@@ -51,10 +51,8 @@
     };
   }
 
-  function setCatState(state) {
-    if (window.CureCat && els.catComp) {
-      window.CureCat.setState(els.catComp, state);
-    }
+  function setCatState(_state) {
+    // Sensor dome is CSS animated
   }
 
   function setProgress(pct, message) {
@@ -250,11 +248,6 @@
           stopBtn.disabled = true;
           stopBtn.querySelector("span").textContent = "Stopping...";
 
-          // Cyber-Cat swat animation
-          if (window.CureCat && els.catComp) {
-            window.CureCat.swat(els.catComp);
-          }
-
           // Disintegration animation on card
           item.classList.add("ar-item-swatting");
 
@@ -371,10 +364,7 @@
   function wire() {
     cacheEls();
 
-    // Render Cyber-Cat in Idle state on launch
-    if (window.CureCat && els.catComp) {
-      window.CureCat.render(els.catComp, "idle");
-    }
+
 
     if (els.scanBtn) {
       els.scanBtn.addEventListener("click", function () {

@@ -2738,3 +2738,554 @@
   margin-top: 8px;
   font-family: var(--font-sans, system-ui);
 }
+
+/* ==========================================================================
+   NEURAL CORE & SYNAPTIC BRAIN VISUALIZER (Page 1: #scan-view)
+   ========================================================================== */
+.vr-neural-stage {
+  width: 220px;
+  min-width: 220px;
+  height: 160px;
+  background: radial-gradient(circle at center, rgba(15, 23, 42, 0.95) 0%, rgba(8, 14, 26, 0.98) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 0 25px rgba(56, 189, 248, 0.12), inset 0 0 15px rgba(0, 0, 0, 0.6);
+}
+
+.vr-neural-core {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 6px 6px 6px;
+  position: relative;
+}
+
+.neural-orb-matrix {
+  width: 100%;
+  height: 125px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.neural-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.neural-ring-outer {
+  transform-origin: 120px 100px;
+  animation: orbitalRotate 18s linear infinite;
+}
+
+.neural-ring-mid {
+  transform-origin: 120px 100px;
+  animation: orbitalRotateRev 12s linear infinite;
+}
+
+@keyframes orbitalRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes orbitalRotateRev {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
+}
+
+.cortex-core {
+  transform-origin: 120px 100px;
+  animation: cortexPulse 3s ease-in-out infinite;
+}
+
+@keyframes cortexPulse {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 4px #38bdf8);
+  }
+  50% {
+    transform: scale(1.08);
+    filter: drop-shadow(0 0 10px #818cf8);
+  }
+}
+
+.neural-label {
+  font-family: var(--font-mono, monospace);
+  font-size: 8px;
+  font-weight: 700;
+  fill: #94a3b8;
+  letter-spacing: 0.05em;
+}
+
+.neural-node {
+  animation: nodeGlow 2.5s ease-in-out infinite;
+}
+
+@keyframes nodeGlow {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; filter: drop-shadow(0 0 4px currentColor); }
+}
+
+.synapse {
+  animation: synapseFlash 1.8s ease-in-out infinite;
+}
+
+.synapse.s1 { animation-delay: 0s; }
+.synapse.s2 { animation-delay: 0.4s; }
+.synapse.s3 { animation-delay: 0.8s; }
+.synapse.s4 { animation-delay: 1.2s; }
+.synapse.s5 { animation-delay: 1.6s; }
+
+@keyframes synapseFlash {
+  0%, 100% { opacity: 0.3; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.3); }
+}
+
+.neural-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  padding: 3px 8px;
+  border-radius: 9999px;
+  font-size: 9px;
+  font-family: var(--font-mono, monospace);
+  color: #38bdf8;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+}
+
+.neural-pulse-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #38bdf8;
+  box-shadow: 0 0 6px #38bdf8;
+  animation: dotPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes dotPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+/* Neural Core Reactive Scanning States */
+.vr-neural-core.is-scanning .neural-ring-outer {
+  animation-duration: 6s;
+  stroke: rgba(56, 189, 248, 0.6);
+}
+
+.vr-neural-core.is-scanning .cortex-core {
+  animation-duration: 1.2s;
+  stroke: #38bdf8;
+  filter: drop-shadow(0 0 14px #38bdf8);
+}
+
+.vr-neural-core.is-scanning .neural-status-badge {
+  border-color: rgba(56, 189, 248, 0.6);
+  color: #38bdf8;
+  background: rgba(2, 132, 199, 0.15);
+}
+
+.vr-neural-core.is-clean .cortex-core {
+  stroke: #10b981;
+  filter: drop-shadow(0 0 10px #10b981);
+}
+
+.vr-neural-core.is-clean .neural-status-badge {
+  border-color: rgba(16, 185, 129, 0.6);
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.15);
+}
+
+.vr-neural-core.is-threat .cortex-core {
+  stroke: #f43f5e;
+  filter: drop-shadow(0 0 12px #f43f5e);
+}
+
+.vr-neural-core.is-threat .neural-status-badge {
+  border-color: rgba(244, 63, 94, 0.6);
+  color: #fb7185;
+  background: rgba(244, 63, 94, 0.15);
+}
+
+/* ==========================================================================
+   PAGE 2: AI AGENT SENSOR DOME
+   ========================================================================== */
+.ar-sensor-stage {
+  width: 160px;
+  min-width: 160px;
+  height: 140px;
+  background: radial-gradient(circle at center, rgba(168, 85, 247, 0.12) 0%, rgba(15, 23, 42, 0.9) 80%);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+.ar-holo-radar {
+  width: 85px;
+  height: 85px;
+  border-radius: 50%;
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  position: relative;
+  background: rgba(168, 85, 247, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ar-radar-sweep {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, rgba(168, 85, 247, 0) 0deg, rgba(168, 85, 247, 0.4) 360deg);
+  animation: radarSweep 3s linear infinite;
+}
+
+@keyframes radarSweep {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.ar-radar-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px dashed rgba(168, 85, 247, 0.35);
+}
+
+.ar-radar-ring.ring1 { width: 55px; height: 55px; }
+.ar-radar-ring.ring2 { width: 30px; height: 30px; }
+
+.ar-radar-crosshair-h {
+  position: absolute;
+  width: 100%;
+  height: 1px;
+  background: rgba(168, 85, 247, 0.25);
+}
+
+.ar-radar-crosshair-v {
+  position: absolute;
+  height: 100%;
+  width: 1px;
+  background: rgba(168, 85, 247, 0.25);
+}
+
+.ar-radar-core-blip {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #c084fc;
+  box-shadow: 0 0 8px #c084fc;
+  z-index: 2;
+}
+
+.ar-sensor-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 8.5px;
+  font-family: var(--font-mono, monospace);
+  font-weight: 700;
+  color: #c084fc;
+}
+
+.ar-sensor-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #c084fc;
+  animation: dotPulse 1.8s infinite;
+}
+
+/* ==========================================================================
+   PAGE 3: STORAGE TELEMETRY STAGE
+   ========================================================================== */
+.sm-telemetry-stage {
+  width: 160px;
+  min-width: 160px;
+  height: 140px;
+  background: radial-gradient(circle at center, rgba(168, 85, 247, 0.12) 0%, rgba(15, 23, 42, 0.9) 80%);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+.sm-storage-orb {
+  width: 80px;
+  height: 80px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sm-orb-ring {
+  position: absolute;
+  border-radius: 50%;
+}
+
+.sm-orb-ring.ring-ext {
+  width: 76px;
+  height: 76px;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-top-color: #c084fc;
+  animation: orbitalRotate 6s linear infinite;
+}
+
+.sm-orb-ring.ring-int {
+  width: 56px;
+  height: 56px;
+  border: 1px dashed rgba(168, 85, 247, 0.4);
+  border-bottom-color: #38bdf8;
+  animation: orbitalRotateRev 8s linear infinite;
+}
+
+.sm-orb-core {
+  z-index: 2;
+  filter: drop-shadow(0 0 8px rgba(168, 85, 247, 0.5));
+}
+
+.sm-telemetry-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 8.5px;
+  font-family: var(--font-mono, monospace);
+  font-weight: 700;
+  color: #c084fc;
+}
+
+.sm-telemetry-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #a855f7;
+  animation: dotPulse 2s infinite;
+}
+
+/* ==========================================================================
+   MOVE ASSISTANT MODAL & TRANSFER VISUAL CONDUIT
+   ========================================================================== */
+.mb-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 7, 14, 0.88);
+  backdrop-filter: blur(14px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.mb-overlay.hidden {
+  display: none !important;
+}
+
+.mb-panel {
+  background: #0b1120;
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 540px;
+  padding: 24px 28px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7), 0 0 35px rgba(139, 92, 246, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  color: #f1f5f9;
+  font-family: var(--font-sans, system-ui);
+}
+
+.mb-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mb-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #a855f7;
+  box-shadow: 0 0 8px #a855f7;
+  animation: dotPulse 1.5s infinite;
+}
+
+.mb-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #c084fc;
+  text-transform: uppercase;
+}
+
+.mb-heading {
+  font-size: 20px;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0 0 8px 0;
+}
+
+.mb-note {
+  font-size: 13px;
+  color: #94a3b8;
+  line-height: 1.5;
+  margin: 8px 0;
+}
+
+.mb-plain {
+  font-size: 13px;
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+
+.mb-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+}
+
+.mb-item-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #38bdf8;
+  font-family: var(--font-mono, monospace);
+  word-break: break-all;
+}
+
+.mb-item-size {
+  font-size: 12px;
+  font-weight: 700;
+  color: #34d399;
+  font-family: var(--font-mono, monospace);
+}
+
+.mb-cleanup-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  border-radius: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: #cbd5e1;
+}
+
+.mb-cleanup-option input[type="checkbox"] {
+  accent-color: #a855f7;
+  width: 16px;
+  height: 16px;
+}
+
+.mb-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+/* Conduit Transfer Visual */
+.mb-transfer-visual {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin: 10px 0 16px 0;
+}
+
+.mb-conduit-drive {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 75px;
+}
+
+.mb-drive-icon {
+  font-size: 22px;
+}
+
+.mb-drive-text {
+  font-size: 11px;
+  font-weight: 800;
+  font-family: var(--font-mono, monospace);
+  color: #c084fc;
+}
+
+.mb-conduit-pipeline {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 9999px;
+  margin: 0 16px;
+  position: relative;
+  overflow: hidden;
+}
+
+.mb-conduit-beam {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, #a855f7, transparent);
+  animation: conduitFlow 1.5s linear infinite;
+}
+
+@keyframes conduitFlow {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.mb-conduit-packet {
+  position: absolute;
+  top: 1px;
+  width: 14px;
+  height: 4px;
+  border-radius: 2px;
+  background: #38bdf8;
+  box-shadow: 0 0 6px #38bdf8;
+  animation: packetTravel 2s infinite ease-in-out;
+}
+
+.mb-conduit-packet.p1 { animation-delay: 0s; }
+.mb-conduit-packet.p2 { animation-delay: 0.65s; }
+.mb-conduit-packet.p3 { animation-delay: 1.3s; }
+
+@keyframes packetTravel {
+  0% { left: 0%; opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { left: 95%; opacity: 0; }
+}

@@ -1172,11 +1172,65 @@ pub fn build_migration_plan(
     source_drive: &str,
     target_drive: &str,
 ) -> MigrationPlan {
-    let status = discover_migration_candidates(source_drive, target_drive);
+    let mut status = discover_migration_candidates(source_drive, target_drive);
+
+    // If an ID passed in selected_ids is an absolute folder path on source drive not yet discovered:
+    for sel in selected_ids {
+        let p = Path::new(sel);
+        if p.is_dir() {
+            let s_str = p.to_string_lossy();
+            let filter_prefix = format!("{}:", source_drive.trim_end_matches(':'));
+            if s_str.starts_with(&filter_prefix) || s_str.starts_with(&filter_prefix.to_lowercase())
+            {
+                let lower = s_str.to_ascii_lowercase().replace('/', "\\");
+                let prohibited = lower.contains("\\windows")
+                    || lower.contains("\\system32")
+                    || lower.contains("\\syswow64")
+                    || lower == "c:\\"
+                    || lower == "c:"
+                    || lower.ends_with("\\desktop");
+                if !prohibited {
+                    let already = status.candidates.iter().any(|c| {
+                        c.id.eq_ignore_ascii_case(sel)
+                            || c.source_path == p
+                            || c.source_path
+                                .to_string_lossy()
+                                .replace('/', "\\")
+                                .eq_ignore_ascii_case(&sel.replace('/', "\\"))
+                    });
+                    if !already {
+                        add_candidate_if_on_drive(
+                            &mut status.candidates,
+                            sel,
+                            p.file_name()
+                                .and_then(|f| f.to_str())
+                                .unwrap_or("Custom Folder"),
+                            p,
+                            target_drive,
+                            MigrationSafety::Safe,
+                            "Custom Storage",
+                            "User-selected folder for cross-volume relocation.",
+                            None,
+                            source_drive,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     let selected: Vec<MigrationCandidate> = status
         .candidates
         .into_iter()
-        .filter(|c| selected_ids.iter().any(|id| id == &c.id))
+        .filter(|c| {
+            selected_ids.iter().any(|id| {
+                id.eq_ignore_ascii_case(&c.id)
+                    || id.eq_ignore_ascii_case(&c.source_path.to_string_lossy())
+                    || id
+                        .replace('/', "\\")
+                        .eq_ignore_ascii_case(&c.source_path.to_string_lossy().replace('/', "\\"))
+            })
+        })
         .collect();
 
     let mut total_bytes = 0u64;
@@ -2549,6 +2603,28 @@ pub fn execute_source_cleanup(
 
     // Perform safe deletion of source tree (recursively clearing read-only attributes)
     safe_remove_dir_all(source_path)?;
+
+    #[cfg(windows)]
+    {
+        // For developer toolchain and custom directories (e.g. .codex, .cargo, .gradle),
+        // establish an NTFS directory junction at the vacated source_path pointing to target_path
+        // so applications and shells accessing the original path continue seamlessly.
+        let is_known = matches!(
+            candidate_id,
+            "downloads" | "documents" | "pictures" | "videos" | "desktop" | "desktop_media"
+        );
+        if !is_known && !source_path.exists() && target_path.is_dir() {
+            let _ = std::process::Command::new("cmd")
+                .args([
+                    "/C",
+                    "mklink",
+                    "/J",
+                    &source_path.to_string_lossy(),
+                    &target_path.to_string_lossy(),
+                ])
+                .output();
+        }
+    }
 
     // Measure C: drive free space AFTER cleanup
     let space_after = fsx::volume_space_at(c_root)

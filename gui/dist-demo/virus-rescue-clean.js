@@ -81,9 +81,22 @@
     return new Intl.NumberFormat().format(num || 0);
   }
 
-  function setCatState(state) {
-    if (window.CureCat && els.catComp) {
-      window.CureCat.setState(els.catComp, state);
+  function setNeuralState(state) {
+    const core = document.getElementById("vr-neural-core");
+    const statusText = document.getElementById("neural-status-text");
+    if (!core) return;
+    core.classList.remove("is-scanning", "is-clean", "is-threat");
+    if (state === "scanning") {
+      core.classList.add("is-scanning");
+      if (statusText) statusText.textContent = "SYNAPTIC PROBE: ACTIVE";
+    } else if (state === "clean") {
+      core.classList.add("is-clean");
+      if (statusText) statusText.textContent = "NEURAL SHIELD: VERIFIED CLEAN";
+    } else if (state === "threat-found") {
+      core.classList.add("is-threat");
+      if (statusText) statusText.textContent = "ANOMALY ISOLATED: THREAT CAUGHT";
+    } else {
+      if (statusText) statusText.textContent = "NEURAL CORTEX: ONLINE";
     }
   }
 
@@ -133,10 +146,8 @@
   function wire() {
     cacheEls();
 
-    // Render Cyber-Cat in Idle state on launch
-    if (window.CureCat && els.catComp) {
-      window.CureCat.render(els.catComp, "idle");
-    }
+    // Initialize Neural Core in Idle state on launch
+    setNeuralState("idle");
 
     // Drop Test Threat Button
     if (els.dropTestBtn) {
@@ -218,10 +229,8 @@
         els.deleteAllBtn.disabled = true;
         els.deleteAllBtn.textContent = "Eliminating...";
 
-        // Swat animation
-        if (window.CureCat && els.catComp) {
-          window.CureCat.swat(els.catComp);
-        }
+        // Neural purge lock
+        setNeuralState("scanning");
 
         const items = [...currentThreats];
         for (const t of items) {
@@ -261,7 +270,7 @@
     peakEntropyVal = 0.0;
     clearChoreography();
     cacheEls();
-    setCatState("scanning");
+    setNeuralState("scanning");
 
     if (els.startBtn) els.startBtn.disabled = true;
     if (els.startBtnText) els.startBtnText.textContent = "Scanning System...";
@@ -562,7 +571,7 @@
     if (els.threatsContainer) els.threatsContainer.classList.add("hidden");
     if (els.idleCard) els.idleCard.classList.add("hidden");
     if (els.phaseTicker) els.phaseTicker.textContent = "Scan complete — zero hidden threats found.";
-    setCatState("clean");
+    setNeuralState("clean");
   }
 
   function showThreatsState() {
@@ -571,7 +580,7 @@
     if (els.threatsContainer) els.threatsContainer.classList.remove("hidden");
     if (els.threatsBadge) els.threatsBadge.textContent = `${currentThreats.length} Threat${currentThreats.length === 1 ? "" : "s"}`;
     if (els.phaseTicker) els.phaseTicker.textContent = `${currentThreats.length} threat(s) detected. Review forensic proof and eliminate below.`;
-    setCatState("threat-found");
+    setNeuralState("threat-found");
 
     renderThreatList();
   }
@@ -662,12 +671,10 @@
       if (delBtn) {
         delBtn.addEventListener("click", async function () {
           delBtn.disabled = true;
-          delBtn.textContent = "Swatting...";
+          delBtn.textContent = "Purging...";
 
-          // Trigger Cyber-Cat Paw-Swat Animation
-          if (window.CureCat && els.catComp) {
-            window.CureCat.swat(els.catComp);
-          }
+          // Neural Core purge pulse
+          setNeuralState("scanning");
 
           // Threat row disintegrates
           row.classList.add("row-swatting");

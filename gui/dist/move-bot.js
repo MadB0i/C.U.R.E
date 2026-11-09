@@ -163,11 +163,39 @@
     if (!target) target = drives.find((d) => !d.is_system);
 
     let candidates = (status && status.candidates) || [];
-    if (Array.isArray(prefilterIds) && prefilterIds.length) {
-      const wanted = new Set(prefilterIds.map((id) => String(id).toLowerCase()));
-      candidates = candidates.filter((c) => wanted.has(String(c.id).toLowerCase()));
+    function norm(p) {
+      return String(p || "").toLowerCase().replace(/\\/g, "/").replace(/\/+$/, "");
     }
-    candidates = candidates.filter((c) => c.safety === "safe");
+
+    if (Array.isArray(prefilterIds) && prefilterIds.length) {
+      const wanted = new Set(prefilterIds.map((id) => norm(id)));
+      candidates = candidates.filter((c) => {
+        const idNorm = norm(c.id);
+        const pathNorm = norm(c.source_path);
+        return wanted.has(idNorm) || wanted.has(pathNorm);
+      });
+
+      // If user selected a custom folder from Highest Consumers not in predefined candidates:
+      if (!candidates.length) {
+        for (const reqPath of prefilterIds) {
+          const targetDrive = target ? target.drive_letter : (status.recommended_target_drive || "D:");
+          const folderName = reqPath.split(/[\\/]/).filter(Boolean).pop() || "Folder";
+          candidates.push({
+            id: reqPath,
+            name: folderName,
+            source_path: reqPath,
+            suggested_target_path: targetDrive + "\\CURE_Relocated\\" + folderName,
+            size_bytes: 0,
+            safety: "safe",
+            category: "Custom Storage",
+            why_candidate: "User-selected folder for cross-volume relocation.",
+            reconfiguration_advice: null,
+          });
+        }
+      }
+    } else {
+      candidates = candidates.filter((c) => c.safety === "safe");
+    }
 
     if (!candidates.length) {
       if (els.confirmItems) {

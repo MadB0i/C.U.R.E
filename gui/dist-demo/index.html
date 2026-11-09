@@ -129,10 +129,21 @@
             id="view-agents"
           >
             <div class="ar-container">
-              <!-- Block 1: Top Hero Card with Cyber-Cat Stage -->
+              <!-- Block 1: Top Hero Card with Cyber Sensor Dome -->
               <div class="ar-hero-card">
-                <div class="ar-cat-stage" id="ar-cat-stage">
-                  <div class="ar-cat-box" id="ar-cat-companion"></div>
+                <div class="ar-sensor-stage" id="ar-sensor-stage">
+                  <div class="ar-holo-radar">
+                    <div class="ar-radar-sweep"></div>
+                    <div class="ar-radar-ring ring1"></div>
+                    <div class="ar-radar-ring ring2"></div>
+                    <div class="ar-radar-crosshair-h"></div>
+                    <div class="ar-radar-crosshair-v"></div>
+                    <div class="ar-radar-core-blip"></div>
+                  </div>
+                  <div class="ar-sensor-badge">
+                    <span class="ar-sensor-dot"></span>
+                    <span class="ar-sensor-label">PROCESS RADAR: ACTIVE</span>
+                  </div>
                 </div>
                 <div class="ar-hero-content">
                   <div class="ar-hero-header">
@@ -220,10 +231,97 @@
             id="scan-view"
           >
             <div class="vr-container">
-              <!-- Top Hero Card with Cyber-Cat Stage -->
+              <!-- Top Hero Card with Neural Core Visualizer -->
               <div class="vr-hero-card">
-                <div class="vr-cat-stage" id="vr-cat-stage">
-                  <div class="vr-cat-box" id="vr-cat-companion"></div>
+                <div class="vr-neural-stage" id="vr-neural-stage">
+                  <div class="vr-neural-core" id="vr-neural-core">
+                    <div class="neural-orb-matrix">
+                      <svg class="neural-svg" viewBox="0 0 240 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                          <filter id="neuralGlow" x="-20%" y="-20%" width="140%" height="140%">
+                            <feGaussianBlur stdDeviation="3" result="blur" />
+                            <feMerge>
+                              <feMergeNode in="blur" />
+                              <feMergeNode in="SourceGraphic" />
+                            </feMerge>
+                          </filter>
+                          <radialGradient id="cortexGlow" cx="50%" cy="50%" r="50%">
+                            <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.7" />
+                            <stop offset="50%" stop-color="#818cf8" stop-opacity="0.3" />
+                            <stop offset="100%" stop-color="#0f172a" stop-opacity="0" />
+                          </radialGradient>
+                        </defs>
+                        <circle class="neural-cortex-aura" cx="120" cy="100" r="75" fill="url(#cortexGlow)" />
+                        <circle class="neural-ring-outer" cx="120" cy="100" r="82" stroke="rgba(56, 189, 248, 0.25)" stroke-width="1.2" stroke-dasharray="4 8" />
+                        <circle class="neural-ring-mid" cx="120" cy="100" r="58" stroke="rgba(168, 85, 247, 0.3)" stroke-width="1" stroke-dasharray="6 6" />
+                        
+                        <!-- Neural Tendrils (Branching into Filesystem) -->
+                        <g class="neural-tendrils">
+                          <!-- Top-Left: Memory -->
+                          <path class="neural-axon axon-tl" d="M120 100 Q80 60 30 45" stroke="#38bdf8" stroke-width="1.8" stroke-linecap="round" />
+                          <circle class="neural-packet packet-tl" r="3" fill="#38bdf8" filter="url(#neuralGlow)">
+                            <animateMotion path="M120 100 Q80 60 30 45" dur="1.3s" repeatCount="indefinite" />
+                          </circle>
+                          <circle class="neural-node node-tl" cx="30" cy="45" r="4.5" fill="#0284c7" stroke="#38bdf8" stroke-width="2" />
+                          <text class="neural-label label-tl" x="12" y="30">MEMORY</text>
+
+                          <!-- Top-Right: Persistence -->
+                          <path class="neural-axon axon-tr" d="M120 100 Q160 55 210 40" stroke="#818cf8" stroke-width="1.8" stroke-linecap="round" />
+                          <circle class="neural-packet packet-tr" r="3" fill="#818cf8" filter="url(#neuralGlow)">
+                            <animateMotion path="M120 100 Q160 55 210 40" dur="1.6s" repeatCount="indefinite" />
+                          </circle>
+                          <circle class="neural-node node-tr" cx="210" cy="40" r="4.5" fill="#4f46e5" stroke="#818cf8" stroke-width="2" />
+                          <text class="neural-label label-tr" x="170" y="26">PERSISTENCE</text>
+
+                          <!-- Bottom-Right: Entropy -->
+                          <path class="neural-axon axon-br" d="M120 100 Q175 135 215 160" stroke="#f43f5e" stroke-width="1.8" stroke-linecap="round" />
+                          <circle class="neural-packet packet-br" r="3" fill="#f43f5e" filter="url(#neuralGlow)">
+                            <animateMotion path="M120 100 Q175 135 215 160" dur="1.2s" repeatCount="indefinite" />
+                          </circle>
+                          <circle class="neural-node node-br" cx="215" cy="160" r="4.5" fill="#be123c" stroke="#f43f5e" stroke-width="2" />
+                          <text class="neural-label label-br" x="178" y="180">ENTROPY</text>
+
+                          <!-- Bottom-Left: LOLBins -->
+                          <path class="neural-axon axon-bl" d="M120 100 Q65 140 25 155" stroke="#34d399" stroke-width="1.8" stroke-linecap="round" />
+                          <circle class="neural-packet packet-bl" r="3" fill="#34d399" filter="url(#neuralGlow)">
+                            <animateMotion path="M120 100 Q65 140 25 155" dur="1.4s" repeatCount="indefinite" />
+                          </circle>
+                          <circle class="neural-node node-bl" cx="25" cy="155" r="4.5" fill="#059669" stroke="#34d399" stroke-width="2" />
+                          <text class="neural-label label-bl" x="10" y="175">LOLBINS</text>
+                        </g>
+
+                        <!-- Synaptic Brain Mesh -->
+                        <g class="neural-mesh">
+                          <line class="mesh-link" x1="95" y1="85" x2="145" y2="85" stroke="rgba(56, 189, 248, 0.45)" stroke-width="1" />
+                          <line class="mesh-link" x1="95" y1="85" x2="80" y2="115" stroke="rgba(168, 85, 247, 0.45)" stroke-width="1" />
+                          <line class="mesh-link" x1="145" y1="85" x2="160" y2="115" stroke="rgba(168, 85, 247, 0.45)" stroke-width="1" />
+                          <line class="mesh-link" x1="80" y1="115" x2="120" y2="130" stroke="rgba(56, 189, 248, 0.45)" stroke-width="1" />
+                          <line class="mesh-link" x1="160" y1="115" x2="120" y2="130" stroke="rgba(56, 189, 248, 0.45)" stroke-width="1" />
+                          <line class="mesh-link" x1="120" y1="100" x2="95" y2="85" stroke="rgba(52, 211, 153, 0.5)" stroke-width="1" />
+                          <line class="mesh-link" x1="120" y1="100" x2="145" y2="85" stroke="rgba(52, 211, 153, 0.5)" stroke-width="1" />
+                          <line class="mesh-link" x1="120" y1="100" x2="80" y2="115" stroke="rgba(52, 211, 153, 0.5)" stroke-width="1" />
+                          <line class="mesh-link" x1="120" y1="100" x2="160" y2="115" stroke="rgba(52, 211, 153, 0.5)" stroke-width="1" />
+                          <line class="mesh-link" x1="120" y1="100" x2="120" y2="130" stroke="rgba(52, 211, 153, 0.5)" stroke-width="1" />
+
+                          <!-- Synaptic Nodes -->
+                          <circle class="synapse s1" cx="95" cy="85" r="3.5" fill="#38bdf8" />
+                          <circle class="synapse s2" cx="145" cy="85" r="3.5" fill="#818cf8" />
+                          <circle class="synapse s3" cx="80" cy="115" r="3.5" fill="#c084fc" />
+                          <circle class="synapse s4" cx="160" cy="115" r="3.5" fill="#f43f5e" />
+                          <circle class="synapse s5" cx="120" cy="130" r="3.5" fill="#34d399" />
+                        </g>
+
+                        <!-- Central Nucleus Core -->
+                        <circle class="cortex-core" cx="120" cy="100" r="16" fill="#0f172a" stroke="#38bdf8" stroke-width="2.5" filter="url(#neuralGlow)" />
+                        <circle class="cortex-nucleus" cx="120" cy="100" r="8" fill="#38bdf8" />
+                        <circle class="cortex-spark" cx="120" cy="100" r="3" fill="#ffffff" />
+                      </svg>
+                    </div>
+                    <div class="neural-status-badge" id="neural-status-badge">
+                      <span class="neural-pulse-dot"></span>
+                      <span class="neural-status-text" id="neural-status-text">NEURAL CORTEX: ONLINE</span>
+                    </div>
+                  </div>
                 </div>
                 <div class="vr-hero-content">
                   <div class="vr-hero-header">
@@ -939,10 +1037,25 @@
             id="cleanup-view"
           >
             <div class="sm-container">
-              <!-- Block 1: Top Hero Card with Cyber-Cat Stage & Drive Selector -->
+              <!-- Block 1: Top Hero Card with Storage Telemetry Dome -->
               <div class="sm-hero-card">
-                <div class="sm-cat-stage" id="sm-cat-stage">
-                  <div class="sm-cat-box" id="sm-cat-companion"></div>
+                <div class="sm-telemetry-stage" id="sm-telemetry-stage">
+                  <div class="sm-storage-orb">
+                    <div class="sm-orb-ring ring-ext"></div>
+                    <div class="sm-orb-ring ring-int"></div>
+                    <div class="sm-orb-core">
+                      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="22" y1="12" x2="2" y2="12"></line>
+                        <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
+                        <line x1="6" y1="16" x2="6.01" y2="16"></line>
+                        <line x1="10" y1="16" x2="10.01" y2="16"></line>
+                      </svg>
+                    </div>
+                  </div>
+                  <div class="sm-telemetry-badge">
+                    <span class="sm-telemetry-dot"></span>
+                    <span class="sm-telemetry-label">VOLUME CONDUIT READY</span>
+                  </div>
                 </div>
                 <div class="sm-hero-content">
                   <div class="sm-hero-header">
@@ -1866,7 +1979,24 @@
         </div>
 
         <div class="hidden" id="mb-run-body">
-          <h2 class="mb-heading" id="mb-run-title">Working…</h2>
+          <h2 class="mb-heading" id="mb-run-title">Relocating Data Conduit…</h2>
+          <!-- Conduit Transfer Stream Animation -->
+          <div class="mb-transfer-visual">
+            <div class="mb-conduit-drive mb-conduit-src">
+              <span class="mb-drive-icon">💽</span>
+              <span class="mb-drive-text">DRIVE C:</span>
+            </div>
+            <div class="mb-conduit-pipeline">
+              <div class="mb-conduit-beam"></div>
+              <div class="mb-conduit-packet p1"></div>
+              <div class="mb-conduit-packet p2"></div>
+              <div class="mb-conduit-packet p3"></div>
+            </div>
+            <div class="mb-conduit-drive mb-conduit-dst">
+              <span class="mb-drive-icon">💾</span>
+              <span class="mb-drive-text" id="mb-dst-drive-text">DRIVE D:</span>
+            </div>
+          </div>
           <div class="mb-progress">
             <div class="mb-progress-track">
               <div class="mb-progress-fill" id="mb-run-bar-fill"></div>

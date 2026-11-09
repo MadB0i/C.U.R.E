@@ -163,9 +163,7 @@
     if (els.progressBar) els.progressBar.style.width = "15%";
     if (els.phaseTicker) els.phaseTicker.textContent = "Scanning " + state.selectedDrive + " — inspecting large directories & caches…";
 
-    if (window.CureCat && els.catComp) {
-      window.CureCat.setState(els.catComp, "scanning");
-    }
+
 
     // Set ticker animation stages
     let tickerStep = 0;
@@ -210,11 +208,7 @@
       clearInterval(tickerInterval);
       if (els.scanBtn) els.scanBtn.disabled = false;
       if (els.cancelBtn) els.cancelBtn.classList.add("hidden");
-      setTimeout(function () {
-        if (window.CureCat && els.catComp) {
-          window.CureCat.setState(els.catComp, "idle");
-        }
-      }, 1200);
+
     }
   }
 
@@ -383,9 +377,6 @@
       `;
       moveBtn.title = "Move this item to D: or another drive with directory junction";
       moveBtn.addEventListener("click", function () {
-        if (window.CureCat && els.catComp) {
-          window.CureCat.setState(els.catComp, "moving");
-        }
         if (window.CureMoveBot && window.CureMoveBot.start) {
           window.CureMoveBot.start([item.id || item.path]);
         }
@@ -435,10 +426,6 @@
       'Safely remove "' + item.name + '" (' + fmtBytes(item.bytes) + ')?\n\nThis will safely move it to the Windows Recycle Bin so you can restore it if ever needed.'
     );
     if (!confirmed) return;
-
-    if (window.CureCat && els.catComp) {
-      window.CureCat.swat(els.catComp);
-    }
 
     try {
       await invoke("storage_remove_leftover", { path: item.path });
@@ -560,10 +547,6 @@
       'Remove leftover folder for "' + (lo.app_name || lo.name) + '"?\n\nPath: ' + lo.path + '\n\nFiles will be safely sent to the Windows Recycle Bin.'
     );
     if (!confirmed) return;
-
-    if (window.CureCat && els.catComp) {
-      window.CureCat.swat(els.catComp);
-    }
 
     try {
       await invoke("storage_remove_leftover", { path: lo.path });
