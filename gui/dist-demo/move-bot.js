@@ -162,11 +162,11 @@
     show("mb-confirm-body");
     if (els.confirmGo) {
       els.confirmGo.disabled = true;
-      els.confirmGo.textContent = "Checking…";
+      els.confirmGo.textContent = "Please wait, checking…";
     }
     if (els.confirmItems) {
       els.confirmItems.textContent = "";
-      els.confirmItems.appendChild(loadingRow("Looking at your drives…"));
+      els.confirmItems.appendChild(loadingRow("Please wait, checking drives and candidate files…"));
     }
     if (els.confirmNote) els.confirmNote.textContent = "";
     if (els.cleanupBox) els.cleanupBox.classList.add("hidden");
