@@ -73,6 +73,7 @@
   function openOverlay() {
     if (els.overlay) {
       els.overlay.classList.remove("hidden");
+      setOculusState("idle", "SENTINEL OCULUS · SUPERVISING CONDUIT");
       const go = document.getElementById("mb-confirm-go");
       if (go && !go.classList.contains("hidden")) go.focus();
     }
@@ -464,29 +465,28 @@
             const elapsedTotal = (now - transferStartTime) / 1000;
             const timeDelta = (now - lastTime) / 1000;
 
-            if (timeDelta >= 0.4) {
+            if (timeDelta >= 0.3) {
               const bytesDelta = (p.bytes_copied || 0) - lastBytes;
               const currentSpeed = bytesDelta / timeDelta;
-              // High inertia dampening (0.15 alpha) to absorb bursty small-file fluctuations
-              smoothedSpeed = smoothedSpeed === 0 ? currentSpeed : (smoothedSpeed * 0.85 + currentSpeed * 0.15);
+              smoothedSpeed = smoothedSpeed === 0 ? currentSpeed : (smoothedSpeed * 0.88 + currentSpeed * 0.12);
               lastBytes = p.bytes_copied || 0;
               lastTime = now;
             }
 
-            const speedMb = (Math.max(0, smoothedSpeed) / (1024 * 1024)).toFixed(1);
+            // Cumulative average speed prevents erratic ETA swings between small file boundaries
+            const overallSpeed = (p.bytes_copied || 0) / Math.max(0.6, elapsedTotal);
+            const stableSpeed = smoothedSpeed > 0 ? (overallSpeed * 0.65 + smoothedSpeed * 0.35) : overallSpeed;
+            const speedMb = (Math.max(0, stableSpeed) / (1024 * 1024)).toFixed(1);
             const remainingBytes = Math.max(0, (p.total_bytes || 0) - (p.bytes_copied || 0));
             let etaText = "Calculating…";
 
-            if (elapsedTotal >= 2.5 && smoothedSpeed > 1024) {
-              const rawEta = remainingBytes / smoothedSpeed;
+            if (elapsedTotal >= 1.5 && stableSpeed > 2048) {
+              const rawEta = remainingBytes / stableSpeed;
               if (smoothedEtaSec === null) {
                 smoothedEtaSec = rawEta;
               } else {
-                // Slew-rate limiter: clamp ETA changes to maximum 2.0s per second of real time
-                const maxDelta = 2.0 * timeDelta;
-                const etaDiff = rawEta - smoothedEtaSec;
-                const clampedDiff = Math.max(-maxDelta, Math.min(maxDelta, etaDiff));
-                smoothedEtaSec += clampedDiff;
+                // Smooth exponential dampening towards raw target — no wild jumps
+                smoothedEtaSec = smoothedEtaSec * 0.92 + rawEta * 0.08;
               }
 
               const sec = Math.round(smoothedEtaSec);

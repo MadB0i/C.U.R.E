@@ -22,6 +22,7 @@ pub mod catalog;
 pub mod detective;
 pub mod duplicates;
 pub mod fsx;
+pub mod ntfs_mft;
 pub mod reclaim;
 pub mod rescue;
 pub mod safedelete;
@@ -31,6 +32,7 @@ pub mod walk;
 
 // The DTO vocabulary is re-exported flat so callers write
 // `storage::StorageScan` rather than reaching through `storage::types::`.
+pub use ntfs_mft::*;
 pub use rescue::*;
 pub use types::*;
 

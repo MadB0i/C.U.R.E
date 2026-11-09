@@ -534,6 +534,16 @@ pub fn enumerate_agent_processes() -> Vec<DetectedAgentProcess> {
     let mut results = Vec::new();
     let mut identity_cache: std::collections::HashMap<(AgentKind, String), ExecutableIdentity> =
         std::collections::HashMap::new();
+
+    // Query Kernel Executive process table directly via Native NT Syscall (NtQuerySystemInformation)
+    let kernel_procs = crate::scanners::ntnative::query_kernel_processes_native().ok();
+    let kernel_map: std::collections::HashMap<u32, &crate::scanners::ntnative::NativeProcessInfo> =
+        if let Some(ref procs) = kernel_procs {
+            procs.iter().map(|p| (p.pid, p)).collect()
+        } else {
+            std::collections::HashMap::new()
+        };
+
     // SAFETY: CreateToolhelp32Snapshot creates a read-only snapshot of running processes.
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
     let Ok(snapshot) = snapshot else {
@@ -619,6 +629,15 @@ pub fn enumerate_agent_processes() -> Vec<DetectedAgentProcess> {
                     }
                     Err(_) => {
                         access_denied = true;
+                    }
+                }
+            }
+
+            // Kernel-level fallback from NtQuerySystemInformation if user-mode handle was denied
+            if memory_usage_bytes.is_none() {
+                if let Some(kinfo) = kernel_map.get(&pid) {
+                    if kinfo.working_set_bytes > 0 {
+                        memory_usage_bytes = Some(kinfo.working_set_bytes);
                     }
                 }
             }

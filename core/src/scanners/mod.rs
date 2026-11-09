@@ -4,6 +4,7 @@ pub mod bootlogon;
 pub mod com;
 pub mod heuristics;
 pub mod ifeo;
+pub mod ntnative;
 #[cfg(windows)]
 pub mod registry;
 pub mod scheduled_tasks;

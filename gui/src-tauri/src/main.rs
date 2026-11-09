@@ -765,6 +765,39 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
             "Windows-only source",
         ));
     }
+    #[cfg(windows)]
+    {
+        emit_stage(&app, "ntnative", "Direct ntdll NtQuerySystemInformation kernel inspection");
+        let _ = app.emit(
+            "scan-progress",
+            serde_json::json!({
+                "stage": "telemetry",
+                "collector": "[KERNEL NT]",
+                "path": "ntdll!NtQuerySystemInformation(SystemProcessInformation)",
+            }),
+        );
+        if let Ok(kernel_procs) = scanners::ntnative::query_kernel_processes_native() {
+            let kernel_count = kernel_procs.len();
+            scanned_count += kernel_count;
+            record_source_state(
+                &app,
+                &mut source_states,
+                cure_core::report::CoverageRow::checked(
+                    "Kernel Executive (ntdll)",
+                    format!("{} active EPROCESS structures inspected", kernel_count),
+                ),
+            );
+            let _ = app.emit(
+                "scan-progress",
+                serde_json::json!({
+                    "stage": "telemetry",
+                    "collector": "[KERNEL NT]",
+                    "path": format!("Inspected {} EPROCESS structures across 64-bit kernel memory", kernel_count),
+                }),
+            );
+        }
+    }
+
     let count = entries.len();
     emit_stage(
         &app,
@@ -2938,6 +2971,31 @@ async fn storage_scan(
         .cancel
         .lock()
         .map_err(|_| "storage state is poisoned".to_string())? = Some(Arc::clone(&cancel));
+    let drive_str = roots.first().cloned().unwrap_or_else(|| "C:".into());
+    if let Some(geom) = storage::query_low_level_volume_geometry(&drive_str) {
+        let lcn_text = geom
+            .mft_start_lcn
+            .map(|l| format!("MFT Start LCN: {}", l))
+            .unwrap_or_else(|| "Standard volume geometry".into());
+        let _ = app.emit(
+            "storage-progress",
+            StorageProgressDto {
+                scan_id: scan_id.clone(),
+                phase: "kernel_mft".into(),
+                root_label: format!("[KERNEL MFT] {} ({})", drive_str, geom.filesystem),
+                current_path: format!(
+                    "{} · Cluster: {}B · Sector: {}B · File Record: {}B",
+                    lcn_text, geom.bytes_per_cluster, geom.bytes_per_sector, geom.bytes_per_file_record
+                ),
+                dirs_seen: 0,
+                files_seen: 0,
+                bytes_seen: 0,
+                elapsed_ms: 0,
+                eta_ms: None,
+            },
+        );
+    }
+
     let relay = app.clone();
     let progress_scan_id = scan_id.clone();
     let worker = std::thread::spawn(move || {
@@ -3919,6 +3977,19 @@ async fn list_uninstalled_leftovers() -> Result<Vec<StorageAbandonedDto>, String
     .map_err(|e| e.to_string())?
 }
 
+/// Query live kernel executive process structures directly via Native NT syscalls.
+#[tauri::command]
+fn query_kernel_processes() -> Result<Vec<cure_core::scanners::ntnative::NativeProcessInfo>, String> {
+    scanners::ntnative::query_kernel_processes_native()
+}
+
+/// Query low-level filesystem volume geometry and MFT metadata directly from the Windows kernel.
+#[tauri::command]
+fn query_mft_geometry(drive: String) -> Result<storage::LowLevelVolumeGeometry, String> {
+    storage::query_low_level_volume_geometry(&drive)
+        .ok_or_else(|| format!("Could not retrieve low-level geometry for drive {drive}"))
+}
+
 fn main() {
     // Before anything creates a window: see `declare_dpi_awareness`.
     declare_dpi_awareness();
@@ -3969,6 +4040,8 @@ fn main() {
         builder.invoke_handler(|_invoke| false)
     } else {
         builder.invoke_handler(tauri::generate_handler![
+            query_kernel_processes,
+            query_mft_geometry,
             run_auto_scan,
             delete_threat_entry,
             spawn_test_stealth_threat,

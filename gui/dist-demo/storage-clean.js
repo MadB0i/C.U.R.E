@@ -610,7 +610,20 @@
       if (conduitStatus) {
         conduitStatus.textContent = "SECTORS AUDITED · " + (state.selectedDrive || "C:\\");
       }
-      alert("Delete notice: " + err);
+      const isLock = String(err).includes("32") || String(err).toLowerCase().includes("in use") || String(err).toLowerCase().includes("locked");
+      const noticeMsg = isLock
+        ? "Notice: Some files in " + item.name + " are currently locked by an active process. Close active tools/IDEs to release locks."
+        : "Delete notice: " + err;
+      if (els.phaseTicker) {
+        els.phaseTicker.textContent = noticeMsg;
+        els.phaseTicker.style.color = "#f43f5e";
+        setTimeout(() => {
+          els.phaseTicker.style.color = "";
+          els.phaseTicker.textContent = "SECTORS AUDITED · " + (state.selectedDrive || "C:\\");
+        }, 5000);
+      } else {
+        console.warn(noticeMsg);
+      }
     }
   }
 
@@ -766,7 +779,18 @@
     }
   }
 
-  function wire() {
+    async function loadMftGeometry(drive) {
+    try {
+      const geom = await invoke("query_mft_geometry", { drive: drive || "C:" });
+      const oculusTele = document.querySelector(".sm-oculus-telemetry");
+      if (oculusTele && geom) {
+        const lcn = geom.mft_start_lcn ? "MFT LCN " + geom.mft_start_lcn : "DIRECT NTFS MFT";
+        oculusTele.innerHTML = `<span class="sm-oculus-mode" style="font-size:10px; color:#38bdf8; font-weight:700;">${lcn} · ${geom.bytes_per_cluster}B CLUSTERS</span>`;
+      }
+    } catch (_) {}
+  }
+
+function wire() {
     cacheEls();
     loadDrives();
 

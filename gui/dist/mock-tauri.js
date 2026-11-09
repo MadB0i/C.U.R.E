@@ -2243,7 +2243,54 @@
                 );
               }
             });
-          case "storage_available_roots":
+          case "query_kernel_processes": {
+        return [
+          {
+            pid: 4,
+            parent_pid: null,
+            name: "System",
+            thread_count: 240,
+            working_set_bytes: 327680,
+            kernel_time_100ns: 50000000,
+            user_time_100ns: 0,
+          },
+          {
+            pid: 1420,
+            parent_pid: 4,
+            name: "csrss.exe",
+            thread_count: 14,
+            working_set_bytes: 4194304,
+            kernel_time_100ns: 12000000,
+            user_time_100ns: 4000000,
+          },
+          {
+            pid: 5892,
+            parent_pid: 1044,
+            name: "codex.exe",
+            thread_count: 28,
+            working_set_bytes: 142606336,
+            kernel_time_100ns: 8400000,
+            user_time_100ns: 15600000,
+          }
+        ];
+      }
+
+      case "query_mft_geometry": {
+        return {
+          drive_letter: (args && args.drive) || "C:",
+          filesystem: "NTFS",
+          bytes_per_sector: 512,
+          bytes_per_cluster: 4096,
+          bytes_per_file_record: 1024,
+          total_clusters: 62232064,
+          free_clusters: 2841920,
+          mft_start_lcn: 786432,
+          mft_valid_bytes: 268435456,
+          is_ntfs: true,
+        };
+      }
+
+      case "storage_available_roots":
             return Promise.resolve([
               {
                 path: "C:\\",
