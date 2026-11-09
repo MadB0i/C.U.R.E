@@ -3984,75 +3984,472 @@
 }
 
 /* ==========================================================================
-   PAGE 3: STORAGE TELEMETRY STAGE
+   PAGE 3: THE QUANTUM STORAGE OCULUS & DUAL-DRIVE CONDUIT PORTAL
    ========================================================================== */
-.sm-telemetry-stage {
-  width: 160px;
-  min-width: 160px;
-  height: 140px;
-  background: radial-gradient(circle at center, rgba(168, 85, 247, 0.12) 0%, rgba(15, 23, 42, 0.9) 80%);
-  border: 1px solid rgba(168, 85, 247, 0.3);
-  border-radius: 14px;
+.sm-hero-card.sm-master-console {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  padding: 0 !important;
+  overflow: hidden;
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.95) 0%, rgba(10, 15, 28, 0.98) 100%);
+  border: 1px solid rgba(192, 132, 252, 0.28);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), 0 0 30px rgba(168, 85, 247, 0.1);
+}
+
+.sm-console-upper {
+  display: flex;
+  align-items: stretch;
   justify-content: space-between;
-  padding: 12px 8px;
+  padding: 24px 28px;
+  gap: 24px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.sm-sensor-stage {
+  width: 380px;
+  max-width: 400px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
   position: relative;
+  background: rgba(11, 15, 28, 0.7);
+  border: 1px solid rgba(192, 132, 252, 0.22);
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: inset 0 0 30px rgba(168, 85, 247, 0.05);
   overflow: hidden;
 }
 
-.sm-storage-orb {
-  width: 80px;
-  height: 80px;
+.sm-oculus-core {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
   position: relative;
+}
+
+/* Header HUD */
+.sm-oculus-header {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
+  padding: 2px 4px 6px 4px;
+  border-bottom: 1px solid rgba(192, 132, 252, 0.18);
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  letter-spacing: 0.08em;
 }
 
-.sm-orb-ring {
-  position: absolute;
-  border-radius: 50%;
-}
-
-.sm-orb-ring.ring-ext {
-  width: 76px;
-  height: 76px;
-  border: 1px solid rgba(168, 85, 247, 0.3);
-  border-top-color: #c084fc;
-  animation: orbitalRotate 6s linear infinite;
-}
-
-.sm-orb-ring.ring-int {
-  width: 56px;
-  height: 56px;
-  border: 1px dashed rgba(168, 85, 247, 0.4);
-  border-bottom-color: #38bdf8;
-  animation: orbitalRotateRev 8s linear infinite;
-}
-
-.sm-orb-core {
-  z-index: 2;
-  filter: drop-shadow(0 0 8px rgba(168, 85, 247, 0.5));
-}
-
-.sm-telemetry-badge {
-  display: inline-flex;
+.sm-oculus-tag {
+  display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 8.5px;
-  font-family: var(--font-mono, monospace);
-  font-weight: 700;
   color: #c084fc;
+  font-weight: 700;
 }
 
-.sm-telemetry-dot {
+.sm-oculus-pip {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #a855f7;
-  animation: dotPulse 2s infinite;
+  background: #c084fc;
+  box-shadow: 0 0 6px #c084fc;
+  animation: pipBlink 1.8s ease-in-out infinite;
+}
+
+.sm-oculus-telemetry {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.sm-oculus-mode {
+  color: #38bdf8;
+  font-weight: 700;
+}
+
+/* Matrix SVG Canvas */
+.sm-oculus-matrix {
+  width: 100%;
+  height: 165px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.sm-conduit-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* Source & Target Drive Ports */
+.sm-platter-outer {
+  transform-origin: 58px 90px;
+  animation: smPlatterSpin 16s linear infinite;
+}
+
+.sm-port-target .sm-platter-outer {
+  transform-origin: 322px 90px;
+  animation: smPlatterSpinRev 16s linear infinite;
+}
+
+@keyframes smPlatterSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes smPlatterSpinRev {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
+}
+
+.sm-port-title {
+  font-family: var(--font-mono, monospace);
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  fill: #38bdf8;
+}
+
+.sm-port-title.sm-title-target {
+  fill: #c084fc;
+}
+
+.sm-port-sub {
+  font-family: var(--font-mono, monospace);
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  fill: #64748b;
+}
+
+/* Conduit Pipes & Pipelines */
+.sm-pipe-main {
+  opacity: 0.6;
+  transition: opacity 0.4s ease, stroke 0.4s ease;
+}
+
+.sm-pipe-arch {
+  opacity: 0.4;
+}
+
+/* Conduit Live Particles */
+.sm-conduit-packets {
+  opacity: 0.55;
+  transition: opacity 0.4s ease;
+}
+
+/* Center Quantum Storage Eye */
+.sm-cyber-eye {
+  pointer-events: none;
+}
+
+.sm-eye-aura {
+  transform-origin: 190px 90px;
+  animation: smEyeAuraPulse 3.5s ease-in-out infinite;
+}
+
+@keyframes smEyeAuraPulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50%      { opacity: 0.85; transform: scale(1.08); }
+}
+
+.sm-eye-gimbal {
+  transform-origin: 190px 90px;
+  animation: smPlatterSpin 22s linear infinite;
+}
+
+.sm-bracket {
+  transition: stroke 0.3s ease, filter 0.3s ease;
+}
+
+.sm-eye-hull {
+  transition: stroke 0.4s ease, filter 0.4s ease;
+}
+
+/* Pupil Gaze Movements */
+.sm-pupil-eye {
+  transform-origin: 190px 90px;
+  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: smIdleGaze 8.5s ease-in-out infinite;
+}
+
+@keyframes smIdleGaze {
+  0%, 30%   { transform: translate(0px, 0px); }
+  34%, 48%  { transform: translate(-4px, 0px); } /* Gentle glance left at Drive C */
+  52%, 76%  { transform: translate(0px, 0px); }  /* Center focus */
+  80%, 88%  { transform: translate(4px, 0px); }   /* Gentle glance right at Target D */
+  92%, 100% { transform: translate(0px, 0px); }
+}
+
+/* Periodic Cyber Snap-Blink across all states on Page 3 */
+.sm-aperture-ellipse {
+  transform-origin: 190px 90px;
+  animation: smCyberSnapBlink 4.2s ease-in-out infinite;
+}
+
+.sm-eyelid {
+  transform-origin: 190px 90px;
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+}
+
+.sm-eyelid-upper {
+  animation: smLidUpperSnapBlink 4.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.sm-eyelid-lower {
+  animation: smLidLowerSnapBlink 4.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+@keyframes smCyberSnapBlink {
+  0%, 88%, 94%, 100% {
+    transform: scaleY(1);
+  }
+  91% {
+    transform: scaleY(0.06);
+  }
+}
+
+@keyframes smLidUpperSnapBlink {
+  0%, 88%, 94%, 100% {
+    transform: translateY(-5px) scaleY(0.7);
+    opacity: 0.85;
+  }
+  91% {
+    transform: translateY(0px) scaleY(1.15);
+    opacity: 1;
+  }
+}
+
+@keyframes smLidLowerSnapBlink {
+  0%, 88%, 94%, 100% {
+    transform: translateY(5px) scaleY(0.7);
+    opacity: 0.85;
+  }
+  91% {
+    transform: translateY(0px) scaleY(1.15);
+    opacity: 1;
+  }
+}
+
+/* Footer HUD */
+.sm-oculus-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 4px 2px 4px;
+  border-top: 1px solid rgba(192, 132, 252, 0.18);
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+}
+
+.sm-conduit-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(192, 132, 252, 0.35);
+  padding: 3px 9px;
+  border-radius: 9999px;
+  font-size: 9px;
+  font-family: var(--font-mono, monospace);
+  color: #c084fc;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  box-shadow: 0 0 10px rgba(192, 132, 252, 0.1);
+  transition: all 0.4s ease;
+}
+
+.sm-conduit-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #c084fc;
+  box-shadow: 0 0 6px #c084fc;
+  animation: dotPulse 1.5s ease-in-out infinite;
+}
+
+.sm-conduit-sub {
+  font-size: 8.5px;
+  color: #64748b;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   DYNAMIC REACTIVE STATES ON PAGE 3 (is-scanning, is-transferring, is-complete)
+   ========================================================================== */
+
+/* 1. DRIVE SCANNING STATE: Deep Left Inspection of Drive C:\ Caches */
+.sm-sensor-stage.is-scanning .sm-pupil-eye {
+  animation: smScanGaze 7.2s cubic-bezier(0.25, 1, 0.5, 1) infinite;
+}
+
+@keyframes smScanGaze {
+  0%, 10% {
+    transform: translate(0px, 0px);
+  }
+  14% {
+    transform: translate(-12px, 0px); /* Snaps to Left looking at Drive C */
+  }
+  15%, 44% {
+    transform: translate(-12px, 0px); /* DWELLS 2.2s inspecting large caches & .codex */
+  }
+  48% {
+    transform: translate(0px, 0px);
+  }
+  50%, 60% {
+    transform: translate(0px, 0px);
+  }
+  64% {
+    transform: translate(6px, 0px);   /* Glances towards target storage */
+  }
+  65%, 75% {
+    transform: translate(6px, 0px);
+  }
+  80%, 100% {
+    transform: translate(0px, 0px);
+  }
+}
+
+.sm-sensor-stage.is-scanning .sm-conduit-packets {
+  opacity: 0.9;
+}
+
+.sm-sensor-stage.is-scanning .sm-pipe-main.p-left {
+  stroke: #38bdf8;
+  opacity: 0.9;
+  filter: drop-shadow(0 0 6px #38bdf8);
+}
+
+.sm-sensor-stage.is-scanning .sm-bracket {
+  stroke: #38bdf8;
+  filter: drop-shadow(0 0 6px #38bdf8);
+}
+
+.sm-sensor-stage.is-scanning .sm-conduit-badge {
+  border-color: rgba(56, 189, 248, 0.7);
+  color: #38bdf8;
+  background: rgba(2, 132, 199, 0.2);
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.35);
+}
+
+.sm-sensor-stage.is-scanning .sm-conduit-dot {
+  background: #38bdf8;
+  box-shadow: 0 0 6px #38bdf8;
+}
+
+/* 2. MOVE BOT TRANSFER STATE: Hyper-Speed Conduit Relocation (C ➔ Eye ➔ D) */
+.sm-sensor-stage.is-transferring .sm-pupil-eye {
+  animation: smTransferTracking 2.4s ease-in-out infinite;
+}
+
+@keyframes smTransferTracking {
+  0% {
+    transform: translate(-10px, 0px); /* Source C:\ */
+  }
+  40% {
+    transform: translate(0px, 0px);   /* Eye Optical Processor */
+  }
+  70% {
+    transform: translate(10px, 0px);  /* Target D:\ */
+  }
+  100% {
+    transform: translate(-10px, 0px);
+  }
+}
+
+.sm-sensor-stage.is-transferring .sm-conduit-packets {
+  opacity: 1;
+}
+
+.sm-sensor-stage.is-transferring .sm-pipe-main {
+  stroke: #a855f7 !important;
+  opacity: 1 !important;
+  filter: drop-shadow(0 0 10px #a855f7);
+}
+
+.sm-sensor-stage.is-transferring .sm-eye-hull {
+  stroke: #a855f7;
+  filter: drop-shadow(0 0 14px #a855f7);
+}
+
+.sm-sensor-stage.is-transferring .sm-eye-gimbal {
+  animation-duration: 5s;
+  stroke: rgba(168, 85, 247, 0.85);
+}
+
+.sm-sensor-stage.is-transferring .sm-bracket {
+  stroke: #c084fc;
+  filter: drop-shadow(0 0 8px #c084fc);
+}
+
+.sm-sensor-stage.is-transferring .sm-conduit-badge {
+  border-color: rgba(168, 85, 247, 0.7);
+  color: #c084fc;
+  background: rgba(168, 85, 247, 0.2);
+  box-shadow: 0 0 16px rgba(168, 85, 247, 0.4);
+}
+
+.sm-sensor-stage.is-transferring .sm-conduit-dot {
+  background: #c084fc;
+  box-shadow: 0 0 8px #c084fc;
+}
+
+/* 3. VERIFIED COMPLETE STATE: Harmonic Emerald Green */
+.sm-sensor-stage.is-complete .sm-pupil-eye {
+  animation: none !important;
+  transform: translate(0px, 0px) !important;
+}
+
+.sm-sensor-stage.is-complete .sm-pupil-reticle {
+  stroke: #10b981;
+}
+
+.sm-sensor-stage.is-complete .sm-pupil-iris {
+  fill: #059669;
+  stroke: #10b981;
+  filter: drop-shadow(0 0 12px #10b981);
+}
+
+.sm-sensor-stage.is-complete .sm-pupil-core {
+  stroke: #34d399;
+}
+
+.sm-sensor-stage.is-complete .sm-eye-hull {
+  stroke: #10b981;
+  filter: drop-shadow(0 0 12px rgba(16, 185, 129, 0.45));
+}
+
+.sm-sensor-stage.is-complete .sm-eye-gimbal {
+  stroke: rgba(16, 185, 129, 0.4);
+}
+
+.sm-sensor-stage.is-complete .sm-bracket {
+  stroke: #10b981;
+  filter: drop-shadow(0 0 6px #10b981);
+}
+
+.sm-sensor-stage.is-complete .sm-pipe-main {
+  stroke: #10b981 !important;
+  opacity: 0.8 !important;
+  filter: drop-shadow(0 0 8px #10b981);
+}
+
+.sm-sensor-stage.is-complete .sm-conduit-badge {
+  border-color: rgba(16, 185, 129, 0.7);
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.18);
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.35);
+}
+
+.sm-sensor-stage.is-complete .sm-conduit-dot {
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
 }
 
 /* ==========================================================================

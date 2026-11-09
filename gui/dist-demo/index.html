@@ -1322,62 +1322,188 @@
             id="cleanup-view"
           >
             <div class="sm-container">
-              <!-- Block 1: Top Hero Card with Storage Telemetry Dome -->
-              <div class="sm-hero-card">
-                <div class="sm-telemetry-stage" id="sm-telemetry-stage">
-                  <div class="sm-storage-orb">
-                    <div class="sm-orb-ring ring-ext"></div>
-                    <div class="sm-orb-ring ring-int"></div>
-                    <div class="sm-orb-core">
-                      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="22" y1="12" x2="2" y2="12"></line>
-                        <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
-                        <line x1="6" y1="16" x2="6.01" y2="16"></line>
-                        <line x1="10" y1="16" x2="10.01" y2="16"></line>
-                      </svg>
+              <!-- Block 1: Master Storage & Migration Console Deck -->
+              <div class="sm-hero-card sm-master-console">
+                <div class="sm-console-upper">
+                  <div class="sm-hero-content">
+                    <div class="sm-hero-header">
+                      <div class="eyebrow">ONE-CLICK STORAGE OPTIMIZATION</div>
+                      <h1 class="headline">Storage &amp; Move</h1>
+                      <p class="sm-hero-desc">
+                        Select any drive to uncover its biggest space hogs, move heavy folders to another drive at full speed, or delete junk in one click.
+                      </p>
+                    </div>
+
+                    <!-- Interactive Drive Selector Grid -->
+                    <div class="sm-drives-section">
+                      <div class="sm-drives-title">SELECT DRIVE TO SCAN</div>
+                      <div class="sm-drives-grid" id="sm-drives-grid">
+                        <!-- Populated dynamically via storage_available_roots -->
+                      </div>
+                    </div>
+
+                    <div class="sm-actions-row">
+                      <button class="sm-primary-scan-btn" id="sm-scan-now" type="button">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                          <line x1="22" y1="12" x2="2" y2="12"></line>
+                          <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
+                          <line x1="6" y1="16" x2="6.01" y2="16"></line>
+                          <line x1="10" y1="16" x2="10.01" y2="16"></line>
+                        </svg>
+                        <span id="sm-scan-btn-text">Scan Selected Drive (C:\)</span>
+                      </button>
+                      <button class="btn btn-danger hidden" id="sm-scan-cancel" type="button">Cancel scan</button>
+                    </div>
+
+                    <!-- Smooth Progress Bar with Live Ticker -->
+                    <div class="sm-progress-section">
+                      <div class="sm-progress-track">
+                        <div class="sm-progress-bar" id="sm-progress-bar" style="width: 0%;"></div>
+                      </div>
+                      <div class="sm-phase-ticker" id="sm-phase-ticker">Ready to scan — select a drive and click "Scan Selected Drive"</div>
                     </div>
                   </div>
-                  <div class="sm-telemetry-badge">
-                    <span class="sm-telemetry-dot"></span>
-                    <span class="sm-telemetry-label">VOLUME CONDUIT READY</span>
-                  </div>
-                </div>
-                <div class="sm-hero-content">
-                  <div class="sm-hero-header">
-                    <div class="eyebrow">ONE-CLICK STORAGE OPTIMIZATION</div>
-                    <h1 class="headline">Storage & Move</h1>
-                    <p class="sm-hero-desc">
-                      Select any drive to uncover its biggest space hogs, move heavy folders to another drive at full speed, or delete junk in one click.
-                    </p>
-                  </div>
 
-                  <!-- Interactive Drive Selector Grid -->
-                  <div class="sm-drives-section">
-                    <div class="sm-drives-title">SELECT DRIVE TO SCAN</div>
-                    <div class="sm-drives-grid" id="sm-drives-grid">
-                      <!-- Populated dynamically via storage_available_roots -->
+                  <!-- Right Side: The Quantum Storage Eye & Dual-Drive Conduit Portal -->
+                  <div class="sm-sensor-stage" id="sm-sensor-stage">
+                    <div class="sm-oculus-core" id="sm-oculus-core">
+                      <div class="sm-oculus-header">
+                        <div class="sm-oculus-tag">
+                          <span class="sm-oculus-pip"></span>
+                          <span>QUANTUM STORAGE OCULUS</span>
+                        </div>
+                        <div class="sm-oculus-telemetry">
+                          <span class="sm-oculus-mode">DUAL-DRIVE CONDUIT</span>
+                        </div>
+                      </div>
+
+                      <div class="sm-oculus-matrix">
+                        <svg class="sm-conduit-svg" viewBox="0 0 380 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <defs>
+                            <radialGradient id="smLensGrad" cx="50%" cy="50%" r="50%">
+                              <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.9" />
+                              <stop offset="45%" stop-color="#c084fc" stop-opacity="0.5" />
+                              <stop offset="85%" stop-color="#0f172a" stop-opacity="0.95" />
+                              <stop offset="100%" stop-color="#020617" stop-opacity="1" />
+                            </radialGradient>
+                            <radialGradient id="smEyeAuraGrad" cx="50%" cy="50%" r="50%">
+                              <stop offset="0%" stop-color="#c084fc" stop-opacity="0.6" />
+                              <stop offset="50%" stop-color="#38bdf8" stop-opacity="0.25" />
+                              <stop offset="100%" stop-color="#0f172a" stop-opacity="0" />
+                            </radialGradient>
+                            <clipPath id="smEyeApertureClip">
+                              <ellipse class="sm-aperture-ellipse" cx="190" cy="90" rx="24" ry="18" />
+                            </clipPath>
+                          </defs>
+
+                          <!-- Conduit Pipelines (Background) -->
+                          <g class="sm-conduit-pipes">
+                            <line class="sm-pipe-main p-left" x1="58" y1="90" x2="190" y2="90" stroke="rgba(56, 189, 248, 0.45)" stroke-width="2" stroke-linecap="round" />
+                            <line class="sm-pipe-main p-right" x1="190" y1="90" x2="322" y2="90" stroke="rgba(192, 132, 252, 0.45)" stroke-width="2" stroke-linecap="round" />
+                            <path class="sm-pipe-arch" d="M58,66 Q124,46 190,66" stroke="rgba(56, 189, 248, 0.28)" stroke-width="1.2" stroke-dasharray="3 4" fill="none" />
+                            <path class="sm-pipe-arch" d="M58,114 Q124,134 190,114" stroke="rgba(56, 189, 248, 0.28)" stroke-width="1.2" stroke-dasharray="3 4" fill="none" />
+                            <path class="sm-pipe-arch" d="M190,66 Q256,46 322,66" stroke="rgba(192, 132, 252, 0.28)" stroke-width="1.2" stroke-dasharray="3 4" fill="none" />
+                            <path class="sm-pipe-arch" d="M190,114 Q256,134 322,114" stroke="rgba(192, 132, 252, 0.28)" stroke-width="1.2" stroke-dasharray="3 4" fill="none" />
+                          </g>
+
+                          <!-- Live Conduit Particle Packets (Drive C ➔ Eye ➔ Drive D) -->
+                          <g class="sm-conduit-packets" id="sm-conduit-packets">
+                            <circle class="sm-packet pkt-c1" r="2.8" fill="#38bdf8" filter="url(#neuralGlow)">
+                              <animateMotion path="M58,90 L190,90" dur="1.2s" repeatCount="indefinite" />
+                            </circle>
+                            <circle class="sm-packet pkt-c2" r="2.5" fill="#c084fc" filter="url(#neuralGlow)">
+                              <animateMotion path="M58,66 Q124,46 190,66" dur="1.5s" repeatCount="indefinite" />
+                            </circle>
+                            <circle class="sm-packet pkt-c3" r="2.5" fill="#34d399" filter="url(#neuralGlow)">
+                              <animateMotion path="M58,114 Q124,134 190,114" dur="1.4s" repeatCount="indefinite" />
+                            </circle>
+
+                            <circle class="sm-packet pkt-d1" r="2.8" fill="#c084fc" filter="url(#neuralGlow)">
+                              <animateMotion path="M190,90 L322,90" dur="1.2s" repeatCount="indefinite" />
+                            </circle>
+                            <circle class="sm-packet pkt-d2" r="2.5" fill="#38bdf8" filter="url(#neuralGlow)">
+                              <animateMotion path="M190,66 Q256,46 322,66" dur="1.5s" repeatCount="indefinite" />
+                            </circle>
+                            <circle class="sm-packet pkt-d3" r="2.5" fill="#34d399" filter="url(#neuralGlow)">
+                              <animateMotion path="M190,114 Q256,134 322,114" dur="1.4s" repeatCount="indefinite" />
+                            </circle>
+                          </g>
+
+                          <!-- Source Drive C:\ Gauge Port (Left) -->
+                          <g class="sm-port-source">
+                            <circle class="sm-platter-outer" cx="58" cy="90" r="32" stroke="rgba(56, 189, 248, 0.3)" stroke-width="1.2" stroke-dasharray="3 5" />
+                            <circle class="sm-platter-disc" cx="58" cy="90" r="24" fill="#090d16" stroke="#38bdf8" stroke-width="1.8" filter="url(#neuralGlow)" />
+                            <circle class="sm-platter-core" cx="58" cy="90" r="8" fill="#0f172a" stroke="rgba(56, 189, 248, 0.5)" stroke-width="1" />
+                            <text class="sm-port-title" x="58" y="42" text-anchor="middle">DRIVE C:\</text>
+                            <text class="sm-port-sub" id="sm-port-c-sub" x="58" y="136" text-anchor="middle">SOURCE</text>
+                          </g>
+
+                          <!-- Target Volume D:\ Gauge Port (Right) -->
+                          <g class="sm-port-target">
+                            <circle class="sm-platter-outer" cx="322" cy="90" r="32" stroke="rgba(192, 132, 252, 0.3)" stroke-width="1.2" stroke-dasharray="3 5" />
+                            <circle class="sm-platter-disc" cx="322" cy="90" r="24" fill="#090d16" stroke="#c084fc" stroke-width="1.8" filter="url(#neuralGlow)" />
+                            <circle class="sm-platter-core" cx="322" cy="90" r="8" fill="#0f172a" stroke="rgba(192, 132, 252, 0.5)" stroke-width="1" />
+                            <text class="sm-port-title sm-title-target" x="322" y="42" text-anchor="middle">TARGET D:\</text>
+                            <text class="sm-port-sub" id="sm-port-d-sub" x="322" y="136" text-anchor="middle">CONDUIT</text>
+                          </g>
+
+                          <!-- THE QUANTUM STORAGE EYE (Center, Layered ON TOP of Pipelines & Packets!) -->
+                          <g class="sm-cyber-eye" id="sm-cyber-eye">
+                            <!-- Soft Ambient Backlight Aura -->
+                            <circle class="sm-eye-aura" cx="190" cy="90" r="36" fill="url(#smEyeAuraGrad)" />
+
+                            <!-- Outer Gimbal Gyro Ring -->
+                            <circle class="sm-eye-gimbal" cx="190" cy="90" r="32" stroke="rgba(192, 132, 252, 0.35)" stroke-width="1.2" stroke-dasharray="3 5" />
+
+                            <!-- Target Acquisition Corner Brackets -->
+                            <path class="sm-bracket b-tl" d="M168,70 L163,70 L163,75" stroke="rgba(192, 132, 252, 0.6)" stroke-width="1.4" fill="none" />
+                            <path class="sm-bracket b-tr" d="M212,70 L217,70 L217,75" stroke="rgba(192, 132, 252, 0.6)" stroke-width="1.4" fill="none" />
+                            <path class="sm-bracket b-bl" d="M168,110 L163,110 L163,105" stroke="rgba(192, 132, 252, 0.6)" stroke-width="1.4" fill="none" />
+                            <path class="sm-bracket b-br" d="M212,110 L217,110 L217,105" stroke="rgba(192, 132, 252, 0.6)" stroke-width="1.4" fill="none" />
+
+                            <!-- Mechanical Armor Sphere Hull (Solid #090d16 hides underlying data pipelines) -->
+                            <circle class="sm-eye-hull" cx="190" cy="90" r="26" fill="#090d16" stroke="rgba(192, 132, 252, 0.6)" stroke-width="2" filter="url(#synapseGlow)" />
+
+                            <!-- Clipped Optical Lens Chamber -->
+                            <g clip-path="url(#smEyeApertureClip)">
+                              <!-- Deep Optical Lens Glass -->
+                              <circle cx="190" cy="90" r="24" fill="url(#smLensGrad)" />
+
+                              <!-- Crosshair Sector Grid -->
+                              <line x1="166" y1="90" x2="214" y2="90" stroke="rgba(192, 132, 252, 0.3)" stroke-width="1" stroke-dasharray="2 3" />
+                              <line x1="190" y1="71" x2="190" y2="109" stroke="rgba(192, 132, 252, 0.3)" stroke-width="1" stroke-dasharray="2 3" />
+
+                              <!-- MOVING CYBER PUPIL (Looks between Drive C & Drive D!) -->
+                              <g class="sm-pupil-eye" id="sm-pupil-eye">
+                                <circle class="sm-pupil-reticle" cx="190" cy="90" r="12" stroke="#c084fc" stroke-width="1.2" stroke-dasharray="2 2" />
+                                <circle class="sm-pupil-iris" cx="190" cy="90" r="7.5" fill="#7c3aed" stroke="#c084fc" stroke-width="1.8" filter="url(#synapseGlow)" />
+                                <circle class="sm-pupil-core" cx="190" cy="90" r="3.8" fill="#0f172a" stroke="#38bdf8" stroke-width="1.2" />
+                                <circle class="sm-pupil-spark" cx="188.8" cy="88.8" r="1.4" fill="#ffffff" />
+                                <!-- Pupil Crosshairs -->
+                                <line x1="190" y1="81" x2="190" y2="83" stroke="#38bdf8" stroke-width="1.2" />
+                                <line x1="190" y1="97" x2="190" y2="99" stroke="#38bdf8" stroke-width="1.2" />
+                                <line x1="181" y1="90" x2="183" y2="90" stroke="#38bdf8" stroke-width="1.2" />
+                                <line x1="197" y1="90" x2="199" y2="90" stroke="#38bdf8" stroke-width="1.2" />
+                              </g>
+                            </g>
+
+                            <!-- Mechanical Eyelid Shutter Blades (With Periodic 4.2s Cyber Snap-Blink!) -->
+                            <g class="sm-eyelids">
+                              <path class="sm-eyelid sm-eyelid-upper" d="M166,90 Q190,70 214,90 Q190,58 166,90 Z" fill="#0f172a" stroke="rgba(192, 132, 252, 0.55)" stroke-width="1.2" />
+                              <path class="sm-eyelid sm-eyelid-lower" d="M166,90 Q190,110 214,90 Q190,122 166,90 Z" fill="#0f172a" stroke="rgba(192, 132, 252, 0.55)" stroke-width="1.2" />
+                            </g>
+                          </g>
+                        </svg>
+                      </div>
+
+                      <div class="sm-oculus-footer">
+                        <div class="sm-conduit-badge">
+                          <span class="sm-conduit-dot"></span>
+                          <span class="sm-conduit-text" id="sm-conduit-status">CONDUIT READY · STANDBY</span>
+                        </div>
+                        <div class="sm-conduit-sub"><span>ZERO DATA LOSS · VERIFIED</span></div>
+                      </div>
                     </div>
-                  </div>
-
-                  <div class="sm-actions-row">
-                    <button class="sm-primary-scan-btn" id="sm-scan-now" type="button">
-                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="22" y1="12" x2="2" y2="12"></line>
-                        <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
-                        <line x1="6" y1="16" x2="6.01" y2="16"></line>
-                        <line x1="10" y1="16" x2="10.01" y2="16"></line>
-                      </svg>
-                      <span id="sm-scan-btn-text">Scan Selected Drive (C:\)</span>
-                    </button>
-                    <button class="btn btn-danger hidden" id="sm-scan-cancel" type="button">Cancel scan</button>
-                  </div>
-
-                  <!-- Smooth Progress Bar with Live Ticker -->
-                  <div class="sm-progress-section">
-                    <div class="sm-progress-track">
-                      <div class="sm-progress-bar" id="sm-progress-bar" style="width: 0%;"></div>
-                    </div>
-                    <div class="sm-phase-ticker" id="sm-phase-ticker">Ready to scan — select a drive and click "Scan Selected Drive"</div>
                   </div>
                 </div>
               </div>

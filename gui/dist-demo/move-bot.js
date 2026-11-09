@@ -301,6 +301,14 @@
     show("mb-run-body");
     if (els.runSteps) els.runSteps.textContent = "";
     setProgress(0, "");
+
+    const sensorStage = document.getElementById("sm-sensor-stage");
+    const conduitStatus = document.getElementById("sm-conduit-status");
+    if (sensorStage) {
+      sensorStage.classList.remove("is-complete", "is-scanning");
+      sensorStage.classList.add("is-transferring");
+    }
+    if (conduitStatus) conduitStatus.textContent = "CONDUIT ACTIVE: STREAMING TO " + (pendingPlan.targetDrive || "D:\\");
     if (els.runTitle)
       els.runTitle.textContent =
         "Moving " + pendingPlan.candidates.length + (pendingPlan.candidates.length === 1 ? " folder" : " folders") + " — I am on it.";
@@ -459,6 +467,10 @@
 
   function showBotFailure(failure, results) {
     show("mb-error-body");
+    const sensorStage = document.getElementById("sm-sensor-stage");
+    const conduitStatus = document.getElementById("sm-conduit-status");
+    if (sensorStage) sensorStage.classList.remove("is-transferring");
+    if (conduitStatus) conduitStatus.textContent = "CONDUIT ABORTED: SAFE ROLLBACK";
     const copyFailed = failure.phase === "copy";
     const headline = copyFailed
       ? "I stopped before anything changed. Your files are exactly where they were."
@@ -508,6 +520,13 @@
 
   function showBotDone(results) {
     show("mb-done-body");
+    const sensorStage = document.getElementById("sm-sensor-stage");
+    const conduitStatus = document.getElementById("sm-conduit-status");
+    if (sensorStage) {
+      sensorStage.classList.remove("is-transferring");
+      sensorStage.classList.add("is-complete");
+    }
+    if (conduitStatus) conduitStatus.textContent = "MIGRATION COMPLETE: VERIFIED";
     const totalBytes = results.reduce(
       (a, r) => a + ((r.receipt && r.receipt.total_bytes_copied) || r.candidate.size_bytes || 0),
       0,

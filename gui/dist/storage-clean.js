@@ -163,6 +163,14 @@
     if (els.progressBar) els.progressBar.style.width = "15%";
     if (els.phaseTicker) els.phaseTicker.textContent = "Scanning " + state.selectedDrive + " — inspecting large directories & caches…";
 
+    const sensorStage = document.getElementById("sm-sensor-stage");
+    const conduitStatus = document.getElementById("sm-conduit-status");
+    if (sensorStage) {
+      sensorStage.classList.remove("is-complete", "is-transferring");
+      sensorStage.classList.add("is-scanning");
+    }
+    if (conduitStatus) conduitStatus.textContent = "SCANNING SECTORS · " + state.selectedDrive;
+
 
 
     // Set ticker animation stages
@@ -200,6 +208,8 @@
       renderHighestConsumers(scan);
       await loadLeftovers(scan);
       await loadDrives(); // Refresh drive free space figures
+      if (sensorStage) sensorStage.classList.remove("is-scanning");
+      if (conduitStatus) conduitStatus.textContent = "SECTORS AUDITED · " + state.selectedDrive;
     } catch (err) {
       console.error("Storage scan error:", err);
       if (els.phaseTicker) els.phaseTicker.textContent = "Scan stopped: " + err;
