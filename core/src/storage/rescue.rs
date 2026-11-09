@@ -1890,12 +1890,17 @@ pub fn remove_user_environment_variable(name: &str) -> io::Result<()> {
 #[cfg(windows)]
 pub fn set_known_folder_path(candidate_id: &str, target_path: &Path) -> io::Result<()> {
     let target_str = target_path.to_string_lossy().to_string();
+    if candidate_id == "desktop" || candidate_id == "desktop_media" {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Relocating Windows Desktop is strictly prohibited to prevent desktop shortcut and shell disruption.",
+        ));
+    }
     let reg_name = match candidate_id {
         "downloads" => "{374DE290-123F-4565-9164-39C4925E467B}",
         "documents" => "Personal",
         "pictures" => "My Pictures",
         "videos" => "My Video",
-        "desktop" | "desktop_media" => "Desktop",
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
