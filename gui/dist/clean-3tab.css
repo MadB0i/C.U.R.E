@@ -3369,13 +3369,18 @@
 }
 
 /* 3. TARGET LOCKED STATE (When AI Agents Found): Crimson Red Alert Mode */
-.ar-oculus-core.is-locked .eyelid-upper {
-  transform: translateY(-9px) scaleY(0.7);
-  stroke: #ef4444;
+.ar-oculus-core.is-locked {
+  animation: none !important;
+  transform: none !important;
 }
-.ar-oculus-core.is-locked .eyelid-lower {
-  transform: translateY(9px) scaleY(0.7);
-  stroke: #ef4444;
+
+/* Eyelids completely hidden when locked/open - no cutting across the eye */
+.ar-oculus-core.is-locked .eyelid-blade,
+.ar-oculus-core.is-scanning .eyelid-blade,
+.ar-oculus-core.is-clean .eyelid-blade {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
 }
 .ar-oculus-core.is-locked .oculus-hull {
   stroke: #ef4444;
@@ -3399,7 +3404,9 @@
 }
 .ar-oculus-core.is-locked .oculus-bracket {
   stroke: #ef4444;
-  animation: bracketRedAlertPulse 0.9s ease-in-out infinite;
+  filter: drop-shadow(0 0 10px #ef4444);
+  transform: none !important;
+  animation: bracketSteadyGlow 1.5s ease-in-out infinite;
 }
 .ar-oculus-core.is-locked .oculus-gyro-outer {
   stroke: rgba(239, 68, 68, 0.55);
@@ -3410,7 +3417,8 @@
   animation: gyroSpinReverse 3s linear infinite;
 }
 .ar-oculus-core.is-locked .oculus-pupil-eye {
-  animation: oculusTargetLockedStare 1.8s ease-in-out infinite;
+  animation: none !important;
+  transform: translate(0, 0) !important;
 }
 .ar-oculus-core.is-locked .oculus-header .oculus-pulse-pip {
   background: #ef4444;
@@ -3424,13 +3432,13 @@
 }
 
 @keyframes oculusTargetLockedStare {
-  0%, 100% { transform: scale(1.04); }
-  50% { transform: scale(1.12); }
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(0, 0); }
 }
 
-@keyframes bracketRedAlertPulse {
-  0%, 100% { transform: scale(1); opacity: 0.7; }
-  50% { transform: scale(1.15); opacity: 1; }
+@keyframes bracketSteadyGlow {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; filter: drop-shadow(0 0 14px #ef4444); }
 }
 
 /* 4. VERIFIED CLEAN STATE: Emerald Green Calming */
