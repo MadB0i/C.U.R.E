@@ -2969,23 +2969,69 @@
   transition: stroke 0.4s ease, filter 0.4s ease;
 }
 
-/* Horizontal Tracking Pupil: Strictly Left & Right horizontal gaze! */
+/* Horizontal Tracking Pupil: Natural Heuristic Idle Gaze (Mostly center forward, calm micro-glances) */
 .cortex-pupil-eye {
   transform-origin: 230px 96px;
   transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
-  animation: cortexIdleHoriz 6s ease-in-out infinite;
+  animation: cortexIdleHoriz 8.5s ease-in-out infinite;
 }
 
 @keyframes cortexIdleHoriz {
-  0%, 100% { transform: translate(0px, 0px); }
-  22%, 36% { transform: translate(-4px, 0px); }
-  50%      { transform: translate(0px, 0px); }
-  72%, 86% { transform: translate(4px, 0px); }
+  0%, 30%   { transform: translate(0px, 0px); }
+  34%, 48%  { transform: translate(-3.5px, 0px); } /* Gentle look left at telemetry */
+  52%, 76%  { transform: translate(0px, 0px); }    /* Rests at center forward */
+  80%, 88%  { transform: translate(3px, 0px); }     /* Gentle look right */
+  92%, 100% { transform: translate(0px, 0px); }
+}
+
+/* Page 1 Periodic Cyber Snap-Blink: Blinks in Idle, during scan, and after scan */
+.cortex-aperture-ellipse {
+  transform-origin: 230px 96px;
+  animation: cortexCyberSnapBlink 4.2s ease-in-out infinite;
 }
 
 .cortex-eyelid {
   transform-origin: 230px 96px;
   transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+}
+
+.cortex-eyelid-upper {
+  animation: cortexLidUpperSnapBlink 4.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.cortex-eyelid-lower {
+  animation: cortexLidLowerSnapBlink 4.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+@keyframes cortexCyberSnapBlink {
+  0%, 88%, 94%, 100% {
+    transform: scaleY(1);
+  }
+  91% {
+    transform: scaleY(0.06);
+  }
+}
+
+@keyframes cortexLidUpperSnapBlink {
+  0%, 88%, 94%, 100% {
+    transform: translateY(-5px) scaleY(0.7);
+    opacity: 0.85;
+  }
+  91% {
+    transform: translateY(0px) scaleY(1.15);
+    opacity: 1;
+  }
+}
+
+@keyframes cortexLidLowerSnapBlink {
+  0%, 88%, 94%, 100% {
+    transform: translateY(5px) scaleY(0.7);
+    opacity: 0.85;
+  }
+  91% {
+    transform: translateY(0px) scaleY(1.15);
+    opacity: 1;
+  }
 }
 
 .cortex-node-label {
@@ -3086,36 +3132,77 @@
   stroke: rgba(56, 189, 248, 0.85);
 }
 
-/* Page 1 Horizontal Tracking: Inspects sensors on Left -> Recalibrates -> Tracks Verdict on Right */
+/* Page 1 Organic Heuristic Tracking: Varied saccades, dwells on Left inspecting files (7.6s cycle, non-repetitive) */
 .vr-neural-core.is-scanning .cortex-pupil-eye {
-  animation: cortexLookHorizontal 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  animation: cortexLookHeuristic 7.6s cubic-bezier(0.25, 1, 0.5, 1) infinite;
 }
 
-@keyframes cortexLookHorizontal {
-  0% {
-    transform: translate(0px, 0px);
+@keyframes cortexLookHeuristic {
+  0%, 10% {
+    transform: translate(0px, 0px);       /* Initial Center calibration */
   }
-  16%, 38% {
-    transform: translate(-11px, 0px); /* Looks Left inspecting incoming sensor inputs (MEM, HOOK, ENT, LOL) */
+  14% {
+    transform: translate(-11px, 0px);     /* Snaps Left to incoming files & sensors */
+  }
+  15%, 44% {
+    transform: translate(-11px, 0px);     /* DWELLS on Left for 2.2 full seconds reading file telemetry! */
   }
   48% {
-    transform: translate(0px, 0px);   /* Recalibrates center heuristic engine */
+    transform: translate(0px, 0px);       /* Glides back to Center */
   }
-  64%, 86% {
-    transform: translate(11px, 0px);  /* Tracks output towards Verdict node on Right */
+  49%, 58% {
+    transform: translate(0px, 0px);       /* Center heuristic evaluation */
   }
-  96%, 100% {
-    transform: translate(0px, 0px);   /* Returns to center */
+  62% {
+    transform: translate(11px, 0px);      /* Glances Right towards Verdict path */
+  }
+  63%, 72% {
+    transform: translate(11px, 0px);      /* Holds on Verdict inspection (~0.7s) */
+  }
+  76% {
+    transform: translate(-5.5px, 0px);    /* Micro-glance Left-Center re-audit */
+  }
+  77%, 85% {
+    transform: translate(-5.5px, 0px);    /* Holds secondary re-audit (~0.6s) */
+  }
+  89%, 100% {
+    transform: translate(0px, 0px);       /* Recalibrates to Center forward */
   }
 }
 
-/* Scanning Eyelids: Retract open wide for full field of view */
+/* Scanning Eyelids: Retract wide open with periodic cyber snap-blink */
+.vr-neural-core.is-scanning .cortex-aperture-ellipse {
+  animation: cortexCyberSnapBlink 4.2s ease-in-out infinite;
+}
+
 .vr-neural-core.is-scanning .cortex-eyelid-upper {
-  transform: translateY(-9px) scaleY(0.6);
+  animation: cortexScanLidUpperBlink 4.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
 
 .vr-neural-core.is-scanning .cortex-eyelid-lower {
-  transform: translateY(9px) scaleY(0.6);
+  animation: cortexScanLidLowerBlink 4.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+@keyframes cortexScanLidUpperBlink {
+  0%, 88%, 94%, 100% {
+    transform: translateY(-9px) scaleY(0.55);
+    opacity: 0.6;
+  }
+  91% {
+    transform: translateY(0px) scaleY(1.1);
+    opacity: 1;
+  }
+}
+
+@keyframes cortexScanLidLowerBlink {
+  0%, 88%, 94%, 100% {
+    transform: translateY(9px) scaleY(0.55);
+    opacity: 0.6;
+  }
+  91% {
+    transform: translateY(0px) scaleY(1.1);
+    opacity: 1;
+  }
 }
 
 .vr-neural-core.is-scanning .cortex-eye-hull {
@@ -3182,12 +3269,40 @@
   filter: drop-shadow(0 0 5px #10b981);
 }
 
+.vr-neural-core.is-clean .cortex-aperture-ellipse {
+  animation: cortexCyberSnapBlink 4.2s ease-in-out infinite;
+}
+
 .vr-neural-core.is-clean .cortex-eyelid-upper {
-  transform: translateY(-6px) scaleY(0.75);
+  stroke: #10b981;
+  animation: cortexCleanLidUpperBlink 4.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
 
 .vr-neural-core.is-clean .cortex-eyelid-lower {
-  transform: translateY(6px) scaleY(0.75);
+  stroke: #10b981;
+  animation: cortexCleanLidLowerBlink 4.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+@keyframes cortexCleanLidUpperBlink {
+  0%, 88%, 94%, 100% {
+    transform: translateY(-6px) scaleY(0.7);
+    opacity: 0.8;
+  }
+  91% {
+    transform: translateY(0px) scaleY(1.15);
+    opacity: 1;
+  }
+}
+
+@keyframes cortexCleanLidLowerBlink {
+  0%, 88%, 94%, 100% {
+    transform: translateY(6px) scaleY(0.7);
+    opacity: 0.8;
+  }
+  91% {
+    transform: translateY(0px) scaleY(1.15);
+    opacity: 1;
+  }
 }
 
 .vr-neural-core.is-clean .verdict-shield {
@@ -3454,23 +3569,55 @@
    OCULUS STATES: IS-IDLE (Sleep Squint) vs IS-SCANNING (Eye Looks Around!)
    ========================================================================== */
 
-/* 1. IDLE STATE: Sleepy squinted eyelids with calm breathing cyan iris */
+/* 1. IDLE STATE: Sentient Robotic Eye - Wide open with periodic cyber snap-blink */
+.ar-oculus-core.is-idle .oculus-aperture-ellipse {
+  transform-origin: 190px 90px;
+  animation: oculusSnapBlink 4.2s ease-in-out infinite;
+}
+
 .ar-oculus-core.is-idle .eyelid-upper {
   transform-origin: 190px 90px;
-  transform: translateY(14px) scaleY(1.3);
-  transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+  display: block !important;
+  visibility: visible !important;
+  animation: oculusLidUpperSnapBlink 4.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
 
 .ar-oculus-core.is-idle .eyelid-lower {
   transform-origin: 190px 90px;
-  transform: translateY(-14px) scaleY(1.3);
-  transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+  display: block !important;
+  visibility: visible !important;
+  animation: oculusLidLowerSnapBlink 4.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
 
-.ar-oculus-core.is-idle .oculus-aperture-ellipse {
-  transform-origin: 190px 90px;
-  transform: scaleY(0.35);
-  transition: transform 0.6s ease;
+@keyframes oculusSnapBlink {
+  0%, 88%, 94%, 100% {
+    transform: scaleY(1);
+  }
+  91% {
+    transform: scaleY(0.06);
+  }
+}
+
+@keyframes oculusLidUpperSnapBlink {
+  0%, 88%, 94%, 100% {
+    transform: translateY(-14px) scaleY(0.65);
+    opacity: 0.75;
+  }
+  91% {
+    transform: translateY(0px) scaleY(1.15);
+    opacity: 1;
+  }
+}
+
+@keyframes oculusLidLowerSnapBlink {
+  0%, 88%, 94%, 100% {
+    transform: translateY(14px) scaleY(0.65);
+    opacity: 0.75;
+  }
+  91% {
+    transform: translateY(0px) scaleY(1.15);
+    opacity: 1;
+  }
 }
 
 .ar-oculus-core.is-idle .oculus-radar-sweep-beam {
@@ -3487,23 +3634,46 @@
   50% { filter: drop-shadow(0 0 10px #38bdf8); }
 }
 
-/* 2. SCANNING STATE: Eyelids snap wide open & Cyber Eye LOOKS AROUND! */
+/* 2. SCANNING STATE: Eyelids snap wide open & Cyber Eye LOOKS AROUND with cyber snap-blink */
+.ar-oculus-core.is-scanning .oculus-aperture-ellipse {
+  transform-origin: 190px 90px;
+  animation: oculusSnapBlink 4.2s ease-in-out infinite;
+}
+
 .ar-oculus-core.is-scanning .eyelid-upper {
   transform-origin: 190px 90px;
-  transform: translateY(-12px) scaleY(0.6);
-  transition: transform 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+  display: block !important;
+  visibility: visible !important;
+  animation: oculusScanLidUpperBlink 4.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
 
 .ar-oculus-core.is-scanning .eyelid-lower {
   transform-origin: 190px 90px;
-  transform: translateY(12px) scaleY(0.6);
-  transition: transform 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+  display: block !important;
+  visibility: visible !important;
+  animation: oculusScanLidLowerBlink 4.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
 
-.ar-oculus-core.is-scanning .oculus-aperture-ellipse {
-  transform-origin: 190px 90px;
-  transform: scaleY(1.0);
-  transition: transform 0.4s ease;
+@keyframes oculusScanLidUpperBlink {
+  0%, 88%, 94%, 100% {
+    transform: translateY(-16px) scaleY(0.55);
+    opacity: 0.6;
+  }
+  91% {
+    transform: translateY(0px) scaleY(1.1);
+    opacity: 1;
+  }
+}
+
+@keyframes oculusScanLidLowerBlink {
+  0%, 88%, 94%, 100% {
+    transform: translateY(16px) scaleY(0.55);
+    opacity: 0.6;
+  }
+  91% {
+    transform: translateY(0px) scaleY(1.1);
+    opacity: 1;
+  }
 }
 
 /* REALISTIC ROBOTIC LOOK-AROUND MOTION CHOREOGRAPHY */
@@ -3551,9 +3721,8 @@
   transform: none !important;
 }
 
-/* Eyelids during scanning & clean remain retracted */
-.ar-oculus-core.is-scanning .eyelid-blade,
-.ar-oculus-core.is-clean .eyelid-blade {
+/* Eyelid blades stay retracted during active scan */
+.ar-oculus-core.is-scanning .eyelid-blade {
   display: none !important;
   opacity: 0 !important;
   visibility: hidden !important;
@@ -3681,7 +3850,52 @@
   50% { opacity: 1; filter: drop-shadow(0 0 14px #ef4444); }
 }
 
-/* 4. VERIFIED CLEAN STATE: Emerald Green Calming */
+/* 4. VERIFIED CLEAN STATE (After Scan): Emerald Green Calming with Periodic Cyber Snap-Blink */
+.ar-oculus-core.is-clean .oculus-aperture-ellipse {
+  transform-origin: 190px 90px;
+  animation: oculusSnapBlink 4.2s ease-in-out infinite;
+}
+
+.ar-oculus-core.is-clean .eyelid-upper {
+  transform-origin: 190px 90px;
+  stroke: #10b981;
+  fill: #0a0f1d;
+  display: block !important;
+  visibility: visible !important;
+  animation: oculusCleanLidUpperBlink 4.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.ar-oculus-core.is-clean .eyelid-lower {
+  transform-origin: 190px 90px;
+  stroke: #10b981;
+  fill: #0a0f1d;
+  display: block !important;
+  visibility: visible !important;
+  animation: oculusCleanLidLowerBlink 4.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+@keyframes oculusCleanLidUpperBlink {
+  0%, 88%, 94%, 100% {
+    transform: translateY(-16px) scaleY(0.55);
+    opacity: 0.7;
+  }
+  91% {
+    transform: translateY(0px) scaleY(1.15);
+    opacity: 1;
+  }
+}
+
+@keyframes oculusCleanLidLowerBlink {
+  0%, 88%, 94%, 100% {
+    transform: translateY(16px) scaleY(0.55);
+    opacity: 0.7;
+  }
+  91% {
+    transform: translateY(0px) scaleY(1.15);
+    opacity: 1;
+  }
+}
+
 .ar-oculus-core.is-clean .pupil-iris {
   fill: #059669;
   stroke: #10b981;
