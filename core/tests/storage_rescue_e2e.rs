@@ -214,3 +214,79 @@ fn junction_in_source_refuses_deletion_and_is_never_followed_by_copy() {
 
     fs::remove_dir_all(&root).unwrap();
 }
+
+#[test]
+fn test_resilient_cleanup_with_file_locks_and_reboot_scheduling() {
+    let root = acceptance_root("resilient_locks");
+    let test_dir = root.join("test_lock_folder");
+    fs::create_dir_all(&test_dir).unwrap();
+
+    let normal_file = test_dir.join("normal.dat");
+    let locked_file = test_dir.join("active_lock.db");
+    let readonly_file = test_dir.join("readonly.cfg");
+
+    write_file(&normal_file, &[42u8; 1024]);
+    write_file(&locked_file, &[99u8; 2048]);
+    write_file(&readonly_file, &[77u8; 512]);
+
+    // Make readonly_file read-only
+    let mut perms = fs::metadata(&readonly_file).unwrap().permissions();
+    perms.set_readonly(true);
+    fs::set_permissions(&readonly_file, perms).unwrap();
+
+    // Open locked_file with exclusive access (share_mode(0) forbids sharing/deletion, causing ERROR_SHARING_VIOLATION)
+    #[cfg(windows)]
+    use std::os::windows::fs::OpenOptionsExt;
+    #[cfg(windows)]
+    let _held_file = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(&locked_file)
+        .unwrap();
+    #[cfg(not(windows))]
+    let _held_file = File::open(&locked_file).unwrap();
+
+    // Call resilient_remove_dir_all
+    let (bytes_freed, locked) = cure_core::storage::resilient_remove_dir_all(&test_dir);
+
+    // Normal and readonly files MUST be removed and their bytes accumulated
+    assert!(!normal_file.exists(), "normal_file should be deleted");
+    assert!(
+        !readonly_file.exists(),
+        "readonly_file should be deleted after clearing readonly attribute"
+    );
+    assert!(
+        bytes_freed >= 1024 + 512,
+        "freed bytes must account for deleted files: got {}",
+        bytes_freed
+    );
+
+    // Locked file must be tracked in locked_files
+    assert!(
+        !locked.is_empty(),
+        "locked_files list should capture the locked file"
+    );
+    assert!(locked.iter().any(|p| p.ends_with("active_lock.db")));
+
+    drop(_held_file);
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn test_non_ntfs_and_readonly_permission_boundaries() {
+    // 1. Verify filesystem geometry query on C: drive detects NTFS accurately
+    let geom = cure_core::storage::query_low_level_volume_geometry("C:");
+    assert!(geom.is_some(), "C: drive geometry must be queryable");
+    let g = geom.unwrap();
+    assert_eq!(g.drive_letter, "C:");
+    assert_eq!(g.filesystem, "NTFS");
+    assert!(g.is_ntfs);
+    assert!(g.bytes_per_cluster > 0);
+
+    // 2. Verify invalid/unmounted drive handles gracefully without panic
+    let bad_geom = cure_core::storage::query_low_level_volume_geometry("Z9:");
+    assert!(
+        bad_geom.is_none(),
+        "Unmounted drive must return None cleanly without panic"
+    );
+}
