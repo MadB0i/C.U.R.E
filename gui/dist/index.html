@@ -271,7 +271,54 @@
                     <div class="vr-progress-track">
                       <div class="vr-progress-bar" id="vr-progress-bar" style="width: 0%;"></div>
                     </div>
+                    <!-- 1. 4-Stage Segmented Forensic Pipeline -->
+                    <div class="vr-pipeline-stages" id="vr-pipeline-stages">
+                      <div class="vr-stage-pill" id="vr-stage-1" data-stage="1">
+                        <span class="vr-stage-status-icon">○</span>
+                        <span class="vr-stage-num">01</span>
+                        <span class="vr-stage-text">MEMORY &amp; PROCESSES</span>
+                      </div>
+                      <div class="vr-stage-pill" id="vr-stage-2" data-stage="2">
+                        <span class="vr-stage-status-icon">○</span>
+                        <span class="vr-stage-num">02</span>
+                        <span class="vr-stage-text">PERSISTENCE HOOKS</span>
+                      </div>
+                      <div class="vr-stage-pill" id="vr-stage-3" data-stage="3">
+                        <span class="vr-stage-status-icon">○</span>
+                        <span class="vr-stage-num">03</span>
+                        <span class="vr-stage-text">SHANNON ENTROPY</span>
+                      </div>
+                      <div class="vr-stage-pill" id="vr-stage-4" data-stage="4">
+                        <span class="vr-stage-status-icon">○</span>
+                        <span class="vr-stage-num">04</span>
+                        <span class="vr-stage-text">DE-OBFUSCATOR &amp; LOLBINS</span>
+                      </div>
+                    </div>
                     <div class="vr-phase-ticker" id="vr-phase-ticker">Ready to scan — click "Scan System for Threats" to begin</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 2. Live Forensic Telemetry Console -->
+              <div class="vr-telemetry-strip" id="vr-telemetry-strip">
+                <div class="vr-telemetry-left">
+                  <div class="vr-telemetry-header">
+                    <span class="vr-telemetry-dot"></span>
+                    <span class="vr-telemetry-label">LIVE INSPECTION STREAM</span>
+                  </div>
+                  <div class="vr-telemetry-ticker" id="vr-telemetry-stream">
+                    <span class="vr-ticker-collector" id="vr-ticker-collector">[STANDBY]</span>
+                    <span class="vr-ticker-path" id="vr-ticker-path">Telemetry stream ready · Click "Scan System for Threats" to audit memory &amp; persistence</span>
+                  </div>
+                </div>
+                <div class="vr-telemetry-right">
+                  <div class="vr-telemetry-meta-item">
+                    <span class="vr-telemetry-meta-label">FORENSIC ENGINE</span>
+                    <span class="vr-telemetry-meta-val vr-meta-engine">Deep Heuristics + Offline Authenticode</span>
+                  </div>
+                  <div class="vr-telemetry-meta-item">
+                    <span class="vr-telemetry-meta-label">PEAK ENTROPY</span>
+                    <span class="vr-telemetry-meta-val vr-meta-entropy" id="vr-telemetry-entropy">0.00 bits/byte</span>
                   </div>
                 </div>
               </div>

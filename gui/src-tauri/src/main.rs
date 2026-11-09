@@ -307,6 +307,21 @@ fn scan_heuristic_dir(
             );
         }
 
+        let _ = app.emit(
+            "scan-progress",
+            serde_json::json!({
+
+                "stage": "telemetry",
+
+                "collector": "[HEURISTICS]",
+
+                "path": path.to_string_lossy().to_string(),
+
+                "count": *scanned_count,
+
+            }),
+        );
+
         // 1. Filename spoofing (double extensions / RTLO)
         if let Some(reason) = cure_core::scanners::heuristics::check_filename_spoofing(&file_name) {
             let p_entry = PersistenceEntry::new(
@@ -362,10 +377,19 @@ fn scan_heuristic_dir(
             .unwrap_or("")
             .to_ascii_lowercase();
         if cure_core::scanners::heuristics::SCRIPT_EXTENSIONS.contains(&ext.as_str()) {
+            let _ = app.emit(
+                "scan-progress",
+                serde_json::json!({
+                    "stage": "telemetry",
+                    "collector": "[LOLBINS]",
+                    "path": path.to_string_lossy().to_string(),
+                    "count": *scanned_count,
+                }),
+            );
             if let Ok(bytes) = read_head_bytes(&path, 65536) {
                 let content = String::from_utf8_lossy(&bytes);
-                if let Some(reason) =
-                    cure_core::scanners::heuristics::check_script_content(&content)
+                if let Some(details) =
+                    cure_core::scanners::heuristics::inspect_script_details(&content)
                 {
                     let p_entry = PersistenceEntry::new(
                         PersistenceSource::StartupFolder,
@@ -373,13 +397,27 @@ fn scan_heuristic_dir(
                         path.to_string_lossy().to_string(),
                         dir.to_string_lossy().to_string(),
                     );
+                    let mut evidence = vec![cure_core::evidence::Evidence::observed(format!(
+                        "Obfuscated script dropper: {}",
+                        details.reason
+                    ))];
+                    if !details.matched_line.is_empty() {
+                        evidence.push(cure_core::evidence::Evidence::observed(format!(
+                            "Captured cradle: {}",
+                            details.matched_line
+                        )));
+                    }
+                    if let Some(decoded) = details.decoded_payload {
+                        evidence.push(cure_core::evidence::Evidence::observed(format!(
+                            "Decoded payload: {}",
+                            decoded
+                        )));
+                    }
                     findings.push(ScoredEntry {
                         entry: p_entry,
                         score: 95,
                         risk: RiskLevel::HighRisk,
-                        evidence: vec![cure_core::evidence::Evidence::observed(format!(
-                            "Obfuscated script dropper: {reason}"
-                        ))],
+                        evidence,
                         attack: cure_core::model::AttackInfo {
                             id: "T1059".to_string(),
                             name: "Heuristic Detection".to_string(),
@@ -393,7 +431,18 @@ fn scan_heuristic_dir(
         // 4. High-entropy packed binaries in Temp/Startup
         if ext == "exe" || ext == "dll" {
             if let Ok(bytes) = read_head_bytes(&path, 262144) {
-                if let Some(entropy) = cure_core::scanners::heuristics::check_high_entropy(&bytes) {
+                let entropy = cure_core::scanners::heuristics::compute_entropy(&bytes);
+                let _ = app.emit(
+                    "scan-progress",
+                    serde_json::json!({
+                        "stage": "telemetry",
+                        "collector": "[ENTROPY]",
+                        "path": path.to_string_lossy().to_string(),
+                        "entropy": entropy,
+                        "count": *scanned_count,
+                    }),
+                );
+                if entropy > 7.2 && bytes.len() >= 4096 {
                     let sig = cure_core::signature::check_signature(&path);
                     if sig != SignatureStatus::ValidSigned {
                         let p_entry = PersistenceEntry::new(
@@ -496,6 +545,32 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     let mut scanned_count: usize = 0;
     let data_dir = resolve_data_dir();
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("cannot create data dir: {e}"))?;
+    let _ = app.emit(
+        "scan-progress",
+        serde_json::json!({
+
+            "stage": "pipeline-stage",
+
+            "pipeline_stage": 2,
+
+            "state": "active",
+
+        }),
+    );
+
+    let _ = app.emit(
+        "scan-progress",
+        serde_json::json!({
+
+            "stage": "telemetry",
+
+            "collector": "[PERSISTENCE]",
+
+            "path": "Auditing HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+
+        }),
+    );
+
     emit_stage(&app, "registry", "Reading Run / RunOnce autoruns");
     #[allow(unused_mut)]
     let mut entries: Vec<PersistenceEntry> = Vec::new();
@@ -801,6 +876,19 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
                 "message": format!("Inspecting {}", s.entry.name)
             }),
         );
+        let _ = app.emit(
+            "scan-progress",
+            serde_json::json!({
+
+                "stage": "telemetry",
+
+                "collector": "[PERSISTENCE]",
+
+                "path": format!("Auditing {}", s.entry.location),
+
+            }),
+        );
+
         tokio::time::sleep(std::time::Duration::from_millis(per_item_ms)).await;
         // NO automatic remediation here: even HighRisk findings only land in
         // the review queue. Relocation happens exclusively through the
@@ -815,6 +903,22 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         }
     }
     // ── live process scan ──────────────────────────────────────────────
+    let _ = app.emit(
+        "scan-progress",
+        serde_json::json!({
+            "stage": "pipeline-stage",
+            "pipeline_stage": 2,
+            "state": "verified",
+        }),
+    );
+    let _ = app.emit(
+        "scan-progress",
+        serde_json::json!({
+            "stage": "pipeline-stage",
+            "pipeline_stage": 1,
+            "state": "active",
+        }),
+    );
     emit_stage(&app, "process-scan", "Enumerating running processes");
     let processes = process_scan::enumerate_processes();
     scanned_count += processes.len();
@@ -831,6 +935,16 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
         const BATCH: usize = 24;
         let mut scored_procs: Vec<(ProcessInfo, ProcessScore)> = Vec::new();
         for chunk in processes.chunks(BATCH) {
+            if let Some(first_p) = chunk.first() {
+                let _ = app.emit(
+                    "scan-progress",
+                    serde_json::json!({
+                        "stage": "telemetry",
+                        "collector": "[MEMORY]",
+                        "path": format!("Inspecting PID {} ({})", first_p.pid, first_p.name),
+                    }),
+                );
+            }
             let chunk = chunk.to_vec();
             let done = scored_procs.len();
             let total = processes.len();
@@ -972,6 +1086,30 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     };
     record_source_state(&app, &mut source_states, ransom_row);
     // ── heuristic file sweep (Temp, Downloads, AppData droppers & LOLBins) ─
+    let _ = app.emit(
+        "scan-progress",
+        serde_json::json!({
+            "stage": "pipeline-stage",
+            "pipeline_stage": 1,
+            "state": "verified",
+        }),
+    );
+    let _ = app.emit(
+        "scan-progress",
+        serde_json::json!({
+            "stage": "pipeline-stage",
+            "pipeline_stage": 3,
+            "state": "active",
+        }),
+    );
+    let _ = app.emit(
+        "scan-progress",
+        serde_json::json!({
+            "stage": "pipeline-stage",
+            "pipeline_stage": 4,
+            "state": "active",
+        }),
+    );
     emit_stage(
         &app,
         "heuristic-sweep",
@@ -981,6 +1119,32 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     for h in heuristic_threats {
         suspicious_for_review.push(h);
     }
+
+    let _ = app.emit(
+        "scan-progress",
+        serde_json::json!({
+
+            "stage": "pipeline-stage",
+
+            "pipeline_stage": 3,
+
+            "state": "verified",
+
+        }),
+    );
+
+    let _ = app.emit(
+        "scan-progress",
+        serde_json::json!({
+
+            "stage": "pipeline-stage",
+
+            "pipeline_stage": 4,
+
+            "state": "verified",
+
+        }),
+    );
 
     emit_stage(&app, "done", "Saving baseline");
     baseline::save_baseline(&data_dir.join("baseline.json"), &entries)
