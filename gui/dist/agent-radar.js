@@ -51,23 +51,38 @@
     };
   }
 
-  function setOculusState(state) {
+  let cleanResetTimer = null;
+  function setOculusState(state, customLabel, customSub) {
+    if (cleanResetTimer) {
+      clearTimeout(cleanResetTimer);
+      cleanResetTimer = null;
+    }
     const oculus = $("ar-oculus-core");
     const badgeText = $("ar-sensor-label");
+    const subText = $("ar-sub-status");
     if (!oculus) return;
     oculus.classList.remove("is-scanning", "is-clean", "is-locked", "is-idle");
     if (state === "scanning") {
       oculus.classList.add("is-scanning");
-      if (badgeText) badgeText.textContent = "AI RADAR: SCANNING PROCESSES";
+      if (badgeText) badgeText.textContent = customLabel || "AI RADAR: SCANNING PROCESSES";
+      if (subText) subText.textContent = customSub || "360° MEMORY RADAR";
     } else if (state === "clean") {
       oculus.classList.add("is-clean");
-      if (badgeText) badgeText.textContent = "AI RADAR: ZERO AGENTS (CLEAN)";
+      if (badgeText) badgeText.textContent = customLabel || "AI RADAR: ZERO AGENTS (CLEAN)";
+      if (subText) subText.textContent = customSub || "ALL SYSTEMS SECURED";
+      cleanResetTimer = setTimeout(() => {
+        if (!isScanning && (!lastGroups || lastGroups.length === 0)) {
+          setOculusState("idle");
+        }
+      }, 5000);
     } else if (state === "threat-found" || state === "locked") {
       oculus.classList.add("is-locked");
-      if (badgeText) badgeText.textContent = "AI RADAR: AGENTS DETECTED (LOCKED)";
+      if (badgeText) badgeText.textContent = customLabel || "TARGET LOCKED: AGENT DETECTED";
+      if (subText) subText.textContent = customSub || "CRIMSON ALERT · PROCESS MONITORED";
     } else {
       oculus.classList.add("is-idle");
-      if (badgeText) badgeText.textContent = "AI RADAR: STANDBY";
+      if (badgeText) badgeText.textContent = customLabel || "AI RADAR: STANDBY";
+      if (subText) subText.textContent = customSub || "AUTHENTICODE VERIFIED";
     }
   }
 
@@ -267,6 +282,9 @@
           // Disintegration animation on card
           item.classList.add("ar-item-swatting");
 
+          // Instant visual feedback on Oculus
+          setOculusState("scanning", "TERMINATING AGENT PROCESSES…", `PIDS: ${g.pids.join(", ")}`);
+
           try {
             if (invoke) {
               await invoke("stop_agent_pids", { pids: g.pids });
@@ -280,6 +298,7 @@
             stopBtn.disabled = false;
             stopBtn.querySelector("span").textContent = "Stop Agent";
             alert("Could not stop agent: " + err);
+            setOculusState("locked", "TERMINATION REFUSED", "PROCESS LOCKED BY OS");
           }
         });
       }
@@ -346,7 +365,7 @@
         // Zero active agents
         if (els.cleanCard) els.cleanCard.classList.remove("hidden");
         if (els.agentsCard) els.agentsCard.classList.add("hidden");
-        setOculusState("clean");
+        setOculusState("clean", "AI RADAR: ZERO AGENTS (CLEAN)", "ALL SYSTEMS SECURED");
         setProgress(100, "Scan complete — zero active AI agents or model servers in memory");
       } else {
         // Active agents detected
@@ -355,13 +374,13 @@
         renderGroupedCards(groups);
 
         const unverified = groups.filter((g) => g.trust !== "verified").length;
-        if (unverified > 0) {
-          setOculusState("threat-found");
-        } else {
-          setOculusState("idle");
-        }
-
         const totalProcs = groups.reduce((acc, g) => acc + g.pids.length, 0);
+
+        // ALWAYS switch Oculus to RED ALERT (locked) when ANY active agent is found!
+        const alertLabel = `TARGET LOCKED: ${groups.length} AGENT(S) DETECTED`;
+        const alertSub = unverified > 0 ? `${unverified} UNSIGNED / THREAT RISK` : `${totalProcs} PROCESSES MONITORED`;
+        setOculusState("locked", alertLabel, alertSub);
+
         setProgress(100, `Scan complete — ${groups.length} agent(s) detected across ${totalProcs} processes`);
       }
     } catch (err) {
