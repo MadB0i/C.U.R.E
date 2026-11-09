@@ -2252,6 +2252,41 @@ async fn storage_validate_root(path: String) -> Result<StorageRootOptionDto, Str
     .map_err(|e| e.to_string())?
 }
 
+/// Open a native Windows folder picker for selecting destination directory on target volume.
+#[tauri::command]
+async fn storage_pick_folder(initial_dir: Option<String>) -> Result<Option<String>, String> {
+    tokio::task::spawn_blocking(move || {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            let default_path = initial_dir.unwrap_or_else(|| "D:\\".into());
+            let script = format!(
+                "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.SelectedPath = '{}'; $f.Description = 'Select Destination Folder for Relocation'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ Write-Output $f.SelectedPath }}",
+                default_path.replace('\'', "''")
+            );
+            let output = std::process::Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .map_err(|e| format!("cannot open folder browser: {e}"))?;
+            let selected = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if selected.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(selected))
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = initial_dir;
+            Ok(None)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Assess drive pressure and discover safe relocation candidates.
 #[tauri::command]
 async fn storage_rescue_status(
@@ -3933,6 +3968,7 @@ fn main() {
             share_card_png,
             storage_available_roots,
             storage_validate_root,
+            storage_pick_folder,
             storage_rescue_status,
             storage_rescue_plan,
             storage_rescue_execute,

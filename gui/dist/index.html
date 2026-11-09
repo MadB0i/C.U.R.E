@@ -1355,10 +1355,21 @@
                       <button class="btn btn-danger hidden" id="sm-scan-cancel" type="button">Cancel scan</button>
                     </div>
 
-                    <!-- Smooth Progress Bar with Live Ticker -->
+                    <!-- Smooth Progress Bar with Live Ticker & Real-Time Timer -->
                     <div class="sm-progress-section">
                       <div class="sm-progress-track">
                         <div class="sm-progress-bar" id="sm-progress-bar" style="width: 0%;"></div>
+                      </div>
+                      <div class="sm-scan-telemetry-strip" id="sm-scan-telemetry-strip">
+                        <div class="sm-timer-badge" id="sm-timer-badge">
+                          <span class="sm-timer-dot" id="sm-timer-dot"></span>
+                          <span class="sm-timer-text" id="sm-timer-text">TIME: 00:00</span>
+                        </div>
+                        <div class="sm-rate-badge" id="sm-rate-badge">
+                          <span class="sm-count-num" id="sm-count-files">0 files indexed</span>
+                          <span class="sm-count-sep">·</span>
+                          <span class="sm-count-bytes" id="sm-count-bytes">0 MB processed</span>
+                        </div>
                       </div>
                       <div class="sm-phase-ticker" id="sm-phase-ticker">Ready to scan — select a drive and click "Scan Selected Drive"</div>
                     </div>
@@ -1519,6 +1530,17 @@
                             </g>
                           </g>
                         </svg>
+                      </div>
+
+                      <!-- Live Optical File Inspection Telemetry (Where the Eye is Looking!) -->
+                      <div class="sm-active-file-scanner" id="sm-active-file-scanner">
+                        <div class="sm-scanner-head">
+                          <span class="sm-scanner-pulse"></span>
+                          <span class="sm-scanner-label">OPTICAL SECTOR PROBE:</span>
+                        </div>
+                        <div class="sm-scanner-filepath" id="sm-scanner-filepath" title="Standby — click scan to stream real paths">
+                          STANDBY · NO SECTOR LOCKED
+                        </div>
                       </div>
 
                       <div class="sm-oculus-footer">
@@ -2397,6 +2419,42 @@
           <h2 class="mb-heading">Let me handle it</h2>
           <div id="mb-confirm-items"></div>
           <p class="mb-note" id="mb-confirm-note"></p>
+
+          <!-- Target Destination Folder Selector on Drive D: -->
+          <div class="mb-target-folder-box" id="mb-target-folder-box">
+            <div class="mb-target-header">
+              <label class="mb-target-label" for="mb-target-input">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <span id="mb-target-label-text">DESTINATION FOLDER ON DRIVE D:</span>
+              </label>
+              <span class="mb-target-hint" id="mb-target-hint">Target Volume</span>
+            </div>
+            <div class="mb-target-input-group">
+              <input
+                type="text"
+                class="mb-target-input"
+                id="mb-target-input"
+                value="D:\CURE_Relocated"
+                spellcheck="false"
+                placeholder="e.g. D:\MyFolders or D:\CURE_Relocated"
+              />
+              <button type="button" class="btn btn-secondary mb-btn-browse" id="mb-btn-browse" title="Choose destination folder on Drive D:">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"></path>
+                </svg>
+                <span>Browse…</span>
+              </button>
+            </div>
+            <div class="mb-target-quick-chips" id="mb-target-quick-chips">
+              <span class="mb-chips-caption">Quick presets:</span>
+              <button type="button" class="mb-chip is-active" data-folder="D:\CURE_Relocated">📁 D:\CURE_Relocated</button>
+              <button type="button" class="mb-chip" data-folder="D:\Data">📁 D:\Data</button>
+              <button type="button" class="mb-chip" data-folder="D:\">📁 D:\ (Drive Root)</button>
+            </div>
+          </div>
+
           <label class="mb-cleanup-option" id="mb-cleanup-box">
             <input id="mb-cleanup-tick" type="checkbox" />
             <span

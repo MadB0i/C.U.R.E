@@ -195,9 +195,70 @@
     if (activeTitle) activeTitle.textContent = "DRIVE " + state.selectedDrive.replace(/\\$/, "");
     if (activeSub) activeSub.textContent = "FORENSIC SCAN";
 
+    // Live Telemetry & Optical Probe Elements
+    const startTime = Date.now();
+    let liveFilesSeen = 0;
+    let liveBytesSeen = 0;
+    const timerText = document.getElementById("sm-timer-text");
+    const timerDot = document.getElementById("sm-timer-dot");
+    const countFiles = document.getElementById("sm-count-files");
+    const countBytes = document.getElementById("sm-count-bytes");
+    const scannerFilepath = document.getElementById("sm-scanner-filepath");
 
+    if (timerDot) timerDot.classList.add("is-active");
+    if (timerText) timerText.textContent = "TIME: 00:00";
+    if (countFiles) countFiles.textContent = "0 files indexed";
+    if (countBytes) countBytes.textContent = "0 MB processed";
+    if (scannerFilepath) scannerFilepath.textContent = "PROBING SECTORS ON " + state.selectedDrive + "…";
 
-    // Set ticker animation stages
+    // High-resolution live elapsed seconds counter
+    const timerInterval = setInterval(function () {
+      if (!state.isScanning) {
+        clearInterval(timerInterval);
+        return;
+      }
+      const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+      const m = String(Math.floor(elapsedSec / 60)).padStart(2, "0");
+      const s = String(elapsedSec % 60).padStart(2, "0");
+      if (timerText) timerText.textContent = "TIME: " + m + ":" + s;
+    }, 250);
+
+    // Listen to real-time progress events from the scan engine
+    let unlistenProgress = null;
+    if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.listen) {
+      try {
+        unlistenProgress = await window.__TAURI__.event.listen("storage-progress", function (evt) {
+          if (!state.isScanning) return;
+          const p = evt.payload;
+          if (!p) return;
+          if (p.current_path && scannerFilepath) {
+            scannerFilepath.textContent = p.current_path;
+            scannerFilepath.title = p.current_path;
+          }
+          if (p.files_seen !== undefined) {
+            liveFilesSeen = p.files_seen;
+            if (countFiles) countFiles.textContent = p.files_seen.toLocaleString() + " files indexed";
+          }
+          if (p.bytes_seen !== undefined) {
+            liveBytesSeen = p.bytes_seen;
+            if (countBytes) countBytes.textContent = fmtBytes(p.bytes_seen) + " processed";
+          }
+          if (p.phase && els.phaseTicker) {
+            els.phaseTicker.textContent = p.phase + (p.root_label ? " (" + p.root_label + ")" : "");
+          }
+          if (els.progressBar) {
+            const cur = parseFloat(els.progressBar.style.width) || 15;
+            if (cur < 92) {
+              els.progressBar.style.width = Math.min(92, cur + 3) + "%";
+            }
+          }
+        });
+      } catch (err) {
+        console.warn("Storage progress event listen error:", err);
+      }
+    }
+
+    // Fallback ticker stages if no event stream
     let tickerStep = 0;
     const tickerInterval = setInterval(function () {
       if (!state.isScanning) {
@@ -215,7 +276,7 @@
         if (els.progressBar) els.progressBar.style.width = "90%";
         if (els.phaseTicker) els.phaseTicker.textContent = "Checking registry against installed programs for orphaned leftovers…";
       }
-    }, 600);
+    }, 800);
 
     let scan = null;
     try {
@@ -229,6 +290,14 @@
       if (els.progressBar) els.progressBar.style.width = "100%";
       if (els.phaseTicker) els.phaseTicker.textContent = "Scan complete — highest space consumers and leftovers updated!";
       
+      const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
+      if (timerText) timerText.textContent = "COMPLETED IN " + elapsedSec + "s";
+      if (timerDot) timerDot.classList.remove("is-active");
+      if (scannerFilepath) {
+        const totalFiles = (scan.files && scan.files.length) || liveFilesSeen;
+        scannerFilepath.textContent = "SCAN COMPLETE · " + (totalFiles ? totalFiles.toLocaleString() + " FILES VERIFIED" : "ALL SECTORS CHECKED");
+      }
+
       renderHighestConsumers(scan);
       await loadLeftovers(scan);
       await loadDrives(); // Refresh drive free space figures
@@ -237,11 +306,16 @@
     } catch (err) {
       console.error("Storage scan error:", err);
       if (els.phaseTicker) els.phaseTicker.textContent = "Scan stopped: " + err;
+      if (scannerFilepath) scannerFilepath.textContent = "SCAN ABORTED · " + err;
     } finally {
       state.isScanning = false;
-      clearInterval(tickerInterval);
+      if (unlistenProgress) {
+        unlistenProgress();
+      }
+      clearInterval(timerInterval);
       if (els.scanBtn) els.scanBtn.disabled = false;
       if (els.cancelBtn) els.cancelBtn.classList.add("hidden");
+      if (timerDot) timerDot.classList.remove("is-active");
       const sel = state.drives.find((d) => d.path === state.selectedDrive);
       updateOculusActiveDrive(sel);
     }

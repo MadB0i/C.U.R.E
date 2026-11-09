@@ -258,23 +258,95 @@
       }
     }
 
-    const targetLabel = target
-      ? "drive " + target.drive_letter + " (" + formatBytes(target.free_bytes) + " free)"
-      : "your second drive";
+    const targetDriveLetter = target ? target.drive_letter : (status.recommended_target_drive || "D:");
+    const targetClean = targetDriveLetter.replace(/\\+$/, "");
+    const defaultFolder = targetClean + "\\CURE_Relocated";
     const sourceLabel = source ? "drive " + source.drive_letter : "drive C:";
-    if (els.confirmNote) {
-      els.confirmNote.textContent =
-        "I will move " +
-        candidates.length +
-        (candidates.length === 1 ? " folder" : " folders") +
-        " (" +
-        formatBytes(totalBytes) +
-        ") from " +
-        sourceLabel +
-        " to " +
-        targetLabel +
-        ". I copy everything first, check it bit by bit, then switch Windows over. Nothing is deleted until the copy is fully verified, and you can undo.";
+
+    // Target Destination Folder Controls
+    const destInput = document.getElementById("mb-target-input");
+    const destLabelText = document.getElementById("mb-target-label-text");
+    const destHint = document.getElementById("mb-target-hint");
+    const destChips = document.getElementById("mb-target-quick-chips");
+    const btnBrowse = document.getElementById("mb-btn-browse");
+
+    if (destLabelText) destLabelText.textContent = "DESTINATION FOLDER ON DRIVE " + targetClean + ":";
+    if (destHint) destHint.textContent = "Drive " + targetClean + (target ? " (" + formatBytes(target.free_bytes) + " free)" : "");
+    if (destInput) destInput.value = defaultFolder;
+
+    function applyDestinationFolder(folderPath, updateInputField = true) {
+      if (!folderPath) return;
+      const cleanFolder = folderPath.trim().replace(/[\\/]+$/, "");
+      if (updateInputField && destInput) destInput.value = cleanFolder;
+
+      // Update suggested_target_path for each candidate
+      candidates.forEach(function (c) {
+        c.suggested_target_path = cleanFolder + "\\" + c.name;
+      });
+
+      // Highlight active chip if matches
+      if (destChips) {
+        destChips.querySelectorAll(".mb-chip").forEach(function (chip) {
+          if (chip.dataset.folder && chip.dataset.folder.toLowerCase() === cleanFolder.toLowerCase()) {
+            chip.classList.add("is-active");
+          } else {
+            chip.classList.remove("is-active");
+          }
+        });
+      }
+
+      if (els.confirmNote) {
+        els.confirmNote.textContent =
+          "I will move " +
+          candidates.length +
+          (candidates.length === 1 ? " folder" : " folders") +
+          " (" +
+          formatBytes(totalBytes) +
+          ") from " +
+          sourceLabel +
+          " to " +
+          cleanFolder +
+          ". I copy everything first, check it bit by bit, then switch Windows over. Nothing is deleted until the copy is fully verified, and you can undo.";
+      }
     }
+
+    if (destChips) {
+      const chip1 = destChips.children[1];
+      const chip2 = destChips.children[2];
+      const chip3 = destChips.children[3];
+      if (chip1) { chip1.dataset.folder = defaultFolder; chip1.textContent = "📁 " + defaultFolder; chip1.classList.add("is-active"); }
+      if (chip2) { chip2.dataset.folder = targetClean + "\\Data"; chip2.textContent = "📁 " + targetClean + "\\Data"; chip2.classList.remove("is-active"); }
+      if (chip3) { chip3.dataset.folder = targetClean + "\\"; chip3.textContent = "📁 " + targetClean + "\\ (Drive Root)"; chip3.classList.remove("is-active"); }
+
+      destChips.querySelectorAll(".mb-chip").forEach(function (chip) {
+        chip.onclick = function () {
+          applyDestinationFolder(chip.dataset.folder, true);
+        };
+      });
+    }
+
+    if (destInput) {
+      destInput.oninput = function () {
+        applyDestinationFolder(destInput.value, false);
+      };
+    }
+
+    if (btnBrowse) {
+      btnBrowse.onclick = async function () {
+        const curVal = destInput ? destInput.value : defaultFolder;
+        try {
+          const picked = await invoke("storage_pick_folder", { initialDir: curVal });
+          if (picked) {
+            applyDestinationFolder(picked, true);
+          }
+        } catch (err) {
+          console.warn("Folder picker error:", err);
+        }
+      };
+    }
+
+    applyDestinationFolder(defaultFolder, true);
+
     if (els.cleanupBox) els.cleanupBox.classList.remove("hidden");
     const cleanupTick = document.getElementById("mb-cleanup-tick");
     if (cleanupTick) cleanupTick.checked = false;
