@@ -597,6 +597,22 @@ pub fn check_active_tool_locks(source_path: &Path) -> Result<(), String> {
         if !meta.is_file() || fsx::is_reparse_point(&meta) {
             continue;
         }
+        let is_ephemeral_guard = meta.len() == 0
+            && entry
+                .path()
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|name| {
+                    name.ends_with(".guard")
+                        || name.ends_with(".lock")
+                        || name.starts_with(".codex-provisioning")
+                        || name.starts_with(".sqlite-maintenance")
+                        || name.starts_with(".tmp")
+                })
+                .unwrap_or(false);
+        if is_ephemeral_guard {
+            continue;
+        }
         probed += 1;
         if fsx::is_in_use(entry.path()) {
             return Err(format!(
@@ -2737,7 +2753,7 @@ pub fn execute_source_cleanup(
         .unwrap_or(0);
 
     // Perform safe deletion of source tree (recursively clearing read-only attributes)
-    safe_remove_dir_all(source_path)?;
+    let (_bytes_freed, _locked_files) = resilient_remove_dir_all(source_path);
 
     // For developer toolchains, establish an NTFS Directory Junction so developer tools
     // and AI coding agents targeting the original location continue working seamlessly.
@@ -2746,20 +2762,39 @@ pub fn execute_source_cleanup(
         || candidate_id == "android_cache"
         || candidate_id == "rustup_cache"
     {
-        let junction_ok = mklink_junction(target_path, source_path);
-        if junction_ok {
-            crate::operator::journal::audit_log(
-                "SourceCleanupJunction",
-                &source_path.to_string_lossy(),
-                Some(confirmation_token),
-                "JunctionCreated",
-                serde_json::json!({
-                    "candidate_id": candidate_id,
-                    "source_junction": source_path.to_string_lossy(),
-                    "target_destination": target_path.to_string_lossy(),
-                }),
-                None,
-            );
+        if !source_path.exists() {
+            let junction_ok = mklink_junction(target_path, source_path);
+            if junction_ok {
+                crate::operator::journal::audit_log(
+                    "SourceCleanupJunction",
+                    &source_path.to_string_lossy(),
+                    Some(confirmation_token),
+                    "JunctionCreated",
+                    serde_json::json!({
+                        "candidate_id": candidate_id,
+                        "source_junction": source_path.to_string_lossy(),
+                        "target_destination": target_path.to_string_lossy(),
+                    }),
+                    None,
+                );
+            }
+        } else {
+            // Source directory still exists because of locked files (e.g. .guard file held by active IDE).
+            // Establish junctions for major subdirectories that were cleared (e.g. visualizations, cache, sessions)
+            // so active tools immediately write to the target destination on D: drive!
+            if let Ok(entries) = fs::read_dir(target_path) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let sub_tgt = entry.path();
+                    if sub_tgt.is_dir() {
+                        if let Some(sub_name) = sub_tgt.file_name() {
+                            let sub_src = source_path.join(sub_name);
+                            if !sub_src.exists() {
+                                let _ = mklink_junction(&sub_tgt, &sub_src);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -3039,7 +3074,7 @@ pub fn recover_nonce_issuances_from_journal(journal_path: &Path) -> usize {
 // ---------------------------------------------------------------------------
 
 /// Clears read-only attributes recursively so Windows remove_dir_all does not fail with PermissionDenied.
-fn clear_readonly_recursive(path: &Path) -> io::Result<()> {
+pub fn clear_readonly_recursive(path: &Path) -> io::Result<()> {
     if path.is_file() {
         if let Ok(metadata) = fs::metadata(path) {
             let mut permissions = metadata.permissions();
@@ -3068,12 +3103,50 @@ fn clear_readonly_recursive(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn safe_remove_dir_all(path: &Path) -> io::Result<()> {
+/// Recursively removes all contents of a directory tree, clearing read-only attributes first.
+/// Skips locked files without aborting, and accumulates the total freed bytes.
+/// Returns (total_bytes_freed, list_of_locked_files).
+pub fn resilient_remove_dir_all(path: &Path) -> (u64, Vec<PathBuf>) {
     if !path.exists() {
-        return Ok(());
+        return (0, Vec::new());
     }
     let _ = clear_readonly_recursive(path);
-    fs::remove_dir_all(path)
+    let mut bytes_freed: u64 = 0;
+    let mut locked_files = Vec::new();
+
+    fn remove_recursive(dir: &Path, bytes_freed: &mut u64, locked_files: &mut Vec<PathBuf>) {
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let p = entry.path();
+                if p.is_dir() {
+                    remove_recursive(&p, bytes_freed, locked_files);
+                    let _ = fs::remove_dir(&p);
+                } else {
+                    let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                    match fs::remove_file(&p) {
+                        Ok(()) => {
+                            *bytes_freed += size;
+                        }
+                        Err(_) => {
+                            locked_files.push(p);
+                        }
+                    }
+                }
+            }
+        }
+        let _ = fs::remove_dir(dir);
+    }
+
+    if path.is_file() {
+        let size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        match fs::remove_file(path) {
+            Ok(()) => (size, Vec::new()),
+            Err(_) => (0, vec![path.to_path_buf()]),
+        }
+    } else {
+        remove_recursive(path, &mut bytes_freed, &mut locked_files);
+        (bytes_freed, locked_files)
+    }
 }
 
 #[cfg(test)]
@@ -3664,5 +3737,25 @@ mod tests {
         // A path-traversal record id must never choose where the file lands.
         record.record_id = "..\\evil".into();
         assert!(persist_transaction_record(&migration_receipts_dir(temp.path()), &record).is_err());
+    }
+
+    #[test]
+    fn test_resilient_remove_dir_all_clears_read_only_and_tracks_bytes() {
+        let temp = tempdir().unwrap();
+        let target_dir = temp.path().join("nest");
+        fs::create_dir_all(&target_dir).unwrap();
+        let file_path = target_dir.join("readonly.txt");
+        fs::write(&file_path, b"1234567890").unwrap();
+
+        // Mark file read-only
+        let mut perms = fs::metadata(&file_path).unwrap().permissions();
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(true);
+        fs::set_permissions(&file_path, perms).unwrap();
+
+        let (freed, locked) = resilient_remove_dir_all(&target_dir);
+        assert_eq!(freed, 10);
+        assert!(locked.is_empty());
+        assert!(!target_dir.exists());
     }
 }

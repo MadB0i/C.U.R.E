@@ -3637,15 +3637,8 @@ async fn storage_remove_leftover(path: String) -> Result<String, String> {
             return Err("Removal refused: protected system directory or root.".to_string());
         }
 
-        // Safely strip read-only attributes so deletion proceeds cleanly
-        if let Ok(metadata) = std::fs::metadata(&p) {
-            let mut permissions = metadata.permissions();
-            if permissions.readonly() {
-                #[allow(clippy::permissions_set_readonly_false)]
-                permissions.set_readonly(false);
-                let _ = std::fs::set_permissions(&p, permissions);
-            }
-        }
+        // Recursively strip read-only attributes across the whole tree so deletion proceeds cleanly
+        let _ = cure_core::storage::clear_readonly_recursive(&p);
 
         #[cfg(windows)]
         {
@@ -3675,7 +3668,24 @@ async fn storage_remove_leftover(path: String) -> Result<String, String> {
             if ret == 0 && !op.fAnyOperationsAborted.as_bool() {
                 Ok("Safely moved leftover to Recycle Bin".to_string())
             } else {
-                Err(format!("Could not move to Recycle Bin (error code {ret})"))
+                // If Windows Shell failed (e.g. error 32 sharing violation, open file handles, or locked files),
+                // execute resilient direct removal of unlocked files and directories so gigabytes of disk space are reclaimed!
+                let (bytes_freed, locked_files) = cure_core::storage::resilient_remove_dir_all(&p);
+                if bytes_freed > 0 {
+                    if !p.exists() {
+                        Ok(format!("Safely removed {} from drive.", cure_core::storage::human_bytes(bytes_freed)))
+                    } else {
+                        Ok(format!(
+                            "Freed {} on drive! ({} active lock file(s) in use by running application were kept safely.)",
+                            cure_core::storage::human_bytes(bytes_freed),
+                            locked_files.len()
+                        ))
+                    }
+                } else if ret == 32 || !locked_files.is_empty() {
+                    Err("Folder is currently in use by an active application (e.g. Antigravity or a background process). Please close the application first to remove it.".to_string())
+                } else {
+                    Err(format!("Could not remove folder (error code {ret})"))
+                }
             }
         }
         #[cfg(not(windows))]

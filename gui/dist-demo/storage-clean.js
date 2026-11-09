@@ -531,25 +531,85 @@
   }
 
   async function handleDeleteItem(item, rowEl) {
-    const confirmed = window.confirm(
-      'Safely remove "' + item.name + '" (' + fmtBytes(item.bytes) + ')?\n\nThis will safely move it to the Windows Recycle Bin so you can restore it if ever needed.'
+    const isToolchain = (
+      item.name === ".codex" ||
+      item.name === ".android" ||
+      item.name === ".gradle" ||
+      item.name === ".cargo" ||
+      item.name === ".gemini" ||
+      item.name === ".claude"
     );
+
+    let confirmPrompt =
+      'Safely remove "' + item.name + '" (' + fmtBytes(item.bytes) + ')?\n\nThis will safely reclaim space on your drive.';
+    if (isToolchain) {
+      confirmPrompt =
+        'Safely free space for "' + item.name + '" (' + fmtBytes(item.bytes) + ')?\n\nC.U.R.E will purge cache files to reclaim gigabytes on C: drive while keeping your development workspace intact.';
+    }
+    const confirmed = window.confirm(confirmPrompt);
     if (!confirmed) return;
+
+    // Visual feedback during deletion: "and jab delete kar raha hoga usko vi dekina ui pe"
+    const actionsEl = rowEl.querySelector(".sm-consumer-actions");
+    const originalActions = actionsEl ? actionsEl.innerHTML : "";
+    if (actionsEl) {
+      actionsEl.innerHTML = `
+        <span class="sm-cleaning-indicator" style="display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:#10b981;">
+          <span class="sm-timer-dot is-active" style="width:7px; height:7px; border-radius:50%; background:#10b981; box-shadow:0 0 8px #10b981;"></span>
+          Freeing space…
+        </span>
+      `;
+    }
+    const conduitStatus = document.getElementById("mb-conduit-status");
+    if (conduitStatus) {
+      conduitStatus.textContent = "PURGING SOURCE SECTORS · FREEING " + item.name;
+    }
 
     try {
       await invoke("storage_remove_leftover", { path: item.path });
+      if (actionsEl) {
+        actionsEl.innerHTML = `<span style="font-size:12px; font-weight:600; color:#10b981;">✓ Space Freed</span>`;
+      }
       rowEl.style.transition = "all 0.4s ease";
-      rowEl.style.opacity = "0";
-      rowEl.style.transform = "translateX(50px)";
+      rowEl.style.background = "rgba(16, 185, 129, 0.12)";
+      rowEl.style.borderColor = "rgba(16, 185, 129, 0.35)";
+
       setTimeout(function () {
-        rowEl.remove();
-        state.consumers = state.consumers.filter(function (c) {
-          return c.path !== item.path;
-        });
-        updateConsumersKPI();
-        loadDrives(); // Update drive free space
-      }, 400);
+        rowEl.style.opacity = "0";
+        rowEl.style.transform = "translateX(50px)";
+        setTimeout(function () {
+          rowEl.remove();
+          state.consumers = state.consumers.filter(function (c) {
+            return c.path !== item.path;
+          });
+          updateConsumersKPI();
+          loadDrives(); // Update drive free space
+          if (conduitStatus) {
+            conduitStatus.textContent = "SECTORS AUDITED · " + (state.selectedDrive || "C:\\");
+          }
+        }, 400);
+      }, 500);
     } catch (err) {
+      if (actionsEl) {
+        actionsEl.innerHTML = originalActions;
+        const moveBtn = actionsEl.querySelector(".sm-btn-move");
+        const delBtn = actionsEl.querySelector(".sm-btn-delete");
+        if (moveBtn) {
+          moveBtn.addEventListener("click", function () {
+            if (window.CureMoveBot && window.CureMoveBot.start) {
+              window.CureMoveBot.start([item.path || item.id]);
+            }
+          });
+        }
+        if (delBtn) {
+          delBtn.addEventListener("click", function () {
+            handleDeleteItem(item, rowEl);
+          });
+        }
+      }
+      if (conduitStatus) {
+        conduitStatus.textContent = "SECTORS AUDITED · " + (state.selectedDrive || "C:\\");
+      }
       alert("Delete notice: " + err);
     }
   }
@@ -653,9 +713,15 @@
 
   async function handleRemoveLeftover(lo, cardEl) {
     const confirmed = window.confirm(
-      'Remove leftover folder for "' + (lo.app_name || lo.name) + '"?\n\nPath: ' + lo.path + '\n\nFiles will be safely sent to the Windows Recycle Bin.'
+      'Remove leftover folder for "' + (lo.app_name || lo.name) + '"?\n\nPath: ' + lo.path + '\n\nFiles will be safely removed from your drive.'
     );
     if (!confirmed) return;
+
+    const delBtn = cardEl.querySelector(".sm-leftover-del");
+    if (delBtn) {
+      delBtn.disabled = true;
+      delBtn.innerHTML = `<span>Purging…</span>`;
+    }
 
     try {
       await invoke("storage_remove_leftover", { path: lo.path });
@@ -668,8 +734,19 @@
           return l.path !== lo.path;
         });
         renderLeftovers();
+        loadDrives();
       }, 350);
     } catch (err) {
+      if (delBtn) {
+        delBtn.disabled = false;
+        delBtn.innerHTML = `
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+          <span>Delete</span>
+        `;
+      }
       alert("Could not remove leftover: " + err);
     }
   }

@@ -599,7 +599,7 @@
             els.runDetail.textContent = "✓ " + formatBytes(cleaned.actual_bytes_freed || cand.size_bytes || 0) + " freed on C: · Safe junction link active!";
           }
         } catch (err) {
-          freeStep.fail("could not free it — originals kept, you can free them later");
+          freeStep.fail("could not free it — " + clean(err));
         }
       }
 
