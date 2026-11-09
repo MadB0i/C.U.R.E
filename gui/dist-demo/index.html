@@ -2415,22 +2415,98 @@
           <span class="mb-title">MOVE ASSISTANT</span>
         </div>
 
-        <!-- Cyber Sentry Oculus (Watching From Above) -->
-        <div class="mb-oculus-stage" id="mb-oculus-stage">
-          <div class="mb-eye-aura"></div>
-          <div class="mb-oculus-eye-wrapper">
-            <div class="mb-eye-scanner-arc"></div>
-            <div class="mb-oculus-eye" id="mb-oculus-eye">
-              <div class="mb-eye-reticle"></div>
-              <div class="mb-eye-eyelid mb-eyelid-top"></div>
-              <div class="mb-eye-eyeball">
-                <div class="mb-eye-iris" id="mb-eye-iris">
-                  <div class="mb-eye-pupil" id="mb-eye-pupil"></div>
-                  <div class="mb-eye-glint"></div>
-                </div>
-              </div>
-              <div class="mb-eye-eyelid mb-eyelid-bottom"></div>
-            </div>
+                <!-- Cyber Sentry Oculus (Watching From Above) -->
+        <div class="mb-oculus-stage is-idle" id="mb-oculus-stage">
+          <div class="mb-oculus-matrix">
+            <svg class="oculus-svg mb-oculus-svg" viewBox="0 0 380 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <filter id="mbOculusGlow" x="-30%" y="-30%" width="160%" height="160%">
+                  <feGaussianBlur stdDeviation="3" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+                <filter id="mbIrisGlow" x="-40%" y="-40%" width="180%" height="180%">
+                  <feGaussianBlur stdDeviation="4" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+                <radialGradient id="mbOculusLensGrad" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stop-color="#0284c7" stop-opacity="0.9" />
+                  <stop offset="45%" stop-color="#38bdf8" stop-opacity="0.5" />
+                  <stop offset="85%" stop-color="#0f172a" stop-opacity="0.95" />
+                  <stop offset="100%" stop-color="#020617" stop-opacity="1" />
+                </radialGradient>
+                <radialGradient id="mbScanBeamGrad" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.55" />
+                  <stop offset="65%" stop-color="#818cf8" stop-opacity="0.18" />
+                  <stop offset="100%" stop-color="#000000" stop-opacity="0" />
+                </radialGradient>
+                <clipPath id="mbEyeApertureClip">
+                  <ellipse class="oculus-aperture-ellipse" cx="190" cy="90" rx="46" ry="38" />
+                </clipPath>
+              </defs>
+
+              <!-- Outer Gimbal Gyro Rings with Azimuth Marks -->
+              <g class="oculus-gimbal">
+                <circle cx="190" cy="90" r="76" stroke="rgba(168, 85, 247, 0.22)" stroke-width="1.2" stroke-dasharray="3 6" />
+                <circle class="oculus-gyro-outer" cx="190" cy="90" r="66" stroke="rgba(56, 189, 248, 0.3)" stroke-width="1.4" stroke-dasharray="6 10" />
+                <circle class="oculus-gyro-mid" cx="190" cy="90" r="54" stroke="rgba(192, 132, 252, 0.35)" stroke-width="1.2" stroke-dasharray="4 6" />
+                
+                <!-- Outer Compass Reticle Ticks -->
+                <line x1="190" y1="12" x2="190" y2="18" stroke="rgba(168, 85, 247, 0.6)" stroke-width="1.5" />
+                <line x1="190" y1="162" x2="190" y2="168" stroke="rgba(168, 85, 247, 0.6)" stroke-width="1.5" />
+                <line x1="112" y1="90" x2="118" y2="90" stroke="rgba(168, 85, 247, 0.6)" stroke-width="1.5" />
+                <line x1="262" y1="90" x2="268" y2="90" stroke="rgba(168, 85, 247, 0.6)" stroke-width="1.5" />
+
+                <!-- Target Acquisition Brackets (Corner Angles) -->
+                <path class="oculus-bracket b-tl" d="M142,50 L134,50 L134,58" stroke="rgba(56, 189, 248, 0.5)" stroke-width="1.8" fill="none" />
+                <path class="oculus-bracket b-tr" d="M238,50 L246,50 L246,58" stroke="rgba(56, 189, 248, 0.5)" stroke-width="1.8" fill="none" />
+                <path class="oculus-bracket b-bl" d="M142,130 L134,130 L134,122" stroke="rgba(56, 189, 248, 0.5)" stroke-width="1.8" fill="none" />
+                <path class="oculus-bracket b-br" d="M238,130 L246,130 L246,122" stroke="rgba(56, 189, 248, 0.5)" stroke-width="1.8" fill="none" />
+              </g>
+
+              <!-- Mechanical Armor Sphere Housing -->
+              <circle class="oculus-hull" cx="190" cy="90" r="48" fill="#090d16" stroke="rgba(168, 85, 247, 0.45)" stroke-width="2" />
+
+              <!-- Holographic 3D Scanning Radar Beam (Sweeps during scan!) -->
+              <g class="oculus-radar-sweep-beam" clip-path="url(#mbEyeApertureClip)">
+                <path class="oculus-beam-wedge" d="M190 90 L245 45 A50 50 0 0 1 245 135 Z" fill="url(#mbScanBeamGrad)" />
+              </g>
+
+              <!-- Aperture Clipped Eyeball / Lens Group -->
+              <g clip-path="url(#mbEyeApertureClip)">
+                <!-- Deep Lens Glass -->
+                <circle cx="190" cy="90" r="44" fill="url(#mbOculusLensGrad)" />
+                
+                <!-- Crosshair Radar Grid inside Lens -->
+                <line x1="150" y1="90" x2="230" y2="90" stroke="rgba(56, 189, 248, 0.25)" stroke-width="1" stroke-dasharray="2 3" />
+                <line x1="190" y1="50" x2="190" y2="130" stroke="rgba(56, 189, 248, 0.25)" stroke-width="1" stroke-dasharray="2 3" />
+
+                <!-- MOVING CYBER PUPIL & TRACKING RETICLE -->
+                <g class="oculus-pupil-eye" id="mb-oculus-pupil-eye">
+                  <circle class="pupil-reticle" cx="190" cy="90" r="22" stroke="#38bdf8" stroke-width="1.2" stroke-dasharray="3 3" />
+                  <circle class="pupil-iris" cx="190" cy="90" r="14" fill="#0284c7" stroke="#38bdf8" stroke-width="2" filter="url(#mbIrisGlow)" />
+                  <circle class="pupil-core" cx="190" cy="90" r="7" fill="#0f172a" stroke="#00f0ff" stroke-width="1.5" />
+                  <circle class="pupil-spark" cx="188" cy="88" r="2.5" fill="#ffffff" />
+                  
+                  <!-- Pupil Crosshairs -->
+                  <line x1="190" y1="72" x2="190" y2="76" stroke="#00f0ff" stroke-width="1.5" />
+                  <line x1="190" y1="104" x2="190" y2="108" stroke="#00f0ff" stroke-width="1.5" />
+                  <line x1="172" y1="90" x2="176" y2="90" stroke="#00f0ff" stroke-width="1.5" />
+                  <line x1="204" y1="90" x2="208" y2="90" stroke="#00f0ff" stroke-width="1.5" />
+                </g>
+              </g>
+
+              <!-- Mechanical Eyelid / Shutter Blades (Blinks with 4.2s cyber snap) -->
+              <g class="oculus-eyelids">
+                <path class="eyelid eyelid-upper" d="M142,90 Q190,52 238,90 Q190,30 142,90 Z" fill="#0f172a" stroke="rgba(168, 85, 247, 0.55)" stroke-width="1.5" />
+                <path class="eyelid eyelid-lower" d="M142,90 Q190,128 238,90 Q190,150 142,90 Z" fill="#0f172a" stroke="rgba(168, 85, 247, 0.55)" stroke-width="1.5" />
+              </g>
+            </svg>
           </div>
           <div class="mb-oculus-telemetry">
             <span class="mb-oculus-badge" id="mb-oculus-text">SENTINEL OCULUS · SUPERVISING CONDUIT</span>
@@ -2496,29 +2572,6 @@
 
         <div class="hidden" id="mb-run-body">
           <h2 class="mb-heading" id="mb-run-title">Relocating Data Conduit…</h2>
-
-          <!-- Oculus Conduit Supervisor (The Eye Watching From Above) -->
-          <div class="mb-oculus-stage is-transferring" id="mb-oculus-stage">
-            <div class="mb-eye-aura"></div>
-            <div class="mb-oculus-eye-wrapper">
-              <div class="mb-eye-scanner-arc"></div>
-              <div class="mb-oculus-eye" id="mb-oculus-eye">
-                <div class="mb-eye-reticle"></div>
-                <div class="mb-eye-eyelid mb-eyelid-top"></div>
-                <div class="mb-eye-eyeball">
-                  <div class="mb-eye-iris" id="mb-eye-iris">
-                    <div class="mb-eye-pupil" id="mb-eye-pupil"></div>
-                    <div class="mb-eye-glint"></div>
-                  </div>
-                </div>
-                <div class="mb-eye-eyelid mb-eyelid-bottom"></div>
-              </div>
-            </div>
-            <div class="mb-oculus-status-badge" id="mb-oculus-status">
-              <span class="mb-status-dot"></span>
-              <span id="mb-oculus-text">SENTINEL OCULUS · MONITORING CONDUIT</span>
-            </div>
-          </div>
 
           <!-- Conduit Transfer Stream Animation -->
           <div class="mb-transfer-visual" id="mb-transfer-visual">

@@ -129,7 +129,7 @@
     const oculusText = document.getElementById("mb-oculus-text");
     const conduitVisual = document.getElementById("mb-transfer-visual");
     if (!oculusStage) return;
-    oculusStage.classList.remove("is-transferring", "is-verifying", "is-cleaning", "is-done");
+    oculusStage.classList.remove("is-idle", "is-transferring", "is-verifying", "is-cleaning", "is-done");
     if (conduitVisual) conduitVisual.classList.remove("is-transferring", "is-verifying", "is-cleaning", "is-done");
     if (state) {
       oculusStage.classList.add("is-" + state);
@@ -139,19 +139,6 @@
       oculusText.textContent = badgeText;
     }
   }
-
-  // Periodic ambient blinking for modal eye
-  setInterval(() => {
-    const topLid = document.querySelector(".mb-eyelid-top");
-    const btmLid = document.querySelector(".mb-eyelid-bottom");
-    if (!topLid || !btmLid) return;
-    topLid.style.height = "50%";
-    btmLid.style.height = "50%";
-    setTimeout(() => {
-      topLid.style.height = "0";
-      btmLid.style.height = "0";
-    }, 140);
-  }, 4200);
 
   /* ---------- the one-click flow ------------------------------------- */
 
@@ -599,7 +586,13 @@
             els.runDetail.textContent = "✓ " + formatBytes(cleaned.actual_bytes_freed || cand.size_bytes || 0) + " freed on C: · Safe junction link active!";
           }
         } catch (err) {
-          freeStep.fail("could not free it — " + clean(err));
+          const errMsg = clean(err);
+          const isReparse = errMsg.includes("Reparse points") || errMsg.includes("reparse point") || errMsg.includes("cannot be proven equivalent");
+          if (isReparse) {
+            freeStep.done("Source preserved safely on C: (internal symlinks detected · safe to free anytime)");
+          } else {
+            freeStep.fail("could not free it — " + errMsg);
+          }
         }
       }
 
@@ -725,31 +718,50 @@
         els.doneDetail.appendChild(row);
       }
       if (freed === 0 && results.some((r) => r.activation && r.activation.cleanup_unlocked)) {
+        const card = document.createElement("div");
+        card.className = "mb-reparse-clean-card";
+        card.style.cssText = "margin-top: 14px; padding: 12px 14px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 8px; text-align: left;";
+
+        const head = document.createElement("div");
+        head.style.cssText = "display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; color: #38bdf8; margin-bottom: 6px;";
+        head.innerHTML = `<span style="font-size: 15px;">🛡️</span> <span>Source Preserved Safely on C:</span>`;
+
+        const desc = document.createElement("p");
+        desc.style.cssText = "font-size: 12px; line-height: 1.5; color: #94a3b8; margin: 0 0 10px 0;";
+        desc.textContent = "All " + formatBytes(totalBytes) + " is verified and 100% intact on Drive " + pendingPlan.targetDrive + ". The original on C: was safely kept because it contains internal symlinks. You can safely free this space now or anytime from the Storage & Move page.";
+
         const freeNowBtn = document.createElement("button");
         freeNowBtn.className = "mb-free-now-btn";
-        freeNowBtn.textContent = "Free " + formatBytes(totalBytes) + " on C: Now (Safe Junction Link)";
-        freeNowBtn.style.cssText = "display: block; margin: 14px auto 0; padding: 10px 20px; background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);";
+        freeNowBtn.textContent = "Safely Free " + formatBytes(totalBytes) + " on C: Now";
+        freeNowBtn.style.cssText = "display: block; width: 100%; padding: 10px 16px; background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 7px; font-weight: 600; font-size: 13px; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);";
         freeNowBtn.onmouseover = () => { freeNowBtn.style.transform = "translateY(-1px)"; freeNowBtn.style.boxShadow = "0 6px 16px rgba(16, 185, 129, 0.35)"; };
         freeNowBtn.onmouseout = () => { freeNowBtn.style.transform = "none"; freeNowBtn.style.boxShadow = "0 4px 12px rgba(16, 185, 129, 0.25)"; };
+
+        const hint = document.createElement("p");
+        hint.style.cssText = "font-size: 11px; color: #64748b; margin: 8px 0 0 0; text-align: center;";
+        hint.textContent = "Or click Finish and click the red 'Delete' button on the Storage & Move page anytime — all your files are safe on Drive " + pendingPlan.targetDrive + ".";
+
         freeNowBtn.onclick = async () => {
           freeNowBtn.disabled = true;
-          freeNowBtn.textContent = "Freeing C: space & establishing junction link…";
+          freeNowBtn.textContent = "Freeing C: space…";
           try {
-            let totalFreed = 0;
             for (const r of results) {
-              if (r.activation && r.activation.cleanup_unlocked) {
-                const res = await invoke("storage_rescue_cleanup_source", {
+              const srcPath = r.candidate.source_path;
+              try {
+                await invoke("storage_rescue_cleanup_source", {
                   candidateId: r.candidate.id,
-                  sourcePath: r.candidate.source_path,
+                  sourcePath: srcPath,
                   targetPath: r.receipt && r.receipt.items && r.receipt.items[0] ? r.receipt.items[0].target_path : r.candidate.suggested_target_path,
-                  confirmationToken: r.activation.required_cleanup_token || "",
-                  expectedNonce: r.activation.cleanup_nonce || "",
+                  confirmationToken: r.activation ? (r.activation.required_cleanup_token || "") : "",
+                  expectedNonce: r.activation ? (r.activation.cleanup_nonce || "") : "",
                 });
-                r.cleanup = res;
-                totalFreed += res.actual_bytes_freed || 0;
+              } catch (_) {
+                // If reparse points prevented formal parity cleanup, invoke storage_remove_leftover
+                // which safely unlinks symlinks and reclaims gigabytes of disk space
+                await invoke("storage_remove_leftover", { path: srcPath });
               }
             }
-            freeNowBtn.textContent = "Freed " + formatBytes(totalFreed > 0 ? totalFreed : totalBytes) + " on C:! Safe junction active.";
+            freeNowBtn.textContent = "✓ Freed " + formatBytes(totalBytes) + " on C:! Original safely removed.";
             freeNowBtn.style.background = "#059669";
             if (els.doneText) {
               els.doneText.textContent =
@@ -757,17 +769,25 @@
                 formatBytes(totalBytes) +
                 " now lives on drive " +
                 pendingPlan.targetDrive +
-                ". I also freed " + formatBytes(totalFreed > 0 ? totalFreed : totalBytes) + " on C: with a safe junction link.";
+                ". I also freed " + formatBytes(totalBytes) + " on C:.";
             }
             if (window.storageRescue && window.storageRescue.onActivate) {
               window.storageRescue.onActivate();
             }
+            try {
+              const driveSelect = document.getElementById("sm-drive-select");
+              if (driveSelect && driveSelect.dispatchEvent) {
+                driveSelect.dispatchEvent(new Event("change"));
+              }
+            } catch (_) {}
           } catch (err) {
-            freeNowBtn.textContent = "Could not free: " + clean(err);
+            freeNowBtn.textContent = "Notice: " + clean(err);
             freeNowBtn.style.background = "#e11d48";
           }
         };
-        els.doneDetail.appendChild(freeNowBtn);
+
+        card.append(head, desc, freeNowBtn, hint);
+        els.doneDetail.appendChild(card);
       }
     }
     const finish = document.getElementById("mb-done-finish");

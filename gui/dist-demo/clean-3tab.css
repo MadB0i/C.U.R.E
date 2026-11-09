@@ -4959,7 +4959,7 @@
 }
 
 /* ==========================================================================
-   Move Assistant Oculus Conduit Supervisor (Modal Eye)
+   Move Assistant Oculus Conduit Supervisor (Modal Eye — Cyber Sentry SVG)
    ========================================================================== */
 .mb-oculus-stage {
   display: flex;
@@ -4967,201 +4967,132 @@
   align-items: center;
   justify-content: center;
   position: relative;
-  padding: 10px 0 4px 0;
+  padding: 4px 0 2px 0;
   margin-bottom: 2px;
 }
 
-.mb-oculus-eye-wrapper {
+.mb-oculus-matrix {
   position: relative;
-  width: 90px;
-  height: 52px;
+  width: 210px;
+  height: 100px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.mb-eye-scanner-arc {
-  position: absolute;
-  inset: -6px -12px;
-  border: 1px dashed rgba(168, 85, 247, 0.4);
-  border-radius: 50%;
-  animation: mbRadarSpin 8s linear infinite;
-  pointer-events: none;
-}
-
-@keyframes mbRadarSpin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.mb-oculus-eye {
-  position: relative;
-  width: 76px;
-  height: 42px;
-  background: radial-gradient(circle at center, #0f172a 40%, #030712 100%);
-  border: 1.5px solid rgba(168, 85, 247, 0.5);
-  border-radius: 50px / 28px;
-  box-shadow: 0 0 16px rgba(168, 85, 247, 0.25), inset 0 0 10px rgba(0, 0, 0, 0.8);
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.4s ease;
-}
-
-.mb-eye-reticle {
-  position: absolute;
-  width: 28px;
-  height: 28px;
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  border-radius: 50%;
-  pointer-events: none;
-  transition: all 0.3s ease;
-}
-
-.mb-eye-eyeball {
+.mb-oculus-svg {
   width: 100%;
   height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 0 14px rgba(56, 189, 248, 0.2));
+}
+
+.mb-oculus-telemetry {
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative;
+  margin-top: 3px;
 }
 
-.mb-eye-iris {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 40% 40%, #a855f7, #6b21a8 70%, #3b0764 100%);
-  box-shadow: 0 0 12px rgba(168, 85, 247, 0.6);
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.25s ease-out, background 0.3s ease;
-}
-
-.mb-eye-pupil {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: #020617;
-  border: 1.5px solid #38bdf8;
-  box-shadow: 0 0 6px #38bdf8;
-  transition: all 0.3s ease;
-}
-
-.mb-eye-glint {
-  position: absolute;
-  top: 3px;
-  left: 4px;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: #ffffff;
-  opacity: 0.9;
-}
-
-.mb-eye-eyelid {
-  position: absolute;
-  left: 0;
-  width: 100%;
-  background: #090d16;
-  z-index: 5;
-  transition: height 0.12s ease;
-}
-
-.mb-eyelid-top { top: 0; height: 0; }
-.mb-eyelid-bottom { bottom: 0; height: 0; }
-
-.mb-oculus-status-badge {
+.mb-oculus-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 10px;
-  margin-top: 6px;
+  padding: 3px 12px;
   border-radius: 9999px;
-  background: rgba(15, 23, 42, 0.7);
+  background: rgba(15, 23, 42, 0.75);
   border: 1px solid rgba(168, 85, 247, 0.35);
   font-family: var(--font-mono, monospace);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   color: #c084fc;
   transition: all 0.3s ease;
 }
 
-.mb-status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #a855f7;
-  box-shadow: 0 0 6px #a855f7;
-  animation: mbPulseDot 1.5s infinite ease-in-out;
+/* Modal Eye Idle state: blinking, calm sentry rings */
+.mb-oculus-stage.is-idle .oculus-aperture-ellipse,
+.mb-oculus-stage.is-idle .eyelid-upper,
+.mb-oculus-stage.is-idle .eyelid-lower {
+  transform-origin: 190px 90px;
+  animation: oculusSnapBlink 4.2s ease-in-out infinite;
+}
+.mb-oculus-stage.is-idle .oculus-gyro-outer {
+  transform-origin: 190px 90px;
+  animation: gyroSpinSlow 12s linear infinite;
+}
+.mb-oculus-stage.is-idle .oculus-gyro-mid {
+  transform-origin: 190px 90px;
+  animation: gyroSpinReverse 9s linear infinite;
+}
+.mb-oculus-stage.is-idle .pupil-iris {
+  animation: idlePupilBreathe 3s ease-in-out infinite;
 }
 
-@keyframes mbPulseDot {
-  0%, 100% { opacity: 0.4; transform: scale(0.85); }
-  50% { opacity: 1; transform: scale(1.15); }
+/* Modal Eye Transferring state: looking between C: and D: with radar beam */
+.mb-oculus-stage.is-transferring .oculus-pupil-eye {
+  transform-origin: 190px 90px;
+  animation: mbTransferLookSvg 3.5s ease-in-out infinite;
+}
+@keyframes mbTransferLookSvg {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(-14px, 0); }
+  50% { transform: translate(0, 0); }
+  75% { transform: translate(14px, 0); }
+}
+.mb-oculus-stage.is-transferring .oculus-radar-sweep-beam {
+  opacity: 0.85;
+  transform-origin: 190px 90px;
+  animation: radarBeamRotate 2.2s linear infinite;
+}
+.mb-oculus-stage.is-transferring .oculus-gyro-outer {
+  transform-origin: 190px 90px;
+  animation: gyroSpinFast 4s linear infinite;
+  stroke: rgba(56, 189, 248, 0.65);
+}
+.mb-oculus-stage.is-transferring .oculus-gyro-mid {
+  transform-origin: 190px 90px;
+  animation: gyroSpinReverse 3s linear infinite;
+  stroke: rgba(168, 85, 247, 0.65);
+}
+.mb-oculus-stage.is-transferring .mb-oculus-badge {
+  border-color: rgba(56, 189, 248, 0.55);
+  color: #38bdf8;
+  background: rgba(14, 165, 233, 0.15);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
 }
 
-/* State: Transferring (Looking between C: and D:) */
-.mb-oculus-stage.is-transferring .mb-eye-iris {
-  animation: mbTransferLook 4s infinite ease-in-out;
+/* Modal Eye Verifying state: amber/cyan lock */
+.mb-oculus-stage.is-verifying .oculus-gyro-outer {
+  stroke: rgba(245, 158, 11, 0.65);
+  animation: gyroSpinFast 3s linear infinite;
 }
-
-@keyframes mbTransferLook {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-10px); }
-  50% { transform: translateX(0); }
-  75% { transform: translateX(10px); }
+.mb-oculus-stage.is-verifying .oculus-gyro-mid {
+  stroke: rgba(251, 191, 36, 0.65);
 }
-
-/* State: Verifying (Locked onto Destination D:, Amber Reticle) */
-.mb-oculus-stage.is-verifying .mb-oculus-eye {
-  border-color: rgba(245, 158, 11, 0.6);
-  box-shadow: 0 0 16px rgba(245, 158, 11, 0.35);
+.mb-oculus-stage.is-verifying .pupil-iris {
+  fill: #d97706;
+  stroke: #fbbf24;
 }
-.mb-oculus-stage.is-verifying .mb-eye-iris {
-  transform: translateX(11px);
-  background: radial-gradient(circle at 40% 40%, #f59e0b, #d97706 70%, #78350f 100%);
-  box-shadow: 0 0 12px rgba(245, 158, 11, 0.7);
-}
-.mb-oculus-stage.is-verifying .mb-eye-pupil {
-  border-color: #fbbf24;
-  box-shadow: 0 0 6px #fbbf24;
-}
-.mb-oculus-stage.is-verifying .mb-oculus-status-badge {
+.mb-oculus-stage.is-verifying .mb-oculus-badge {
   border-color: rgba(245, 158, 11, 0.5);
   color: #fbbf24;
-}
-.mb-oculus-stage.is-verifying .mb-status-dot {
-  background: #f59e0b;
-  box-shadow: 0 0 6px #f59e0b;
+  background: rgba(245, 158, 11, 0.15);
 }
 
-/* State: Cleaning (Locked onto Source C:, Emerald Purge Mode) */
-.mb-oculus-stage.is-cleaning .mb-oculus-eye {
-  border-color: rgba(16, 185, 129, 0.7);
-  box-shadow: 0 0 20px rgba(16, 185, 129, 0.45);
+/* Modal Eye Cleaning state: emerald purge mode */
+.mb-oculus-stage.is-cleaning .oculus-gyro-outer {
+  stroke: rgba(16, 185, 129, 0.7);
+  animation: gyroSpinFast 2.5s linear infinite;
 }
-.mb-oculus-stage.is-cleaning .mb-eye-iris {
-  transform: translateX(-12px);
-  background: radial-gradient(circle at 40% 40%, #10b981, #059669 70%, #064e3b 100%);
-  box-shadow: 0 0 14px rgba(16, 185, 129, 0.8);
+.mb-oculus-stage.is-cleaning .pupil-iris {
+  fill: #059669;
+  stroke: #10b981;
 }
-.mb-oculus-stage.is-cleaning .mb-eye-pupil {
-  border-color: #34d399;
-  box-shadow: 0 0 8px #34d399;
-}
-.mb-oculus-stage.is-cleaning .mb-oculus-status-badge {
+.mb-oculus-stage.is-cleaning .mb-oculus-badge {
   border-color: rgba(16, 185, 129, 0.6);
   color: #34d399;
   background: rgba(6, 78, 59, 0.4);
-}
-.mb-oculus-stage.is-cleaning .mb-status-dot {
-  background: #10b981;
-  box-shadow: 0 0 8px #10b981;
 }
 .mb-transfer-visual.is-cleaning .mb-conduit-src {
   animation: mbPurgePulse 1s infinite alternate;
@@ -5171,16 +5102,25 @@
   100% { transform: scale(1.08); filter: drop-shadow(0 0 12px rgba(16, 185, 129, 0.8)); }
 }
 
-/* State: Done (Green Lock) */
-.mb-oculus-stage.is-done .mb-oculus-eye {
-  border-color: rgba(16, 185, 129, 0.5);
-  box-shadow: 0 0 14px rgba(16, 185, 129, 0.3);
+/* Modal Eye Done state: verified calm emerald aura */
+.mb-oculus-stage.is-done .oculus-gyro-outer {
+  stroke: rgba(16, 185, 129, 0.55);
+  animation: gyroSpinSlow 12s linear infinite;
 }
-.mb-oculus-stage.is-done .mb-eye-iris {
-  transform: translateX(0);
-  background: radial-gradient(circle at 40% 40%, #10b981, #059669 70%, #064e3b 100%);
+.mb-oculus-stage.is-done .oculus-gyro-mid {
+  stroke: rgba(52, 211, 153, 0.55);
+  animation: gyroSpinReverse 9s linear infinite;
 }
-.mb-oculus-stage.is-done .mb-oculus-status-badge {
-  border-color: rgba(16, 185, 129, 0.4);
+.mb-oculus-stage.is-done .pupil-iris {
+  fill: #059669;
+  stroke: #10b981;
+}
+.mb-oculus-stage.is-done .oculus-bracket {
+  stroke: #10b981;
+}
+.mb-oculus-stage.is-done .mb-oculus-badge {
+  border-color: rgba(16, 185, 129, 0.45);
   color: #a7f3d0;
+  background: rgba(16, 185, 129, 0.12);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
 }
