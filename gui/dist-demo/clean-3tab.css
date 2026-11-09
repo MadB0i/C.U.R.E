@@ -2939,21 +2939,53 @@
   to { transform: rotate(360deg); }
 }
 
-/* Central Nucleus Core (Calm breathing pulse) */
-.cortex-nucleus-core {
-  transform-origin: 230px 96px;
-  animation: cortexBreathe 3s ease-in-out infinite;
+/* ==========================================================================
+   PAGE 1: CORTEX CYBER EYE (Autonomous Robotic Ocular Core for Virus Rescue)
+   ========================================================================== */
+.cortex-cyber-eye {
+  pointer-events: none;
 }
 
-@keyframes cortexBreathe {
-  0%, 100% {
-    transform: scale(1);
-    filter: drop-shadow(0 0 5px #38bdf8);
-  }
-  50% {
-    transform: scale(1.08);
-    filter: drop-shadow(0 0 14px #818cf8);
-  }
+.cortex-eye-aura {
+  transform-origin: 230px 96px;
+  animation: cortexAuraPulse 3.5s ease-in-out infinite;
+}
+
+@keyframes cortexAuraPulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 0.92; transform: scale(1.08); }
+}
+
+.cortex-eye-gimbal {
+  transform-origin: 230px 96px;
+  animation: cortexSpinOuter 22s linear infinite;
+}
+
+.cortex-bracket {
+  transition: stroke 0.3s ease, filter 0.3s ease;
+}
+
+.cortex-eye-hull {
+  transition: stroke 0.4s ease, filter 0.4s ease;
+}
+
+/* Horizontal Tracking Pupil: Strictly Left & Right horizontal gaze! */
+.cortex-pupil-eye {
+  transform-origin: 230px 96px;
+  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: cortexIdleHoriz 6s ease-in-out infinite;
+}
+
+@keyframes cortexIdleHoriz {
+  0%, 100% { transform: translate(0px, 0px); }
+  22%, 36% { transform: translate(-4px, 0px); }
+  50%      { transform: translate(0px, 0px); }
+  72%, 86% { transform: translate(4px, 0px); }
+}
+
+.cortex-eyelid {
+  transform-origin: 230px 96px;
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
 }
 
 .cortex-node-label {
@@ -3038,7 +3070,7 @@
    DYNAMIC REACTIVE CORTEX STATES (is-scanning, is-clean, is-threat)
    ========================================================================== */
 
-/* 1. SCANNING STATE: Fast rings, packets firing, live status */
+/* 1. SCANNING STATE: Fast rings, packets firing, strictly horizontal ocular tracking */
 .vr-neural-core.is-scanning .cortex-ring-outer {
   animation-duration: 5s;
   stroke: rgba(56, 189, 248, 0.65);
@@ -3054,10 +3086,51 @@
   stroke: rgba(56, 189, 248, 0.85);
 }
 
-.vr-neural-core.is-scanning .cortex-nucleus-core {
-  animation-duration: 1.0s;
+/* Page 1 Horizontal Tracking: Inspects sensors on Left -> Recalibrates -> Tracks Verdict on Right */
+.vr-neural-core.is-scanning .cortex-pupil-eye {
+  animation: cortexLookHorizontal 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes cortexLookHorizontal {
+  0% {
+    transform: translate(0px, 0px);
+  }
+  16%, 38% {
+    transform: translate(-11px, 0px); /* Looks Left inspecting incoming sensor inputs (MEM, HOOK, ENT, LOL) */
+  }
+  48% {
+    transform: translate(0px, 0px);   /* Recalibrates center heuristic engine */
+  }
+  64%, 86% {
+    transform: translate(11px, 0px);  /* Tracks output towards Verdict node on Right */
+  }
+  96%, 100% {
+    transform: translate(0px, 0px);   /* Returns to center */
+  }
+}
+
+/* Scanning Eyelids: Retract open wide for full field of view */
+.vr-neural-core.is-scanning .cortex-eyelid-upper {
+  transform: translateY(-9px) scaleY(0.6);
+}
+
+.vr-neural-core.is-scanning .cortex-eyelid-lower {
+  transform: translateY(9px) scaleY(0.6);
+}
+
+.vr-neural-core.is-scanning .cortex-eye-hull {
   stroke: #38bdf8;
-  filter: drop-shadow(0 0 18px #38bdf8);
+  filter: drop-shadow(0 0 12px #38bdf8);
+}
+
+.vr-neural-core.is-scanning .cortex-eye-gimbal {
+  animation-duration: 6s;
+  stroke: rgba(56, 189, 248, 0.7);
+}
+
+.vr-neural-core.is-scanning .cortex-bracket {
+  stroke: #38bdf8;
+  filter: drop-shadow(0 0 6px #38bdf8);
 }
 
 .vr-neural-core.is-scanning .axon {
@@ -3076,13 +3149,45 @@
 }
 
 /* 2. VERIFIED CLEAN STATE: Harmonic emerald neural shield */
-.vr-neural-core.is-clean .cortex-nucleus-core {
-  stroke: #10b981;
-  filter: drop-shadow(0 0 14px #10b981);
+.vr-neural-core.is-clean .cortex-pupil-eye {
+  animation: none !important;
+  transform: translate(0px, 0px) !important;
 }
 
-.vr-neural-core.is-clean .cortex-nucleus-inner {
-  fill: #10b981;
+.vr-neural-core.is-clean .cortex-pupil-reticle {
+  stroke: #10b981;
+}
+
+.vr-neural-core.is-clean .cortex-pupil-iris {
+  fill: #059669;
+  stroke: #10b981;
+  filter: drop-shadow(0 0 10px #10b981);
+}
+
+.vr-neural-core.is-clean .cortex-pupil-core {
+  stroke: #34d399;
+}
+
+.vr-neural-core.is-clean .cortex-eye-hull {
+  stroke: #10b981;
+  filter: drop-shadow(0 0 12px rgba(16, 185, 129, 0.45));
+}
+
+.vr-neural-core.is-clean .cortex-eye-gimbal {
+  stroke: rgba(16, 185, 129, 0.4);
+}
+
+.vr-neural-core.is-clean .cortex-bracket {
+  stroke: #10b981;
+  filter: drop-shadow(0 0 5px #10b981);
+}
+
+.vr-neural-core.is-clean .cortex-eyelid-upper {
+  transform: translateY(-6px) scaleY(0.75);
+}
+
+.vr-neural-core.is-clean .cortex-eyelid-lower {
+  transform: translateY(6px) scaleY(0.75);
 }
 
 .vr-neural-core.is-clean .verdict-shield {
@@ -3117,13 +3222,85 @@
 }
 
 /* 3. THREAT CAUGHT STATE: Crimson alert & anomaly lock-on (ONLY WHEN VIRUS CAUGHT!) */
-.vr-neural-core.is-threat .cortex-nucleus-core {
-  stroke: #f43f5e;
-  filter: drop-shadow(0 0 16px #f43f5e);
+.vr-neural-core.is-threat .cortex-pupil-eye {
+  animation: none !important;
+  transform: translate(0px, 0px) !important;
 }
 
-.vr-neural-core.is-threat .cortex-nucleus-inner {
-  fill: #f43f5e;
+.vr-neural-core.is-threat .cortex-pupil-reticle {
+  stroke: #f43f5e;
+}
+
+.vr-neural-core.is-threat .cortex-pupil-iris {
+  fill: #be123c;
+  stroke: #f43f5e;
+  filter: drop-shadow(0 0 14px #f43f5e);
+  animation: cortexRedIrisPulse 1.8s ease-in-out infinite;
+}
+
+@keyframes cortexRedIrisPulse {
+  0%, 100% {
+    filter: drop-shadow(0 0 8px #f43f5e);
+    r: 7.5;
+  }
+  50% {
+    filter: drop-shadow(0 0 20px #ff2a55);
+    r: 8.8;
+  }
+}
+
+.vr-neural-core.is-threat .cortex-pupil-core {
+  stroke: #ff2a55;
+}
+
+.vr-neural-core.is-threat .cortex-eye-hull {
+  stroke: #f43f5e;
+  filter: drop-shadow(0 0 16px rgba(244, 63, 94, 0.65));
+}
+
+.vr-neural-core.is-threat .cortex-eye-gimbal {
+  stroke: rgba(244, 63, 94, 0.6);
+  animation-duration: 4s;
+}
+
+.vr-neural-core.is-threat .cortex-bracket {
+  stroke: #f43f5e;
+  filter: drop-shadow(0 0 8px #f43f5e);
+}
+
+/* Wide open eyelids with periodic snap-blink */
+.vr-neural-core.is-threat .cortex-eyelid-upper {
+  transform: translateY(-16px) scaleY(0);
+  opacity: 0;
+  animation: cortexRedLidUpperBlink 3.8s ease-in-out infinite !important;
+}
+
+.vr-neural-core.is-threat .cortex-eyelid-lower {
+  transform: translateY(16px) scaleY(0);
+  opacity: 0;
+  animation: cortexRedLidLowerBlink 3.8s ease-in-out infinite !important;
+}
+
+@keyframes cortexRedLidUpperBlink {
+  0%, 88%, 94%, 100% {
+    transform: translateY(-16px) scaleY(0);
+    opacity: 0;
+  }
+  91% {
+    transform: translateY(0px) scaleY(1);
+    opacity: 1;
+  }
+}
+
+@keyframes cortexRedLidLowerBlink {
+  0%, 88%, 94%, 100% {
+    transform: translateY(16px) scaleY(0);
+    opacity: 0;
+  }
+  91% {
+    transform: translateY(0px) scaleY(1);
+    opacity: 1;
+  }
 }
 
 .vr-neural-core.is-threat .verdict-shield {

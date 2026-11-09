@@ -445,6 +445,15 @@
                               <stop offset="50%" stop-color="#818cf8" stop-opacity="0.25" />
                               <stop offset="100%" stop-color="#0f172a" stop-opacity="0" />
                             </radialGradient>
+                            <radialGradient id="cortexLensGrad" cx="50%" cy="50%" r="50%">
+                              <stop offset="0%" stop-color="#0284c7" stop-opacity="0.9" />
+                              <stop offset="45%" stop-color="#38bdf8" stop-opacity="0.5" />
+                              <stop offset="85%" stop-color="#0f172a" stop-opacity="0.95" />
+                              <stop offset="100%" stop-color="#020617" stop-opacity="1" />
+                            </radialGradient>
+                            <clipPath id="cortexEyeApertureClip">
+                              <ellipse class="cortex-aperture-ellipse" cx="230" cy="96" rx="25" ry="19" />
+                            </clipPath>
                             <pattern id="cyberDots" width="16" height="16" patternUnits="userSpaceOnUse">
                               <circle cx="2" cy="2" r="0.8" fill="rgba(56, 189, 248, 0.08)" />
                             </pattern>
@@ -599,11 +608,7 @@
                             <circle class="cortex-satellite" cx="200" cy="140" r="4.5" fill="#0284c7" stroke="#38bdf8" stroke-width="2" />
                             <circle class="cortex-satellite" cx="260" cy="140" r="4.5" fill="#047857" stroke="#34d399" stroke-width="2" />
 
-                            <!-- Central Cortex Decision Core (Breathing and Rotating in Idle) -->
-                            <circle class="cortex-aura" cx="230" cy="96" r="48" fill="url(#cortexAuraGrad)" />
-                            <circle class="cortex-nucleus-core" cx="230" cy="96" r="16" fill="#090d1a" stroke="#38bdf8" stroke-width="2.5" filter="url(#synapseGlow)" />
-                            <circle class="cortex-nucleus-inner" cx="230" cy="96" r="8" fill="#38bdf8" />
-                            <circle class="cortex-nucleus-spark" cx="230" cy="96" r="3" fill="#ffffff" />
+
 
                             <!-- Layer 4: Synthesis Neurons -->
                             <circle class="synthesis-node" cx="330" cy="52" r="4.2" fill="#4338ca" stroke="#818cf8" stroke-width="2" />
@@ -614,6 +619,53 @@
                             <polygon class="verdict-shield" points="400,80 415,89 415,103 400,112 385,103 385,89" fill="rgba(15, 23, 42, 0.85)" stroke="#38bdf8" stroke-width="1.8" filter="url(#neuralGlow)" />
                             <circle class="verdict-core" cx="400" cy="96" r="5" fill="#0284c7" stroke="#38bdf8" stroke-width="2" />
                             <text class="cortex-node-label verdict-lbl" x="374" y="72">VERDICT</text>
+                          </g>
+
+                          <!-- Layer 6: THE CENTRAL CYBER EYE (Robotic Ocular Core Layered Strictly ON TOP of Axons & Streams) -->
+                          <g class="cortex-cyber-eye" id="cortex-cyber-eye">
+                            <!-- Soft Ambient Backlight Aura -->
+                            <circle class="cortex-eye-aura" cx="230" cy="96" r="38" fill="url(#cortexAuraGrad)" />
+
+                            <!-- Outer Gimbal Gyro Ring -->
+                            <circle class="cortex-eye-gimbal" cx="230" cy="96" r="32" stroke="rgba(168, 85, 247, 0.35)" stroke-width="1.2" stroke-dasharray="3 5" />
+
+                            <!-- Target Acquisition Corner Brackets -->
+                            <path class="cortex-bracket b-tl" d="M208,76 L203,76 L203,81" stroke="rgba(56, 189, 248, 0.55)" stroke-width="1.4" fill="none" />
+                            <path class="cortex-bracket b-tr" d="M252,76 L257,76 L257,81" stroke="rgba(56, 189, 248, 0.55)" stroke-width="1.4" fill="none" />
+                            <path class="cortex-bracket b-bl" d="M208,116 L203,116 L203,111" stroke="rgba(56, 189, 248, 0.55)" stroke-width="1.4" fill="none" />
+                            <path class="cortex-bracket b-br" d="M252,116 L257,116 L257,111" stroke="rgba(56, 189, 248, 0.55)" stroke-width="1.4" fill="none" />
+
+                            <!-- Mechanical Armor Sphere Hull (Solid #090d16 hides all background streams) -->
+                            <circle class="cortex-eye-hull" cx="230" cy="96" r="26" fill="#090d16" stroke="rgba(168, 85, 247, 0.6)" stroke-width="2" filter="url(#synapseGlow)" />
+
+                            <!-- Clipped Optical Lens Chamber -->
+                            <g clip-path="url(#cortexEyeApertureClip)">
+                              <!-- Deep Optical Lens Glass -->
+                              <circle cx="230" cy="96" r="25" fill="url(#cortexLensGrad)" />
+
+                              <!-- Lens Radar Grid Crosshairs -->
+                              <line x1="206" y1="96" x2="254" y2="96" stroke="rgba(56, 189, 248, 0.25)" stroke-width="1" stroke-dasharray="2 3" />
+                              <line x1="230" y1="77" x2="230" y2="115" stroke="rgba(56, 189, 248, 0.25)" stroke-width="1" stroke-dasharray="2 3" />
+
+                              <!-- HORIZONTAL TRACKING CYBER PUPIL (Strictly Left & Right Horizontal Scan) -->
+                              <g class="cortex-pupil-eye" id="cortex-pupil-eye">
+                                <circle class="cortex-pupil-reticle" cx="230" cy="96" r="12" stroke="#38bdf8" stroke-width="1.2" stroke-dasharray="2 2" />
+                                <circle class="cortex-pupil-iris" cx="230" cy="96" r="7.5" fill="#0284c7" stroke="#38bdf8" stroke-width="1.8" filter="url(#synapseGlow)" />
+                                <circle class="cortex-pupil-core" cx="230" cy="96" r="3.8" fill="#0f172a" stroke="#00f0ff" stroke-width="1.2" />
+                                <circle class="cortex-pupil-spark" cx="228.8" cy="94.8" r="1.4" fill="#ffffff" />
+                                <!-- Pupil Reticle Crosshair Ticks -->
+                                <line x1="230" y1="87" x2="230" y2="89" stroke="#00f0ff" stroke-width="1.2" />
+                                <line x1="230" y1="103" x2="230" y2="105" stroke="#00f0ff" stroke-width="1.2" />
+                                <line x1="221" y1="96" x2="223" y2="96" stroke="#00f0ff" stroke-width="1.2" />
+                                <line x1="237" y1="96" x2="239" y2="96" stroke="#00f0ff" stroke-width="1.2" />
+                              </g>
+                            </g>
+
+                            <!-- Mechanical Eyelid Shutter Blades -->
+                            <g class="cortex-eyelids">
+                              <path class="cortex-eyelid cortex-eyelid-upper" d="M205,96 Q230,76 255,96 Q230,64 205,96 Z" fill="#0f172a" stroke="rgba(168, 85, 247, 0.55)" stroke-width="1.2" />
+                              <path class="cortex-eyelid cortex-eyelid-lower" d="M205,96 Q230,116 255,96 Q230,128 205,96 Z" fill="#0f172a" stroke="rgba(168, 85, 247, 0.55)" stroke-width="1.2" />
+                            </g>
                           </g>
                         </svg>
                       </div>
