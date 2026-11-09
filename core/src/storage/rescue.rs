@@ -699,6 +699,25 @@ pub fn verify_copy_parity_for_cleanup(source: &Path, target: &Path) -> Result<()
     Ok(())
 }
 
+#[cfg(windows)]
+pub fn mklink_junction(target: &Path, link: &Path) -> bool {
+    std::process::Command::new("cmd")
+        .args([
+            "/C",
+            "mklink",
+            "/J",
+            &link.to_string_lossy(),
+            &target.to_string_lossy(),
+        ])
+        .output()
+        .is_ok_and(|out| out.status.success())
+}
+
+#[cfg(not(windows))]
+pub fn mklink_junction(_target: &Path, _link: &Path) -> bool {
+    false
+}
+
 /// Discover migration candidates on the system for a given source drive and destination.
 pub fn discover_migration_candidates(
     source_drive: &str,
@@ -1317,17 +1336,35 @@ pub fn build_migration_plan(
 // ---------------------------------------------------------------------------
 
 /// Compute SHA-256 hash of a file for copy verification.
+/// Uses 64 KB stack buffer for small files (< 64 KB) to avoid heap allocation overhead,
+/// and a 512 KB BufReader for large files for high-throughput sequential reads.
 pub fn hash_file_sha256(path: &Path) -> io::Result<String> {
-    let mut file = File::open(path)?;
+    use std::io::BufReader;
+    let file = File::open(path)?;
+    let file_len = file.metadata().map(|m| m.len()).unwrap_or(0);
     let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 64 * 1024];
 
-    loop {
-        let count = file.read(&mut buffer)?;
-        if count == 0 {
-            break;
+    if file_len < 64 * 1024 {
+        let mut reader = file;
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let count = reader.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            hasher.update(&buffer[..count]);
         }
-        hasher.update(&buffer[..count]);
+    } else {
+        let buf_size = 512 * 1024;
+        let mut reader = BufReader::with_capacity(buf_size, file);
+        let mut buffer = vec![0u8; buf_size];
+        loop {
+            let count = reader.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            hasher.update(&buffer[..count]);
+        }
     }
     Ok(format!("{:x}", hasher.finalize()))
 }
@@ -1381,6 +1418,41 @@ where
     P: FnMut(u64),
 {
     use std::io::{BufReader, BufWriter, Read, Write};
+    let src_len = fs::metadata(src)?.len();
+    if let Ok(dst_meta) = fs::metadata(dst) {
+        if dst_meta.is_file() && dst_meta.len() == src_len && src_len > 0 {
+            let src_file = File::open(src)?;
+            let mut reader = BufReader::with_capacity(512 * 1024, src_file);
+            let mut hasher = Sha256::new();
+            let mut buffer = vec![0u8; 512 * 1024];
+            let mut total = 0u64;
+            let mut unnotified = 0u64;
+            const NOTIFY_INTERVAL: u64 = 16 * 1024 * 1024;
+            loop {
+                if cancel_flag.load(Ordering::SeqCst) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Interrupted,
+                        "Transfer cancelled by operator",
+                    ));
+                }
+                let n = reader.read(&mut buffer)?;
+                if n == 0 {
+                    break;
+                }
+                hasher.update(&buffer[..n]);
+                total += n as u64;
+                unnotified += n as u64;
+                if unnotified >= NOTIFY_INTERVAL {
+                    on_chunk(unnotified);
+                    unnotified = 0;
+                }
+            }
+            if unnotified > 0 {
+                on_chunk(unnotified);
+            }
+            return Ok((total, format!("{:x}", hasher.finalize())));
+        }
+    }
     let src_file = File::open(src)?;
     let mut reader = BufReader::with_capacity(1024 * 1024, src_file);
     let dst_file = File::create(dst)?;
@@ -1732,6 +1804,28 @@ where
                     rel.display()
                 ));
             }
+        }
+
+        if sha256_checked.is_multiple_of(25) || sha256_checked == source_files_list.len() {
+            let v_pct = if !source_files_list.is_empty() {
+                (sha256_checked as f64 / source_files_list.len() as f64) * 100.0
+            } else {
+                100.0
+            };
+            let rel_str = src_f
+                .strip_prefix(source)
+                .map(|r| r.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            on_progress(MigrationProgress {
+                candidate_id: candidate_id.into(),
+                phase: "verifying".into(),
+                current_file: rel_str,
+                files_copied: sha256_checked as u64,
+                total_files: total_files_count,
+                bytes_copied: total_source_bytes,
+                total_bytes: total_source_bytes,
+                percent: (v_pct * 10.0).round() / 10.0,
+            });
         }
     }
 
@@ -2237,6 +2331,24 @@ pub fn activate_candidate_relocation(
                 details.push("GRADLE_USER_HOME configured".into());
             }
         }
+        "codex_cache" => {
+            env_var_updated = Some("CODEX_HOME".into());
+            #[cfg(windows)]
+            {
+                previous_configuration = get_user_environment_variable("CODEX_HOME");
+                if let Err(e) = set_user_environment_variable("CODEX_HOME", &target_str) {
+                    details.push(format!("Failed to set CODEX_HOME: {e}"));
+                } else {
+                    activation_succeeded = true;
+                    details.push(format!("CODEX_HOME configured to '{target_str}'"));
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                activation_succeeded = true;
+                details.push("CODEX_HOME configured".into());
+            }
+        }
         _ => {
             activation_succeeded = true;
             details.push("Workspace relocation active. Update IDE bookmarks as advised.".into());
@@ -2282,12 +2394,13 @@ pub fn activate_candidate_relocation(
                     ),
                 }
             }
-            "cargo_cache" | "pip_cache" | "gradle_cache" => {
+            "cargo_cache" | "pip_cache" | "gradle_cache" | "codex_cache" => {
                 #[cfg(windows)]
                 {
                     let var_name = match candidate_id {
                         "cargo_cache" => "CARGO_HOME",
                         "pip_cache" => "PIP_CACHE_DIR",
+                        "codex_cache" => "CODEX_HOME",
                         _ => "GRADLE_USER_HOME",
                     };
                     match previous_configuration.as_deref() {
@@ -2437,6 +2550,21 @@ pub fn rollback_candidate_relocation(
                 } else {
                     rollback_succeeded = true;
                     details.push(format!("Reverted CARGO_HOME to '{}'", cargo_home.display()));
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                rollback_succeeded = true;
+            }
+        }
+        "codex_cache" => {
+            #[cfg(windows)]
+            {
+                if let Err(e) = set_user_environment_variable("CODEX_HOME", &orig_str) {
+                    details.push(format!("Failed to revert CODEX_HOME: {e}"));
+                } else {
+                    rollback_succeeded = true;
+                    details.push(format!("Reverted CODEX_HOME to '{orig_str}'"));
                 }
             }
             #[cfg(not(windows))]
@@ -2611,6 +2739,30 @@ pub fn execute_source_cleanup(
     // Perform safe deletion of source tree (recursively clearing read-only attributes)
     safe_remove_dir_all(source_path)?;
 
+    // For developer toolchains, establish an NTFS Directory Junction so developer tools
+    // and AI coding agents targeting the original location continue working seamlessly.
+    #[cfg(windows)]
+    if candidate_id == "codex_cache"
+        || candidate_id == "android_cache"
+        || candidate_id == "rustup_cache"
+    {
+        let junction_ok = mklink_junction(target_path, source_path);
+        if junction_ok {
+            crate::operator::journal::audit_log(
+                "SourceCleanupJunction",
+                &source_path.to_string_lossy(),
+                Some(confirmation_token),
+                "JunctionCreated",
+                serde_json::json!({
+                    "candidate_id": candidate_id,
+                    "source_junction": source_path.to_string_lossy(),
+                    "target_destination": target_path.to_string_lossy(),
+                }),
+                None,
+            );
+        }
+    }
+
     // Measure C: drive free space AFTER cleanup
     let space_after = fsx::volume_space_at(c_root)
         .map(|s| s.free_bytes)
@@ -2774,6 +2926,7 @@ pub fn current_relocation_config(candidate_id: &str) -> Option<String> {
         "cargo_cache" => get_user_environment_variable("CARGO_HOME"),
         "pip_cache" => get_user_environment_variable("PIP_CACHE_DIR"),
         "gradle_cache" => get_user_environment_variable("GRADLE_USER_HOME"),
+        "codex_cache" => get_user_environment_variable("CODEX_HOME"),
         _ => None,
     }
 }
@@ -3089,6 +3242,8 @@ mod tests {
         let tool_receipt = finalize_candidate_migration("cargo_cache", &cargo_target).unwrap();
         assert!(!tool_receipt.is_known_folder);
         assert!(tool_receipt.configuration_action.contains("CARGO_HOME"));
+        #[cfg(windows)]
+        let _ = remove_user_environment_variable("CARGO_HOME");
     }
 
     #[test]

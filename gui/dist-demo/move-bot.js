@@ -349,7 +349,7 @@
 
     if (els.cleanupBox) els.cleanupBox.classList.remove("hidden");
     const cleanupTick = document.getElementById("mb-cleanup-tick");
-    if (cleanupTick) cleanupTick.checked = false;
+    if (cleanupTick) cleanupTick.checked = true;
 
     pendingPlan = {
       candidates: candidates,
@@ -403,6 +403,19 @@
           "rescue-migration-progress",
           (ev) => {
             const p = ev.payload || {};
+            if (p.phase === "verifying") {
+              if (els.runBar) els.runBar.style.width = Math.min(p.percent || 0, 100) + "%";
+              if (els.runDetail) {
+                els.runDetail.textContent =
+                  (p.files_copied || 0) + " / " + (p.total_files || 0) + " files verified · " +
+                  "Verifying SHA-256 bit-by-bit (" + (p.percent || 0) + "%)";
+              }
+              const activeStep = document.querySelector(".mb-step-row.is-active .mb-step-name");
+              if (activeStep) {
+                activeStep.textContent = "Verifying data integrity (" + (p.files_copied || 0) + " / " + (p.total_files || 0) + ")…";
+              }
+              return;
+            }
             const now = performance.now();
             const timeDelta = (now - lastTime) / 1000;
             if (timeDelta >= 0.4) {
@@ -636,6 +649,51 @@
             : r.candidate.suggested_target_path;
         row.append(name, where);
         els.doneDetail.appendChild(row);
+      }
+      if (freed === 0 && results.some((r) => r.activation && r.activation.cleanup_unlocked)) {
+        const freeNowBtn = document.createElement("button");
+        freeNowBtn.className = "mb-free-now-btn";
+        freeNowBtn.textContent = "Free " + formatBytes(totalBytes) + " on C: Now (Safe Junction Link)";
+        freeNowBtn.style.cssText = "display: block; margin: 14px auto 0; padding: 10px 20px; background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);";
+        freeNowBtn.onmouseover = () => { freeNowBtn.style.transform = "translateY(-1px)"; freeNowBtn.style.boxShadow = "0 6px 16px rgba(16, 185, 129, 0.35)"; };
+        freeNowBtn.onmouseout = () => { freeNowBtn.style.transform = "none"; freeNowBtn.style.boxShadow = "0 4px 12px rgba(16, 185, 129, 0.25)"; };
+        freeNowBtn.onclick = async () => {
+          freeNowBtn.disabled = true;
+          freeNowBtn.textContent = "Freeing C: space & establishing junction link…";
+          try {
+            let totalFreed = 0;
+            for (const r of results) {
+              if (r.activation && r.activation.cleanup_unlocked) {
+                const res = await invoke("storage_rescue_cleanup_source", {
+                  candidateId: r.candidate.id,
+                  sourcePath: r.candidate.source_path,
+                  targetPath: r.receipt && r.receipt.items && r.receipt.items[0] ? r.receipt.items[0].target_path : r.candidate.suggested_target_path,
+                  confirmationToken: r.activation.required_cleanup_token || "",
+                  expectedNonce: r.activation.cleanup_nonce || "",
+                });
+                r.cleanup = res;
+                totalFreed += res.actual_bytes_freed || 0;
+              }
+            }
+            freeNowBtn.textContent = "Freed " + formatBytes(totalFreed > 0 ? totalFreed : totalBytes) + " on C:! Safe junction active.";
+            freeNowBtn.style.background = "#059669";
+            if (els.doneText) {
+              els.doneText.textContent =
+                "All moved and verified. " +
+                formatBytes(totalBytes) +
+                " now lives on drive " +
+                pendingPlan.targetDrive +
+                ". I also freed " + formatBytes(totalFreed > 0 ? totalFreed : totalBytes) + " on C: with a safe junction link.";
+            }
+            if (window.storageRescue && window.storageRescue.onActivate) {
+              window.storageRescue.onActivate();
+            }
+          } catch (err) {
+            freeNowBtn.textContent = "Could not free: " + clean(err);
+            freeNowBtn.style.background = "#e11d48";
+          }
+        };
+        els.doneDetail.appendChild(freeNowBtn);
       }
     }
     const finish = document.getElementById("mb-done-finish");

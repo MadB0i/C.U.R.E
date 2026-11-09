@@ -2489,20 +2489,29 @@ fn storage_rescue_rollback(
 
 /// User-approved source directory cleanup with live before/after C: free space measurement.
 #[tauri::command]
-fn storage_rescue_cleanup_source(
+async fn storage_rescue_cleanup_source(
     candidate_id: String,
     source_path: String,
     target_path: String,
     confirmation_token: String,
     expected_nonce: Option<String>,
 ) -> Result<cure_core::storage::SourceCleanupReceipt, String> {
-    cure_core::storage::execute_source_cleanup(
-        &candidate_id,
-        Path::new(&source_path),
-        Path::new(&target_path),
-        &confirmation_token,
-        expected_nonce.as_deref(),
-    )
+    let cid = candidate_id.clone();
+    let src = source_path.clone();
+    let tgt = target_path.clone();
+    let tok = confirmation_token.clone();
+    let nonce = expected_nonce.clone();
+    tokio::task::spawn_blocking(move || {
+        cure_core::storage::execute_source_cleanup(
+            &cid,
+            Path::new(&src),
+            Path::new(&tgt),
+            &tok,
+            nonce.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| format!("Cleanup task panicked: {e}"))?
     .inspect(|receipt| {
         persist_rescue_record(
             "source_cleanup",
