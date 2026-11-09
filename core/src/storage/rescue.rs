@@ -3128,20 +3128,83 @@ pub fn resilient_remove_dir_all(path: &Path) -> (u64, Vec<PathBuf>) {
                             *bytes_freed += size;
                         }
                         Err(_) => {
+                            #[cfg(windows)]
+                            {
+                                use std::os::windows::ffi::OsStrExt;
+                                use windows::core::PCWSTR;
+                                use windows::Win32::Storage::FileSystem::{
+                                    MoveFileExW, MOVEFILE_DELAY_UNTIL_REBOOT,
+                                };
+                                let wide: Vec<u16> = p
+                                    .as_os_str()
+                                    .encode_wide()
+                                    .chain(std::iter::once(0))
+                                    .collect();
+                                let _ = unsafe {
+                                    MoveFileExW(
+                                        PCWSTR::from_raw(wide.as_ptr()),
+                                        PCWSTR::null(),
+                                        MOVEFILE_DELAY_UNTIL_REBOOT,
+                                    )
+                                };
+                            }
                             locked_files.push(p);
                         }
                     }
                 }
             }
         }
-        let _ = fs::remove_dir(dir);
+        if fs::remove_dir(dir).is_err() {
+            #[cfg(windows)]
+            {
+                use std::os::windows::ffi::OsStrExt;
+                use windows::core::PCWSTR;
+                use windows::Win32::Storage::FileSystem::{
+                    MoveFileExW, MOVEFILE_DELAY_UNTIL_REBOOT,
+                };
+                let wide: Vec<u16> = dir
+                    .as_os_str()
+                    .encode_wide()
+                    .chain(std::iter::once(0))
+                    .collect();
+                let _ = unsafe {
+                    MoveFileExW(
+                        PCWSTR::from_raw(wide.as_ptr()),
+                        PCWSTR::null(),
+                        MOVEFILE_DELAY_UNTIL_REBOOT,
+                    )
+                };
+            }
+        }
     }
 
     if path.is_file() {
         let size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
         match fs::remove_file(path) {
             Ok(()) => (size, Vec::new()),
-            Err(_) => (0, vec![path.to_path_buf()]),
+            Err(_) => {
+                #[cfg(windows)]
+                {
+                    use std::os::windows::ffi::OsStrExt;
+                    use windows::core::PCWSTR;
+                    use windows::Win32::Storage::FileSystem::{
+                        MoveFileExW, MOVEFILE_DELAY_UNTIL_REBOOT,
+                    };
+                    let wide: Vec<u16> = path
+                        .as_os_str()
+                        .encode_wide()
+                        .chain(std::iter::once(0))
+                        .collect();
+                    let _ = unsafe {
+                        MoveFileExW(
+                            PCWSTR::from_raw(wide.as_ptr()),
+                            PCWSTR::null(),
+                            MOVEFILE_DELAY_UNTIL_REBOOT,
+                        )
+                    };
+                }
+                (0, vec![path.to_path_buf()])
+            }
         }
     } else {
         remove_recursive(path, &mut bytes_freed, &mut locked_files);
