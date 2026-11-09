@@ -153,29 +153,43 @@
   margin: 0 auto;
 }
 
-/* --- Hero Card with Cyber-Cat Stage --- */
-/* --- Hero Card with Deep Synaptic Cortex (Clean 2-Column HUD) --- */
-.vr-hero-card {
+/* --- UNIFIED MASTER FORENSIC COMMAND CONSOLE --- */
+.vr-master-console {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 20px !important;
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(20, 30, 48, 0.88) 100%) !important;
+  border: 1px solid rgba(56, 189, 248, 0.28) !important;
+  border-radius: 18px !important;
+  padding: 26px 30px !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(16px) !important;
+  margin-bottom: 8px !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.vr-console-upper {
   display: grid;
   grid-template-columns: 1fr 440px;
   gap: 28px;
   align-items: stretch;
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(20, 30, 48, 0.88) 100%);
-  border: 1px solid rgba(56, 189, 248, 0.28);
-  border-radius: 18px;
-  padding: 26px 30px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(16px);
-  margin-bottom: 4px;
-  position: relative;
-  overflow: hidden;
 }
 
 @media (max-width: 1200px) {
-  .vr-hero-card {
+  .vr-console-upper {
     grid-template-columns: 1fr;
     gap: 24px;
   }
+}
+
+.vr-console-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border-top: 1px solid rgba(56, 189, 248, 0.16);
+  padding-top: 18px;
+  margin-top: 2px;
 }
 
 .vr-cat-stage {
@@ -2750,38 +2764,24 @@
 }
 
 /* ==========================================================================
-   DEEP SYNAPTIC CORTEX & NEURAL MATRIX VISUALIZER (Page 1: #scan-view)
+   NATIVE HOLOGRAPHIC SYNAPTIC CORTEX (Seamlessly Integrated, No Video-Box Frame)
    ========================================================================== */
 .vr-neural-stage {
   width: 100%;
   max-width: 440px;
   height: 100%;
   min-height: 250px;
-  background: radial-gradient(ellipse at 50% 50%, rgba(15, 23, 42, 0.98) 0%, rgba(8, 14, 26, 0.99) 100%);
-  border: 1px solid rgba(56, 189, 248, 0.32);
-  border-radius: 16px;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   position: relative;
-  overflow: hidden;
-  box-shadow: 0 0 35px rgba(56, 189, 248, 0.1), inset 0 0 30px rgba(0, 0, 0, 0.7);
-  padding: 10px 12px;
+  overflow: visible;
+  padding: 0 !important;
 }
-
-/* Aerospace HUD Corner Brackets */
-.hud-corner {
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  border-color: rgba(56, 189, 248, 0.65);
-  pointer-events: none;
-  z-index: 5;
-}
-.hud-corner.tl { top: 6px; left: 6px; border-top: 2px solid; border-left: 2px solid; }
-.hud-corner.tr { top: 6px; right: 6px; border-top: 2px solid; border-right: 2px solid; }
-.hud-corner.bl { bottom: 6px; left: 6px; border-bottom: 2px solid; border-left: 2px solid; }
-.hud-corner.br { bottom: 6px; right: 6px; border-bottom: 2px solid; border-right: 2px solid; }
 
 .vr-neural-core {
   width: 100%;
@@ -2798,7 +2798,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 2px 6px 4px 6px;
+  padding: 2px 4px 6px 4px;
   border-bottom: 1px solid rgba(56, 189, 248, 0.15);
   font-family: var(--font-mono, monospace);
   font-size: 9px;
@@ -2858,7 +2858,18 @@
   overflow: visible;
 }
 
-/* Concentric HUD Rings Rotation */
+/* MOTION PACING: Traveling dots are HIDDEN when idle, active ONLY when scanning! */
+.neural-packets {
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+
+.vr-neural-core.is-scanning .neural-packets {
+  opacity: 1;
+}
+
+/* Concentric HUD Rings Rotation (Always calmly rotating) */
 .cortex-ring-outer {
   transform-origin: 230px 96px;
   animation: cortexSpinOuter 18s linear infinite;
@@ -2889,7 +2900,7 @@
   to { transform: rotate(360deg); }
 }
 
-/* Central Nucleus Core */
+/* Central Nucleus Core (Calm breathing pulse) */
 .cortex-nucleus-core {
   transform-origin: 230px 96px;
   animation: cortexBreathe 3s ease-in-out infinite;
@@ -2940,7 +2951,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 6px 2px 6px;
+  padding: 6px 4px 2px 4px;
   border-top: 1px solid rgba(56, 189, 248, 0.15);
   font-family: var(--font-mono, monospace);
   font-size: 9px;
@@ -2988,7 +2999,7 @@
    DYNAMIC REACTIVE CORTEX STATES (is-scanning, is-clean, is-threat)
    ========================================================================== */
 
-/* 1. SCANNING STATE: High-speed computation & intense photon firing */
+/* 1. SCANNING STATE: Fast rings, packets firing, live status */
 .vr-neural-core.is-scanning .cortex-ring-outer {
   animation-duration: 5s;
   stroke: rgba(56, 189, 248, 0.65);
@@ -3066,7 +3077,7 @@
   color: #34d399;
 }
 
-/* 3. THREAT CAUGHT STATE: Crimson alert & anomaly lock-on */
+/* 3. THREAT CAUGHT STATE: Crimson alert & anomaly lock-on (ONLY WHEN VIRUS CAUGHT!) */
 .vr-neural-core.is-threat .cortex-nucleus-core {
   stroke: #f43f5e;
   filter: drop-shadow(0 0 16px #f43f5e);
@@ -3085,6 +3096,17 @@
 .vr-neural-core.is-threat .verdict-core {
   fill: #be123c;
   stroke: #f43f5e;
+}
+
+.vr-neural-core.is-threat .ent-core,
+.vr-neural-core.is-threat .ent-feature {
+  fill: #be123c !important;
+  stroke: #f43f5e !important;
+  filter: drop-shadow(0 0 6px #f43f5e) !important;
+}
+
+.vr-neural-core.is-threat .a-entropy {
+  stroke: rgba(244, 63, 94, 0.8) !important;
 }
 
 .vr-neural-core.is-threat .neural-status-badge {
