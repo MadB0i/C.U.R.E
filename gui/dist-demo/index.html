@@ -1391,6 +1391,14 @@
                               <stop offset="50%" stop-color="#38bdf8" stop-opacity="0.25" />
                               <stop offset="100%" stop-color="#0f172a" stop-opacity="0" />
                             </radialGradient>
+                            <radialGradient id="smRadarSweepGrad" cx="50%" cy="50%" r="50%">
+                              <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.85" />
+                              <stop offset="60%" stop-color="#0284c7" stop-opacity="0.35" />
+                              <stop offset="100%" stop-color="#0284c7" stop-opacity="0" />
+                            </radialGradient>
+                            <clipPath id="smActivePlatterClip">
+                              <circle cx="58" cy="90" r="23" />
+                            </clipPath>
                             <clipPath id="smEyeApertureClip">
                               <ellipse class="sm-aperture-ellipse" cx="190" cy="90" rx="24" ry="18" />
                             </clipPath>
@@ -1400,10 +1408,10 @@
                           <g class="sm-conduit-pipes">
                             <line class="sm-pipe-main p-left" x1="58" y1="90" x2="190" y2="90" stroke="rgba(56, 189, 248, 0.45)" stroke-width="2" stroke-linecap="round" />
                             <line class="sm-pipe-main p-right" x1="190" y1="90" x2="322" y2="90" stroke="rgba(192, 132, 252, 0.45)" stroke-width="2" stroke-linecap="round" />
-                            <path class="sm-pipe-arch" d="M58,66 Q124,46 190,66" stroke="rgba(56, 189, 248, 0.28)" stroke-width="1.2" stroke-dasharray="3 4" fill="none" />
-                            <path class="sm-pipe-arch" d="M58,114 Q124,134 190,114" stroke="rgba(56, 189, 248, 0.28)" stroke-width="1.2" stroke-dasharray="3 4" fill="none" />
-                            <path class="sm-pipe-arch" d="M190,66 Q256,46 322,66" stroke="rgba(192, 132, 252, 0.28)" stroke-width="1.2" stroke-dasharray="3 4" fill="none" />
-                            <path class="sm-pipe-arch" d="M190,114 Q256,134 322,114" stroke="rgba(192, 132, 252, 0.28)" stroke-width="1.2" stroke-dasharray="3 4" fill="none" />
+                            <path class="sm-pipe-arch arch-left" d="M58,66 Q124,46 190,66" stroke="rgba(56, 189, 248, 0.28)" stroke-width="1.2" stroke-dasharray="3 4" fill="none" />
+                            <path class="sm-pipe-arch arch-left" d="M58,114 Q124,134 190,114" stroke="rgba(56, 189, 248, 0.28)" stroke-width="1.2" stroke-dasharray="3 4" fill="none" />
+                            <path class="sm-pipe-arch arch-right" d="M190,66 Q256,46 322,66" stroke="rgba(192, 132, 252, 0.28)" stroke-width="1.2" stroke-dasharray="3 4" fill="none" />
+                            <path class="sm-pipe-arch arch-right" d="M190,114 Q256,134 322,114" stroke="rgba(192, 132, 252, 0.28)" stroke-width="1.2" stroke-dasharray="3 4" fill="none" />
                           </g>
 
                           <!-- Live Conduit Particle Packets (Drive C ➔ Eye ➔ Drive D) -->
@@ -1429,22 +1437,39 @@
                             </circle>
                           </g>
 
-                          <!-- Source Drive C:\ Gauge Port (Left) -->
-                          <g class="sm-port-source">
+                          <!-- Active Drive Gauge Port (Left — Dynamically Updates with Selected Drive) -->
+                          <g class="sm-port-source" id="sm-port-active-drive">
                             <circle class="sm-platter-outer" cx="58" cy="90" r="32" stroke="rgba(56, 189, 248, 0.3)" stroke-width="1.2" stroke-dasharray="3 5" />
                             <circle class="sm-platter-disc" cx="58" cy="90" r="24" fill="#090d16" stroke="#38bdf8" stroke-width="1.8" filter="url(#neuralGlow)" />
+
+                            <!-- Active Disk Platter Forensic Sector Radar Sweep (Visible ONLY during Drive Scan) -->
+                            <g class="sm-drive-scan-radar" clip-path="url(#smActivePlatterClip)">
+                              <path class="sm-radar-beam" d="M58 90 L88 60 A34 34 0 0 1 88 120 Z" fill="url(#smRadarSweepGrad)" />
+                              <!-- Sector Track Cylinders & Crossbars -->
+                              <circle cx="58" cy="90" r="17" stroke="rgba(56, 189, 248, 0.3)" stroke-width="0.8" stroke-dasharray="2 3" />
+                              <circle cx="58" cy="90" r="11" stroke="rgba(56, 189, 248, 0.3)" stroke-width="0.8" stroke-dasharray="2 3" />
+                              <line x1="35" y1="90" x2="81" y2="90" stroke="rgba(56, 189, 248, 0.22)" stroke-width="0.8" />
+                              <line x1="58" y1="67" x2="58" y2="113" stroke="rgba(56, 189, 248, 0.22)" stroke-width="0.8" />
+                            </g>
+
+                            <!-- Ultrasonic Concentric Sector Pulse Rings -->
+                            <circle class="sm-scan-pulse-wave sm-wave-1" cx="58" cy="90" r="8" fill="none" stroke="#38bdf8" stroke-width="1.6" />
+                            <circle class="sm-scan-pulse-wave sm-wave-2" cx="58" cy="90" r="8" fill="none" stroke="#38bdf8" stroke-width="1.2" />
+
                             <circle class="sm-platter-core" cx="58" cy="90" r="8" fill="#0f172a" stroke="rgba(56, 189, 248, 0.5)" stroke-width="1" />
-                            <text class="sm-port-title" x="58" y="42" text-anchor="middle">DRIVE C:\</text>
-                            <text class="sm-port-sub" id="sm-port-c-sub" x="58" y="136" text-anchor="middle">SOURCE</text>
+                            <circle class="sm-platter-spindle" cx="58" cy="90" r="3" fill="#38bdf8" />
+                            <text class="sm-port-title" id="sm-active-drive-title" x="58" y="42" text-anchor="middle">DRIVE C:\</text>
+                            <text class="sm-port-sub" id="sm-active-drive-sub" x="58" y="136" text-anchor="middle">SYSTEM SSD</text>
                           </g>
 
-                          <!-- Target Volume D:\ Gauge Port (Right) -->
-                          <g class="sm-port-target">
+                          <!-- Target Volume Port (Right — Dimmed & Inactive during Scan, Active during Move Bot) -->
+                          <g class="sm-port-target" id="sm-port-target-drive">
                             <circle class="sm-platter-outer" cx="322" cy="90" r="32" stroke="rgba(192, 132, 252, 0.3)" stroke-width="1.2" stroke-dasharray="3 5" />
                             <circle class="sm-platter-disc" cx="322" cy="90" r="24" fill="#090d16" stroke="#c084fc" stroke-width="1.8" filter="url(#neuralGlow)" />
                             <circle class="sm-platter-core" cx="322" cy="90" r="8" fill="#0f172a" stroke="rgba(192, 132, 252, 0.5)" stroke-width="1" />
-                            <text class="sm-port-title sm-title-target" x="322" y="42" text-anchor="middle">TARGET D:\</text>
-                            <text class="sm-port-sub" id="sm-port-d-sub" x="322" y="136" text-anchor="middle">CONDUIT</text>
+                            <circle class="sm-platter-spindle" cx="322" cy="90" r="3" fill="#c084fc" />
+                            <text class="sm-port-title sm-title-target" id="sm-target-drive-title" x="322" y="42" text-anchor="middle">TARGET D:\</text>
+                            <text class="sm-port-sub" id="sm-target-drive-sub" x="322" y="136" text-anchor="middle">CONDUIT</text>
                           </g>
 
                           <!-- THE QUANTUM STORAGE EYE (Center, Layered ON TOP of Pipelines & Packets!) -->

@@ -4137,10 +4137,23 @@
   opacity: 0.4;
 }
 
-/* Conduit Live Particles */
+/* Conduit Live Particles (Transfer Mode ONLY) */
 .sm-conduit-packets {
-  opacity: 0.55;
+  display: none !important;
+  opacity: 0 !important;
   transition: opacity 0.4s ease;
+}
+
+/* Platter Forensic Sector Radar Sweep & Ultrasonic Pulse Waves */
+.sm-drive-scan-radar {
+  display: none;
+  transform-origin: 58px 90px;
+}
+
+.sm-scan-pulse-wave {
+  display: none;
+  transform-origin: 58px 90px;
+  pointer-events: none;
 }
 
 /* Center Quantum Storage Eye */
@@ -4284,51 +4297,101 @@
    DYNAMIC REACTIVE STATES ON PAGE 3 (is-scanning, is-transferring, is-complete)
    ========================================================================== */
 
-/* 1. DRIVE SCANNING STATE: Deep Left Inspection of Drive C:\ Caches */
+/* 1. DRIVE SCANNING STATE: Deep Focused Forensic Inspection of Selected Drive */
 .sm-sensor-stage.is-scanning .sm-pupil-eye {
-  animation: smScanGaze 7.2s cubic-bezier(0.25, 1, 0.5, 1) infinite;
+  animation: none !important;
+  transform: translate(-12px, 0px) !important;
+  transition: transform 0.4s cubic-bezier(0.2, 0.9, 0.3, 1);
 }
 
-@keyframes smScanGaze {
-  0%, 10% {
-    transform: translate(0px, 0px);
-  }
-  14% {
-    transform: translate(-12px, 0px); /* Snaps to Left looking at Drive C */
-  }
-  15%, 44% {
-    transform: translate(-12px, 0px); /* DWELLS 2.2s inspecting large caches & .codex */
-  }
-  48% {
-    transform: translate(0px, 0px);
-  }
-  50%, 60% {
-    transform: translate(0px, 0px);
-  }
-  64% {
-    transform: translate(6px, 0px);   /* Glances towards target storage */
-  }
-  65%, 75% {
-    transform: translate(6px, 0px);
-  }
-  80%, 100% {
-    transform: translate(0px, 0px);
-  }
-}
-
-.sm-sensor-stage.is-scanning .sm-conduit-packets {
-  opacity: 0.9;
-}
-
-.sm-sensor-stage.is-scanning .sm-pipe-main.p-left {
+.sm-sensor-stage.is-scanning .sm-pupil-reticle {
   stroke: #38bdf8;
-  opacity: 0.9;
-  filter: drop-shadow(0 0 6px #38bdf8);
+  animation: smPlatterSpin 4s linear infinite;
+}
+
+.sm-sensor-stage.is-scanning .sm-pupil-iris {
+  fill: #0284c7;
+  stroke: #38bdf8;
+  filter: drop-shadow(0 0 10px #38bdf8);
 }
 
 .sm-sensor-stage.is-scanning .sm-bracket {
   stroke: #38bdf8;
   filter: drop-shadow(0 0 6px #38bdf8);
+}
+
+.sm-sensor-stage.is-scanning .sm-eye-hull {
+  stroke: #38bdf8;
+  filter: drop-shadow(0 0 12px rgba(56, 189, 248, 0.45));
+}
+
+/* Active Drive Platter Scan Animation: Radar Sweep & Sector Pulses */
+.sm-sensor-stage.is-scanning .sm-drive-scan-radar {
+  display: block;
+  animation: smPlatterSpin 1.4s linear infinite;
+}
+
+.sm-sensor-stage.is-scanning .sm-scan-pulse-wave.sm-wave-1 {
+  display: block;
+  animation: smSectorPulse 1.6s cubic-bezier(0.1, 0.8, 0.3, 1) infinite;
+}
+
+.sm-sensor-stage.is-scanning .sm-scan-pulse-wave.sm-wave-2 {
+  display: block;
+  animation: smSectorPulse 1.6s cubic-bezier(0.1, 0.8, 0.3, 1) infinite 0.8s;
+}
+
+@keyframes smSectorPulse {
+  0% {
+    r: 6px;
+    opacity: 0.95;
+    stroke: #38bdf8;
+    stroke-width: 2px;
+  }
+  100% {
+    r: 32px;
+    opacity: 0;
+    stroke: #0284c7;
+    stroke-width: 0.5px;
+  }
+}
+
+/* High-speed Laser Focal Link between Eye and Active Drive Platter */
+.sm-sensor-stage.is-scanning .sm-pipe-main.p-left {
+  stroke: #38bdf8;
+  opacity: 1 !important;
+  stroke-dasharray: 6 3;
+  animation: smLaserFlow 0.6s linear infinite;
+  filter: drop-shadow(0 0 8px #38bdf8);
+}
+
+@keyframes smLaserFlow {
+  from { stroke-dashoffset: 18; }
+  to { stroke-dashoffset: 0; }
+}
+
+.sm-sensor-stage.is-scanning .arch-left {
+  opacity: 0.6;
+  stroke: rgba(56, 189, 248, 0.5);
+}
+
+/* Dim Inactive Target Port & Right Pipeline during drive scanning */
+.sm-sensor-stage.is-scanning .sm-port-target {
+  opacity: 0.16;
+  filter: grayscale(0.9) brightness(0.65);
+  transition: opacity 0.4s ease, filter 0.4s ease;
+}
+
+.sm-sensor-stage.is-scanning .p-right,
+.sm-sensor-stage.is-scanning .arch-right {
+  opacity: 0.05 !important;
+  transition: opacity 0.4s ease;
+}
+
+/* ZERO Packets during Scanning (Crucial: User Request!) */
+.sm-sensor-stage.is-scanning .sm-conduit-packets {
+  display: none !important;
+  opacity: 0 !important;
 }
 
 .sm-sensor-stage.is-scanning .sm-conduit-badge {

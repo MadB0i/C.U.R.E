@@ -143,6 +143,25 @@
     });
   }
 
+  function updateOculusActiveDrive(drive) {
+    const activeTitle = document.getElementById("sm-active-drive-title");
+    const activeSub = document.getElementById("sm-active-drive-sub");
+    if (!activeTitle) return;
+    const path = (drive && drive.path) || state.selectedDrive || "C:\\";
+    const cleanLetter = path.replace(/\\$/, "");
+    activeTitle.textContent = "DRIVE " + cleanLetter;
+    const isSys = cleanLetter.toUpperCase().startsWith("C:");
+    if (activeSub) {
+      if (drive && drive.is_removable) {
+        activeSub.textContent = "USB STORAGE";
+      } else if (isSys) {
+        activeSub.textContent = "SYSTEM SSD";
+      } else {
+        activeSub.textContent = (drive && drive.label) ? drive.label.toUpperCase() : "DATA DRIVE";
+      }
+    }
+  }
+
   function updateCapacityKPI() {
     const sel = state.drives.find((d) => d.path === state.selectedDrive) || state.drives[0];
     if (sel && els.kpiCapacityVal && els.kpiCapacitySub) {
@@ -152,6 +171,7 @@
       els.kpiCapacityVal.textContent = sel.path + " · " + fmtBytes(free) + " Free";
       els.kpiCapacitySub.textContent = fmtBytes(used) + " used of " + fmtBytes(total);
     }
+    updateOculusActiveDrive(sel);
   }
 
   async function startDriveScan() {
@@ -170,6 +190,10 @@
       sensorStage.classList.add("is-scanning");
     }
     if (conduitStatus) conduitStatus.textContent = "SCANNING SECTORS · " + state.selectedDrive;
+    const activeTitle = document.getElementById("sm-active-drive-title");
+    const activeSub = document.getElementById("sm-active-drive-sub");
+    if (activeTitle) activeTitle.textContent = "DRIVE " + state.selectedDrive.replace(/\\$/, "");
+    if (activeSub) activeSub.textContent = "FORENSIC SCAN";
 
 
 
@@ -218,7 +242,8 @@
       clearInterval(tickerInterval);
       if (els.scanBtn) els.scanBtn.disabled = false;
       if (els.cancelBtn) els.cancelBtn.classList.add("hidden");
-
+      const sel = state.drives.find((d) => d.path === state.selectedDrive);
+      updateOculusActiveDrive(sel);
     }
   }
 

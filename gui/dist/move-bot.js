@@ -308,6 +308,10 @@
       sensorStage.classList.remove("is-complete", "is-scanning");
       sensorStage.classList.add("is-transferring");
     }
+    const targetTitle = document.getElementById("sm-target-drive-title");
+    if (targetTitle) {
+      targetTitle.textContent = "TARGET " + (pendingPlan.targetDrive || "D:\\").replace(/\\$/, "");
+    }
     if (conduitStatus) conduitStatus.textContent = "CONDUIT ACTIVE: STREAMING TO " + (pendingPlan.targetDrive || "D:\\");
     if (els.runTitle)
       els.runTitle.textContent =
