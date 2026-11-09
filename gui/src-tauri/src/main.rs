@@ -2490,6 +2490,7 @@ fn storage_rescue_rollback(
 /// User-approved source directory cleanup with live before/after C: free space measurement.
 #[tauri::command]
 async fn storage_rescue_cleanup_source(
+    app: AppHandle,
     candidate_id: String,
     source_path: String,
     target_path: String,
@@ -2501,6 +2502,19 @@ async fn storage_rescue_cleanup_source(
     let tgt = target_path.clone();
     let tok = confirmation_token.clone();
     let nonce = expected_nonce.clone();
+    let _ = app.emit(
+        "rescue-migration-progress",
+        cure_core::storage::MigrationProgress {
+            candidate_id: cid.clone(),
+            phase: "cleaning".into(),
+            current_file: format!("Purging source files on {} & establishing safe NTFS junction…", src),
+            files_copied: 0,
+            total_files: 0,
+            bytes_copied: 0,
+            total_bytes: 0,
+            percent: 100.0,
+        },
+    );
     tokio::task::spawn_blocking(move || {
         cure_core::storage::execute_source_cleanup(
             &cid,

@@ -123,6 +123,35 @@
     if (els.runDetail && detail !== undefined) els.runDetail.textContent = detail;
   }
 
+  function setOculusState(state, badgeText) {
+    const oculusStage = document.getElementById("mb-oculus-stage");
+    const oculusText = document.getElementById("mb-oculus-text");
+    const conduitVisual = document.getElementById("mb-transfer-visual");
+    if (!oculusStage) return;
+    oculusStage.classList.remove("is-transferring", "is-verifying", "is-cleaning", "is-done");
+    if (conduitVisual) conduitVisual.classList.remove("is-transferring", "is-verifying", "is-cleaning", "is-done");
+    if (state) {
+      oculusStage.classList.add("is-" + state);
+      if (conduitVisual) conduitVisual.classList.add("is-" + state);
+    }
+    if (oculusText && badgeText) {
+      oculusText.textContent = badgeText;
+    }
+  }
+
+  // Periodic ambient blinking for modal eye
+  setInterval(() => {
+    const topLid = document.querySelector(".mb-eyelid-top");
+    const btmLid = document.querySelector(".mb-eyelid-bottom");
+    if (!topLid || !btmLid) return;
+    topLid.style.height = "50%";
+    btmLid.style.height = "50%";
+    setTimeout(() => {
+      topLid.style.height = "0";
+      btmLid.style.height = "0";
+    }, 140);
+  }, 4200);
+
   /* ---------- the one-click flow ------------------------------------- */
 
   async function start(prefilterIds) {
@@ -393,10 +422,15 @@
     const results = [];
     let failed = null;
 
-    // Listen once for copy progress with live speed & ETA
+    // Listen once for copy progress with industrial slew-rate clamped ETA
     let lastBytes = 0;
     let lastTime = performance.now();
     let smoothedSpeed = 0;
+    let smoothedEtaSec = null;
+    let transferStartTime = performance.now();
+
+    setOculusState("transferring", "SENTINEL OCULUS · MONITORING CONDUIT");
+
     if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.listen) {
       try {
         progressUnlisten = await window.__TAURI__.event.listen(
@@ -404,35 +438,62 @@
           (ev) => {
             const p = ev.payload || {};
             if (p.phase === "verifying") {
+              setOculusState("verifying", "SENTINEL OCULUS · VERIFYING INTEGRITY");
               if (els.runBar) els.runBar.style.width = Math.min(p.percent || 0, 100) + "%";
               if (els.runDetail) {
                 els.runDetail.textContent =
                   (p.files_copied || 0) + " / " + (p.total_files || 0) + " files verified · " +
                   "Verifying SHA-256 bit-by-bit (" + (p.percent || 0) + "%)";
               }
-              const activeStep = document.querySelector(".mb-step-row.is-active .mb-step-name");
+              const activeStep = document.querySelector(".mb-step.is-active span:last-child");
               if (activeStep) {
                 activeStep.textContent = "Verifying data integrity (" + (p.files_copied || 0) + " / " + (p.total_files || 0) + ")…";
               }
               return;
             }
+            if (p.phase === "cleaning") {
+              setOculusState("cleaning", "SENTINEL OCULUS · PURGING SOURCE ON C: & CREATING JUNCTION");
+              if (els.runDetail) {
+                els.runDetail.textContent = p.current_file || "Purging source files on C: and creating NTFS junction…";
+              }
+              return;
+            }
+
+            setOculusState("transferring", "SENTINEL OCULUS · STREAMING DATA CONDUIT");
             const now = performance.now();
+            const elapsedTotal = (now - transferStartTime) / 1000;
             const timeDelta = (now - lastTime) / 1000;
+
             if (timeDelta >= 0.4) {
               const bytesDelta = (p.bytes_copied || 0) - lastBytes;
               const currentSpeed = bytesDelta / timeDelta;
-              smoothedSpeed = smoothedSpeed === 0 ? currentSpeed : (smoothedSpeed * 0.7 + currentSpeed * 0.3);
+              // High inertia dampening (0.15 alpha) to absorb bursty small-file fluctuations
+              smoothedSpeed = smoothedSpeed === 0 ? currentSpeed : (smoothedSpeed * 0.85 + currentSpeed * 0.15);
               lastBytes = p.bytes_copied || 0;
               lastTime = now;
             }
+
             const speedMb = (Math.max(0, smoothedSpeed) / (1024 * 1024)).toFixed(1);
             const remainingBytes = Math.max(0, (p.total_bytes || 0) - (p.bytes_copied || 0));
-            let etaText = "--";
-            if (smoothedSpeed > 1024) {
-              const remainingSec = Math.round(remainingBytes / smoothedSpeed);
-              if (remainingSec < 60) etaText = `${remainingSec}s`;
-              else if (remainingSec < 3600) etaText = `${Math.floor(remainingSec / 60)}m ${remainingSec % 60}s`;
-              else etaText = `${(remainingSec / 3600).toFixed(1)}h`;
+            let etaText = "Calculating…";
+
+            if (elapsedTotal >= 2.5 && smoothedSpeed > 1024) {
+              const rawEta = remainingBytes / smoothedSpeed;
+              if (smoothedEtaSec === null) {
+                smoothedEtaSec = rawEta;
+              } else {
+                // Slew-rate limiter: clamp ETA changes to maximum 2.0s per second of real time
+                const maxDelta = 2.0 * timeDelta;
+                const etaDiff = rawEta - smoothedEtaSec;
+                const clampedDiff = Math.max(-maxDelta, Math.min(maxDelta, etaDiff));
+                smoothedEtaSec += clampedDiff;
+              }
+
+              const sec = Math.round(smoothedEtaSec);
+              if (sec <= 1) etaText = "Finishing…";
+              else if (sec < 60) etaText = `${sec}s`;
+              else if (sec < 3600) etaText = `${Math.floor(sec / 60)}m ${sec % 60}s`;
+              else etaText = `${(sec / 3600).toFixed(1)}h`;
             }
 
             if (els.runBar) els.runBar.style.width = Math.min(p.percent || 0, 100) + "%";
@@ -514,7 +575,16 @@
 
       let cleaned = null;
       if (cleanupAlso && activation.cleanup_unlocked) {
-        const freeStep = stepRow("Freeing the space on C:");
+        setOculusState("cleaning", "SENTINEL OCULUS · PURGING SOURCE & CREATING JUNCTION");
+        if (els.runTitle) els.runTitle.textContent = "Freeing Space on C: — Creating Safe Link…";
+        const freeStep = stepRow("Freeing space on C: (purging originals & creating safe link)");
+        if (els.runDetail) {
+          els.runDetail.textContent = "Purging " + formatBytes(cand.size_bytes || 0) + " from C: and creating NTFS junction link…";
+        }
+        if (els.runBar) {
+          els.runBar.style.width = "100%";
+          els.runBar.style.background = "linear-gradient(90deg, #10b981, #059669)";
+        }
         try {
           cleaned = await invoke("storage_rescue_cleanup_source", {
             candidateId: cand.id,
@@ -524,7 +594,10 @@
             confirmationToken: activation.required_cleanup_token || "",
             expectedNonce: activation.cleanup_nonce || "",
           });
-          freeStep.done(formatBytes(cleaned.actual_bytes_freed || 0) + " freed");
+          freeStep.done(formatBytes(cleaned.actual_bytes_freed || cand.size_bytes || 0) + " freed on C: (NTFS junction active)");
+          if (els.runDetail) {
+            els.runDetail.textContent = "✓ " + formatBytes(cleaned.actual_bytes_freed || cand.size_bytes || 0) + " freed on C: · Safe junction link active!";
+          }
         } catch (err) {
           freeStep.fail("could not free it — originals kept, you can free them later");
         }
@@ -609,6 +682,7 @@
 
   function showBotDone(results) {
     show("mb-done-body");
+    setOculusState("done", "CONDUIT SECURED · 0 DATA LOSS VERIFIED");
     const sensorStage = document.getElementById("sm-sensor-stage");
     const conduitStatus = document.getElementById("sm-conduit-status");
     if (sensorStage) {

@@ -4957,3 +4957,230 @@
   90% { opacity: 1; }
   100% { left: 95%; opacity: 0; }
 }
+
+/* ==========================================================================
+   Move Assistant Oculus Conduit Supervisor (Modal Eye)
+   ========================================================================== */
+.mb-oculus-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 10px 0 4px 0;
+  margin-bottom: 2px;
+}
+
+.mb-oculus-eye-wrapper {
+  position: relative;
+  width: 90px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mb-eye-scanner-arc {
+  position: absolute;
+  inset: -6px -12px;
+  border: 1px dashed rgba(168, 85, 247, 0.4);
+  border-radius: 50%;
+  animation: mbRadarSpin 8s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes mbRadarSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.mb-oculus-eye {
+  position: relative;
+  width: 76px;
+  height: 42px;
+  background: radial-gradient(circle at center, #0f172a 40%, #030712 100%);
+  border: 1.5px solid rgba(168, 85, 247, 0.5);
+  border-radius: 50px / 28px;
+  box-shadow: 0 0 16px rgba(168, 85, 247, 0.25), inset 0 0 10px rgba(0, 0, 0, 0.8);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.4s ease;
+}
+
+.mb-eye-reticle {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 50%;
+  pointer-events: none;
+  transition: all 0.3s ease;
+}
+
+.mb-eye-eyeball {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.mb-eye-iris {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 40%, #a855f7, #6b21a8 70%, #3b0764 100%);
+  box-shadow: 0 0 12px rgba(168, 85, 247, 0.6);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.25s ease-out, background 0.3s ease;
+}
+
+.mb-eye-pupil {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #020617;
+  border: 1.5px solid #38bdf8;
+  box-shadow: 0 0 6px #38bdf8;
+  transition: all 0.3s ease;
+}
+
+.mb-eye-glint {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #ffffff;
+  opacity: 0.9;
+}
+
+.mb-eye-eyelid {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  background: #090d16;
+  z-index: 5;
+  transition: height 0.12s ease;
+}
+
+.mb-eyelid-top { top: 0; height: 0; }
+.mb-eyelid-bottom { bottom: 0; height: 0; }
+
+.mb-oculus-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  margin-top: 6px;
+  border-radius: 9999px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #c084fc;
+  transition: all 0.3s ease;
+}
+
+.mb-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #a855f7;
+  box-shadow: 0 0 6px #a855f7;
+  animation: mbPulseDot 1.5s infinite ease-in-out;
+}
+
+@keyframes mbPulseDot {
+  0%, 100% { opacity: 0.4; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+/* State: Transferring (Looking between C: and D:) */
+.mb-oculus-stage.is-transferring .mb-eye-iris {
+  animation: mbTransferLook 4s infinite ease-in-out;
+}
+
+@keyframes mbTransferLook {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-10px); }
+  50% { transform: translateX(0); }
+  75% { transform: translateX(10px); }
+}
+
+/* State: Verifying (Locked onto Destination D:, Amber Reticle) */
+.mb-oculus-stage.is-verifying .mb-oculus-eye {
+  border-color: rgba(245, 158, 11, 0.6);
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.35);
+}
+.mb-oculus-stage.is-verifying .mb-eye-iris {
+  transform: translateX(11px);
+  background: radial-gradient(circle at 40% 40%, #f59e0b, #d97706 70%, #78350f 100%);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.7);
+}
+.mb-oculus-stage.is-verifying .mb-eye-pupil {
+  border-color: #fbbf24;
+  box-shadow: 0 0 6px #fbbf24;
+}
+.mb-oculus-stage.is-verifying .mb-oculus-status-badge {
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #fbbf24;
+}
+.mb-oculus-stage.is-verifying .mb-status-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 6px #f59e0b;
+}
+
+/* State: Cleaning (Locked onto Source C:, Emerald Purge Mode) */
+.mb-oculus-stage.is-cleaning .mb-oculus-eye {
+  border-color: rgba(16, 185, 129, 0.7);
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.45);
+}
+.mb-oculus-stage.is-cleaning .mb-eye-iris {
+  transform: translateX(-12px);
+  background: radial-gradient(circle at 40% 40%, #10b981, #059669 70%, #064e3b 100%);
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.8);
+}
+.mb-oculus-stage.is-cleaning .mb-eye-pupil {
+  border-color: #34d399;
+  box-shadow: 0 0 8px #34d399;
+}
+.mb-oculus-stage.is-cleaning .mb-oculus-status-badge {
+  border-color: rgba(16, 185, 129, 0.6);
+  color: #34d399;
+  background: rgba(6, 78, 59, 0.4);
+}
+.mb-oculus-stage.is-cleaning .mb-status-dot {
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+}
+.mb-transfer-visual.is-cleaning .mb-conduit-src {
+  animation: mbPurgePulse 1s infinite alternate;
+}
+@keyframes mbPurgePulse {
+  0% { transform: scale(1); filter: drop-shadow(0 0 4px rgba(16, 185, 129, 0.4)); }
+  100% { transform: scale(1.08); filter: drop-shadow(0 0 12px rgba(16, 185, 129, 0.8)); }
+}
+
+/* State: Done (Green Lock) */
+.mb-oculus-stage.is-done .mb-oculus-eye {
+  border-color: rgba(16, 185, 129, 0.5);
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.3);
+}
+.mb-oculus-stage.is-done .mb-eye-iris {
+  transform: translateX(0);
+  background: radial-gradient(circle at 40% 40%, #10b981, #059669 70%, #064e3b 100%);
+}
+.mb-oculus-stage.is-done .mb-oculus-status-badge {
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #a7f3d0;
+}
