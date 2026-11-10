@@ -105,10 +105,12 @@ fn bytes_to_human_string(bytes: &[u8]) -> String {
         && bytes.len().is_multiple_of(2)
         && (bytes[1] == 0 || bytes[3..].iter().step_by(2).any(|&b| b == 0))
     {
-        let u16s: Vec<u16> = bytes
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
-            .collect();
+        let mut u16s = Vec::with_capacity(bytes.len() / 2);
+        let mut i = 0;
+        while i + 1 < bytes.len() {
+            u16s.push(u16::from_le_bytes([bytes[i], bytes[i + 1]]));
+            i += 2;
+        }
         if let Ok(s) = String::from_utf16(&u16s) {
             let clean: String = s
                 .chars()
