@@ -518,7 +518,9 @@ async fn delete_threat_entry(
                         }
                         Err(e) => {
                             last_err = e.to_string();
-                            std::thread::sleep(std::time::Duration::from_millis(60 * (attempt + 1)));
+                            std::thread::sleep(std::time::Duration::from_millis(
+                                60 * (attempt + 1),
+                            ));
                         }
                     }
                 }
@@ -767,7 +769,11 @@ async fn run_auto_scan(app: AppHandle) -> Result<ScanSummary, String> {
     }
     #[cfg(windows)]
     {
-        emit_stage(&app, "ntnative", "Direct ntdll NtQuerySystemInformation kernel inspection");
+        emit_stage(
+            &app,
+            "ntnative",
+            "Direct ntdll NtQuerySystemInformation kernel inspection",
+        );
         let _ = app.emit(
             "scan-progress",
             serde_json::json!({
@@ -2540,7 +2546,10 @@ async fn storage_rescue_cleanup_source(
         cure_core::storage::MigrationProgress {
             candidate_id: cid.clone(),
             phase: "cleaning".into(),
-            current_file: format!("Purging source files on {} & establishing safe NTFS junction…", src),
+            current_file: format!(
+                "Purging source files on {} & establishing safe NTFS junction…",
+                src
+            ),
             files_copied: 0,
             total_files: 0,
             bytes_copied: 0,
@@ -2985,7 +2994,10 @@ async fn storage_scan(
                 root_label: format!("[KERNEL MFT] {} ({})", drive_str, geom.filesystem),
                 current_path: format!(
                     "{} · Cluster: {}B · Sector: {}B · File Record: {}B",
-                    lcn_text, geom.bytes_per_cluster, geom.bytes_per_sector, geom.bytes_per_file_record
+                    lcn_text,
+                    geom.bytes_per_cluster,
+                    geom.bytes_per_sector,
+                    geom.bytes_per_file_record
                 ),
                 dirs_seen: 0,
                 files_seen: 0,
@@ -3979,7 +3991,8 @@ async fn list_uninstalled_leftovers() -> Result<Vec<StorageAbandonedDto>, String
 
 /// Query live kernel executive process structures directly via Native NT syscalls.
 #[tauri::command]
-fn query_kernel_processes() -> Result<Vec<cure_core::scanners::ntnative::NativeProcessInfo>, String> {
+fn query_kernel_processes() -> Result<Vec<cure_core::scanners::ntnative::NativeProcessInfo>, String>
+{
     scanners::ntnative::query_kernel_processes_native()
 }
 
